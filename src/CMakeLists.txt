@@ -5,10 +5,12 @@ epc_generate_grammar(
     TARGET c_grammar
     GDL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/c_grammar.gdl
     HEADER callbacks.h
+    BOOTSTRAP_AST
 )
 
 add_executable(${app} 
   main.c 
+  c_grammar_ast_actions.c
 )
 
 target_compile_options(${app} PRIVATE -Wall -Wextra -pedantic)

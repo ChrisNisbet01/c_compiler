@@ -80,7 +80,7 @@ OctalLiteral = octal;
 DecDigit = [1-9];
 DecimalLiteral = DecDigit digit* | '0';
 
-IntegerLiteral = HexLiteral | OctalLiteral | DecimalLiteral;
+IntegerLiteral = HexLiteral | OctalLiteral | DecimalLiteral @AST_ACTION_INTEGER_LITERAL;
 LongSuffix = "ll" | "LL" | oneof("lL");
 IntegerSuffix = (oneof("uU") LongSuffix?) | (LongSuffix oneof("uU")?);
 
@@ -351,7 +351,7 @@ InitDeclarator = Declarator Attribute* AsmName? Attribute* (Assign Initializer)?
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
-Declaration = KwExtension? DeclarationSpecifiers InitDeclaratorList? Semicolon;
+Declaration = KwExtension? DeclarationSpecifiers InitDeclaratorList? Semicolon @AST_ACTION_DECLARATION;
 
 // --- Typedef Specific Rules ---
 
@@ -392,7 +392,7 @@ IterationStatement = (KwWhile LParen Expression RParen Statement)
                    | (KwDo Statement KwWhile LParen Expression RParen Semicolon)
                    | (KwFor LParen (Declaration | ExpressionStatement) ExpressionStatement Expression? RParen Statement);
 
-CompoundStatement = LBrace Statement* RBrace;
+CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
 Statement = LabeledStatement
           | CompoundStatement
@@ -414,9 +414,9 @@ ParameterList = LParen ParameterTypeList? RParen;
 
 ExternalDeclaration = KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration);
 
-FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement;
+FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 
-TranslationUnit = ExternalDeclaration+;
+TranslationUnit = ExternalDeclaration+ @AST_ACTION_TRANSLATION_UNIT;
 
 // The top-level rule MUST be the last one in the file.
 Program = TranslationUnit eoi;

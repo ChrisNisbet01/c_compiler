@@ -1,10 +1,52 @@
 #include "c_grammar.h"
 #include "callbacks.h"
+#include "c_grammar_ast.h"
+#include "c_grammar_ast_actions.h"
 
 #include <easy_pc/easy_pc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+void
+print_ast(c_grammar_node_t * node, int indent)
+{
+    if (node == NULL)
+        return;
+
+    for (int i = 0; i < indent; i++)
+        printf("  ");
+
+    switch (node->type)
+    {
+        case AST_NODE_TRANSLATION_UNIT:
+            printf("TranslationUnit (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
+        case AST_NODE_FUNCTION_DEFINITION:
+            printf("FunctionDefinition (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
+        case AST_NODE_COMPOUND_STATEMENT:
+            printf("CompoundStatement (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
+        case AST_NODE_DECLARATION:
+            printf("Declaration (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
+        case AST_NODE_INTEGER_LITERAL:
+            printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
+            break;
+        default:
+            printf("Unknown node type %d\n", node->type);
+            break;
+    }
+}
 
 // --- Symbol Table Implementation ---
 
@@ -423,6 +465,30 @@ main(int argc, char * argv[])
     {
         printf("Concrete Parse Tree:\n%s\n", cpt_str);
         free(cpt_str);
+    }
+
+    // Build the AST
+    epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
+    if (registry != NULL)
+    {
+        c_grammar_ast_hook_registry_init(registry);
+        epc_ast_result_t ast_result = epc_ast_build(session.result.data.success, registry, NULL);
+
+        if (!ast_result.has_error)
+        {
+            printf("\nAbstract Syntax Tree:\n");
+            print_ast((c_grammar_node_t *)ast_result.ast_root, 0);
+            c_grammar_node_free(ast_result.ast_root, NULL);
+        }
+        else
+        {
+            fprintf(stderr, "AST Build Error: %s\n", ast_result.error_message);
+        }
+        epc_ast_hook_registry_free(registry);
+    }
+    else
+    {
+        fprintf(stderr, "Failed to create AST registry.\n");
     }
 
     epc_parse_session_destroy(&session);
