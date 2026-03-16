@@ -346,7 +346,7 @@ Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 
 DirectDeclaratorRaw = (LParen Declarator RParen)
                  | (Identifier Attribute*);
-DirectDeclarator = memoize(DirectDeclaratorRaw);
+DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
 // Declarator suffix: arrays or function parameters
 DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
@@ -354,7 +354,7 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket (TypeQualifier+ Expression?) RBracket)
                  | (LBracket (TypeQualifier* Star) RBracket)
                  | (LBracket Expression? RBracket)
-                 | (LParen ParameterTypeList? RParen) @AST_ACTION_DECLARATOR;
+                 | (LParen ParameterTypeList? RParen) @AST_ACTION_DECLARATOR_SUFFIX;
 DeclaratorRaw = Pointer* DirectDeclarator DeclaratorSuffix* Attribute*;
 Declarator = memoize(DeclaratorRaw) @AST_ACTION_DECLARATOR;
 
