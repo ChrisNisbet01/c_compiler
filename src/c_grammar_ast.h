@@ -25,6 +25,8 @@ typedef enum {
     AST_NODE_AND_EXPRESSION,
     AST_NODE_EXCLUSIVE_OR_EXPRESSION,
     AST_NODE_INCLUSIVE_OR_EXPRESSION,
+    AST_NODE_LOGICAL_AND_EXPRESSION,
+    AST_NODE_LOGICAL_OR_EXPRESSION,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t {

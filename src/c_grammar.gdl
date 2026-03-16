@@ -241,9 +241,9 @@ ExclusiveOrExpression = chainl1(AndExpression, Caret) @AST_ACTION_EXCLUSIVE_OR_E
 
 InclusiveOrExpression = chainl1(ExclusiveOrExpression, Pipe) @AST_ACTION_INCLUSIVE_OR_EXPRESSION;
 
-LogicalAndExpression = chainl1(InclusiveOrExpression, AmpAmp);
+LogicalAndExpression = chainl1(InclusiveOrExpression, AmpAmp) @AST_ACTION_LOGICAL_AND_EXPRESSION;
 
-LogicalOrExpression = chainl1(LogicalAndExpression, PipePipe);
+LogicalOrExpression = chainl1(LogicalAndExpression, PipePipe) @AST_ACTION_LOGICAL_OR_EXPRESSION;
 
 ConditionalExpression = LogicalOrExpression (Question AssignmentExpression Colon ConditionalExpression)?;
 
