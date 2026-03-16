@@ -28,6 +28,11 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         case AST_NODE_DECLARATOR:
         case AST_NODE_DIRECT_DECLARATOR:
         case AST_NODE_DECLARATOR_SUFFIX:
+        case AST_NODE_RELATIONAL_EXPRESSION:
+        case AST_NODE_EQUALITY_EXPRESSION:
+        case AST_NODE_AND_EXPRESSION:
+        case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
+        case AST_NODE_INCLUSIVE_OR_EXPRESSION:
             if (node->data.list.children != NULL)
             {
                 for (size_t i = 0; i < node->data.list.count; i++)
@@ -415,6 +420,46 @@ handle_pointer(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_relational_expression(
+    epc_ast_builder_ctx_t * ctx,
+    epc_cpt_node_t * node,
+    void ** children,
+    int count,
+    void * user_data)
+{
+    (void)node;
+    c_grammar_node_t * ast_node = create_list_node(AST_NODE_RELATIONAL_EXPRESSION, children, count);
+    if (ast_node == NULL)
+    {
+        for (int i = 0; i < count; i++)
+            c_grammar_node_free(children[i], user_data);
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_equality_expression(
+    epc_ast_builder_ctx_t * ctx,
+    epc_cpt_node_t * node,
+    void ** children,
+    int count,
+    void * user_data)
+{
+    (void)node;
+    c_grammar_node_t * ast_node = create_list_node(AST_NODE_EQUALITY_EXPRESSION, children, count);
+    if (ast_node == NULL)
+    {
+        for (int i = 0; i < count; i++)
+            c_grammar_node_free(children[i], user_data);
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -436,4 +481,6 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DIRECT_DECLARATOR, handle_direct_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATOR_SUFFIX, handle_declarator_suffix);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL, handle_relational_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY, handle_equality_expression);
 }

@@ -227,17 +227,19 @@ AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_BINARY
 ShiftOp = Shl | Shr;
 ShiftExpression = chainl1(AdditiveExpression, ShiftOp);
 
-RelOp = Le | Ge | Lt | Gt;
-RelationalExpression = chainl1(ShiftExpression, RelOp);
+RelOpRaw = Lt | Gt | Le | Ge;
+RelOp = RelOpRaw @AST_ACTION_OPERATOR;
+RelationalExpression = chainl1(ShiftExpression, RelOp) @AST_ACTION_RELATIONAL;
 
-EqOp = Eq | Ne;
-EqualityExpression = chainl1(RelationalExpression, EqOp);
+EqOpRaw = Eq | Ne;
+EqOp = EqOpRaw @AST_ACTION_OPERATOR;
+EqualityExpression = chainl1(RelationalExpression, EqOp) @AST_ACTION_EQUALITY;
 
-AndExpression = chainl1(EqualityExpression, Amp);
+AndExpression = chainl1(EqualityExpression, Amp) @AST_ACTION_AND_EXPRESSION;
 
-ExclusiveOrExpression = chainl1(AndExpression, Caret);
+ExclusiveOrExpression = chainl1(AndExpression, Caret) @AST_ACTION_EXCLUSIVE_OR_EXPRESSION;
 
-InclusiveOrExpression = chainl1(ExclusiveOrExpression, Pipe);
+InclusiveOrExpression = chainl1(ExclusiveOrExpression, Pipe) @AST_ACTION_INCLUSIVE_OR_EXPRESSION;
 
 LogicalAndExpression = chainl1(InclusiveOrExpression, AmpAmp);
 
