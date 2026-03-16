@@ -8,144 +8,125 @@
 #include <stdlib.h>
 #include <string.h>
 
-void print_ast(c_grammar_node_t *node, int indent)
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+typedef struct
+{
+    const char *name;
+} node_type_name_t;
+
+static void print_ast(c_grammar_node_t const *node, int indent);
+
+static node_type_name_t const node_type_names[] = {
+    [AST_NODE_TRANSLATION_UNIT] = {.name = "TranslationUnit"},
+    [AST_NODE_FUNCTION_DEFINITION] = {.name = "FunctionDefinition"},
+    [AST_NODE_COMPOUND_STATEMENT] = {.name = "CompoundStatement"},
+    [AST_NODE_DECLARATION] = {.name = "Declaration"},
+    [AST_NODE_INTEGER_LITERAL] = {.name = "IntegerLiteral"},
+    [AST_NODE_IDENTIFIER] = {.name = "Identifier"},
+    [AST_NODE_DECL_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
+    [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
+    [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},
+    [AST_NODE_BINARY_OP] = {.name = "BinaryOp"},
+    [AST_NODE_UNARY_OP] = {.name = "UnaryOp"},
+    [AST_NODE_OPERATOR] = {.name = "Operator"},
+    [AST_NODE_DECLARATOR] = {.name = "Declarator"},
+    [AST_NODE_DIRECT_DECLARATOR] = {.name = "DirectDeclarator"},
+    [AST_NODE_DECLARATOR_SUFFIX] = {.name = "DeclaratorSuffix"},
+    [AST_NODE_POINTER] = {.name = "Pointer"},
+    [AST_NODE_RELATIONAL_EXPRESSION] = {.name = "RelationalExpression"},
+    [AST_NODE_EQUALITY_EXPRESSION] = {.name = "EqualityExpression"},
+    [AST_NODE_AND_EXPRESSION] = {.name = "AndExpression"},
+    [AST_NODE_EXCLUSIVE_OR_EXPRESSION] = {.name = "ExclusiveOrExpression"},
+    [AST_NODE_INCLUSIVE_OR_EXPRESSION] = {.name = "InclusiveOrExpression"},
+    [AST_NODE_LOGICAL_AND_EXPRESSION] = {.name = "LogicalAndExpression"},
+    [AST_NODE_LOGICAL_OR_EXPRESSION] = {.name = "LogicalOrExpression"},
+    [AST_NODE_FUNCTION_CALL] = {.name = "FunctionCall"},
+    [AST_NODE_ARRAY_SUBSCRIPT] = {.name = "ArraySubscript"},
+    [AST_NODE_MEMBER_ACCESS_DOT] = {.name = "MemberAccessDot"},
+    [AST_NODE_MEMBER_ACCESS_ARROW] = {.name = "MemberAccessArrow"},
+};
+
+#define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
+
+static char const *
+get_node_type_name(c_grammar_node_type_t const type)
+{
+    if (type < 0 || type >= NUM_NODE_TYPE_NAMES || node_type_names[type].name == NULL)
+    {
+        return "Unknown";
+    }
+
+    return node_type_names[type].name;
+}
+
+static void
+print_list_type_ast_node(c_grammar_node_t const *node, int indent)
+{
+    printf("%s (%zu children)\n", get_node_type_name(node->type), node->data.list.count);
+    for (size_t i = 0; i < node->data.list.count; i++)
+        print_ast(node->data.list.children[i], indent);
+}
+
+static void print_ast(c_grammar_node_t const *node, int indent)
 {
     if (node == NULL)
+    {
+        printf("NULL node\n");
         return;
+    }
 
     for (int i = 0; i < indent; i++)
+    {
         printf("  ");
+    }
 
     switch (node->type)
     {
-    case AST_NODE_TRANSLATION_UNIT:
-        printf("TranslationUnit (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
-    case AST_NODE_FUNCTION_DEFINITION:
-        printf("FunctionDefinition (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
-    case AST_NODE_COMPOUND_STATEMENT:
-        printf("CompoundStatement (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
-    case AST_NODE_DECLARATION:
-        printf("Declaration (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_INTEGER_LITERAL:
         printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
         break;
+
     case AST_NODE_IDENTIFIER:
         printf("Identifier: %s\n", node->data.terminal.text);
         break;
-    case AST_NODE_DECL_SPECIFIERS:
-        printf("DeclarationSpecifiers (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
-    case AST_NODE_ASSIGNMENT:
-        printf("Assignment (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
-    case AST_NODE_TYPE_SPECIFIER:
-        printf("TypeSpecifier: %s\n", node->data.terminal.text);
-        break;
-    case AST_NODE_BINARY_OP:
-        printf("BinaryOp (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
-    case AST_NODE_UNARY_OP:
-        printf("UnaryOp (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
+
     case AST_NODE_OPERATOR:
         printf("Operator: %s\n", node->data.terminal.text);
         break;
+
+    case AST_NODE_TYPE_SPECIFIER:
+        printf("TypeSpecifier: %s\n", node->data.terminal.text);
+        break;
+
+    case AST_NODE_TRANSLATION_UNIT:
+    case AST_NODE_FUNCTION_DEFINITION:
+    case AST_NODE_COMPOUND_STATEMENT:
+    case AST_NODE_DECLARATION:
+    case AST_NODE_DECL_SPECIFIERS:
+    case AST_NODE_ASSIGNMENT:
+    case AST_NODE_BINARY_OP:
+    case AST_NODE_UNARY_OP:
     case AST_NODE_DECLARATOR:
-        printf("Declarator (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_DIRECT_DECLARATOR:
-        printf("DirectDeclarator (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_DECLARATOR_SUFFIX:
-        printf("DeclaratorSuffix (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_POINTER:
-        printf("Pointer (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_RELATIONAL_EXPRESSION:
-        printf("RelationalExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_EQUALITY_EXPRESSION:
-        printf("EqualityExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_AND_EXPRESSION:
-        printf("AndExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
-        printf("ExclusiveOrExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_INCLUSIVE_OR_EXPRESSION:
-        printf("InclusiveOrExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_LOGICAL_AND_EXPRESSION:
-        printf("LogicalAndExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_LOGICAL_OR_EXPRESSION:
-        printf("LogicalOrExpression (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_FUNCTION_CALL:
-        printf("FunctionCall (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_ARRAY_SUBSCRIPT:
-        printf("ArraySubscript (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_MEMBER_ACCESS_DOT:
-        printf("MemberAccessDot (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_MEMBER_ACCESS_ARROW:
-        printf("MemberAccessArrow (%zu children)\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; i++)
-            print_ast(node->data.list.children[i], indent + 1);
+        print_list_type_ast_node(node, indent + 1);
         break;
-    default:        printf("Unknown node type %d\n", node->type);
+
+    default:
+        printf("Unknown node type %d\n", node->type);
         break;
     }
 }
