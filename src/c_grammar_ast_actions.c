@@ -25,6 +25,9 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         case AST_NODE_ASSIGNMENT:
         case AST_NODE_BINARY_OP:
         case AST_NODE_UNARY_OP:
+        case AST_NODE_DECLARATOR:
+        case AST_NODE_DIRECT_DECLARATOR:
+        case AST_NODE_DECLARATOR_SUFFIX:
             if (node->data.list.children != NULL)
             {
                 for (size_t i = 0; i < node->data.list.count; i++)
@@ -38,6 +41,7 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         case AST_NODE_IDENTIFIER:
         case AST_NODE_TYPE_SPECIFIER:
         case AST_NODE_OPERATOR:
+        case AST_NODE_POINTER:
             free(node->data.terminal.text);
             break;
     }

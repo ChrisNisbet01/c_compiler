@@ -16,6 +16,10 @@ typedef enum {
     AST_NODE_BINARY_OP,
     AST_NODE_UNARY_OP,
     AST_NODE_OPERATOR,
+    AST_NODE_DECLARATOR,
+    AST_NODE_DIRECT_DECLARATOR,
+    AST_NODE_DECLARATOR_SUFFIX,
+    AST_NODE_POINTER,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t {

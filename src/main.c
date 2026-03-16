@@ -8,8 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void
-print_ast(c_grammar_node_t * node, int indent)
+void print_ast(c_grammar_node_t *node, int indent)
 {
     if (node == NULL)
         return;
@@ -19,56 +18,81 @@ print_ast(c_grammar_node_t * node, int indent)
 
     switch (node->type)
     {
-        case AST_NODE_TRANSLATION_UNIT:
-            printf("TranslationUnit (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_FUNCTION_DEFINITION:
-            printf("FunctionDefinition (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_COMPOUND_STATEMENT:
-            printf("CompoundStatement (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_DECLARATION:
-            printf("Declaration (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_INTEGER_LITERAL:
-            printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
-            break;
-        case AST_NODE_IDENTIFIER:
-            printf("Identifier: %s\n", node->data.terminal.text);
-            break;
-        case AST_NODE_DECL_SPECIFIERS:
-            printf("DeclarationSpecifiers (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_ASSIGNMENT:
-            printf("Assignment (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_TYPE_SPECIFIER:
-            printf("TypeSpecifier: %s\n", node->data.terminal.text);
-            break;
-        case AST_NODE_BINARY_OP:
-            printf("BinaryOp (%zu children)\n", node->data.list.count);
-            for (size_t i = 0; i < node->data.list.count; i++)
-                print_ast(node->data.list.children[i], indent + 1);
-            break;
-        case AST_NODE_OPERATOR:
-            printf("Operator: %s\n", node->data.terminal.text);
-            break;
-        default:
-            printf("Unknown node type %d\n", node->type);
-            break;
+    case AST_NODE_TRANSLATION_UNIT:
+        printf("TranslationUnit (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_FUNCTION_DEFINITION:
+        printf("FunctionDefinition (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_COMPOUND_STATEMENT:
+        printf("CompoundStatement (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_DECLARATION:
+        printf("Declaration (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_INTEGER_LITERAL:
+        printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
+        break;
+    case AST_NODE_IDENTIFIER:
+        printf("Identifier: %s\n", node->data.terminal.text);
+        break;
+    case AST_NODE_DECL_SPECIFIERS:
+        printf("DeclarationSpecifiers (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_ASSIGNMENT:
+        printf("Assignment (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_TYPE_SPECIFIER:
+        printf("TypeSpecifier: %s\n", node->data.terminal.text);
+        break;
+    case AST_NODE_BINARY_OP:
+        printf("BinaryOp (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_UNARY_OP:
+        printf("UnaryOp (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_OPERATOR:
+        printf("Operator: %s\n", node->data.terminal.text);
+        break;
+    case AST_NODE_DECLARATOR:
+        printf("Declarator (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_DIRECT_DECLARATOR:
+        printf("DirectDeclarator (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_DECLARATOR_SUFFIX:
+        printf("DeclaratorSuffix (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_POINTER:
+        printf("Pointer (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    default:
+        printf("Unknown node type %d\n", node->type);
+        break;
     }
 }
 
@@ -79,7 +103,7 @@ print_ast(c_grammar_node_t * node, int indent)
 
 typedef struct
 {
-    char ** names;   // Dynamically allocated array of names
+    char **names;    // Dynamically allocated array of names
     size_t count;    // Current number of names
     size_t capacity; // Current capacity of the names array
 } symbol_table_t;
@@ -87,7 +111,7 @@ typedef struct
 symbol_table_t *
 symbol_table_create()
 {
-    symbol_table_t * st = calloc(1, sizeof(symbol_table_t));
+    symbol_table_t *st = calloc(1, sizeof(symbol_table_t));
     if (st == NULL)
         return NULL;
 
@@ -102,8 +126,7 @@ symbol_table_create()
     return st;
 }
 
-void
-symbol_table_free(symbol_table_t * st)
+void symbol_table_free(symbol_table_t *st)
 {
     if (st == NULL)
     {
@@ -118,8 +141,7 @@ symbol_table_free(symbol_table_t * st)
     free(st);
 }
 
-void
-symbol_table_add(symbol_table_t * st, char const * name)
+void symbol_table_add(symbol_table_t *st, char const *name)
 {
     if (st == NULL || name == NULL)
     {
@@ -140,7 +162,7 @@ symbol_table_add(symbol_table_t * st, char const * name)
     if (st->count >= st->capacity)
     {
         st->capacity *= 2;
-        char ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
+        char **new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
         if (new_names == NULL)
         {
             // Handle realloc failure, maybe print an error and stop or return.
@@ -155,8 +177,7 @@ symbol_table_add(symbol_table_t * st, char const * name)
     st->names[st->count++] = strdup(name);
 }
 
-bool
-symbol_table_contains(symbol_table_t * st, char const * name)
+bool symbol_table_contains(symbol_table_t *st, char const *name)
 {
     if (st == NULL || name == NULL)
     {
@@ -182,12 +203,12 @@ symbol_table_contains(symbol_table_t * st, char const * name)
 
 typedef struct
 {
-    symbol_table_t * symbols;  // For user-defined typedefs
-    symbol_table_t * builtins; // For pre-registered built-in types
-    char ** pending;
+    symbol_table_t *symbols;  // For user-defined typedefs
+    symbol_table_t *builtins; // For pre-registered built-in types
+    char **pending;
     int pending_count;
     int pending_capacity;
-    int * marker_stack;
+    int *marker_stack;
     int marker_top;
     int marker_capacity;
 } parse_session_ctx_t;
@@ -195,7 +216,7 @@ typedef struct
 parse_session_ctx_t *
 session_ctx_create()
 {
-    parse_session_ctx_t * ctx = calloc(1, sizeof(parse_session_ctx_t));
+    parse_session_ctx_t *ctx = calloc(1, sizeof(parse_session_ctx_t));
     if (ctx == NULL)
     {
         return NULL;
@@ -249,8 +270,7 @@ session_ctx_create()
     return ctx;
 }
 
-void
-session_ctx_free(parse_session_ctx_t * ctx)
+void session_ctx_free(parse_session_ctx_t *ctx)
 {
     if (ctx == NULL)
     {
@@ -268,8 +288,7 @@ session_ctx_free(parse_session_ctx_t * ctx)
     free(ctx);
 }
 
-void
-session_ctx_push_pending(parse_session_ctx_t * ctx, char const * name)
+void session_ctx_push_pending(parse_session_ctx_t *ctx, char const *name)
 {
     if (ctx == NULL || name == NULL)
     {
@@ -278,7 +297,7 @@ session_ctx_push_pending(parse_session_ctx_t * ctx, char const * name)
     if (ctx->pending_count >= ctx->pending_capacity)
     {
         ctx->pending_capacity *= 2;
-        char ** new_pending = realloc(ctx->pending, sizeof(*ctx->pending) * ctx->pending_capacity);
+        char **new_pending = realloc(ctx->pending, sizeof(*ctx->pending) * ctx->pending_capacity);
         if (new_pending == NULL)
         {
             fprintf(stderr, "Error: Failed to resize pending names array.\n");
@@ -293,28 +312,26 @@ session_ctx_push_pending(parse_session_ctx_t * ctx, char const * name)
 
 // --- GDL Callbacks and Predicates ---
 
-bool
-is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void * parser_data)
+bool is_typedef_name(epc_cpt_node_t *token, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
     (void)parser_data;
-    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
         return false;
     }
 
-    char const * name = epc_cpt_node_get_semantic_content(token);
+    char const *name = epc_cpt_node_get_semantic_content(token);
     size_t len = epc_cpt_node_get_semantic_len(token);
 
-    char * name_copy = strndup(name, len);
+    char *name_copy = strndup(name, len);
     if (name_copy == NULL)
     {
         return false;
     }
 
     // Check both user-defined symbols and pre-registered built-ins
-    bool found
-        = symbol_table_contains(session->symbols, name_copy) || symbol_table_contains(session->builtins, name_copy);
+    bool found = symbol_table_contains(session->symbols, name_copy) || symbol_table_contains(session->builtins, name_copy);
 
     free(name_copy);
     return found;
@@ -322,7 +339,7 @@ is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void * par
 
 // Inner Wrap: Capture an identifier that might be a typedef
 static void
-on_capture_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
+on_capture_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
     (void)parser;
     (void)parse_ctx;
@@ -330,7 +347,7 @@ on_capture_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * par
 }
 
 static bool
-on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
+on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
     (void)parser_data;
     if (result.is_error)
@@ -338,15 +355,15 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * 
         return true;
     }
 
-    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
         return true;
     }
 
-    char const * name = epc_cpt_node_get_semantic_content(result.data.success);
+    char const *name = epc_cpt_node_get_semantic_content(result.data.success);
     size_t len = epc_cpt_node_get_semantic_len(result.data.success);
-    char * name_copy = strndup(name, len);
+    char *name_copy = strndup(name, len);
     if (name_copy == NULL)
     {
         // Handle potential strndup failure
@@ -361,11 +378,11 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * 
 
 // Outer Wrap: Commit or Discard pending typedefs
 static void
-on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
+on_commit_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
     (void)parser;
     (void)parser_data;
-    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
         return;
@@ -374,8 +391,7 @@ on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * pars
     if (session->marker_top >= session->marker_capacity)
     {
         session->marker_capacity *= 2;
-        int * new_marker_stack
-            = realloc(session->marker_stack, sizeof(*session->marker_stack) * session->marker_capacity);
+        int *new_marker_stack = realloc(session->marker_stack, sizeof(*session->marker_stack) * session->marker_capacity);
         if (new_marker_stack == NULL)
         {
             fprintf(stderr, "Error: Failed to resize marker stack.\n");
@@ -387,10 +403,10 @@ on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * pars
 }
 
 static bool
-on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
+on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
     (void)parser_data;
-    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL || session->marker_top == 0)
     {
         return true;
@@ -427,8 +443,7 @@ epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit
 
 // --- Main ---
 
-int
-main(int argc, char * argv[])
+int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
@@ -436,17 +451,17 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    char const * filename = argv[1];
+    char const *filename = argv[1];
     printf("Attempting to parse C file: %s\n", filename);
 
-    epc_parser_list * list = epc_parser_list_create();
+    epc_parser_list *list = epc_parser_list_create();
     if (list == NULL)
     {
         fprintf(stderr, "Failed to create parser list.\n");
         return EXIT_FAILURE;
     }
 
-    parse_session_ctx_t * session_ctx = session_ctx_create();
+    parse_session_ctx_t *session_ctx = session_ctx_create();
     if (session_ctx == NULL)
     {
         fprintf(stderr, "Failed to create session context.\n");
@@ -455,7 +470,7 @@ main(int argc, char * argv[])
     }
 
     // create_c_grammar_parser is generated from c_grammar.gdl
-    epc_parser_t * c_parser = create_c_grammar_parser(list);
+    epc_parser_t *c_parser = create_c_grammar_parser(list);
     if (c_parser == NULL)
     {
         fprintf(stderr, "Failed to create C parser.\n");
@@ -469,7 +484,7 @@ main(int argc, char * argv[])
 
     if (session.result.is_error)
     {
-        epc_parser_error_t * err = session.result.data.error;
+        epc_parser_error_t *err = session.result.data.error;
         fprintf(stderr, "Parse Error: %s\n", err->message);
         fprintf(stderr, "At line %zu, col %zu\n", err->position.line + 1, err->position.col + 1);
         fprintf(stderr, "Expected: %s\n", err->expected);
@@ -484,7 +499,7 @@ main(int argc, char * argv[])
     printf("Successfully parsed the C file!\n");
 
     // Print the CPT
-    char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
+    char *cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
     if (cpt_str != NULL)
     {
         printf("Concrete Parse Tree:\n%s\n", cpt_str);
@@ -492,7 +507,7 @@ main(int argc, char * argv[])
     }
 
     // Build the AST
-    epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
+    epc_ast_hook_registry_t *registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
     if (registry != NULL)
     {
         c_grammar_ast_hook_registry_init(registry);

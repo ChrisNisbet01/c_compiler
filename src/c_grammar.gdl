@@ -342,7 +342,7 @@ SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*)
                        | (TypeQualifier | NonTypedefTypeSpecifier)+;
 
 // Common Declarator: supports pointers, arrays, and function pointers
-Pointer = Star TypeQualifier*;
+Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 
 DirectDeclaratorRaw = (LParen Declarator RParen)
                  | (Identifier Attribute*);
@@ -354,10 +354,9 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket (TypeQualifier+ Expression?) RBracket)
                  | (LBracket (TypeQualifier* Star) RBracket)
                  | (LBracket Expression? RBracket)
-                 | (LParen ParameterTypeList? RParen);
-
+                 | (LParen ParameterTypeList? RParen) @AST_ACTION_DECLARATOR;
 DeclaratorRaw = Pointer* DirectDeclarator DeclaratorSuffix* Attribute*;
-Declarator = memoize(DeclaratorRaw);
+Declarator = memoize(DeclaratorRaw) @AST_ACTION_DECLARATOR;
 
 InitDeclarator = Declarator Attribute* AsmName? Attribute* (Assign Initializer)?;
 
