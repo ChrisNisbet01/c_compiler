@@ -179,7 +179,7 @@ ArrayIndexPart = (LBracket Expression RBracket) @AST_ACTION_ARRAY_INDEX;
 MemberAccessDotPart = (Dot Identifier) @AST_ACTION_MEMBER_ACCESS_DOT;
 MemberAccessArrowPart = (Arrow Identifier) @AST_ACTION_MEMBER_ACCESS_ARROW;
 
-MemberAccessArrowPart = FunctionCallPart
+PostfixPart = FunctionCallPart
             | ArrayIndexPart
             | MemberAccessDotPart
             | MemberAccessArrowPart

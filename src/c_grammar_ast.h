@@ -3,8 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef enum
-{
+typedef enum {
     AST_NODE_TRANSLATION_UNIT,
     AST_NODE_FUNCTION_DEFINITION,
     AST_NODE_COMPOUND_STATEMENT,
@@ -34,22 +33,19 @@ typedef enum
     AST_NODE_MEMBER_ACCESS_ARROW,
 } c_grammar_node_type_t;
 
-typedef struct c_grammar_node_t
-{
+typedef struct c_grammar_node_t {
     c_grammar_node_type_t type;
-    union
-    {
-        struct
-        {
-            struct c_grammar_node_t **children;
+    union {
+        struct {
+            struct c_grammar_node_t ** children;
             size_t count;
         } list;
-        struct
-        {
-            char *text;
+        struct {
+            char * text;
             long value;
         } terminal;
     } data;
 } c_grammar_node_t;
 
-void c_grammar_node_free(void *node, void *user_data);
+void
+c_grammar_node_free(void * node, void * user_data);

@@ -13,7 +13,7 @@ add_executable(${app}
   c_grammar_ast_actions.c
 )
 
-target_compile_options(${app} PRIVATE -Wall -Wextra -pedantic)
+target_compile_options(${app} PRIVATE -Wall -Wextra -Wswitch-enum -pedantic)
 
 target_link_libraries(${app} PRIVATE
     c_grammar
