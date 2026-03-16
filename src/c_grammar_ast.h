@@ -31,6 +31,7 @@ typedef enum {
     AST_NODE_ARRAY_SUBSCRIPT,
     AST_NODE_MEMBER_ACCESS_DOT,
     AST_NODE_MEMBER_ACCESS_ARROW,
+    AST_NODE_CAST_EXPRESSION,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t {

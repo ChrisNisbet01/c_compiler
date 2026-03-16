@@ -217,10 +217,9 @@ AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
 TypeNameRaw = SpecifierQualifierList AbstractDeclarator?;
 TypeName = memoize(TypeNameRaw);
 
-CastExpressionRaw = (LParen TypeName RParen CastExpression)
-               | UnaryExpression;
+CastExpressionWrap = LParen TypeName RParen CastExpression @AST_ACTION_CAST_EXPRESSION;
+CastExpressionRaw = CastExpressionWrap | UnaryExpression;
 CastExpression = memoize(CastExpressionRaw);
-
 
 MulOpRaw = Star | Slash | Percent;
 MulOp = MulOpRaw @AST_ACTION_OPERATOR;
@@ -413,6 +412,9 @@ IterationStatement = (KwWhile LParen Expression RParen Statement)
 
 CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
+// Rule to match a preprocessor directive, including support for line continuations
+PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*);
+
 Statement = LabeledStatement
           | CompoundStatement
           | SelectionStatement
@@ -421,6 +423,7 @@ Statement = LabeledStatement
           | JumpStatement
           | ExpressionStatement
           | (KwAsm Attribute* LParen delimited(Expression, Comma) RParen Semicolon)
+          | PreprocessorDirective
           ;
 
 // --- Top Level ---
@@ -431,7 +434,7 @@ ParameterTypeList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)
 
 ParameterList = LParen ParameterTypeList? RParen;
 
-ExternalDeclaration = KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration);
+ExternalDeclaration = PreprocessorDirective | (KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration));
 
 FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 

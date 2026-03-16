@@ -27,9 +27,9 @@ int main()
     }
 
     // Bitwise operations
-    int x = a & b; // 0101 & 1010 = 0000
-    int y = a ^ c; // 0101 ^ 0101 = 0000
-    int z = a | c; // 0101 | 0101 = 0101
+    int x = a & (int)b; // 0101 & 1010 = 0000
+    int y = a ^ c;      // 0101 ^ 0101 = 0000
+    int z = a | c;      // 0101 | 0101 = 0101
 
     printf("x: %d, y: %d, z: %d\n", x, y, z);
 

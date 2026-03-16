@@ -39,6 +39,7 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         case AST_NODE_ARRAY_SUBSCRIPT:
         case AST_NODE_MEMBER_ACCESS_DOT:
         case AST_NODE_MEMBER_ACCESS_ARROW:
+        case AST_NODE_CAST_EXPRESSION:
             if (node->data.list.children != NULL)
             {
                 for (size_t i = 0; i < node->data.list.count; i++)
@@ -646,6 +647,26 @@ handle_member_access_arrow(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_cast_expression(
+    epc_ast_builder_ctx_t * ctx,
+    epc_cpt_node_t * node,
+    void ** children,
+    int count,
+    void * user_data)
+{
+    (void)node;
+    c_grammar_node_t * ast_node = create_list_node(AST_NODE_CAST_EXPRESSION, children, count);
+    if (ast_node == NULL)
+    {
+        for (int i = 0; i < count; i++)
+            c_grammar_node_free(children[i], user_data);
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    epc_ast_push(ctx, ast_node);
+}
+
 
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
@@ -679,4 +700,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARRAY_INDEX, handle_array_index);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_ARROW, handle_member_access_arrow);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_CAST_EXPRESSION, handle_cast_expression);
 }
