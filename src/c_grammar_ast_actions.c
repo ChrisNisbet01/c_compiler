@@ -520,7 +520,6 @@ handle_inclusive_or_expression(
     epc_ast_push(ctx, ast_node);
 }
 
-
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -544,7 +543,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL, handle_relational_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY, handle_equality_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_AND_EXPRESSION, handle_binary_op);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_EXCLUSIVE_OR_EXPRESSION, handle_binary_op);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_INCLUSIVE_OR_EXPRESSION, handle_binary_op);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_AND_EXPRESSION, handle_and_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_EXCLUSIVE_OR_EXPRESSION, handle_exclusive_or_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INCLUSIVE_OR_EXPRESSION, handle_inclusive_or_expression);
 }
