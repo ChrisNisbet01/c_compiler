@@ -12,6 +12,10 @@ typedef enum {
     AST_NODE_IDENTIFIER,
     AST_NODE_DECL_SPECIFIERS,
     AST_NODE_ASSIGNMENT,
+    AST_NODE_TYPE_SPECIFIER,
+    AST_NODE_BINARY_OP,
+    AST_NODE_UNARY_OP,
+    AST_NODE_OPERATOR,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t {

@@ -55,6 +55,17 @@ print_ast(c_grammar_node_t * node, int indent)
             for (size_t i = 0; i < node->data.list.count; i++)
                 print_ast(node->data.list.children[i], indent + 1);
             break;
+        case AST_NODE_TYPE_SPECIFIER:
+            printf("TypeSpecifier: %s\n", node->data.terminal.text);
+            break;
+        case AST_NODE_BINARY_OP:
+            printf("BinaryOp (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
+        case AST_NODE_OPERATOR:
+            printf("Operator: %s\n", node->data.terminal.text);
+            break;
         default:
             printf("Unknown node type %d\n", node->type);
             break;

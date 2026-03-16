@@ -184,18 +184,26 @@ PostfixPart = (LParen ArgumentList? RParen)
 
 PostfixExpression = PrimaryExpression PostfixPart*;
 
-UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl;
+UnaryOpRaw = Amp | Star | Plus | Minus | Tilde | Excl;
+UnaryOp = UnaryOpRaw @AST_ACTION_OPERATOR;
 
-UnaryExpressionRaw = (KwSizeof LParen TypeName RParen)
-                | (KwSizeof UnaryExpression)
-                | (KwAlignof LParen TypeName RParen)
-                | (KwAlignof UnaryExpression)
-                | (UnaryOp UnaryExpression)
-                | (IncOp UnaryExpression)
-                | (DecOp UnaryExpression)
-                | PostfixExpression
-                ;
-UnaryExpression = memoize(UnaryExpressionRaw);
+KwSizeofAST = KwSizeof @AST_ACTION_OPERATOR;
+KwAlignofAST = KwAlignof @AST_ACTION_OPERATOR;
+IncOpAST = IncOp @AST_ACTION_OPERATOR;
+DecOpAST = DecOp @AST_ACTION_OPERATOR;
+
+UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
+                      | (KwSizeofAST UnaryExpression)
+                      | (KwAlignofAST LParen TypeName RParen)
+                      | (KwAlignofAST UnaryExpression)
+                      | (UnaryOp UnaryExpression)
+                      | (IncOpAST UnaryExpression)
+                      | (DecOpAST UnaryExpression)
+                      @AST_ACTION_UNARY_OP;
+
+UnaryExpressionRaw = UnaryExpressionPrefix
+                 | PostfixExpression
+                 ;UnaryExpression = memoize(UnaryExpressionRaw);
 
 // Abstract declarators are used in type names (e.g., in casts)
 AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
@@ -208,11 +216,13 @@ CastExpressionRaw = (LParen TypeName RParen CastExpression)
 CastExpression = memoize(CastExpressionRaw);
 
 
-MulOp = Star | Slash | Percent;
-MultiplicativeExpression = chainl1(CastExpression, MulOp);
+MulOpRaw = Star | Slash | Percent;
+MulOp = MulOpRaw @AST_ACTION_OPERATOR;
+MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_BINARY_OP;
 
-AddOp = Plus | Minus;
-AdditiveExpression = chainl1(MultiplicativeExpression, AddOp);
+AddOpRaw = Plus | Minus;
+AddOp = AddOpRaw @AST_ACTION_OPERATOR;
+AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_BINARY_OP;
 
 ShiftOp = Shl | Shr;
 ShiftExpression = chainl1(AdditiveExpression, ShiftOp);
@@ -235,10 +245,11 @@ LogicalOrExpression = chainl1(LogicalAndExpression, PipePipe);
 
 ConditionalExpression = LogicalOrExpression (Question AssignmentExpression Colon ConditionalExpression)?;
 
-AssignmentOp = ShlAssign | ShrAssign
-             | PlusAssign | MinusAssign | MulAssign | DivAssign | ModAssign
-             | AndAssign | XorAssign | OrAssign
-             | Assign;
+AssignmentOpRaw = ShlAssign | ShrAssign
+                | PlusAssign | MinusAssign | MulAssign | DivAssign | ModAssign
+                | AndAssign | XorAssign | OrAssign
+                | Assign;
+AssignmentOp = AssignmentOpRaw @AST_ACTION_OPERATOR;
 
 Assignment = UnaryExpression AssignmentOp AssignmentExpression @AST_ACTION_ASSIGNMENT;
 
@@ -304,14 +315,13 @@ EnumSpecifier = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator,
               | (KwEnum Attribute* Identifier);
 
 // Typedef names are identifiers that have been registered
-TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL);
+TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
-NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | KwLong 
+NonTypedefTypeSpecifier = (KwVoid | KwChar | KwShort | KwInt | KwLong
                         | KwFloat | KwDouble | KwSigned | KwUnsigned
                         | KwBool | KwComplex | KwImaginary
                         | StructOrUnionSpecifier
-                        | EnumSpecifier;
-
+                        | EnumSpecifier) @AST_ACTION_TYPE_SPECIFIER;
 TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 
 // --- Declarations ---
