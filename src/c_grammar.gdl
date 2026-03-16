@@ -71,7 +71,7 @@ ExtensionReservedWord = KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtensio
 
 ReservedWord = StandardReservedWord | ExtensionReservedWord;
 
-Identifier = lexeme(not(ReservedWord) identifier);
+Identifier = lexeme(not(ReservedWord) identifier) @AST_ACTION_IDENTIFIER;
 
 // Numbers and Literals
 HexLiteral = hex;
@@ -240,7 +240,9 @@ AssignmentOp = ShlAssign | ShrAssign
              | AndAssign | XorAssign | OrAssign
              | Assign;
 
-AssignmentExpression = (UnaryExpression AssignmentOp AssignmentExpression)
+Assignment = UnaryExpression AssignmentOp AssignmentExpression @AST_ACTION_ASSIGNMENT;
+
+AssignmentExpression = Assignment
                      | ConditionalExpression;
 
 CommaExpression = chainl1(AssignmentExpression, Comma);
@@ -324,7 +326,7 @@ DeclarationSpecifier = memoize(DeclarationSpecifierRaw);
 // and it cannot be combined with other type specifiers (standard C rules).
 DeclarationSpecifiersRaw = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
                       | (DeclarationSpecifier | NonTypedefTypeSpecifier)+;
-DeclarationSpecifiers = memoize(DeclarationSpecifiersRaw);
+DeclarationSpecifiers = memoize(DeclarationSpecifiersRaw) @AST_ACTION_DECL_SPECIFIERS;
 
 SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*)
                        | (TypeQualifier | NonTypedefTypeSpecifier)+;

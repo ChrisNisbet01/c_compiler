@@ -42,6 +42,19 @@ print_ast(c_grammar_node_t * node, int indent)
         case AST_NODE_INTEGER_LITERAL:
             printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
             break;
+        case AST_NODE_IDENTIFIER:
+            printf("Identifier: %s\n", node->data.terminal.text);
+            break;
+        case AST_NODE_DECL_SPECIFIERS:
+            printf("DeclarationSpecifiers (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
+        case AST_NODE_ASSIGNMENT:
+            printf("Assignment (%zu children)\n", node->data.list.count);
+            for (size_t i = 0; i < node->data.list.count; i++)
+                print_ast(node->data.list.children[i], indent + 1);
+            break;
         default:
             printf("Unknown node type %d\n", node->type);
             break;

@@ -9,6 +9,9 @@ typedef enum {
     AST_NODE_COMPOUND_STATEMENT,
     AST_NODE_DECLARATION,
     AST_NODE_INTEGER_LITERAL,
+    AST_NODE_IDENTIFIER,
+    AST_NODE_DECL_SPECIFIERS,
+    AST_NODE_ASSIGNMENT,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t {
