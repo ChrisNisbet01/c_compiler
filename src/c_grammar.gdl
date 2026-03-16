@@ -208,7 +208,8 @@ UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
 
 UnaryExpressionRaw = UnaryExpressionPrefix
                  | PostfixExpression
-                 ;UnaryExpression = memoize(UnaryExpressionRaw);
+                 ;
+UnaryExpression = memoize(UnaryExpressionRaw);
 
 // Abstract declarators are used in type names (e.g., in casts)
 AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
