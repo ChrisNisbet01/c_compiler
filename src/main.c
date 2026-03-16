@@ -89,7 +89,6 @@ void print_ast(c_grammar_node_t *node, int indent)
         printf("Pointer (%zu children)\n", node->data.list.count);
         for (size_t i = 0; i < node->data.list.count; i++)
             print_ast(node->data.list.children[i], indent + 1);
-        break;
     case AST_NODE_RELATIONAL_EXPRESSION:
         printf("RelationalExpression (%zu children)\n", node->data.list.count);
         for (size_t i = 0; i < node->data.list.count; i++)
@@ -100,7 +99,23 @@ void print_ast(c_grammar_node_t *node, int indent)
         for (size_t i = 0; i < node->data.list.count; i++)
             print_ast(node->data.list.children[i], indent + 1);
         break;
-    default:        printf("Unknown node type %d\n", node->type);
+    case AST_NODE_AND_EXPRESSION:
+        printf("AndExpression (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
+        printf("ExclusiveOrExpression (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    case AST_NODE_INCLUSIVE_OR_EXPRESSION:
+        printf("InclusiveOrExpression (%zu children)\n", node->data.list.count);
+        for (size_t i = 0; i < node->data.list.count; i++)
+            print_ast(node->data.list.children[i], indent + 1);
+        break;
+    default:
+        printf("Unknown node type %d\n", node->type);
         break;
     }
 }
