@@ -614,6 +614,14 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
         LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context); // Assume int = i32.
         return LLVMConstInt(int_type, value, false);
     }
+    case AST_NODE_FLOAT_LITERAL:
+    {
+        // Handle float literals like '42.0f'.
+        long double value = node->data.terminal.value_double;
+        // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
+        LLVMTypeRef double_type = LLVMDoubleTypeInContext(ctx->context); // Assume double = f64.
+        return LLVMConstReal(double_type, value);
+    }
     case AST_NODE_IDENTIFIER:
     {
         LLVMValueRef var_ptr;

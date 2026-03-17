@@ -10,6 +10,7 @@ typedef enum
     AST_NODE_COMPOUND_STATEMENT,
     AST_NODE_DECLARATION,
     AST_NODE_INTEGER_LITERAL,
+    AST_NODE_FLOAT_LITERAL,
     AST_NODE_IDENTIFIER,
     AST_NODE_DECL_SPECIFIERS,
     AST_NODE_ASSIGNMENT,
@@ -60,6 +61,7 @@ typedef struct c_grammar_node_t
         {
             char *text;
             long value;
+            long double value_double;
         } terminal;
     } data;
 } c_grammar_node_t;

@@ -111,6 +111,10 @@ static void print_ast(c_grammar_node_t const *node, int indent)
         printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
         break;
 
+    case AST_NODE_FLOAT_LITERAL:
+        printf("FloatLiteral: %s (%Lf)\n", node->data.terminal.text, node->data.terminal.value_double);
+        break;
+
     case AST_NODE_IDENTIFIER:
         printf("Identifier: %s\n", node->data.terminal.text);
         break;

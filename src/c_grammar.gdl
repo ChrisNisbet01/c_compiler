@@ -90,7 +90,7 @@ FloatSuffix = oneof("fFlL");
 
 FloatLiteral = (DigitSeq? '.' DigitSeq Exponent? FloatSuffix?)
              | (DigitSeq '.' Exponent? FloatSuffix?)
-             | (DigitSeq Exponent FloatSuffix?);
+             | (DigitSeq Exponent FloatSuffix?) @AST_ACTION_FLOAT_LITERAL;
 
 NumberLiteral = lexeme((FloatLiteral | (IntegerLiteral IntegerSuffix?)) IdBoundary);
 
