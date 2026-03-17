@@ -15,16 +15,29 @@ typedef LLVMBuilderRef LLVMBuilderRef;
 typedef LLVMValueRef LLVMValueRef;
 typedef LLVMTypeRef LLVMTypeRef;
 
+// --- Symbol Table Management ---
+// Define symbol_t structure
+typedef struct symbol
+{
+    char *name;
+    LLVMValueRef ptr;
+    LLVMTypeRef type;
+} symbol_t;
+
 // Structure to hold the context for LLVM IR generation.
 // This includes LLVM's core objects and potentially symbol table management.
-typedef struct
+typedef struct ir_generator_ctx
 {
     LLVMContextRef context;
     LLVMModuleRef module;
     LLVMBuilderRef builder;
-    // TODO: Add symbol table management for variables, functions, scopes, etc.
-    // For now, this will be conceptual.
-    // symbol_table_t* symbol_table;
+
+    // --- Symbol table for local variables within a function scope ---
+    symbol_t *symbol_table;
+    size_t symbol_count;
+    size_t symbol_capacity;
+
+    // Potentially function/scope management structures
 } ir_generator_ctx_t;
 
 /**

@@ -4,6 +4,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Forward declare the context structure as it's used before its definition
+// typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
+
+// Symbol table management functions
+static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef ptr, LLVMTypeRef type);
+static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node);
+static void free_symbol_table(ir_generator_ctx_t *ctx);
+static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef *out_ptr, LLVMTypeRef *out_type); // Helper for get_variable_pointer
+
 // --- Forward Declarations ---
 // Recursive function to process AST nodes
 static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *node);
@@ -13,6 +22,82 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
 static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node);
 // Placeholder for symbol table operations
 // static void add_symbol(ir_generator_ctx_t* ctx, const char* name, LLVMValueRef ptr, LLVMTypeRef type);
+
+/**
+ * @brief Adds a symbol to the current scope's symbol table.
+ * @param ctx The IR generator context.
+ * @param name The name of the symbol.
+ * @param ptr The LLVMValueRef pointer to the symbol's memory.
+ * @param type The LLVMTypeRef of the symbol.
+ */
+static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef ptr, LLVMTypeRef type)
+{
+    if (!ctx || !name || !ptr || !type)
+    {
+        fprintf(stderr, "IRGen: Invalid arguments for add_symbol.\n");
+        return;
+    }
+
+    // Check if symbol table needs resizing
+    if (ctx->symbol_count >= ctx->symbol_capacity)
+    {
+        size_t new_capacity = ctx->symbol_capacity == 0 ? 16 : ctx->symbol_capacity * 2;
+        // Reallocate space for the symbol table
+        symbol_t *new_table = realloc(ctx->symbol_table, new_capacity * sizeof(symbol_t));
+        if (!new_table)
+        {
+            fprintf(stderr, "IRGen: Failed to resize symbol table.\n");
+            // Handle error: could return an error code or exit. For now, just report.
+            return;
+        }
+        ctx->symbol_table = new_table;
+        ctx->symbol_capacity = new_capacity;
+    }
+
+    // Store the symbol
+    ctx->symbol_table[ctx->symbol_count].name = strdup(name); // Duplicate name to own it
+    if (!ctx->symbol_table[ctx->symbol_count].name)
+    {
+        fprintf(stderr, "IRGen: Failed to duplicate symbol name string '%s'.\n", name);
+        // Clean up partially allocated entry if necessary
+        return;
+    }
+    ctx->symbol_table[ctx->symbol_count].ptr = ptr;
+    ctx->symbol_table[ctx->symbol_count].type = type;
+    ctx->symbol_count++;
+
+    fprintf(stderr, "IRGen: Added symbol '%s' to table.\n", name);
+}
+
+/**
+ * @brief Finds a symbol in the symbol table and returns its pointer and type.
+ * @param ctx The IR generator context.
+ * @param name The name of the symbol to find.
+ * @param out_ptr Pointer to store the found LLVMValueRef.
+ * @param out_type Pointer to store the found LLVMTypeRef.
+ * @return True if the symbol was found, false otherwise.
+ */
+static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef *out_ptr, LLVMTypeRef *out_type)
+{
+    if (!ctx || !name || !ctx->symbol_table)
+    {
+        return false;
+    }
+
+    // Search for the symbol by name
+    for (size_t i = 0; i < ctx->symbol_count; ++i)
+    {
+        if (ctx->symbol_table[i].name && strcmp(ctx->symbol_table[i].name, name) == 0)
+        {
+            if (out_ptr)
+                *out_ptr = ctx->symbol_table[i].ptr;
+            if (out_type)
+                *out_type = ctx->symbol_table[i].type;
+            return true;
+        }
+    }
+    return false;
+}
 
 // --- IR Generator Context Initialization and Disposal ---
 
@@ -56,10 +141,38 @@ ir_generator_ctx_t *ir_generator_init()
         return NULL;
     }
 
-    // TODO: Initialize symbol table and any other context structures here.
-    // For example: ctx->symbol_table = initialize_symbol_table();
+    // Initialize symbol table
+    ctx->symbol_capacity = 16; // Initial capacity
+    ctx->symbol_table = malloc(ctx->symbol_capacity * sizeof(symbol_t));
+    if (!ctx->symbol_table)
+    {
+        fprintf(stderr, "IRGen: Failed to allocate memory for symbol table.\n");
+        LLVMDisposeModule(ctx->module);
+        LLVMContextDispose(ctx->context);
+        free(ctx);
+        return NULL;
+    }
+    ctx->symbol_count = 0;
 
     return ctx;
+}
+
+/**
+ * @brief Frees the symbol table memory.
+ */
+static void free_symbol_table(ir_generator_ctx_t *ctx)
+{
+    if (!ctx || !ctx->symbol_table)
+        return;
+
+    for (size_t i = 0; i < ctx->symbol_count; ++i)
+    {
+        free(ctx->symbol_table[i].name); // Free allocated name strings
+    }
+    free(ctx->symbol_table);
+    ctx->symbol_table = NULL;
+    ctx->symbol_count = 0;
+    ctx->symbol_capacity = 0;
 }
 
 /**
@@ -70,6 +183,8 @@ void ir_generator_dispose(ir_generator_ctx_t *ctx)
     if (!ctx)
         return;
 
+    free_symbol_table(ctx); // Free symbol table first
+
     if (ctx->builder)
         LLVMDisposeBuilder(ctx->builder);
     // LLVMDisposeModule takes ownership of the module.
@@ -77,8 +192,6 @@ void ir_generator_dispose(ir_generator_ctx_t *ctx)
         LLVMDisposeModule(ctx->module);
     if (ctx->context)
         LLVMContextDispose(ctx->context);
-
-    // TODO: Free any other allocated context data (e.g., symbol table).
 
     free(ctx);
 }
@@ -247,13 +360,16 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
                 c_grammar_node_t *initializer_expr_node = NULL; // Node representing the initializer expression.
 
                 // Simplified extraction of variable name from declarator.
-                if (init_decl_node->data.list.count > 0 && init_decl_node->data.list.children[0]->type == AST_NODE_DECLARATOR)
+                if (init_decl_node->data.list.count > 0 && init_decl_node->data.list.children[0]->type ==
+                                                               AST_NODE_DECLARATOR)
                 {
                     c_grammar_node_t *declarator_node = init_decl_node->data.list.children[0];
-                    if (declarator_node->data.list.count > 0 && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
+                    if (declarator_node->data.list.count > 0 &&
+                        declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
                     {
                         c_grammar_node_t *direct_decl_node = declarator_node->data.list.children[0];
-                        if (direct_decl_node->data.list.count > 0 && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                        if (direct_decl_node->data.list.count > 0 &&
+                            direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
                         {
                             var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
                         }
@@ -261,7 +377,8 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
                 }
 
                 // Find initializer if it exists (e.g., '= 42').
-                if (init_decl_node->data.list.count > 1 && init_decl_node->data.list.children[1]->type == AST_NODE_ASSIGNMENT)
+                if (init_decl_node->data.list.count > 1 && init_decl_node->data.list.children[1]->type ==
+                                                               AST_NODE_ASSIGNMENT)
                 {
                     c_grammar_node_t *assignment_node = init_decl_node->data.list.children[1];
                     // The actual expression node is typically the third child of AST_NODE_ASSIGNMENT.
@@ -276,8 +393,8 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
                     // Allocate space for the variable on the stack.
                     LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, var_type, var_name);
 
-                    // TODO: Add this variable to the symbol table.
-                    // add_symbol(ctx, var_name, alloca_inst, var_type);
+                    // Add this variable to the symbol table. <-- THIS IS THE NEW CALL
+                    add_symbol(ctx, var_name, alloca_inst, var_type);
 
                     // If there's an initializer, process it and store the value.
                     if (initializer_expr_node)
@@ -289,7 +406,7 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
                         }
                         else
                         {
-                            fprintf(stderr, "IRGen Error: Failed to process initializer for variable '%s'\n", var_name);
+                            fprintf(stderr, "IRGen Error: Failed to process initializer for variable\n'%s'\n", var_name);
                         }
                     }
                 }
@@ -439,32 +556,33 @@ int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path)
 
 /**
  * @brief Gets the LLVM ValueRef representing the pointer to a variable.
- * This function is a placeholder and needs a real symbol table lookup.
+ * Looks up the symbol in the symbol table.
  * @param ctx The IR generator context.
  * @param identifier_node The AST node for the identifier.
  * @return The LLVM ValueRef (pointer) if found, NULL otherwise.
  */
 static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node)
 {
-    (void)ctx;
-
-    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->data.terminal.text)
+    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER ||
+        !identifier_node->data.terminal.text)
     {
         fprintf(stderr, "IRGen Error: Invalid identifier node for get_variable_pointer.\n");
         return NULL;
     }
     const char *name = identifier_node->data.terminal.text;
 
-    // TODO: Implement actual symbol table lookup.
-    // For now, return NULL and print a warning.
-    // LLVMValueRef ptr = lookup_symbol(ctx->symbol_table, name); // Conceptual lookup
-    // if (!ptr) {
-    //     fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", name);
-    // }
-    // return ptr;
+    LLVMValueRef var_ptr;
+    LLVMTypeRef var_type; // We might need type here later, e.g., for type checking.
 
-    fprintf(stderr, "IRGen Warning: get_variable_pointer for '%s' is not implemented (symbol table lookup missing).\n", name);
-    return NULL;
+    if (find_symbol(ctx, name, &var_ptr, &var_type))
+    {
+        return var_ptr;
+    }
+    else
+    {
+        fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", name);
+        return NULL;
+    }
 }
 
 /**
