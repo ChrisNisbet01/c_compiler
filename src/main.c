@@ -101,74 +101,28 @@ static void print_ast(c_grammar_node_t const *node, int indent)
         break;
 
     case AST_NODE_TRANSLATION_UNIT:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_FUNCTION_DEFINITION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_COMPOUND_STATEMENT:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_DECLARATION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_DECL_SPECIFIERS:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_ASSIGNMENT:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_BINARY_OP:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_UNARY_OP:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_DECLARATOR:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_DIRECT_DECLARATOR:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_DECLARATOR_SUFFIX:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_POINTER:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_RELATIONAL_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_EQUALITY_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_AND_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_INCLUSIVE_OR_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_LOGICAL_AND_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_LOGICAL_OR_EXPRESSION:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_FUNCTION_CALL:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_ARRAY_SUBSCRIPT:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_MEMBER_ACCESS_DOT:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_MEMBER_ACCESS_ARROW:
-        print_list_type_ast_node(node, indent);
-        break;
     case AST_NODE_CAST_EXPRESSION:
         print_list_type_ast_node(node, indent);
         break;
