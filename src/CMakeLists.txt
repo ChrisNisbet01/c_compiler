@@ -18,9 +18,8 @@ target_compile_options(${app} PRIVATE -Wall -Wextra -Wswitch-enum -pedantic)
 
 # Add LLVM support for linking
 # Map LLVM components to library names.
-# Using Support, Core, and IRReader as components.
-# This assumes find_package in the parent CMakeLists.txt is configured to find these components.
-llvm_map_components_to_libnames(llvm_libs Support Core IRReader)
+# Focusing on X86 support and core IR components.
+llvm_map_components_to_libnames(llvm_libs support core irreader X86 target mc asmparser asmprinter)
 
 target_link_libraries(${app} PRIVATE
     c_grammar

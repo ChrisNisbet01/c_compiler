@@ -542,6 +542,93 @@ int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path)
     return 0;
 }
 
+/**
+ * @brief Compiles the LLVM module to an object file or assembly file.
+ * @param module The LLVM module to compile.
+ * @param file_path The path to the output file.
+ * @param march The target architecture (e.g., "x86-64").
+ * @param file_type The type of file to emit (LLVMObjectFile or LLVMAssemblyFile).
+ * @return 0 on success, -1 on failure.
+ */
+int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march, LLVMCodeGenFileType file_type)
+{
+    if (!module || !file_path)
+    {
+        fprintf(stderr, "IRGen Error: Invalid module or file path for emission.\n");
+        return -1;
+    }
+
+    // Initialize X86 target
+    LLVMInitializeX86TargetInfo();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetMC();
+    LLVMInitializeX86AsmParser();
+    LLVMInitializeX86AsmPrinter();
+
+    char *error = NULL;
+    char *triple = LLVMGetDefaultTargetTriple();
+
+    // If march is specified, we might want to adjust the triple or find a specific target.
+    // For now, we'll support "x86-64" by ensuring the triple matches.
+    if (march && strcmp(march, "x86-64") == 0)
+    {
+        // On many systems, the default triple will already be x86_64-...
+        // If we want to be explicit, we can override it.
+        // LLVMDisposeMessage(triple);
+        // triple = strdup("x86_64-pc-linux-gnu"); // Example explicit triple
+    }
+
+    LLVMTargetRef target;
+    if (LLVMGetTargetFromTriple(triple, &target, &error))
+    {
+        fprintf(stderr, "IRGen Error: Failed to get target from triple '%s': %s\n", triple, error);
+        LLVMDisposeMessage(error);
+        LLVMDisposeMessage(triple);
+        return -1;
+    }
+
+    // Create target machine
+    // Use generic CPU and no features for now.
+    LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(
+        target, triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocDefault, LLVMCodeModelDefault);
+
+    if (!target_machine)
+    {
+        fprintf(stderr, "IRGen Error: Failed to create target machine.\n");
+        LLVMDisposeMessage(triple);
+        return -1;
+    }
+
+    // Set module's data layout and triple
+    LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
+    char *data_layout_str = LLVMCopyStringRepOfTargetData(data_layout);
+    LLVMSetDataLayout(module, data_layout_str);
+    LLVMSetTarget(module, triple);
+
+    // Emit to file
+    if (LLVMTargetMachineEmitToFile(target_machine, module, (char *)file_path, file_type, &error))
+    {
+        fprintf(stderr, "IRGen Error: Failed to emit file '%s': %s\n", file_path, error);
+        LLVMDisposeMessage(error);
+        LLVMDisposeMessage(data_layout_str);
+        LLVMDisposeTargetData(data_layout);
+        LLVMDisposeTargetMachine(target_machine);
+        LLVMDisposeMessage(triple);
+        return -1;
+    }
+
+    printf("IRGen: Successfully emitted %s to %s\n",
+           (file_type == LLVMObjectFile) ? "object code" : "assembly", file_path);
+
+    // Cleanup
+    LLVMDisposeMessage(data_layout_str);
+    LLVMDisposeTargetData(data_layout);
+    LLVMDisposeTargetMachine(target_machine);
+    LLVMDisposeMessage(triple);
+
+    return 0;
+}
+
 // --- Placeholder for Symbol Table Management ---
 // This is a crucial part of IR generation and needs to be robust.
 // For this example, it's conceptual. A real implementation would use a hash map.

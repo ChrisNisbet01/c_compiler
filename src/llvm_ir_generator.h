@@ -7,6 +7,7 @@
 #include <llvm-c/Core.h>
 #include <llvm-c/ExecutionEngine.h> // Potentially useful for JIT or engine operations
 #include <llvm-c/Target.h>          // For target initialization, etc.
+#include <llvm-c/TargetMachine.h>
 
 // Define LLVM types for convenience
 typedef LLVMContextRef LLVMContextRef;
@@ -70,3 +71,13 @@ void ir_generator_dispose(ir_generator_ctx_t *ctx);
  * @return 0 on success, -1 on failure.
  */
 int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path);
+
+/**
+ * @brief Compiles the LLVM module to an object file or assembly file.
+ * @param module The LLVM module to compile.
+ * @param file_path The path to the output file.
+ * @param march The target architecture (e.g., "x86-64").
+ * @param file_type The type of file to emit (LLVMObjectFile or LLVMAssemblyFile).
+ * @return 0 on success, -1 on failure.
+ */
+int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march, LLVMCodeGenFileType file_type);

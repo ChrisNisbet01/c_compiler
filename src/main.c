@@ -16,12 +16,9 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 // --- Global variables to store parsed command-line options ---
-// These will be populated by getopt_long
 static bool compile_only_flag = false;
-static char *output_filename = NULL;
-static char *march_target = NULL;
-
-// --- Usage and Option Definitions ---
+static char *output_filename = "a.out";
+static char *march_target = "x86-64";
 
 typedef struct
 {
@@ -36,6 +33,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_COMPOUND_STATEMENT] = {.name = "CompoundStatement"},
     [AST_NODE_DECLARATION] = {.name = "Declaration"},
     [AST_NODE_INTEGER_LITERAL] = {.name = "IntegerLiteral"},
+    [AST_NODE_FLOAT_LITERAL] = {.name = "FloatLiteral"},
     [AST_NODE_IDENTIFIER] = {.name = "Identifier"},
     [AST_NODE_DECL_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
     [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
@@ -190,7 +188,7 @@ symbol_table_create()
         return NULL;
 
     st->capacity = INITIAL_SYMBOL_CAPACITY;
-    st->names = malloc(sizeof(*st->names) * st->capacity);
+    st->names = malloc(sizeof(char *) * st->capacity);
     if (st->names == NULL)
     {
         free(st);
@@ -239,9 +237,6 @@ void symbol_table_add(symbol_table_t *st, char const *name)
         char **new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
         if (new_names == NULL)
         {
-            // Handle realloc failure, maybe print an error and stop or return.
-            // For now, we'll assume it succeeds or the program might crash later.
-            // A more robust solution would propagate an error.
             fprintf(stderr, "Error: Failed to resize symbol table names array.\n");
             return;
         }
@@ -312,7 +307,6 @@ session_ctx_create()
     }
 
     // Pre-register common built-in types that are often used without explicit typedefs
-    // Based on the content of temp_main.c and typical C environments
     symbol_table_add(ctx->builtins, "__builtin_va_list");
 
     ctx->pending_capacity = 16;
@@ -329,10 +323,9 @@ session_ctx_create()
     ctx->marker_stack = malloc(sizeof(*ctx->marker_stack) * ctx->marker_capacity);
     if (ctx->marker_stack == NULL)
     {
-        // Clean up allocated resources before returning NULL
         for (int i = 0; i < ctx->pending_count; i++)
         {
-            free(ctx->pending[i]); // Free any pending strings if allocated
+            free(ctx->pending[i]);
         }
         free(ctx->pending);
         symbol_table_free(ctx->builtins);
@@ -352,7 +345,7 @@ void session_ctx_free(parse_session_ctx_t *ctx)
     }
 
     symbol_table_free(ctx->symbols);
-    symbol_table_free(ctx->builtins); // Free the new builtins table
+    symbol_table_free(ctx->builtins);
     for (int i = 0; i < ctx->pending_count; i++)
     {
         free(ctx->pending[i]);
@@ -375,8 +368,6 @@ void session_ctx_push_pending(parse_session_ctx_t *ctx, char const *name)
         if (new_pending == NULL)
         {
             fprintf(stderr, "Error: Failed to resize pending names array.\n");
-            // In a real application, you might want to handle this more gracefully,
-            // e.g., by returning an error code or exiting.
             return;
         }
         ctx->pending = new_pending;
@@ -404,14 +395,12 @@ bool is_typedef_name(epc_cpt_node_t *token, epc_parser_ctx_t *parse_ctx, void *p
         return false;
     }
 
-    // Check both user-defined symbols and pre-registered built-ins
     bool found = symbol_table_contains(session->symbols, name_copy) || symbol_table_contains(session->builtins, name_copy);
 
     free(name_copy);
     return found;
 }
 
-// Inner Wrap: Capture an identifier that might be a typedef
 static void
 on_capture_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
@@ -440,7 +429,6 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *pa
     char *name_copy = strndup(name, len);
     if (name_copy == NULL)
     {
-        // Handle potential strndup failure
         return true;
     }
 
@@ -450,7 +438,6 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *pa
     return true;
 }
 
-// Outer Wrap: Commit or Discard pending typedefs
 static void
 on_commit_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_data)
 {
@@ -490,7 +477,6 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *par
 
     if (!result.is_error)
     {
-        // Success: Move pending to real table
         for (int i = marker; i < session->pending_count; i++)
         {
             symbol_table_add(session->symbols, session->pending[i]);
@@ -501,7 +487,6 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *par
     }
     else
     {
-        // Failure: Discard pending
         for (int i = marker; i < session->pending_count; i++)
         {
             free(session->pending[i]);
@@ -516,9 +501,8 @@ epc_wrap_callbacks_t typedef_capture_callbacks = {on_capture_entry, on_capture_e
 epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit};
 
 static void
-generate_ir_code(c_grammar_node_t const *ast_root, char const *output_file)
+generate_output(c_grammar_node_t const *ast_root)
 {
-    // --- LLVM IR Generation Integration ---
     printf("\nStarting LLVM IR Generation...\n");
     ir_generator_ctx_t *ir_ctx = ir_generator_init();
     if (ir_ctx == NULL)
@@ -527,25 +511,34 @@ generate_ir_code(c_grammar_node_t const *ast_root, char const *output_file)
         return;
     }
 
-    // The AST root is needed here for LLVM IR generation.
-    // We assume ast_result.ast_root is a valid c_grammar_node_t pointer if no AST error occurred.
     if (ast_root != NULL)
     {
         LLVMModuleRef llvm_module = generate_llvm_ir(ir_ctx, ast_root);
         if (llvm_module)
         {
-            const char *output_ir_file = output_file; // Define the output file name for LLVM IR
-            if (write_llvm_ir_to_file(llvm_module, output_ir_file) != 0)
+            if (compile_only_flag)
             {
-                fprintf(stderr, "Failed to write LLVM IR to %s\n", output_ir_file);
+                // STOP after object code is created
+                if (emit_to_file(llvm_module, output_filename, march_target, LLVMObjectFile) != 0)
+                {
+                    fprintf(stderr, "Failed to emit object file %s\n", output_filename);
+                }
+            }
+            else
+            {
+                // Simply output the LLVM IR to a file with extension ".ll" appended
+                char ir_filename[1024];
+                snprintf(ir_filename, sizeof(ir_filename), "%s.ll", output_filename);
+                if (write_llvm_ir_to_file(llvm_module, ir_filename) != 0)
+                {
+                    fprintf(stderr, "Failed to write LLVM IR to %s\n", ir_filename);
+                }
             }
         }
         else
         {
             fprintf(stderr, "LLVM IR generation failed.\n");
         }
-        // Note: LLVM module lifetime is managed by ir_ctx. If generate_llvm_ir
-        // returned ownership, it would need to be disposed separately.
     }
     else
     {
@@ -553,19 +546,58 @@ generate_ir_code(c_grammar_node_t const *ast_root, char const *output_file)
     }
 
     ir_generator_dispose(ir_ctx);
-    // --- End LLVM IR Generation Integration ---
     return;
+}
+
+static void print_usage(const char *prog_name)
+{
+    fprintf(stderr, "Usage: %s [options] <filename>\n", prog_name);
+    fprintf(stderr, "Options:\n");
+    fprintf(stderr, "  -c              Compile only (stop after object code creation)\n");
+    fprintf(stderr, "  -o <file>       Specify output filename (default: a.out)\n");
+    fprintf(stderr, "  --march=<arch>  Specify target architecture (default: x86-64)\n");
+    fprintf(stderr, "  -h, --help      Display this help message\n");
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2)
+    static struct option long_options[] = {
+        {"march", required_argument, 0, 'm'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0}};
+
+    int opt;
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "co:h", long_options, &option_index)) != -1)
     {
-        fprintf(stderr, "Usage: %s <filename>\n", argv[0]);
+        switch (opt)
+        {
+        case 'c':
+            compile_only_flag = true;
+            break;
+        case 'o':
+            output_filename = optarg;
+            break;
+        case 'm':
+            march_target = optarg;
+            break;
+        case 'h':
+            print_usage(argv[0]);
+            return EXIT_SUCCESS;
+        default:
+            print_usage(argv[0]);
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (optind >= argc)
+    {
+        fprintf(stderr, "Error: Missing input filename.\n");
+        print_usage(argv[0]);
         return EXIT_FAILURE;
     }
 
-    char const *filename = argv[1];
+    char const *filename = argv[optind];
     printf("Attempting to parse C file: %s\n", filename);
 
     epc_parser_list *list = epc_parser_list_create();
@@ -583,7 +615,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // create_c_grammar_parser is generated from c_grammar.gdl
     epc_parser_t *c_parser = create_c_grammar_parser(list);
     if (c_parser == NULL)
     {
@@ -593,7 +624,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    // Parse from file with session context
     epc_parse_session_t session = epc_parse_file(c_parser, filename, session_ctx);
 
     if (session.result.is_error)
@@ -612,15 +642,6 @@ int main(int argc, char *argv[])
 
     printf("Successfully parsed the C file!\n");
 
-    // Print the CPT
-    char *cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
-    if (cpt_str != NULL)
-    {
-        printf("Concrete Parse Tree:\n%s\n", cpt_str);
-        free(cpt_str);
-    }
-
-    // Build the AST
     epc_ast_hook_registry_t *registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
     if (registry != NULL)
     {
@@ -629,10 +650,7 @@ int main(int argc, char *argv[])
 
         if (!ast_result.has_error)
         {
-            printf("\nAbstract Syntax Tree:\n");
-            print_ast((c_grammar_node_t *)ast_result.ast_root, 0);
-            generate_ir_code((c_grammar_node_t *)ast_result.ast_root, "output.ll");
-            printf("\n");
+            generate_output((c_grammar_node_t *)ast_result.ast_root);
             c_grammar_node_free(ast_result.ast_root, NULL);
         }
         else
