@@ -1,4 +1,4 @@
-set(app "c_parser_example")
+set(app "ncc")
 
 # Generate the grammar library using the macro
 epc_generate_grammar(
