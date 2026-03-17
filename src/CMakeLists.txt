@@ -11,16 +11,22 @@ epc_generate_grammar(
 add_executable(${app} 
   main.c 
   c_grammar_ast_actions.c
+  llvm_ir_generator.c # <-- Added this line
 )
 
 target_compile_options(${app} PRIVATE -Wall -Wextra -Wswitch-enum -pedantic)
 
 target_link_libraries(${app} PRIVATE
     c_grammar
+    # Link against LLVM Core and IR libraries
+    LLVM::Core # <-- Added this line
+    LLVM::IR   # <-- Added this line
 )
 
 target_include_directories(${app} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    # Add LLVM include directories if not automatically handled by find_package
+    # ${LLVM_INCLUDE_DIRS} # This might be needed if find_package doesn't set it up correctly
 )
 
 # Enable LTO if supported

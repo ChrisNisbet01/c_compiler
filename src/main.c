@@ -3,6 +3,9 @@
 #include "c_grammar_ast.h"
 #include "c_grammar_ast_actions.h"
 
+// Include for LLVM IR Generator
+#include "llvm_ir_generator.h"
+
 #include <easy_pc/easy_pc.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -498,7 +501,47 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *par
 epc_wrap_callbacks_t typedef_capture_callbacks = {on_capture_entry, on_capture_exit};
 epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit};
 
-// --- Main ---
+static void
+generate_ir_code(c_grammar_node_t const *ast_root, char const *output_file)
+{
+    // --- LLVM IR Generation Integration ---
+    printf("\nStarting LLVM IR Generation...\n");
+    ir_generator_ctx_t *ir_ctx = ir_generator_init();
+    if (ir_ctx == NULL)
+    {
+        fprintf(stderr, "Failed to initialize LLVM IR generator.\n");
+        return;
+    }
+
+    // The AST root is needed here for LLVM IR generation.
+    // We assume ast_result.ast_root is a valid c_grammar_node_t pointer if no AST error occurred.
+    if (ast_root != NULL)
+    {
+        LLVMModuleRef llvm_module = generate_llvm_ir(ir_ctx, ast_root);
+        if (llvm_module)
+        {
+            const char *output_ir_file = output_file; // Define the output file name for LLVM IR
+            if (write_llvm_ir_to_file(llvm_module, output_ir_file) != 0)
+            {
+                fprintf(stderr, "Failed to write LLVM IR to %s\n", output_ir_file);
+            }
+        }
+        else
+        {
+            fprintf(stderr, "LLVM IR generation failed.\n");
+        }
+        // Note: LLVM module lifetime is managed by ir_ctx. If generate_llvm_ir
+        // returned ownership, it would need to be disposed separately.
+    }
+    else
+    {
+        fprintf(stderr, "AST root is NULL, cannot generate LLVM IR.\n");
+    }
+
+    ir_generator_dispose(ir_ctx);
+    // --- End LLVM IR Generation Integration ---
+    return;
+}
 
 int main(int argc, char *argv[])
 {
@@ -574,6 +617,8 @@ int main(int argc, char *argv[])
         {
             printf("\nAbstract Syntax Tree:\n");
             print_ast((c_grammar_node_t *)ast_result.ast_root, 0);
+            generate_ir_code((c_grammar_node_t *)ast_result.ast_root, "output.ll");
+            printf("\n");
             c_grammar_node_free(ast_result.ast_root, NULL);
         }
         else

@@ -15,6 +15,29 @@ if(lto_supported)
     message(STATUS "LTO (Interprocedural Optimization) is supported by the toolchain.")
 endif()
 
+# --- LLVM Integration ---
+# Specify LLVM installation prefix based on llvm-config-20 output
+# These paths are derived from 'llvm-config-20 --includedir' and '--libdir'
+set(LLVM_INSTALL_DIR "/usr/lib/llvm-20")
+set(LLVM_INCLUDE_DIRS "${LLVM_INSTALL_DIR}/include") # Explicitly set include dirs
+set(LLVM_LIBRARY_DIRS "${LLVM_INSTALL_DIR}/lib")   # Explicitly set library dirs
+
+# Find LLVM core and IR components
+# REQUIRED COMPONENTS Core IR means we need these specific modules
+find_package(LLVM REQUIRED COMPONENTS Core IR)
+
+# Check if LLVM was found and display its version
+if(LLVM_FOUND)
+    message(STATUS "Found LLVM version ${LLVM_VERSION}")
+    # Pass LLVM include directories to the project for all targets
+    # This helps ensure headers are found by compilers.
+    include_directories(${LLVM_INCLUDE_DIRS})
+else()
+    message(FATAL_ERROR "LLVM not found. Please ensure LLVM 20.1.8 is installed and CMake can find it.")
+endif()
+# --- End LLVM Integration ---
+
+
 # Set path to easy_pc (since it's a sibling)
 set(easy_pc_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../easy_pc")
 
