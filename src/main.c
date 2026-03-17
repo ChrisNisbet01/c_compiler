@@ -46,6 +46,15 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_MEMBER_ACCESS_DOT] = {.name = "MemberAccessDot"},
     [AST_NODE_MEMBER_ACCESS_ARROW] = {.name = "MemberAccessArrow"},
     [AST_NODE_CAST_EXPRESSION] = {.name = "CastExpression"},
+    [AST_NODE_IF_STATEMENT] = {.name = "IfStatement"},
+    [AST_NODE_SWITCH_STATEMENT] = {.name = "SwitchStatement"},
+    [AST_NODE_WHILE_STATEMENT] = {.name = "WhileStatement"},
+    [AST_NODE_DO_WHILE_STATEMENT] = {.name = "DoWhileStatement"},
+    [AST_NODE_FOR_STATEMENT] = {.name = "ForStatement"},
+    [AST_NODE_GOTO_STATEMENT] = {.name = "GotoStatement"},
+    [AST_NODE_CONTINUE_STATEMENT] = {.name = "ContinueStatement"},
+    [AST_NODE_BREAK_STATEMENT] = {.name = "BreakStatement"},
+    [AST_NODE_RETURN_STATEMENT] = {.name = "ReturnStatement"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
@@ -124,6 +133,15 @@ static void print_ast(c_grammar_node_t const *node, int indent)
     case AST_NODE_MEMBER_ACCESS_DOT:
     case AST_NODE_MEMBER_ACCESS_ARROW:
     case AST_NODE_CAST_EXPRESSION:
+    case AST_NODE_IF_STATEMENT:
+    case AST_NODE_SWITCH_STATEMENT:
+    case AST_NODE_WHILE_STATEMENT:
+    case AST_NODE_DO_WHILE_STATEMENT:
+    case AST_NODE_FOR_STATEMENT:
+    case AST_NODE_GOTO_STATEMENT:
+    case AST_NODE_CONTINUE_STATEMENT:
+    case AST_NODE_BREAK_STATEMENT:
+    case AST_NODE_RETURN_STATEMENT:
         print_list_type_ast_node(node, indent);
         break;
 
