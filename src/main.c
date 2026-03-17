@@ -10,8 +10,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h> // For bool type
+#include <getopt.h>  // For getopt_long
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
+// --- Global variables to store parsed command-line options ---
+// These will be populated by getopt_long
+static bool compile_only_flag = false;
+static char *output_filename = NULL;
+static char *march_target = NULL;
+
+// --- Usage and Option Definitions ---
 
 typedef struct
 {
@@ -176,7 +186,7 @@ symbol_table_create()
         return NULL;
 
     st->capacity = INITIAL_SYMBOL_CAPACITY;
-    st->names = malloc(sizeof(char *) * st->capacity);
+    st->names = malloc(sizeof(*st->names) * st->capacity);
     if (st->names == NULL)
     {
         free(st);

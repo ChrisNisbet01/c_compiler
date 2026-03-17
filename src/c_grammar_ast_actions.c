@@ -105,6 +105,7 @@ create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t *node)
         return NULL;
     }
     ast_node->type = type;
+    ast_node->is_terminal_node = true;
     const char *text = epc_cpt_node_get_semantic_content(node);
     ast_node->data.terminal.text = strndup(text, epc_cpt_node_get_semantic_len(node));
     return ast_node;

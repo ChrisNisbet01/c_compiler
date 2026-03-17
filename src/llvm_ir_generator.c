@@ -226,8 +226,12 @@ LLVMModuleRef generate_llvm_ir(ir_generator_ctx_t *ctx, c_grammar_node_t const *
  */
 static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *node)
 {
-    if (!node)
+    if (node == NULL)
+    {
         return;
+    }
+
+    fprintf(stderr, "%s node type %u\n", __func__, node->type);
 
     switch (node->type)
     {
@@ -493,7 +497,11 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
     default:
         // Fallback: Recursively process children for unhandled node types.
         // This is a basic strategy; specific nodes might need dedicated logic.
-        if (node->data.list.children)
+        if (node->is_terminal_node)
+        {
+            fprintf(stderr, "Need support for terminal node type: %u\n", node->type);
+        }
+        else if (node->data.list.children != NULL)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
@@ -601,14 +609,10 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
     case AST_NODE_INTEGER_LITERAL:
     {
         // Handle integer literals like '42'.
-        if (node->data.terminal.text)
-        {
-            long long value = strtoll(node->data.terminal.text, NULL, 0);
-            // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
-            LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context); // Assume int = i32.
-            return LLVMConstInt(int_type, value, false);
-        }
-        break;
+        long long value = node->data.terminal.value;
+        // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
+        LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context); // Assume int = i32.
+        return LLVMConstInt(int_type, value, false);
     }
     case AST_NODE_IDENTIFIER:
     {
@@ -676,7 +680,11 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
     default:
         fprintf(stderr, "IRGen Warning: process_expression called on unexpected node type %d.\n", node->type);
         // Attempt to recursively process if it might yield a value.
-        if (node->data.list.children)
+        if (node->is_terminal_node)
+        {
+            fprintf(stderr, "IRGen Warning: and is a terminal node\n");
+        }
+        else if (node->data.list.children != NULL)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
