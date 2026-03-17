@@ -615,7 +615,8 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
         if (var_ptr)
         {
             // Load the value from the memory address.
-            return LLVMBuildLoad(ctx->builder, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
+            LLVMTypeRef element_type = LLVMGetElementType(LLVMTypeOf(var_ptr));
+            return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
         }
         else
         {
