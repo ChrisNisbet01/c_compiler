@@ -187,8 +187,10 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
         // TODO: Parse actual return type from decl_specifiers_node.
 
         // --- Create LLVM Function ---
-        LLVMTypeRef param_types[] = {}; // Assuming no parameters for simplicity (e.g., 'main()').
-        LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, 0, false);
+        // Corrected: For a function with no parameters, pass NULL and 0.
+        LLVMTypeRef param_types[] = {0};
+        unsigned num_params = 0;
+        LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, num_params, false);
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
         // Create a basic block for the function's entry point.
@@ -529,13 +531,13 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
                     return LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
                 // Add more operators as needed (division, modulo, bitwise, etc.).
                 if (strcmp(op_str, "==") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntPredicate.LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+                    return LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp"); // Corrected: LLVMIntEQ
                 if (strcmp(op_str, "!=") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntPredicate.LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+                    return LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp"); // Corrected: LLVMIntNE
                 if (strcmp(op_str, "<") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntPredicate.LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+                    return LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp"); // Corrected: LLVMIntSLT
                 if (strcmp(op_str, ">") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntPredicate.LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+                    return LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp"); // Corrected: LLVMIntSGT
                 // ... handle other comparisons like <=, >=
             }
             else
