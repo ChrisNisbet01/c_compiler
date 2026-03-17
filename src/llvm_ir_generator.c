@@ -9,7 +9,8 @@
 
 // Symbol table management functions
 static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef ptr, LLVMTypeRef type);
-static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node);
+static LLVMValueRef get_variable_pointer(
+    ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node, LLVMTypeRef *out_type);
 static void free_symbol_table(ir_generator_ctx_t *ctx);
 static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef *out_ptr, LLVMTypeRef *out_type); // Helper for get_variable_pointer
 
@@ -18,8 +19,6 @@ static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef 
 static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *node);
 // Helper function to process expressions and return LLVM ValueRef
 static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t *node);
-// Helper to get a variable's pointer from the symbol table (conceptual)
-static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node);
 // Placeholder for symbol table operations
 // static void add_symbol(ir_generator_ctx_t* ctx, const char* name, LLVMValueRef ptr, LLVMTypeRef type);
 
@@ -376,16 +375,14 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
                     }
                 }
 
-                // Find initializer if it exists (e.g., '= 42').
-                if (init_decl_node->data.list.count > 1 && init_decl_node->data.list.children[1]->type ==
-                                                               AST_NODE_ASSIGNMENT)
+                // Find initializer if it exists (e.g., 'int i = 42;').
+                // The AST structure for 'int i = 42;' is typically:
+                // DECLARATION -> INIT_DECLARATOR -> DECLARATOR (Identifier 'i'), Initializer (IntegerLiteral '42')
+                // So, if there's more than one child in INIT_DECLARATOR, the second child is the initializer.
+                if (init_decl_node->data.list.count > 1)
                 {
-                    c_grammar_node_t *assignment_node = init_decl_node->data.list.children[1];
-                    // The actual expression node is typically the third child of AST_NODE_ASSIGNMENT.
-                    if (assignment_node->data.list.count > 2 && assignment_node->data.list.children[2])
-                    {
-                        initializer_expr_node = assignment_node->data.list.children[2];
-                    }
+                    // The second child of INIT_DECLARATOR is the initializer expression.
+                    initializer_expr_node = init_decl_node->data.list.children[1];
                 }
 
                 if (var_name)
@@ -441,8 +438,9 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
             // Operator node (e.g., '=') is skipped for simplicity.
             c_grammar_node_t *rhs_node = node->data.list.children[2]; // The expression to assign.
 
+            LLVMTypeRef element_type;
             // Get the LLVM ValueRef for the variable's memory location (pointer).
-            LLVMValueRef lhs_ptr = get_variable_pointer(ctx, lhs_node); // Needs symbol table lookup.
+            LLVMValueRef lhs_ptr = get_variable_pointer(ctx, lhs_node, &element_type); // Needs symbol table lookup.
             if (!lhs_ptr)
             {
                 fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
@@ -559,9 +557,11 @@ int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path)
  * Looks up the symbol in the symbol table.
  * @param ctx The IR generator context.
  * @param identifier_node The AST node for the identifier.
+ * @param out_type Pointer to store the found LLVMTypeRef (element type).
  * @return The LLVM ValueRef (pointer) if found, NULL otherwise.
  */
-static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node)
+static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node,
+                                         LLVMTypeRef *out_type) // Added out_type parameter
 {
     if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER ||
         !identifier_node->data.terminal.text)
@@ -572,10 +572,12 @@ static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node
     const char *name = identifier_node->data.terminal.text;
 
     LLVMValueRef var_ptr;
-    LLVMTypeRef var_type; // We might need type here later, e.g., for type checking.
+    LLVMTypeRef retrieved_type; // Use a different name to avoid confusion
 
-    if (find_symbol(ctx, name, &var_ptr, &var_type))
+    if (find_symbol(ctx, name, &var_ptr, &retrieved_type))
     {
+        if (out_type)
+            *out_type = retrieved_type; // Pass the type back
         return var_ptr;
     }
     else
@@ -610,17 +612,21 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
     }
     case AST_NODE_IDENTIFIER:
     {
-        // When an identifier is used in an expression, we need to load its value.
-        LLVMValueRef var_ptr = get_variable_pointer(ctx, node);
-        if (var_ptr)
+        LLVMValueRef var_ptr;
+        LLVMTypeRef element_type; // This will hold the type (e.g., i32)
+
+        // Get the variable's pointer and its element type from the symbol table.
+        var_ptr = get_variable_pointer(ctx, node, &element_type);
+
+        if (var_ptr && element_type) // Ensure both are valid
         {
-            // Load the value from the memory address.
-            LLVMTypeRef element_type = LLVMGetElementType(LLVMTypeOf(var_ptr));
+            // Load the value from the memory address using LLVMBuildLoad2.
             return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
         }
         else
         {
-            // get_variable_pointer should handle printing the error.
+            // get_variable_pointer should have printed an error if var_ptr is NULL.
+            // If element_type is NULL, it's also an error.
             return NULL;
         }
         break;
