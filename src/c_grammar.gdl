@@ -365,7 +365,7 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
 DeclaratorRaw = Pointer* DirectDeclarator DeclaratorSuffix* Attribute*;
 Declarator = memoize(DeclaratorRaw) @AST_ACTION_DECLARATOR;
 
-InitDeclarator = Declarator Attribute* AsmName? Attribute* (Assign Initializer)?;
+InitDeclarator = (Declarator Attribute* AsmName? Attribute* (Assign Initializer)?) @AST_ACTION_INIT_DECLARATOR;
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 

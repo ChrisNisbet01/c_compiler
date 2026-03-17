@@ -39,6 +39,7 @@ void c_grammar_node_free(void *node_ptr, void *user_data)
     case AST_NODE_MEMBER_ACCESS_DOT:
     case AST_NODE_MEMBER_ACCESS_ARROW:
     case AST_NODE_CAST_EXPRESSION:
+    case AST_NODE_INIT_DECLARATOR:
     case AST_NODE_IF_STATEMENT:
     case AST_NODE_SWITCH_STATEMENT:
     case AST_NODE_WHILE_STATEMENT:
@@ -525,6 +526,17 @@ handle_cast_expression(
 }
 
 static void
+handle_init_declarator(
+    epc_ast_builder_ctx_t *ctx,
+    epc_cpt_node_t *node,
+    void **children,
+    int count,
+    void *user_data)
+{
+    handle_list_node(ctx, node, children, count, user_data, AST_NODE_INIT_DECLARATOR);
+}
+
+static void
 handle_if_statement(
     epc_ast_builder_ctx_t *ctx,
     epc_cpt_node_t *node,
@@ -664,4 +676,5 @@ void c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t *registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMPOUND_STATEMENT, handle_compound_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_DEFINITION, handle_function_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TRANSLATION_UNIT, handle_translation_unit);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INIT_DECLARATOR, handle_init_declarator);
 }

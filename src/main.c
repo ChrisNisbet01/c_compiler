@@ -46,6 +46,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_MEMBER_ACCESS_DOT] = {.name = "MemberAccessDot"},
     [AST_NODE_MEMBER_ACCESS_ARROW] = {.name = "MemberAccessArrow"},
     [AST_NODE_CAST_EXPRESSION] = {.name = "CastExpression"},
+    [AST_NODE_INIT_DECLARATOR] = {.name = "InitDeclarator"},
     [AST_NODE_IF_STATEMENT] = {.name = "IfStatement"},
     [AST_NODE_SWITCH_STATEMENT] = {.name = "SwitchStatement"},
     [AST_NODE_WHILE_STATEMENT] = {.name = "WhileStatement"},
@@ -133,6 +134,7 @@ static void print_ast(c_grammar_node_t const *node, int indent)
     case AST_NODE_MEMBER_ACCESS_DOT:
     case AST_NODE_MEMBER_ACCESS_ARROW:
     case AST_NODE_CAST_EXPRESSION:
+    case AST_NODE_INIT_DECLARATOR:
     case AST_NODE_IF_STATEMENT:
     case AST_NODE_SWITCH_STATEMENT:
     case AST_NODE_WHILE_STATEMENT:
