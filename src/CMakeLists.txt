@@ -16,11 +16,16 @@ add_executable(${app}
 
 target_compile_options(${app} PRIVATE -Wall -Wextra -Wswitch-enum -pedantic)
 
+# Add LLVM support for linking
+# Map LLVM components to library names.
+# Using Support, Core, and IRReader as components.
+# This assumes find_package in the parent CMakeLists.txt is configured to find these components.
+llvm_map_components_to_libnames(llvm_libs Support Core IRReader)
+
 target_link_libraries(${app} PRIVATE
     c_grammar
-    # Link against LLVM Core and IR libraries
-    LLVM::Core # <-- Added this line
-    LLVM::IR   # <-- Added this line
+    ${llvm_libs}
+    stdc++
 )
 
 target_include_directories(${app} PRIVATE

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 project(c_compiler LANGUAGES C)
 
+set(CMAKE_CXX_STANDARD 11)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -24,7 +26,7 @@ set(LLVM_LIBRARY_DIRS "${LLVM_INSTALL_DIR}/lib")   # Explicitly set library dirs
 
 # Find LLVM core and IR components
 # REQUIRED COMPONENTS Core IR means we need these specific modules
-find_package(LLVM REQUIRED COMPONENTS Core IR)
+find_package(LLVM REQUIRED COMPONENTS Support Core IRReader)
 
 # Check if LLVM was found and display its version
 if(LLVM_FOUND)
