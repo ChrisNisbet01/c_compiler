@@ -194,6 +194,7 @@ handle_float_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 static void
 handle_integer_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
         for (int i = 0; i < count; i++)
@@ -204,38 +205,13 @@ handle_integer_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INTEGER_VALUE);
-    if (count == 1)
-    {
-        ast_node->data.list.children = realloc(
-            ast_node->data.list.children, (ast_node->data.list.count + 1) * sizeof(*ast_node->data.list.children)
-        );
-        if (ast_node->data.list.children == NULL)
-        {
-            epc_ast_builder_set_error(ctx, "Memory allocation failed");
-            return;
-        }
-        /* Create an empty suffix node and append that to the value node. */
-        c_grammar_node_t * suffix_node = create_empty_terminal_node(AST_NODE_LITERAL_SUFFIX);
-        if (suffix_node == NULL)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                c_grammar_node_free(children[i], user_data);
-            }
-            c_grammar_node_free(ast_node, user_data);
-            epc_ast_builder_set_error(ctx, "Memory allocation failed");
-            return;
-        }
-        suffix_node->data.terminal.text = strdup("");
-        ast_node->data.list.children[ast_node->data.list.count] = suffix_node;
-        ast_node->data.list.count++;
-    }
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_float_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
         for (int i = 0; i < count; i++)
@@ -246,34 +222,6 @@ handle_float_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FLOAT_VALUE);
-
-    if (count == 1)
-    {
-        ast_node->data.list.children = realloc(
-            ast_node->data.list.children, (ast_node->data.list.count + 1) * sizeof(*ast_node->data.list.children)
-        );
-        if (ast_node->data.list.children == NULL)
-        {
-            epc_ast_builder_set_error(ctx, "Memory allocation failed");
-            return;
-        }
-        /* Create an empty suffix node and append that to the value node. */
-        c_grammar_node_t * suffix_node = create_empty_terminal_node(AST_NODE_LITERAL_SUFFIX);
-        if (suffix_node == NULL)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                c_grammar_node_free(children[i], user_data);
-            }
-            c_grammar_node_free(ast_node, user_data);
-            epc_ast_builder_set_error(ctx, "Memory allocation failed");
-            return;
-        }
-        suffix_node->data.terminal.text = strdup("");
-        ast_node->data.list.children[ast_node->data.list.count] = suffix_node;
-        ast_node->data.list.count++;
-    }
-
     epc_ast_push(ctx, ast_node);
 }
 
