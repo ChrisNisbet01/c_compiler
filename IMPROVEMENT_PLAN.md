@@ -63,8 +63,8 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 
 **Goal:** Move away from hardcoded `int` types.
 
-- [ ] Implement a helper to map C AST type specifiers (e.g., `int`, `float`, `char*`) to `LLVMTypeRef`.
-- [ ] Use this helper in `AST_NODE_DECLARATION` and function definitions instead of default `i32`.
+- [x] Implement a helper to map C AST type specifiers (e.g., `int`, `float`, `char*`) to `LLVMTypeRef`.
+- [x] Use this helper in `AST_NODE_DECLARATION` and function definitions instead of default `i32`.
 
 ## 6. Operators
 
