@@ -478,6 +478,128 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         break;
     }
+    case AST_NODE_WHILE_STATEMENT:
+    {
+        // AST structure for WhileStatement: [ConditionExpression, BodyStatement]
+        if (node->data.list.count < 2)
+        {
+            fprintf(stderr, "IRGen Error: Invalid WhileStatement AST node.\n");
+            return;
+        }
+
+        c_grammar_node_t * condition_node = node->data.list.children[0];
+        c_grammar_node_t * body_node = node->data.list.children[1];
+
+        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+        LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_cond");
+        LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_body");
+        LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_after");
+
+        // Jump to condition block
+        LLVMBuildBr(ctx->builder, cond_block);
+
+        // --- Emit condition block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
+        LLVMValueRef condition_val = process_expression(ctx, condition_node);
+        if (!condition_val)
+        {
+            fprintf(stderr, "IRGen Error: Failed to process condition for WhileStatement.\n");
+            return;
+        }
+
+        // Convert condition to bool (i1) if it's not already.
+        LLVMTypeRef cond_type = LLVMTypeOf(condition_val);
+        if (cond_type != LLVMInt1TypeInContext(ctx->context))
+        {
+            LLVMValueRef zero = LLVMConstNull(cond_type);
+            condition_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val, zero, "cond_bool");
+        }
+
+        LLVMBuildCondBr(ctx->builder, condition_val, body_block, after_block);
+
+        // --- Emit body block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, body_block);
+        process_ast_node(ctx, body_node);
+        // If the body block doesn't already have a terminator, jump back to condition
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+        {
+            LLVMBuildBr(ctx->builder, cond_block);
+        }
+
+        // --- Continue from after block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+        break;
+    }
+    case AST_NODE_IF_STATEMENT:
+    {
+        // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
+        if (node->data.list.count < 2)
+        {
+            fprintf(stderr, "IRGen Error: Invalid IfStatement AST node.\n");
+            return;
+        }
+
+        c_grammar_node_t * condition_node = node->data.list.children[0];
+        c_grammar_node_t * then_node = node->data.list.children[1];
+        c_grammar_node_t * else_node = (node->data.list.count > 2) ? node->data.list.children[2] : NULL;
+
+        LLVMValueRef condition_val = process_expression(ctx, condition_node);
+        if (!condition_val)
+        {
+            fprintf(stderr, "IRGen Error: Failed to process condition for IfStatement.\n");
+            return;
+        }
+
+        // Convert condition to bool (i1) if it's not already.
+        LLVMTypeRef cond_type = LLVMTypeOf(condition_val);
+        if (cond_type != LLVMInt1TypeInContext(ctx->context))
+        {
+            LLVMValueRef zero = LLVMConstNull(cond_type);
+            condition_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val, zero, "if_cond");
+        }
+
+        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+        LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "then");
+        LLVMBasicBlockRef else_block
+            = else_node ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
+        LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "if_merge");
+
+        if (else_node)
+        {
+            LLVMBuildCondBr(ctx->builder, condition_val, then_block, else_block);
+        }
+        else
+        {
+            LLVMBuildCondBr(ctx->builder, condition_val, then_block, merge_block);
+        }
+
+        // --- Emit 'then' block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, then_block);
+        process_ast_node(ctx, then_node);
+        // If the 'then' block doesn't already have a terminator, jump to merge
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+        {
+            LLVMBuildBr(ctx->builder, merge_block);
+        }
+
+        // --- Emit 'else' block if present ---
+        if (else_node)
+        {
+            LLVMPositionBuilderAtEnd(ctx->builder, else_block);
+            process_ast_node(ctx, else_node);
+            // If the 'else' block doesn't already have a terminator, jump to merge
+            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+            {
+                LLVMBuildBr(ctx->builder, merge_block);
+            }
+        }
+
+        // --- Continue from merge block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+        break;
+    }
     case AST_NODE_RETURN_STATEMENT:
     {
         // Handle 'return expression;' or 'return;'.
@@ -719,7 +841,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     {
         /* Expecting two child nodes - base value and suffix. */
         char * base_text = node->data.list.children[0]->data.terminal.text;
-        char * suffix_text = node->data.list.children[1]->data.terminal.text;
+        char * suffix_text = (node->data.list.count > 1) ? node->data.list.children[1]->data.terminal.text : NULL;
 
         char * full_text = NULL;
         int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
@@ -750,7 +872,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     {
         /* Expecting two child nodes - base value and suffix. */
         char * base_text = node->data.list.children[0]->data.terminal.text;
-        char * suffix_text = node->data.list.children[1]->data.terminal.text;
+        char * suffix_text = (node->data.list.count > 1) ? node->data.list.children[1]->data.terminal.text : NULL;
 
         char * full_text = NULL;
         int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
