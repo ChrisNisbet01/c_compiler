@@ -264,7 +264,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Simplified for 'main' function and 'int' return type.
         // A full implementation needs to parse return type, name, and parameters.
 
-        c_grammar_node_t * decl_specifiers_node = NULL;
+        // c_grammar_node_t * decl_specifiers_node = NULL; // Unused for now
         c_grammar_node_t * declarator_node = NULL;
         c_grammar_node_t * compound_stmt_node = NULL;
 
@@ -276,7 +276,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 c_grammar_node_t * child = node->data.list.children[i];
                 if (child->type == AST_NODE_DECL_SPECIFIERS)
                 {
-                    decl_specifiers_node = child;
+                    // decl_specifiers_node = child;
                 }
                 else if (child->type == AST_NODE_DECLARATOR)
                 {
@@ -476,6 +476,69 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             // Generate the store instruction.
             LLVMBuildStore(ctx->builder, rhs_value, lhs_ptr);
         }
+        break;
+    }
+    case AST_NODE_FOR_STATEMENT:
+    {
+        // AST structure for ForStatement: [InitExpr/Decl, CondExpr, PostExpr, BodyStatement]
+        if (node->data.list.count < 4)
+        {
+            fprintf(stderr, "IRGen Error: Invalid ForStatement AST node.\n");
+            return;
+        }
+
+        c_grammar_node_t * init_node = node->data.list.children[0];
+        c_grammar_node_t * cond_node = node->data.list.children[1];
+        c_grammar_node_t * post_node = node->data.list.children[2];
+        c_grammar_node_t * body_node = node->data.list.children[3];
+
+        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+        LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_cond");
+        LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_body");
+        LLVMBasicBlockRef post_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_post");
+        LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_after");
+
+        // 1. Process Init
+        process_ast_node(ctx, init_node);
+        LLVMBuildBr(ctx->builder, cond_block);
+
+        // 2. Emit Cond block
+        LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
+        LLVMValueRef cond_val = process_expression(ctx, cond_node);
+        if (cond_val)
+        {
+            // Convert condition to bool (i1) if it's not already.
+            LLVMTypeRef cond_type = LLVMTypeOf(cond_val);
+            if (cond_type != LLVMInt1TypeInContext(ctx->context))
+            {
+                LLVMValueRef zero = LLVMConstNull(cond_type);
+                cond_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_val, zero, "for_cond_bool");
+            }
+            LLVMBuildCondBr(ctx->builder, cond_val, body_block, after_block);
+        }
+        else
+        {
+            // Empty condition is always true
+            LLVMBuildBr(ctx->builder, body_block);
+        }
+
+        // 3. Emit Body block
+        LLVMPositionBuilderAtEnd(ctx->builder, body_block);
+        process_ast_node(ctx, body_node);
+        // If body doesn't have terminator, jump to post
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+        {
+            LLVMBuildBr(ctx->builder, post_block);
+        }
+
+        // 4. Emit Post block
+        LLVMPositionBuilderAtEnd(ctx->builder, post_block);
+        process_expression(ctx, post_node);
+        LLVMBuildBr(ctx->builder, cond_block);
+
+        // 5. Continue from after block
+        LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
     }
     case AST_NODE_WHILE_STATEMENT:
