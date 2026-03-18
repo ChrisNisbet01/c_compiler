@@ -57,6 +57,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_LOGICAL_AND_EXPRESSION] = {.name = "LogicalAndExpression"},
     [AST_NODE_LOGICAL_OR_EXPRESSION] = {.name = "LogicalOrExpression"},
     [AST_NODE_FUNCTION_CALL] = {.name = "FunctionCall"},
+    [AST_NODE_POSTFIX_EXPRESSION] = {.name = "PostfixExpression"},
     [AST_NODE_ARRAY_SUBSCRIPT] = {.name = "ArraySubscript"},
     [AST_NODE_MEMBER_ACCESS_DOT] = {.name = "MemberAccessDot"},
     [AST_NODE_MEMBER_ACCESS_ARROW] = {.name = "MemberAccessArrow"},
@@ -160,6 +161,7 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_LOGICAL_AND_EXPRESSION:
     case AST_NODE_LOGICAL_OR_EXPRESSION:
     case AST_NODE_FUNCTION_CALL:
+    case AST_NODE_POSTFIX_EXPRESSION:
     case AST_NODE_ARRAY_SUBSCRIPT:
     case AST_NODE_MEMBER_ACCESS_DOT:
     case AST_NODE_MEMBER_ACCESS_ARROW:

@@ -261,24 +261,16 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FUNCTION_DEFINITION:
     {
         // --- Handle Function Definition ---
-        // Simplified for 'main' function and 'int' return type.
-        // A full implementation needs to parse return type, name, and parameters.
-
-        // c_grammar_node_t * decl_specifiers_node = NULL; // Unused for now
         c_grammar_node_t * declarator_node = NULL;
         c_grammar_node_t * compound_stmt_node = NULL;
 
-        // Iterate through children to find relevant parts: DeclSpecifiers, Declarator, CompoundStatement.
+        // Iterate through children to find relevant parts: Declarator, CompoundStatement.
         if (node->data.list.children)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
                 c_grammar_node_t * child = node->data.list.children[i];
-                if (child->type == AST_NODE_DECL_SPECIFIERS)
-                {
-                    // decl_specifiers_node = child;
-                }
-                else if (child->type == AST_NODE_DECLARATOR)
+                if (child->type == AST_NODE_DECLARATOR)
                 {
                     declarator_node = child;
                 }
@@ -295,13 +287,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             return;
         }
 
-        // --- Extract Function Name and Return Type ---
-        // Simplified extraction for 'main' and 'int'.
-        char * func_name = "unknown_function";                          // Default name.
-        LLVMTypeRef return_type = LLVMInt32TypeInContext(ctx->context); // Default return type is int.
+        // --- Extract Function Name ---
+        char * func_name = "unknown_function";
+        c_grammar_node_t * suffix_node = NULL;
 
-        // Parse declarator to get function name.
-        // Assumes a direct identifier in the DirectDeclarator.
         if (declarator_node->data.list.count > 0
             && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
         {
@@ -312,31 +301,71 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
 
-        // TODO: Parse actual return type from decl_specifiers_node.
+        // Find parameter suffix
+        for (size_t i = 0; i < declarator_node->data.list.count; ++i)
+        {
+            if (declarator_node->data.list.children[i]->type == AST_NODE_DECLARATOR_SUFFIX)
+            {
+                suffix_node = declarator_node->data.list.children[i];
+                break;
+            }
+        }
 
-        // --- Create LLVM Function ---
-        // Corrected: For a function with no parameters, pass NULL and 0.
-        LLVMTypeRef param_types[] = {0};
-        unsigned num_params = 0;
-        LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, num_params, false);
+        // --- Extract Parameters ---
+        size_t num_params = 0;
+        LLVMTypeRef * param_types = NULL;
+        char ** param_names = NULL;
+
+        if (suffix_node && suffix_node->data.list.count > 0)
+        {
+            // Each parameter typically has [TypeSpecifier, Declarator]
+            num_params = suffix_node->data.list.count / 2;
+            param_types = malloc(num_params * sizeof(LLVMTypeRef));
+            param_names = malloc(num_params * sizeof(char *));
+
+            for (size_t i = 0; i < num_params; ++i)
+            {
+                // TODO: Map actual types. For now assume int.
+                param_types[i] = LLVMInt32TypeInContext(ctx->context);
+
+                c_grammar_node_t * p_decl = suffix_node->data.list.children[i * 2 + 1];
+                if (p_decl->type == AST_NODE_DECLARATOR && p_decl->data.list.count > 0)
+                {
+                    c_grammar_node_t * p_direct = p_decl->data.list.children[0];
+                    if (p_direct->type == AST_NODE_DIRECT_DECLARATOR && p_direct->data.list.count > 0)
+                    {
+                        param_names[i] = p_direct->data.list.children[0]->data.terminal.text;
+                    }
+                }
+            }
+        }
+
+        LLVMTypeRef return_type = LLVMInt32TypeInContext(ctx->context); // Default int
+        LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, (unsigned)num_params, false);
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
         // Create a basic block for the function's entry point.
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
-        // Position the builder at the end of the entry block.
         LLVMPositionBuilderAtEnd(ctx->builder, entry_block);
 
-        // TODO: Handle function parameters: allocate space and store arguments.
+        // --- Handle function parameters: allocate space and store arguments ---
+        for (size_t i = 0; i < num_params; ++i)
+        {
+            LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
+            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, param_types[i], param_names[i]);
+            LLVMBuildStore(ctx->builder, param_val, alloca_inst);
+            add_symbol(ctx, param_names[i], alloca_inst, param_types[i]);
+        }
+
+        if (param_types) free(param_types);
+        if (param_names) free(param_names);
 
         // Process the compound statement (function body).
         process_ast_node(ctx, compound_stmt_node);
 
         // --- Add a default return if the function doesn't end with one ---
-        // This is a basic check for functions that don't explicitly return.
-        LLVMValueRef last_instr = LLVMGetLastInstruction(entry_block);
-        if (last_instr == NULL || LLVMIsAReturnInst(last_instr) == NULL)
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
-            // If no return instruction was generated, add one. For 'main', typically return 0.
             LLVMBuildRet(ctx->builder, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false));
         }
 
@@ -695,10 +724,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     default:
         // Fallback: Recursively process children for unhandled node types.
-        // This is a basic strategy; specific nodes might need dedicated logic.
         if (node->is_terminal_node)
         {
-            fprintf(stderr, "Need support for terminal node type: %u\n", node->type);
+            // Do nothing for terminal nodes unless handled above
         }
         else if (node->data.list.children != NULL)
         {
@@ -903,12 +931,12 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_INTEGER_VALUE:
     {
         /* Expecting two child nodes - base value and suffix. */
-        char * base_text = node->data.list.children[0]->data.terminal.text;
-        char * suffix_text = (node->data.list.count > 1) ? node->data.list.children[1]->data.terminal.text : NULL;
+        c_grammar_node_t * base_node = node->data.list.children[0];
+        c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
 
-        char * full_text = NULL;
-        int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
-        (void)res;
+        char * base_text = base_node->data.terminal.text;
+        char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
+
         // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
         unsigned long long value = strtoull(base_text, NULL, 0);
 
@@ -928,18 +956,20 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             }
         }
 
-        free(full_text);
         return LLVMConstInt(int_type, value, !is_unsigned);
     }
     case AST_NODE_FLOAT_VALUE:
     {
         /* Expecting two child nodes - base value and suffix. */
-        char * base_text = node->data.list.children[0]->data.terminal.text;
-        char * suffix_text = (node->data.list.count > 1) ? node->data.list.children[1]->data.terminal.text : NULL;
+        c_grammar_node_t * base_node = node->data.list.children[0];
+        c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
+
+        char * base_text = base_node->data.terminal.text;
+        char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
 
         char * full_text = NULL;
-        int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
-        (void)res;
+        asprintf(&full_text, "%s%s", base_text, suffix_text);
+
         long double value = strtold(full_text, NULL);
 
         LLVMTypeRef float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
@@ -977,6 +1007,72 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         }
         break;
     }
+    case AST_NODE_POSTFIX_EXPRESSION:
+    {
+        // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
+        if (node->data.list.count < 2)
+        {
+            return process_expression(ctx, node->data.list.children[0]);
+        }
+
+        c_grammar_node_t * base_node = node->data.list.children[0];
+        LLVMValueRef base_val = NULL;
+
+        // Special handling if base is an identifier being called as a function
+        if (base_node->type == AST_NODE_IDENTIFIER)
+        {
+            char const * func_name = base_node->data.terminal.text;
+            base_val = LLVMGetNamedFunction(ctx->module, func_name);
+        }
+
+        if (!base_val)
+        {
+            base_val = process_expression(ctx, base_node);
+        }
+
+        for (size_t i = 1; i < node->data.list.count; ++i)
+        {
+            c_grammar_node_t * suffix = node->data.list.children[i];
+            if (suffix->type == AST_NODE_FUNCTION_CALL)
+            {
+                // Handle function call. Arguments might be children directly or in an ArgumentList
+                size_t num_args = 0;
+                LLVMValueRef * args = NULL;
+
+                if (suffix->data.list.count > 0)
+                {
+                    num_args = suffix->data.list.count;
+                    args = malloc(num_args * sizeof(LLVMValueRef));
+                    for (size_t j = 0; j < num_args; ++j)
+                    {
+                        args[j] = process_expression(ctx, suffix->data.list.children[j]);
+                    }
+                }
+
+                LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
+                base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, args, (unsigned)num_args, "call_tmp");
+                if (args) free(args);
+            }
+            else
+            {
+                fprintf(stderr, "IRGen Warning: Unhandled postfix suffix type %u\n", suffix->type);
+            }
+        }
+
+        return base_val;
+    }
+    case AST_NODE_FUNCTION_CALL:
+    {
+        // This node type is typically handled as a suffix in AST_NODE_POSTFIX_EXPRESSION.
+        // If it's encountered on its own, it likely means arguments.
+        // Recursive traversal should yield the values.
+        if (node->data.list.count > 0)
+        {
+            // For now, just return the first argument if processed in isolation (rare)
+            return process_expression(ctx, node->data.list.children[0]);
+        }
+        return NULL;
+    }
     case AST_NODE_IDENTIFIER:
     {
         LLVMValueRef var_ptr;
@@ -1001,11 +1097,16 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_BINARY_OP:
     {
         // Handle binary operations like '+', '-', '*', '/', etc.
-        // AST structure: [Operator_node, LHS_node, RHS_node].
+        // chainl1 can produce nested structures.
+        if (node->data.list.count == 1)
+        {
+            return process_expression(ctx, node->data.list.children[0]);
+        }
+
         if (node->data.list.count >= 3 && node->data.list.children)
         {
-            c_grammar_node_t * op_node = node->data.list.children[0];
-            c_grammar_node_t * lhs_node = node->data.list.children[1];
+            c_grammar_node_t * lhs_node = node->data.list.children[0];
+            c_grammar_node_t * op_node = node->data.list.children[1];
             c_grammar_node_t * rhs_node = node->data.list.children[2];
 
             LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
@@ -1014,40 +1115,38 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             if (lhs_val && rhs_val && op_node->data.terminal.text)
             {
                 char const * op_str = op_node->data.terminal.text;
+                
                 // Map C operator strings to LLVM IR instructions.
-                if (strcmp(op_str, "+") == 0)
+                // We use strncmp to ignore potential trailing spaces from lexemes
+                if (strncmp(op_str, "+", 1) == 0)
                     return LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
-                if (strcmp(op_str, "-") == 0)
+                if (strncmp(op_str, "-", 1) == 0)
                     return LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
-                if (strcmp(op_str, "*") == 0)
+                if (strncmp(op_str, "*", 1) == 0)
                     return LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
-                // Add more operators as needed (division, modulo, bitwise, etc.).
-                if (strcmp(op_str, "==") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp"); // Corrected: LLVMIntEQ
-                if (strcmp(op_str, "!=") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp"); // Corrected: LLVMIntNE
-                if (strcmp(op_str, "<") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp"); // Corrected: LLVMIntSLT
-                if (strcmp(op_str, ">") == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp"); // Corrected: LLVMIntSGT
-                // ... handle other comparisons like <=, >=
+                if (strncmp(op_str, "/", 1) == 0)
+                    return LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+                
+                if (strncmp(op_str, "==", 2) == 0)
+                    return LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+                if (strncmp(op_str, "!=", 2) == 0)
+                    return LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+                if (strncmp(op_str, "<", 1) == 0)
+                    return LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+                if (strncmp(op_str, ">", 1) == 0)
+                    return LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
             }
             else
             {
                 fprintf(stderr, "IRGen Error: Invalid operands or operator for binary operation.\n");
             }
         }
-        break;
+        return NULL;
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
     default:
-        fprintf(stderr, "IRGen Warning: process_expression called on unexpected node type %d.\n", node->type);
         // Attempt to recursively process if it might yield a value.
-        if (node->is_terminal_node)
-        {
-            fprintf(stderr, "IRGen Warning: and is a terminal node\n");
-        }
-        else if (node->data.list.children != NULL)
+        if (!node->is_terminal_node && node->data.list.children != NULL)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {

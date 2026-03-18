@@ -486,6 +486,22 @@ handle_function_call(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
 }
 
 static void
+handle_postfix_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count == 1)
+    {
+        epc_ast_push(ctx, children[0]);
+        return;
+    }
+
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_POSTFIX_EXPRESSION);
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_array_index(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ARRAY_SUBSCRIPT);
@@ -616,6 +632,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRING_LITERAL, handle_string_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LITERAL_SUFFIX, handle_literal_suffix);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_CALL, handle_function_call);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_EXPRESSION, handle_postfix_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARRAY_INDEX, handle_array_index);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_ARROW, handle_member_access_arrow);

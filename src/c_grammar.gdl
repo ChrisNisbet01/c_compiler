@@ -189,7 +189,7 @@ PostfixPart = FunctionCallPart
             | DecOp
             ;
 
-PostfixExpression = PrimaryExpression PostfixPart*;
+PostfixExpression = (PrimaryExpression PostfixPart*) @AST_ACTION_POSTFIX_EXPRESSION;
 
 UnaryOpRaw = Amp | Star | Plus | Minus | Tilde | Excl;
 UnaryOp = UnaryOpRaw @AST_ACTION_OPERATOR;
