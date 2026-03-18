@@ -18,6 +18,9 @@ static bool find_symbol(
     ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type
 ); // Helper for get_variable_pointer
 
+// Helper to map C types to LLVM types
+static LLVMTypeRef map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers);
+
 // --- Forward Declarations ---
 // Recursive function to process AST nodes
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
@@ -105,6 +108,45 @@ find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr,
 }
 
 // --- IR Generator Context Initialization and Disposal ---
+static LLVMTypeRef
+map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers)
+{
+    if (!specifiers)
+        return LLVMInt32TypeInContext(ctx->context); // Default
+
+    // Handle single type specifier or list of specifiers
+    if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
+    {
+        char const * type_name = specifiers->data.terminal.text;
+        if (strncmp(type_name, "int", 3) == 0)
+            return LLVMInt32TypeInContext(ctx->context);
+        if (strncmp(type_name, "char", 4) == 0)
+            return LLVMInt8TypeInContext(ctx->context);
+        if (strncmp(type_name, "void", 4) == 0)
+            return LLVMVoidTypeInContext(ctx->context);
+        if (strncmp(type_name, "float", 5) == 0)
+            return LLVMFloatTypeInContext(ctx->context);
+        if (strncmp(type_name, "double", 6) == 0)
+            return LLVMDoubleTypeInContext(ctx->context);
+        if (strncmp(type_name, "long", 4) == 0)
+            return LLVMInt64TypeInContext(ctx->context);
+        if (strncmp(type_name, "short", 5) == 0)
+            return LLVMInt16TypeInContext(ctx->context);
+    }
+    else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
+    {
+        // Recursively check children for type specifiers.
+        // For now, just find the first one.
+        for (size_t i = 0; i < specifiers->data.list.count; ++i)
+        {
+            LLVMTypeRef t = map_type(ctx, specifiers->data.list.children[i]);
+            if (t)
+                return t;
+        }
+    }
+
+    return LLVMInt32TypeInContext(ctx->context); // Default fallback
+}
 
 /**
  * @brief Initializes the IR generator context.
@@ -261,6 +303,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FUNCTION_DEFINITION:
     {
         // --- Handle Function Definition ---
+        c_grammar_node_t * decl_specifiers_node = NULL;
         c_grammar_node_t * declarator_node = NULL;
         c_grammar_node_t * compound_stmt_node = NULL;
 
@@ -270,7 +313,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
                 c_grammar_node_t * child = node->data.list.children[i];
-                if (child->type == AST_NODE_DECLARATOR)
+                if (child->type == AST_NODE_DECL_SPECIFIERS)
+                {
+                    decl_specifiers_node = child;
+                }
+                else if (child->type == AST_NODE_DECLARATOR)
                 {
                     declarator_node = child;
                 }
@@ -325,8 +372,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             for (size_t i = 0; i < num_params; ++i)
             {
-                // TODO: Map actual types. For now assume int.
-                param_types[i] = LLVMInt32TypeInContext(ctx->context);
+                c_grammar_node_t * p_spec = suffix_node->data.list.children[i * 2];
+                param_types[i] = map_type(ctx, p_spec);
 
                 c_grammar_node_t * p_decl = suffix_node->data.list.children[i * 2 + 1];
                 if (p_decl->type == AST_NODE_DECLARATOR && p_decl->data.list.count > 0)
@@ -340,7 +387,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
 
-        LLVMTypeRef return_type = LLVMInt32TypeInContext(ctx->context); // Default int
+        LLVMTypeRef return_type = map_type(ctx, decl_specifiers_node);
         LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, (unsigned)num_params, false);
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
@@ -357,8 +404,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             add_symbol(ctx, param_names[i], alloca_inst, param_types[i]);
         }
 
-        if (param_types) free(param_types);
-        if (param_names) free(param_names);
+        if (param_types)
+            free(param_types);
+        if (param_names)
+            free(param_names);
 
         // Process the compound statement (function body).
         process_ast_node(ctx, compound_stmt_node);
@@ -390,8 +439,17 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Example: 'int i = 42;'
         // Children are typically: [DeclSpecifiers, InitDeclaratorList] or [DeclSpecifiers, Declarator]
 
-        LLVMTypeRef var_type = LLVMInt32TypeInContext(ctx->context); // Default type: int.
-        // TODO: Parse actual type from DeclSpecifiers.
+        c_grammar_node_t * decl_specifiers = NULL;
+        for (size_t i = 0; i < node->data.list.count; ++i)
+        {
+            if (node->data.list.children[i]->type == AST_NODE_DECL_SPECIFIERS)
+            {
+                decl_specifiers = node->data.list.children[i];
+                break;
+            }
+        }
+
+        LLVMTypeRef var_type = map_type(ctx, decl_specifiers);
 
         // Process InitDeclarators to create variables and initialize them.
         for (size_t i = 0; i < node->data.list.count; ++i)
@@ -643,14 +701,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             return;
         }
 
-        // Convert condition to bool (i1) if it's not already.
-        LLVMTypeRef cond_type = LLVMTypeOf(condition_val);
-        if (cond_type != LLVMInt1TypeInContext(ctx->context))
-        {
-            LLVMValueRef zero = LLVMConstNull(cond_type);
-            condition_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val, zero, "if_cond");
-        }
-
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
         LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "then");
@@ -670,7 +720,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Emit 'then' block ---
         LLVMPositionBuilderAtEnd(ctx->builder, then_block);
         process_ast_node(ctx, then_node);
-        // If the 'then' block doesn't already have a terminator, jump to merge
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
             LLVMBuildBr(ctx->builder, merge_block);
@@ -681,7 +730,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             LLVMPositionBuilderAtEnd(ctx->builder, else_block);
             process_ast_node(ctx, else_node);
-            // If the 'else' block doesn't already have a terminator, jump to merge
             if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
             {
                 LLVMBuildBr(ctx->builder, merge_block);
@@ -1051,7 +1099,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 
                 LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
                 base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, args, (unsigned)num_args, "call_tmp");
-                if (args) free(args);
+                if (args)
+                    free(args);
             }
             else
             {
@@ -1095,6 +1144,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         break;
     }
     case AST_NODE_BINARY_OP:
+    case AST_NODE_RELATIONAL_EXPRESSION:
+    case AST_NODE_EQUALITY_EXPRESSION:
     {
         // Handle binary operations like '+', '-', '*', '/', etc.
         // chainl1 can produce nested structures.
@@ -1115,26 +1166,43 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             if (lhs_val && rhs_val && op_node->data.terminal.text)
             {
                 char const * op_str = op_node->data.terminal.text;
-                
-                // Map C operator strings to LLVM IR instructions.
-                // We use strncmp to ignore potential trailing spaces from lexemes
+                LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+                LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+
+                // Check if the type is a float or double
+                bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
                 if (strncmp(op_str, "+", 1) == 0)
-                    return LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
+                    return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
+                                       : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
                 if (strncmp(op_str, "-", 1) == 0)
-                    return LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
+                    return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
+                                       : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
                 if (strncmp(op_str, "*", 1) == 0)
-                    return LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
+                    return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
+                                       : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
                 if (strncmp(op_str, "/", 1) == 0)
-                    return LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
-                
+                    return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
+                                       : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+
                 if (strncmp(op_str, "==", 2) == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
+                                       : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
                 if (strncmp(op_str, "!=", 2) == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
+                                       : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
                 if (strncmp(op_str, "<", 1) == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
+                                       : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
                 if (strncmp(op_str, ">", 1) == 0)
-                    return LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
+                                       : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+                if (strncmp(op_str, "<=", 2) == 0)
+                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
+                                       : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
+                if (strncmp(op_str, ">=", 2) == 0)
+                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
+                                       : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
             }
             else
             {

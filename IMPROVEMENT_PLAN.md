@@ -50,14 +50,14 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 **Goal:** Support function calls and parameters.
 
 ### 4.1 Function Definition
-- [ ] Update `AST_NODE_FUNCTION_DEFINITION` in `src/llvm_ir_generator.c` to handle parameters.
-    - Add parameters to the symbol table so they can be referenced in the body.
+- [x] Update `AST_NODE_FUNCTION_DEFINITION` in `src/llvm_ir_generator.c` to handle parameters.
+    - [x] Add parameters to the symbol table so they can be referenced in the body.
 
 ### 4.2 Function Calls
-- [ ] Implement `AST_NODE_FUNCTION_CALL` in `src/llvm_ir_generator.c` (`process_expression`).
-    - Resolve the function name.
-    - Process arguments.
-    - Generate `LLVMBuildCall2`.
+- [x] Implement `AST_NODE_FUNCTION_CALL` in `src/llvm_ir_generator.c` (`process_expression`).
+    - [x] Resolve the function name.
+    - [x] Process arguments.
+    - [x] Generate `LLVMBuildCall2`.
 
 ## 5. Type System (Basic)
 
