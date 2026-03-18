@@ -718,38 +718,60 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_INTEGER_VALUE:
     {
         /* Expecting two child nodes - base value and suffix. */
-        // Handle integer literals like '42'.
+        char * base_text = node->data.list.children[0]->data.terminal.text;
+        char * suffix_text = node->data.list.children[1]->data.terminal.text;
+
         char * full_text = NULL;
-        int res = asprintf(
-            &full_text,
-            "%s%s",
-            node->data.list.children[0]->data.terminal.text,
-            node->data.list.children[1]->data.terminal.text
-        );
+        int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
         (void)res;
-        long long value = strtold(full_text, NULL);
-        // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
-        LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context); // Assume int = i32.
+        // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
+        unsigned long long value = strtoull(base_text, NULL, 0);
+
+        LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context);
+        bool is_unsigned = false;
+
+        if (suffix_text && strlen(suffix_text) > 0)
+        {
+            if (strchr(suffix_text, 'u') || strchr(suffix_text, 'U'))
+            {
+                is_unsigned = true;
+            }
+            if (strstr(suffix_text, "ll") || strstr(suffix_text, "LL") || strchr(suffix_text, 'l')
+                || strchr(suffix_text, 'L'))
+            {
+                int_type = LLVMInt64TypeInContext(ctx->context);
+            }
+        }
+
         free(full_text);
-        return LLVMConstInt(int_type, value, false);
+        return LLVMConstInt(int_type, value, !is_unsigned);
     }
     case AST_NODE_FLOAT_VALUE:
     {
         /* Expecting two child nodes - base value and suffix. */
-        // Handle float literals like '42.0f'.
+        char * base_text = node->data.list.children[0]->data.terminal.text;
+        char * suffix_text = node->data.list.children[1]->data.terminal.text;
+
         char * full_text = NULL;
-        int res = asprintf(
-            &full_text,
-            "%s%s",
-            node->data.list.children[0]->data.terminal.text,
-            node->data.list.children[1]->data.terminal.text
-        );
+        int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
         (void)res;
         long double value = strtold(full_text, NULL);
-        // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
-        LLVMTypeRef double_type = LLVMDoubleTypeInContext(ctx->context); // Assume double = f64.
+
+        LLVMTypeRef float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
+        if (suffix_text && strlen(suffix_text) > 0)
+        {
+            if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
+            {
+                float_type = LLVMFloatTypeInContext(ctx->context);
+            }
+            else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+            {
+                float_type = LLVMX86FP80TypeInContext(ctx->context);
+            }
+        }
+
         free(full_text);
-        return LLVMConstReal(double_type, value);
+        return LLVMConstReal(float_type, value);
     }
     case AST_NODE_STRING_LITERAL:
     {
