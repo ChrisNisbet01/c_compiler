@@ -54,16 +54,17 @@ typedef struct c_grammar_node_t
     {
         struct
         {
-            struct c_grammar_node_t **children;
+            struct c_grammar_node_t ** children;
             size_t count;
         } list;
         struct
         {
-            char *text;
+            char * text;
+            char * suffix; /* Used by AST_NODE_INTEGER_LITERAL and AST_NODE_FLOAT_LITERAL */
             long value;
             long double value_double;
         } terminal;
     } data;
 } c_grammar_node_t;
 
-void c_grammar_node_free(void *node, void *user_data);
+void c_grammar_node_free(void * node, void * user_data);

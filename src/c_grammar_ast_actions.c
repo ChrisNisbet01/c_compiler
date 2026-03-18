@@ -1,14 +1,17 @@
 #include "c_grammar_ast_actions.h"
-#include "c_grammar_ast.h"
+
 #include "c_grammar_actions.h"
+#include "c_grammar_ast.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void c_grammar_node_free(void *node_ptr, void *user_data)
+void
+c_grammar_node_free(void * node_ptr, void * user_data)
 {
     (void)user_data;
-    c_grammar_node_t *node = (c_grammar_node_t *)node_ptr;
+    c_grammar_node_t * node = (c_grammar_node_t *)node_ptr;
 
     if (node == NULL)
     {
@@ -31,9 +34,9 @@ void c_grammar_node_free(void *node_ptr, void *user_data)
 }
 
 static c_grammar_node_t *
-create_list_node(c_grammar_node_type_t type, void **children, int count)
+create_list_node(c_grammar_node_type_t type, void ** children, int count)
 {
-    c_grammar_node_t *node = calloc(1, sizeof(*node));
+    c_grammar_node_t * node = calloc(1, sizeof(*node));
     if (node == NULL)
     {
         return NULL;
@@ -58,16 +61,16 @@ create_list_node(c_grammar_node_type_t type, void **children, int count)
 }
 
 static c_grammar_node_t *
-create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t *node)
+create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t * node)
 {
-    c_grammar_node_t *ast_node = calloc(1, sizeof(*ast_node));
+    c_grammar_node_t * ast_node = calloc(1, sizeof(*ast_node));
     if (ast_node == NULL)
     {
         return NULL;
     }
     ast_node->type = type;
     ast_node->is_terminal_node = true;
-    const char *text = epc_cpt_node_get_semantic_content(node);
+    char const * text = epc_cpt_node_get_semantic_content(node);
     ast_node->data.terminal.text = strndup(text, epc_cpt_node_get_semantic_len(node));
     return ast_node;
 }
@@ -76,16 +79,17 @@ create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t *node)
 
 static c_grammar_node_t *
 handle_list_node(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
+    epc_ast_builder_ctx_t * ctx,
+    epc_cpt_node_t * node,
+    void ** children,
     int count,
-    void *user_data,
-    c_grammar_node_type_t type)
+    void * user_data,
+    c_grammar_node_type_t type
+)
 {
     (void)node;
 
-    c_grammar_node_t *ast_node = create_list_node(type, children, count);
+    c_grammar_node_t * ast_node = create_list_node(type, children, count);
     if (ast_node == NULL)
     {
         for (int i = 0; i < count; i++)
@@ -99,59 +103,42 @@ handle_list_node(
 
 static void
 handle_translation_unit(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TRANSLATION_UNIT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TRANSLATION_UNIT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_function_definition(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FUNCTION_DEFINITION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FUNCTION_DEFINITION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_compound_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_COMPOUND_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_COMPOUND_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_declaration(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_declaration(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_integer_literal(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
     if (count > 0)
     {
@@ -163,7 +150,7 @@ handle_integer_literal(
         return;
     }
 
-    c_grammar_node_t *ast_node = create_terminal_node(AST_NODE_INTEGER_LITERAL, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_INTEGER_LITERAL, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
@@ -174,12 +161,7 @@ handle_integer_literal(
 }
 
 static void
-handle_float_literal(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -191,7 +173,7 @@ handle_float_literal(
         return;
     }
 
-    c_grammar_node_t *ast_node = create_terminal_node(AST_NODE_FLOAT_LITERAL, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_FLOAT_LITERAL, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
@@ -203,12 +185,7 @@ handle_float_literal(
 }
 
 static void
-handle_identifier(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_identifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -220,7 +197,7 @@ handle_identifier(
         return;
     }
 
-    c_grammar_node_t *ast_node = create_terminal_node(AST_NODE_IDENTIFIER, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_IDENTIFIER, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
@@ -231,35 +208,22 @@ handle_identifier(
 
 static void
 handle_decl_specifiers(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECL_SPECIFIERS);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECL_SPECIFIERS);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_assignment(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASSIGNMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASSIGNMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_type_specifier(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_type_specifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -271,7 +235,7 @@ handle_type_specifier(
         return;
     }
 
-    c_grammar_node_t *ast_node = create_terminal_node(AST_NODE_TYPE_SPECIFIER, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_TYPE_SPECIFIER, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
@@ -281,36 +245,21 @@ handle_type_specifier(
 }
 
 static void
-handle_binary_op(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_binary_op(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BINARY_OP);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BINARY_OP);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_unary_op(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_unary_op(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNARY_OP);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNARY_OP);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_operator(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -322,7 +271,7 @@ handle_operator(
         return;
     }
 
-    c_grammar_node_t *ast_node = create_terminal_node(AST_NODE_OPERATOR, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_OPERATOR, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
@@ -332,48 +281,32 @@ handle_operator(
 }
 
 static void
-handle_declarator(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_declarator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATOR);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATOR);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_direct_declarator(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DIRECT_DECLARATOR);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DIRECT_DECLARATOR);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_declarator_suffix(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATOR_SUFFIX);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATOR_SUFFIX);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_pointer(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_pointer(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -385,7 +318,7 @@ handle_pointer(
         return;
     }
 
-    c_grammar_node_t *ast_node = create_terminal_node(AST_NODE_POINTER, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_POINTER, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
@@ -396,269 +329,197 @@ handle_pointer(
 
 static void
 handle_relational_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RELATIONAL_EXPRESSION);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RELATIONAL_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_equality_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_EQUALITY_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_EQUALITY_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_and_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_and_expression(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_AND_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_AND_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_exclusive_or_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_EXCLUSIVE_OR_EXPRESSION);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_EXCLUSIVE_OR_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_inclusive_or_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INCLUSIVE_OR_EXPRESSION);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INCLUSIVE_OR_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_logical_and_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_AND_EXPRESSION);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_AND_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_logical_or_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_OR_EXPRESSION);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_OR_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_function_call(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_function_call(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FUNCTION_CALL);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FUNCTION_CALL);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_array_index(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_array_index(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ARRAY_SUBSCRIPT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ARRAY_SUBSCRIPT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_member_access_dot(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_MEMBER_ACCESS_DOT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_MEMBER_ACCESS_DOT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_member_access_arrow(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_MEMBER_ACCESS_ARROW);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_MEMBER_ACCESS_ARROW);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_cast_expression(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CAST_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CAST_EXPRESSION);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_init_declarator(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INIT_DECLARATOR);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INIT_DECLARATOR);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_if_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_if_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_IF_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_IF_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_switch_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SWITCH_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SWITCH_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_while_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_WHILE_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_WHILE_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_do_while_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DO_WHILE_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DO_WHILE_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_for_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_for_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FOR_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FOR_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_goto_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+handle_goto_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_GOTO_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_GOTO_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_continue_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CONTINUE_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CONTINUE_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_break_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BREAK_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BREAK_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
 handle_return_statement(
-    epc_ast_builder_ctx_t *ctx,
-    epc_cpt_node_t *node,
-    void **children,
-    int count,
-    void *user_data)
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t *ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RETURN_STATEMENT);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RETURN_STATEMENT);
     epc_ast_push(ctx, ast_node);
 }
 
-void c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t *registry)
+void
+c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
     epc_ast_hook_registry_set_free_node(registry, c_grammar_node_free);
 
