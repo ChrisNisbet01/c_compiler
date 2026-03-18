@@ -61,7 +61,7 @@ create_list_node(c_grammar_node_type_t type, void ** children, int count)
 }
 
 static c_grammar_node_t *
-create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t * node)
+create_empty_terminal_node(c_grammar_node_type_t type)
 {
     c_grammar_node_t * ast_node = calloc(1, sizeof(*ast_node));
     if (ast_node == NULL)
@@ -70,6 +70,17 @@ create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t * node)
     }
     ast_node->type = type;
     ast_node->is_terminal_node = true;
+    return ast_node;
+}
+
+static c_grammar_node_t *
+create_terminal_node(c_grammar_node_type_t type, epc_cpt_node_t * node)
+{
+    c_grammar_node_t * ast_node = create_empty_terminal_node(type);
+    if (ast_node == NULL)
+    {
+        return NULL;
+    }
     char const * text = epc_cpt_node_get_semantic_content(node);
     ast_node->data.terminal.text = strndup(text, epc_cpt_node_get_semantic_len(node));
     return ast_node;
@@ -136,9 +147,7 @@ handle_declaration(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
 }
 
 static void
-handle_integer_literal(
-    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
-)
+handle_integer_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -146,22 +155,21 @@ handle_integer_literal(
         {
             c_grammar_node_free(children[i], user_data);
         }
-        epc_ast_builder_set_error(ctx, "Integer literal expected no children, but got %u", count);
+        epc_ast_builder_set_error(ctx, "Integer base expected no children, but got %u", count);
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_INTEGER_LITERAL, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_INTEGER_BASE, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
         return;
     }
-    ast_node->data.terminal.value = strtol(ast_node->data.terminal.text, NULL, 0);
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+handle_float_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
     {
@@ -169,18 +177,147 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         {
             c_grammar_node_free(children[i], user_data);
         }
-        epc_ast_builder_set_error(ctx, "Integer literal expected no children, but got %u", count);
+        epc_ast_builder_set_error(ctx, "Float base expected no children, but got %u", count);
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_FLOAT_LITERAL, node);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_FLOAT_BASE, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
         return;
     }
-    ast_node->data.terminal.value_double = strtold(ast_node->data.terminal.text, NULL);
 
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_integer_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count == 0 || count > 2)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "Integer value expected 1 or 2 children, but got %u", count);
+        return;
+    }
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INTEGER_VALUE);
+    if (count == 1)
+    {
+        ast_node->data.list.children = realloc(
+            ast_node->data.list.children, (ast_node->data.list.count + 1) * sizeof(*ast_node->data.list.children)
+        );
+        if (ast_node->data.list.children == NULL)
+        {
+            epc_ast_builder_set_error(ctx, "Memory allocation failed");
+            return;
+        }
+        /* Create an empty suffix node and append that to the value node. */
+        c_grammar_node_t * suffix_node = create_empty_terminal_node(AST_NODE_LITERAL_SUFFIX);
+        if (suffix_node == NULL)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                c_grammar_node_free(children[i], user_data);
+            }
+            c_grammar_node_free(ast_node, user_data);
+            epc_ast_builder_set_error(ctx, "Memory allocation failed");
+            return;
+        }
+        suffix_node->data.terminal.text = strdup("");
+        ast_node->data.list.children[ast_node->data.list.count] = suffix_node;
+        ast_node->data.list.count++;
+    }
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_float_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count == 0 || count > 2)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "Float value expected 1 or 2 children, but got %u", count);
+        return;
+    }
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FLOAT_VALUE);
+
+    if (count == 1)
+    {
+        ast_node->data.list.children = realloc(
+            ast_node->data.list.children, (ast_node->data.list.count + 1) * sizeof(*ast_node->data.list.children)
+        );
+        if (ast_node->data.list.children == NULL)
+        {
+            epc_ast_builder_set_error(ctx, "Memory allocation failed");
+            return;
+        }
+        /* Create an empty suffix node and append that to the value node. */
+        c_grammar_node_t * suffix_node = create_empty_terminal_node(AST_NODE_LITERAL_SUFFIX);
+        if (suffix_node == NULL)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                c_grammar_node_free(children[i], user_data);
+            }
+            c_grammar_node_free(ast_node, user_data);
+            epc_ast_builder_set_error(ctx, "Memory allocation failed");
+            return;
+        }
+        suffix_node->data.terminal.text = strdup("");
+        ast_node->data.list.children[ast_node->data.list.count] = suffix_node;
+        ast_node->data.list.count++;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_string_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count > 0)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "String literal expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_STRING_LITERAL, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_literal_suffix(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count > 0)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "Literal suffix expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_LITERAL_SUFFIX, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
     epc_ast_push(ctx, ast_node);
 }
 
@@ -524,8 +661,12 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_free_node(registry, c_grammar_node_free);
 
     epc_ast_hook_registry_set_action(registry, AST_ACTION_IDENTIFIER, handle_identifier);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_LITERAL, handle_integer_literal);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_LITERAL, handle_float_literal);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_BASE, handle_integer_base);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_BASE, handle_float_base);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_VALUE, handle_integer_value);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_VALUE, handle_float_value);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRING_LITERAL, handle_string_literal);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_LITERAL_SUFFIX, handle_literal_suffix);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_CALL, handle_function_call);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARRAY_INDEX, handle_array_index);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);

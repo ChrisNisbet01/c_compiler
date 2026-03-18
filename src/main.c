@@ -1,39 +1,43 @@
 #include "c_grammar.h"
-#include "callbacks.h"
 #include "c_grammar_ast.h"
 #include "c_grammar_ast_actions.h"
+#include "callbacks.h"
 
 // Include for LLVM IR Generator
 #include "llvm_ir_generator.h"
 
 #include <easy_pc/easy_pc.h>
+#include <getopt.h>  // For getopt_long
+#include <stdbool.h> // For bool type
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h> // For bool type
-#include <getopt.h>  // For getopt_long
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 // --- Global variables to store parsed command-line options ---
 static bool compile_only_flag = false;
-static char *output_filename = "a.out";
-static char *march_target = "x86-64";
+static char * output_filename = "a.out";
+static char * march_target = "x86-64";
 
 typedef struct
 {
-    const char *name;
+    char const * name;
 } node_type_name_t;
 
-static void print_ast(c_grammar_node_t const *node, int indent);
+static void print_ast(c_grammar_node_t const * node, int indent);
 
 static node_type_name_t const node_type_names[] = {
     [AST_NODE_TRANSLATION_UNIT] = {.name = "TranslationUnit"},
     [AST_NODE_FUNCTION_DEFINITION] = {.name = "FunctionDefinition"},
     [AST_NODE_COMPOUND_STATEMENT] = {.name = "CompoundStatement"},
     [AST_NODE_DECLARATION] = {.name = "Declaration"},
-    [AST_NODE_INTEGER_LITERAL] = {.name = "IntegerLiteral"},
-    [AST_NODE_FLOAT_LITERAL] = {.name = "FloatLiteral"},
+    [AST_NODE_INTEGER_BASE] = {.name = "IntegerLiteral"},
+    [AST_NODE_FLOAT_BASE] = {.name = "FloatLiteral"},
+    [AST_NODE_INTEGER_VALUE] = {.name = "IntegerValue"},
+    [AST_NODE_FLOAT_VALUE] = {.name = "FloatValue"},
+    [AST_NODE_STRING_LITERAL] = {.name = "StringLiteral"},
+    [AST_NODE_LITERAL_SUFFIX] = {.name = "LiteralSuffix"},
     [AST_NODE_IDENTIFIER] = {.name = "Identifier"},
     [AST_NODE_DECL_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
     [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
@@ -83,14 +87,15 @@ get_node_type_name(c_grammar_node_type_t const type)
 }
 
 static void
-print_list_type_ast_node(c_grammar_node_t const *node, int indent)
+print_list_type_ast_node(c_grammar_node_t const * node, int indent)
 {
     printf("%s (%zu children)\n", get_node_type_name(node->type), node->data.list.count);
     for (size_t i = 0; i < node->data.list.count; i++)
         print_ast(node->data.list.children[i], indent + 1);
 }
 
-static void print_ast(c_grammar_node_t const *node, int indent)
+static void
+print_ast(c_grammar_node_t const * node, int indent)
 {
     if (node == NULL)
     {
@@ -105,12 +110,20 @@ static void print_ast(c_grammar_node_t const *node, int indent)
 
     switch (node->type)
     {
-    case AST_NODE_INTEGER_LITERAL:
-        printf("IntegerLiteral: %s (%ld)\n", node->data.terminal.text, node->data.terminal.value);
+    case AST_NODE_INTEGER_BASE:
+        printf("IntegerBase: %s\n", node->data.terminal.text);
         break;
 
-    case AST_NODE_FLOAT_LITERAL:
-        printf("FloatLiteral: %s (%Lf)\n", node->data.terminal.text, node->data.terminal.value_double);
+    case AST_NODE_FLOAT_BASE:
+        printf("FloatBase: %s\n", node->data.terminal.text);
+        break;
+
+    case AST_NODE_STRING_LITERAL:
+        printf("StringLiteral: %s\n", node->data.terminal.text);
+        break;
+
+    case AST_NODE_LITERAL_SUFFIX:
+        printf("LiteralSuffix: %s\n", node->data.terminal.text);
         break;
 
     case AST_NODE_IDENTIFIER:
@@ -125,6 +138,8 @@ static void print_ast(c_grammar_node_t const *node, int indent)
         printf("TypeSpecifier: %s\n", node->data.terminal.text);
         break;
 
+    case AST_NODE_INTEGER_VALUE:
+    case AST_NODE_FLOAT_VALUE:
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
     case AST_NODE_COMPOUND_STATEMENT:
@@ -175,7 +190,7 @@ static void print_ast(c_grammar_node_t const *node, int indent)
 
 typedef struct
 {
-    char **names;    // Dynamically allocated array of names
+    char ** names;   // Dynamically allocated array of names
     size_t count;    // Current number of names
     size_t capacity; // Current capacity of the names array
 } symbol_table_t;
@@ -183,7 +198,7 @@ typedef struct
 symbol_table_t *
 symbol_table_create()
 {
-    symbol_table_t *st = calloc(1, sizeof(symbol_table_t));
+    symbol_table_t * st = calloc(1, sizeof(symbol_table_t));
     if (st == NULL)
         return NULL;
 
@@ -198,7 +213,8 @@ symbol_table_create()
     return st;
 }
 
-void symbol_table_free(symbol_table_t *st)
+void
+symbol_table_free(symbol_table_t * st)
 {
     if (st == NULL)
     {
@@ -213,7 +229,8 @@ void symbol_table_free(symbol_table_t *st)
     free(st);
 }
 
-void symbol_table_add(symbol_table_t *st, char const *name)
+void
+symbol_table_add(symbol_table_t * st, char const * name)
 {
     if (st == NULL || name == NULL)
     {
@@ -234,7 +251,7 @@ void symbol_table_add(symbol_table_t *st, char const *name)
     if (st->count >= st->capacity)
     {
         st->capacity *= 2;
-        char **new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
+        char ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
         if (new_names == NULL)
         {
             fprintf(stderr, "Error: Failed to resize symbol table names array.\n");
@@ -246,7 +263,8 @@ void symbol_table_add(symbol_table_t *st, char const *name)
     st->names[st->count++] = strdup(name);
 }
 
-bool symbol_table_contains(symbol_table_t *st, char const *name)
+bool
+symbol_table_contains(symbol_table_t * st, char const * name)
 {
     if (st == NULL || name == NULL)
     {
@@ -272,12 +290,12 @@ bool symbol_table_contains(symbol_table_t *st, char const *name)
 
 typedef struct
 {
-    symbol_table_t *symbols;  // For user-defined typedefs
-    symbol_table_t *builtins; // For pre-registered built-in types
-    char **pending;
+    symbol_table_t * symbols;  // For user-defined typedefs
+    symbol_table_t * builtins; // For pre-registered built-in types
+    char ** pending;
     int pending_count;
     int pending_capacity;
-    int *marker_stack;
+    int * marker_stack;
     int marker_top;
     int marker_capacity;
 } parse_session_ctx_t;
@@ -285,7 +303,7 @@ typedef struct
 parse_session_ctx_t *
 session_ctx_create()
 {
-    parse_session_ctx_t *ctx = calloc(1, sizeof(parse_session_ctx_t));
+    parse_session_ctx_t * ctx = calloc(1, sizeof(parse_session_ctx_t));
     if (ctx == NULL)
     {
         return NULL;
@@ -337,7 +355,8 @@ session_ctx_create()
     return ctx;
 }
 
-void session_ctx_free(parse_session_ctx_t *ctx)
+void
+session_ctx_free(parse_session_ctx_t * ctx)
 {
     if (ctx == NULL)
     {
@@ -355,7 +374,8 @@ void session_ctx_free(parse_session_ctx_t *ctx)
     free(ctx);
 }
 
-void session_ctx_push_pending(parse_session_ctx_t *ctx, char const *name)
+void
+session_ctx_push_pending(parse_session_ctx_t * ctx, char const * name)
 {
     if (ctx == NULL || name == NULL)
     {
@@ -364,7 +384,7 @@ void session_ctx_push_pending(parse_session_ctx_t *ctx, char const *name)
     if (ctx->pending_count >= ctx->pending_capacity)
     {
         ctx->pending_capacity *= 2;
-        char **new_pending = realloc(ctx->pending, sizeof(*ctx->pending) * ctx->pending_capacity);
+        char ** new_pending = realloc(ctx->pending, sizeof(*ctx->pending) * ctx->pending_capacity);
         if (new_pending == NULL)
         {
             fprintf(stderr, "Error: Failed to resize pending names array.\n");
@@ -377,32 +397,34 @@ void session_ctx_push_pending(parse_session_ctx_t *ctx, char const *name)
 
 // --- GDL Callbacks and Predicates ---
 
-bool is_typedef_name(epc_cpt_node_t *token, epc_parser_ctx_t *parse_ctx, void *parser_data)
+bool
+is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
     (void)parser_data;
-    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
         return false;
     }
 
-    char const *name = epc_cpt_node_get_semantic_content(token);
+    char const * name = epc_cpt_node_get_semantic_content(token);
     size_t len = epc_cpt_node_get_semantic_len(token);
 
-    char *name_copy = strndup(name, len);
+    char * name_copy = strndup(name, len);
     if (name_copy == NULL)
     {
         return false;
     }
 
-    bool found = symbol_table_contains(session->symbols, name_copy) || symbol_table_contains(session->builtins, name_copy);
+    bool found
+        = symbol_table_contains(session->symbols, name_copy) || symbol_table_contains(session->builtins, name_copy);
 
     free(name_copy);
     return found;
 }
 
 static void
-on_capture_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_data)
+on_capture_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
     (void)parser;
     (void)parse_ctx;
@@ -410,7 +432,7 @@ on_capture_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser
 }
 
 static bool
-on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *parser_data)
+on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
     (void)parser_data;
     if (result.is_error)
@@ -418,15 +440,15 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *pa
         return true;
     }
 
-    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
         return true;
     }
 
-    char const *name = epc_cpt_node_get_semantic_content(result.data.success);
+    char const * name = epc_cpt_node_get_semantic_content(result.data.success);
     size_t len = epc_cpt_node_get_semantic_len(result.data.success);
-    char *name_copy = strndup(name, len);
+    char * name_copy = strndup(name, len);
     if (name_copy == NULL)
     {
         return true;
@@ -439,11 +461,11 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *pa
 }
 
 static void
-on_commit_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_data)
+on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
     (void)parser;
     (void)parser_data;
-    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
         return;
@@ -452,7 +474,8 @@ on_commit_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_
     if (session->marker_top >= session->marker_capacity)
     {
         session->marker_capacity *= 2;
-        int *new_marker_stack = realloc(session->marker_stack, sizeof(*session->marker_stack) * session->marker_capacity);
+        int * new_marker_stack
+            = realloc(session->marker_stack, sizeof(*session->marker_stack) * session->marker_capacity);
         if (new_marker_stack == NULL)
         {
             fprintf(stderr, "Error: Failed to resize marker stack.\n");
@@ -464,10 +487,10 @@ on_commit_entry(epc_parser_t *parser, epc_parser_ctx_t *parse_ctx, void *parser_
 }
 
 static bool
-on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t *parse_ctx, void *parser_data)
+on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
     (void)parser_data;
-    parse_session_ctx_t *session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL || session->marker_top == 0)
     {
         return true;
@@ -501,10 +524,10 @@ epc_wrap_callbacks_t typedef_capture_callbacks = {on_capture_entry, on_capture_e
 epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit};
 
 static void
-generate_output(c_grammar_node_t const *ast_root)
+generate_output(c_grammar_node_t const * ast_root)
 {
     printf("\nStarting LLVM IR Generation...\n");
-    ir_generator_ctx_t *ir_ctx = ir_generator_init();
+    ir_generator_ctx_t * ir_ctx = ir_generator_init();
     if (ir_ctx == NULL)
     {
         fprintf(stderr, "Failed to initialize LLVM IR generator.\n");
@@ -549,7 +572,8 @@ generate_output(c_grammar_node_t const *ast_root)
     return;
 }
 
-static void print_usage(const char *prog_name)
+static void
+print_usage(char const * prog_name)
 {
     fprintf(stderr, "Usage: %s [options] <filename>\n", prog_name);
     fprintf(stderr, "Options:\n");
@@ -559,12 +583,11 @@ static void print_usage(const char *prog_name)
     fprintf(stderr, "  -h, --help      Display this help message\n");
 }
 
-int main(int argc, char *argv[])
+int
+main(int argc, char * argv[])
 {
-    static struct option long_options[] = {
-        {"march", required_argument, 0, 'm'},
-        {"help", no_argument, 0, 'h'},
-        {0, 0, 0, 0}};
+    static struct option long_options[]
+        = {{"march", required_argument, 0, 'm'}, {"help", no_argument, 0, 'h'}, {0, 0, 0, 0}};
 
     int opt;
     int option_index = 0;
@@ -597,17 +620,17 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    char const *filename = argv[optind];
+    char const * filename = argv[optind];
     printf("Attempting to parse C file: %s\n", filename);
 
-    epc_parser_list *list = epc_parser_list_create();
+    epc_parser_list * list = epc_parser_list_create();
     if (list == NULL)
     {
         fprintf(stderr, "Failed to create parser list.\n");
         return EXIT_FAILURE;
     }
 
-    parse_session_ctx_t *session_ctx = session_ctx_create();
+    parse_session_ctx_t * session_ctx = session_ctx_create();
     if (session_ctx == NULL)
     {
         fprintf(stderr, "Failed to create session context.\n");
@@ -615,7 +638,7 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    epc_parser_t *c_parser = create_c_grammar_parser(list);
+    epc_parser_t * c_parser = create_c_grammar_parser(list);
     if (c_parser == NULL)
     {
         fprintf(stderr, "Failed to create C parser.\n");
@@ -628,7 +651,7 @@ int main(int argc, char *argv[])
 
     if (session.result.is_error)
     {
-        epc_parser_error_t *err = session.result.data.error;
+        epc_parser_error_t * err = session.result.data.error;
         fprintf(stderr, "Parse Error: %s\n", err->message);
         fprintf(stderr, "At line %zu, col %zu\n", err->position.line + 1, err->position.col + 1);
         fprintf(stderr, "Expected: %s\n", err->expected);
@@ -641,8 +664,16 @@ int main(int argc, char *argv[])
     }
 
     printf("Successfully parsed the C file!\n");
+    // Print the CPT
+    char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
+    if (cpt_str != NULL)
+    {
+        printf("Concrete Parse Tree:\n%s\n", cpt_str);
+        free(cpt_str);
+    }
 
-    epc_ast_hook_registry_t *registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
+    // Build the AST
+    epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
     if (registry != NULL)
     {
         c_grammar_ast_hook_registry_init(registry);
@@ -650,8 +681,10 @@ int main(int argc, char *argv[])
 
         if (!ast_result.has_error)
         {
-            generate_output((c_grammar_node_t *)ast_result.ast_root);
-            c_grammar_node_free(ast_result.ast_root, NULL);
+            c_grammar_node_t * ast_root = ast_result.ast_root;
+            print_ast(ast_root, 0);
+            generate_output(ast_root);
+            c_grammar_node_free(ast_root, NULL);
         }
         else
         {

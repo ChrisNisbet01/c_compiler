@@ -1,5 +1,7 @@
 #include "llvm_ir_generator.h"
+
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,17 +10,19 @@
 // typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
 
 // Symbol table management functions
-static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef ptr, LLVMTypeRef type);
-static LLVMValueRef get_variable_pointer(
-    ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node, LLVMTypeRef *out_type);
-static void free_symbol_table(ir_generator_ctx_t *ctx);
-static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef *out_ptr, LLVMTypeRef *out_type); // Helper for get_variable_pointer
+static void add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type);
+static LLVMValueRef
+get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t * identifier_node, LLVMTypeRef * out_type);
+static void free_symbol_table(ir_generator_ctx_t * ctx);
+static bool find_symbol(
+    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type
+); // Helper for get_variable_pointer
 
 // --- Forward Declarations ---
 // Recursive function to process AST nodes
-static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *node);
+static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 // Helper function to process expressions and return LLVM ValueRef
-static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t *node);
+static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node);
 // Placeholder for symbol table operations
 // static void add_symbol(ir_generator_ctx_t* ctx, const char* name, LLVMValueRef ptr, LLVMTypeRef type);
 
@@ -29,7 +33,8 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
  * @param ptr The LLVMValueRef pointer to the symbol's memory.
  * @param type The LLVMTypeRef of the symbol.
  */
-static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef ptr, LLVMTypeRef type)
+static void
+add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type)
 {
     if (!ctx || !name || !ptr || !type)
     {
@@ -42,7 +47,7 @@ static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef p
     {
         size_t new_capacity = ctx->symbol_capacity == 0 ? 16 : ctx->symbol_capacity * 2;
         // Reallocate space for the symbol table
-        symbol_t *new_table = realloc(ctx->symbol_table, new_capacity * sizeof(symbol_t));
+        symbol_t * new_table = realloc(ctx->symbol_table, new_capacity * sizeof(symbol_t));
         if (!new_table)
         {
             fprintf(stderr, "IRGen: Failed to resize symbol table.\n");
@@ -76,7 +81,8 @@ static void add_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef p
  * @param out_type Pointer to store the found LLVMTypeRef.
  * @return True if the symbol was found, false otherwise.
  */
-static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef *out_ptr, LLVMTypeRef *out_type)
+static bool
+find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type)
 {
     if (!ctx || !name || !ctx->symbol_table)
     {
@@ -104,9 +110,10 @@ static bool find_symbol(ir_generator_ctx_t *ctx, const char *name, LLVMValueRef 
  * @brief Initializes the IR generator context.
  * Creates LLVM context, module, and builder.
  */
-ir_generator_ctx_t *ir_generator_init()
+ir_generator_ctx_t *
+ir_generator_init()
 {
-    ir_generator_ctx_t *ctx = calloc(1, sizeof(ir_generator_ctx_t));
+    ir_generator_ctx_t * ctx = calloc(1, sizeof(ir_generator_ctx_t));
     if (!ctx)
     {
         fprintf(stderr, "IRGen: Failed to allocate memory for context.\n");
@@ -159,7 +166,8 @@ ir_generator_ctx_t *ir_generator_init()
 /**
  * @brief Frees the symbol table memory.
  */
-static void free_symbol_table(ir_generator_ctx_t *ctx)
+static void
+free_symbol_table(ir_generator_ctx_t * ctx)
 {
     if (!ctx || !ctx->symbol_table)
         return;
@@ -177,7 +185,8 @@ static void free_symbol_table(ir_generator_ctx_t *ctx)
 /**
  * @brief Disposes of the IR generator context and associated LLVM resources.
  */
-void ir_generator_dispose(ir_generator_ctx_t *ctx)
+void
+ir_generator_dispose(ir_generator_ctx_t * ctx)
 {
     if (!ctx)
         return;
@@ -203,7 +212,8 @@ void ir_generator_dispose(ir_generator_ctx_t *ctx)
  * @param ast_root The root node of the AST.
  * @return The LLVM module containing the generated IR, or NULL on failure.
  */
-LLVMModuleRef generate_llvm_ir(ir_generator_ctx_t *ctx, c_grammar_node_t const *ast_root)
+LLVMModuleRef
+generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
 {
     if (!ctx || !ast_root)
     {
@@ -224,7 +234,8 @@ LLVMModuleRef generate_llvm_ir(ir_generator_ctx_t *ctx, c_grammar_node_t const *
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
  */
-static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *node)
+static void
+process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (node == NULL)
     {
@@ -253,16 +264,16 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
         // Simplified for 'main' function and 'int' return type.
         // A full implementation needs to parse return type, name, and parameters.
 
-        c_grammar_node_t *decl_specifiers_node = NULL;
-        c_grammar_node_t *declarator_node = NULL;
-        c_grammar_node_t *compound_stmt_node = NULL;
+        c_grammar_node_t * decl_specifiers_node = NULL;
+        c_grammar_node_t * declarator_node = NULL;
+        c_grammar_node_t * compound_stmt_node = NULL;
 
         // Iterate through children to find relevant parts: DeclSpecifiers, Declarator, CompoundStatement.
         if (node->data.list.children)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
-                c_grammar_node_t *child = node->data.list.children[i];
+                c_grammar_node_t * child = node->data.list.children[i];
                 if (child->type == AST_NODE_DECL_SPECIFIERS)
                 {
                     decl_specifiers_node = child;
@@ -286,14 +297,15 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
 
         // --- Extract Function Name and Return Type ---
         // Simplified extraction for 'main' and 'int'.
-        char *func_name = "unknown_function";                           // Default name.
+        char * func_name = "unknown_function";                          // Default name.
         LLVMTypeRef return_type = LLVMInt32TypeInContext(ctx->context); // Default return type is int.
 
         // Parse declarator to get function name.
         // Assumes a direct identifier in the DirectDeclarator.
-        if (declarator_node->data.list.count > 0 && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
+        if (declarator_node->data.list.count > 0
+            && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
         {
-            c_grammar_node_t *direct_decl = declarator_node->data.list.children[0];
+            c_grammar_node_t * direct_decl = declarator_node->data.list.children[0];
             if (direct_decl->data.list.count > 0 && direct_decl->data.list.children[0]->type == AST_NODE_IDENTIFIER)
             {
                 func_name = direct_decl->data.list.children[0]->data.terminal.text;
@@ -357,22 +369,22 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
         {
             if (node->data.list.children[i]->type == AST_NODE_INIT_DECLARATOR)
             {
-                c_grammar_node_t *init_decl_node = node->data.list.children[i];
+                c_grammar_node_t * init_decl_node = node->data.list.children[i];
 
-                char *var_name = NULL;
-                c_grammar_node_t *initializer_expr_node = NULL; // Node representing the initializer expression.
+                char * var_name = NULL;
+                c_grammar_node_t * initializer_expr_node = NULL; // Node representing the initializer expression.
 
                 // Simplified extraction of variable name from declarator.
-                if (init_decl_node->data.list.count > 0 && init_decl_node->data.list.children[0]->type ==
-                                                               AST_NODE_DECLARATOR)
+                if (init_decl_node->data.list.count > 0
+                    && init_decl_node->data.list.children[0]->type == AST_NODE_DECLARATOR)
                 {
-                    c_grammar_node_t *declarator_node = init_decl_node->data.list.children[0];
-                    if (declarator_node->data.list.count > 0 &&
-                        declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
+                    c_grammar_node_t * declarator_node = init_decl_node->data.list.children[0];
+                    if (declarator_node->data.list.count > 0
+                        && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
                     {
-                        c_grammar_node_t *direct_decl_node = declarator_node->data.list.children[0];
-                        if (direct_decl_node->data.list.count > 0 &&
-                            direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                        c_grammar_node_t * direct_decl_node = declarator_node->data.list.children[0];
+                        if (direct_decl_node->data.list.count > 0
+                            && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
                         {
                             var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
                         }
@@ -407,7 +419,9 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
                         }
                         else
                         {
-                            fprintf(stderr, "IRGen Error: Failed to process initializer for variable\n'%s'\n", var_name);
+                            fprintf(
+                                stderr, "IRGen Error: Failed to process initializer for variable\n'%s'\n", var_name
+                            );
                         }
                     }
                 }
@@ -438,9 +452,9 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
         // Children typically: [LHS_node, Operator_node, RHS_node].
         if (node->data.list.count >= 3 && node->data.list.children)
         {
-            c_grammar_node_t *lhs_node = node->data.list.children[0]; // e.g., AST_NODE_IDENTIFIER.
+            c_grammar_node_t * lhs_node = node->data.list.children[0]; // e.g., AST_NODE_IDENTIFIER.
             // Operator node (e.g., '=') is skipped for simplicity.
-            c_grammar_node_t *rhs_node = node->data.list.children[2]; // The expression to assign.
+            c_grammar_node_t * rhs_node = node->data.list.children[2]; // The expression to assign.
 
             LLVMTypeRef element_type;
             // Get the LLVM ValueRef for the variable's memory location (pointer).
@@ -470,7 +484,7 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
         if (node->data.list.count > 0 && node->data.list.children)
         {
             // Process the return expression.
-            c_grammar_node_t *expr_node = node->data.list.children[0];
+            c_grammar_node_t * expr_node = node->data.list.children[0];
             LLVMValueRef return_value = process_expression(ctx, expr_node);
             if (return_value)
             {
@@ -520,7 +534,8 @@ static void process_ast_node(ir_generator_ctx_t *ctx, c_grammar_node_t const *no
  * @param file_path The path to the output file.
  * @return 0 on success, -1 on failure.
  */
-int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path)
+int
+write_llvm_ir_to_file(LLVMModuleRef module, char const * file_path)
 {
     if (!module || !file_path)
     {
@@ -528,7 +543,7 @@ int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path)
         return -1;
     }
 
-    char *error_message = NULL;
+    char * error_message = NULL;
     // LLVMPrintModuleToFile writes human-readable IR.
     if (LLVMPrintModuleToFile(module, file_path, &error_message))
     {
@@ -550,7 +565,8 @@ int write_llvm_ir_to_file(LLVMModuleRef module, const char *file_path)
  * @param file_type The type of file to emit (LLVMObjectFile or LLVMAssemblyFile).
  * @return 0 on success, -1 on failure.
  */
-int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march, LLVMCodeGenFileType file_type)
+int
+emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, LLVMCodeGenFileType file_type)
 {
     if (!module || !file_path)
     {
@@ -565,8 +581,8 @@ int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march,
     LLVMInitializeX86AsmParser();
     LLVMInitializeX86AsmPrinter();
 
-    char *error = NULL;
-    char *triple = LLVMGetDefaultTargetTriple();
+    char * error = NULL;
+    char * triple = LLVMGetDefaultTargetTriple();
 
     // If march is specified, we might want to adjust the triple or find a specific target.
     // For now, we'll support "x86-64" by ensuring the triple matches.
@@ -590,7 +606,8 @@ int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march,
     // Create target machine
     // Use generic CPU and no features for now.
     LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(
-        target, triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocDefault, LLVMCodeModelDefault);
+        target, triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocDefault, LLVMCodeModelDefault
+    );
 
     if (!target_machine)
     {
@@ -601,7 +618,7 @@ int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march,
 
     // Set module's data layout and triple
     LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
-    char *data_layout_str = LLVMCopyStringRepOfTargetData(data_layout);
+    char * data_layout_str = LLVMCopyStringRepOfTargetData(data_layout);
     LLVMSetDataLayout(module, data_layout_str);
     LLVMSetTarget(module, triple);
 
@@ -617,8 +634,9 @@ int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march,
         return -1;
     }
 
-    printf("IRGen: Successfully emitted %s to %s\n",
-           (file_type == LLVMObjectFile) ? "object code" : "assembly", file_path);
+    printf(
+        "IRGen: Successfully emitted %s to %s\n", (file_type == LLVMObjectFile) ? "object code" : "assembly", file_path
+    );
 
     // Cleanup
     LLVMDisposeMessage(data_layout_str);
@@ -655,16 +673,19 @@ int emit_to_file(LLVMModuleRef module, const char *file_path, const char *march,
  * @param out_type Pointer to store the found LLVMTypeRef (element type).
  * @return The LLVM ValueRef (pointer) if found, NULL otherwise.
  */
-static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node_t *identifier_node,
-                                         LLVMTypeRef *out_type) // Added out_type parameter
+static LLVMValueRef
+get_variable_pointer(
+    ir_generator_ctx_t * ctx,
+    c_grammar_node_t * identifier_node,
+    LLVMTypeRef * out_type
+) // Added out_type parameter
 {
-    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER ||
-        !identifier_node->data.terminal.text)
+    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->data.terminal.text)
     {
         fprintf(stderr, "IRGen Error: Invalid identifier node for get_variable_pointer.\n");
         return NULL;
     }
-    const char *name = identifier_node->data.terminal.text;
+    char const * name = identifier_node->data.terminal.text;
 
     LLVMValueRef var_ptr;
     LLVMTypeRef retrieved_type; // Use a different name to avoid confusion
@@ -686,28 +707,68 @@ static LLVMValueRef get_variable_pointer(ir_generator_ctx_t *ctx, c_grammar_node
  * @brief Processes an expression AST node and returns its LLVM ValueRef.
  * This function recursively handles various expression types.
  */
-static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t *node)
+static LLVMValueRef
+process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 {
     if (!node)
         return NULL;
 
     switch (node->type)
     {
-    case AST_NODE_INTEGER_LITERAL:
+    case AST_NODE_INTEGER_VALUE:
     {
+        /* Expecting two child nodes - base value and suffix. */
         // Handle integer literals like '42'.
-        long long value = node->data.terminal.value;
+        char * full_text = NULL;
+        int res = asprintf(
+            &full_text,
+            "%s%s",
+            node->data.list.children[0]->data.terminal.text,
+            node->data.list.children[1]->data.terminal.text
+        );
+        (void)res;
+        long long value = strtold(full_text, NULL);
         // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
         LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context); // Assume int = i32.
+        free(full_text);
         return LLVMConstInt(int_type, value, false);
     }
-    case AST_NODE_FLOAT_LITERAL:
+    case AST_NODE_FLOAT_VALUE:
     {
+        /* Expecting two child nodes - base value and suffix. */
         // Handle float literals like '42.0f'.
-        long double value = node->data.terminal.value_double;
+        char * full_text = NULL;
+        int res = asprintf(
+            &full_text,
+            "%s%s",
+            node->data.list.children[0]->data.terminal.text,
+            node->data.list.children[1]->data.terminal.text
+        );
+        (void)res;
+        long double value = strtold(full_text, NULL);
         // TODO: Determine the correct LLVM type based on context (e.g., declaration type).
         LLVMTypeRef double_type = LLVMDoubleTypeInContext(ctx->context); // Assume double = f64.
+        free(full_text);
         return LLVMConstReal(double_type, value);
+    }
+    case AST_NODE_STRING_LITERAL:
+    {
+        // Handle string literals like "Hello".
+        if (node->data.terminal.text)
+        {
+            char * raw_text = node->data.terminal.text;
+            size_t len = strlen(raw_text);
+            if (len >= 2 && raw_text[0] == '"' && raw_text[len - 1] == '"')
+            {
+                char * stripped = strndup(raw_text + 1, len - 2);
+                // TODO: Handle escape sequences in the string.
+                LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, stripped, "str_tmp");
+                free(stripped);
+                return global_str;
+            }
+            return LLVMBuildGlobalStringPtr(ctx->builder, raw_text, "str_tmp");
+        }
+        break;
     }
     case AST_NODE_IDENTIFIER:
     {
@@ -736,16 +797,16 @@ static LLVMValueRef process_expression(ir_generator_ctx_t *ctx, c_grammar_node_t
         // AST structure: [Operator_node, LHS_node, RHS_node].
         if (node->data.list.count >= 3 && node->data.list.children)
         {
-            c_grammar_node_t *op_node = node->data.list.children[0];
-            c_grammar_node_t *lhs_node = node->data.list.children[1];
-            c_grammar_node_t *rhs_node = node->data.list.children[2];
+            c_grammar_node_t * op_node = node->data.list.children[0];
+            c_grammar_node_t * lhs_node = node->data.list.children[1];
+            c_grammar_node_t * rhs_node = node->data.list.children[2];
 
             LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
             LLVMValueRef rhs_val = process_expression(ctx, rhs_node);
 
             if (lhs_val && rhs_val && op_node->data.terminal.text)
             {
-                const char *op_str = op_node->data.terminal.text;
+                char const * op_str = op_node->data.terminal.text;
                 // Map C operator strings to LLVM IR instructions.
                 if (strcmp(op_str, "+") == 0)
                     return LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");

@@ -9,8 +9,12 @@ typedef enum
     AST_NODE_FUNCTION_DEFINITION,
     AST_NODE_COMPOUND_STATEMENT,
     AST_NODE_DECLARATION,
-    AST_NODE_INTEGER_LITERAL,
-    AST_NODE_FLOAT_LITERAL,
+    AST_NODE_INTEGER_BASE,
+    AST_NODE_FLOAT_BASE,
+    AST_NODE_INTEGER_VALUE,
+    AST_NODE_FLOAT_VALUE,
+    AST_NODE_STRING_LITERAL,
+    AST_NODE_LITERAL_SUFFIX,
     AST_NODE_IDENTIFIER,
     AST_NODE_DECL_SPECIFIERS,
     AST_NODE_ASSIGNMENT,
@@ -60,9 +64,6 @@ typedef struct c_grammar_node_t
         struct
         {
             char * text;
-            char * suffix; /* Used by AST_NODE_INTEGER_LITERAL and AST_NODE_FLOAT_LITERAL */
-            long value;
-            long double value_double;
         } terminal;
     } data;
 } c_grammar_node_t;

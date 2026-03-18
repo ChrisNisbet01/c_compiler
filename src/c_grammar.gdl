@@ -80,22 +80,24 @@ OctalLiteral = octal;
 DecDigit = [1-9];
 DecimalLiteral = DecDigit digit* | '0';
 
-IntegerLiteral = HexLiteral | OctalLiteral | DecimalLiteral @AST_ACTION_INTEGER_LITERAL;
+IntegerLiteralBase = (HexLiteral | OctalLiteral | DecimalLiteral) @AST_ACTION_INTEGER_BASE;
+IntegerLiteral = (IntegerLiteralBase IntegerSuffix?) @AST_ACTION_INTEGER_VALUE;
 LongSuffix = "ll" | "LL" | oneof("lL");
-IntegerSuffix = (oneof("uU") LongSuffix?) | (LongSuffix oneof("uU")?);
+IntegerSuffix = ((oneof("uU") LongSuffix?) | (LongSuffix oneof("uU")?)) @AST_ACTION_LITERAL_SUFFIX;
 
 DigitSeq = digit+;
 Exponent = oneof("eE") oneof("+-")? DigitSeq;
-FloatSuffix = oneof("fFlL");
+FloatSuffix = oneof("fFlL") @AST_ACTION_LITERAL_SUFFIX;
 
-FloatLiteral = (DigitSeq? '.' DigitSeq Exponent? FloatSuffix?)
-             | (DigitSeq '.' Exponent? FloatSuffix?)
-             | (DigitSeq Exponent FloatSuffix?) @AST_ACTION_FLOAT_LITERAL;
+FloatLiteralBase = ((DigitSeq? '.' DigitSeq Exponent?)
+                 | (DigitSeq '.' Exponent?)
+                 | (DigitSeq Exponent)) @AST_ACTION_FLOAT_BASE;
+FloatLiteral = (FloatLiteralBase FloatSuffix?) @AST_ACTION_FLOAT_VALUE;
 
-NumberLiteral = lexeme((FloatLiteral | (IntegerLiteral IntegerSuffix?)) IdBoundary);
+NumberLiteral = lexeme((FloatLiteral | IntegerLiteral) IdBoundary);
 
 StringChar = ("\\" any) | noneof("\"\\\n\r");
-StringLiteral = lexeme('"' StringChar* '"');
+StringLiteral = lexeme('"' StringChar* '"') @AST_ACTION_STRING_LITERAL;
 
 CharContent = ("\\" any) | noneof("'\\\n\r");
 CharLiteral = lexeme('\'' CharContent+ '\'');
