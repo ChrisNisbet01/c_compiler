@@ -410,7 +410,10 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     for (size_t i = 0; i < type_specifier_node->data.list.count; ++i)
                     {
                         c_grammar_node_t * child = type_specifier_node->data.list.children[i];
-                        if (child && child->is_terminal_node && child->type == AST_NODE_IDENTIFIER)
+                        if (child && child->is_terminal_node && 
+                            (child->type == AST_NODE_IDENTIFIER || 
+                             child->type == AST_NODE_INTEGER_BASE ||
+                             child->type == AST_NODE_FLOAT_BASE))
                         {
                             char const * type_name = child->data.terminal.text;
                             // Check if it's a registered struct type first

@@ -311,7 +311,16 @@ static void
 handle_type_specifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     // Type specifier can have children (e.g., for struct types)
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_SPECIFIER);
+    // When count == 0, the node itself is a terminal (like KwFloat)
+    c_grammar_node_t * ast_node;
+    if (count == 0)
+    {
+        ast_node = create_terminal_node(AST_NODE_TYPE_SPECIFIER, node);
+    }
+    else
+    {
+        ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_SPECIFIER);
+    }
     epc_ast_push(ctx, ast_node);
 }
 
