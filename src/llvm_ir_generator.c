@@ -107,6 +107,49 @@ find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr,
     return false;
 }
 
+static char *
+decode_string(char const * const src)
+{
+    if (src == NULL)
+    {
+        return NULL;
+    }
+
+    size_t const len = strlen(src);
+    char * const decoded = malloc(len + 1);
+    if (decoded == NULL)
+    {
+        return NULL;
+    }
+
+    size_t i = 0;
+    size_t j = 0;
+    while (i < len)
+    {
+        if (src[i] == '\\' && i + 1 < len)
+        {
+            switch (src[i + 1])
+            {
+                case 'n': decoded[j++] = '\n'; break;
+                case 't': decoded[j++] = '\t'; break;
+                case 'r': decoded[j++] = '\r'; break;
+                case '0': decoded[j++] = '\0'; break;
+                case '\\': decoded[j++] = '\\'; break;
+                case '\"': decoded[j++] = '\"'; break;
+                case '\'': decoded[j++] = '\''; break;
+                default: decoded[j++] = src[i + 1]; break;
+            }
+            i += 2;
+        }
+        else
+        {
+            decoded[j++] = src[i++];
+        }
+    }
+    decoded[j] = '\0';
+    return decoded;
+}
+
 // --- IR Generator Context Initialization and Disposal ---
 static c_grammar_node_t *
 find_direct_declarator(c_grammar_node_t * declarator)
@@ -1020,7 +1063,6 @@ get_variable_pointer(
     }
     else
     {
-        fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", name);
         return NULL;
     }
 }
@@ -1107,12 +1149,16 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             if (len >= 2 && raw_text[0] == '"' && raw_text[len - 1] == '"')
             {
                 char * stripped = strndup(raw_text + 1, len - 2);
-                // TODO: Handle escape sequences in the string.
-                LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, stripped, "str_tmp");
+                char * decoded = decode_string(stripped);
+                LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
+                free(decoded);
                 free(stripped);
                 return global_str;
             }
-            return LLVMBuildGlobalStringPtr(ctx->builder, raw_text, "str_tmp");
+            char * decoded = decode_string(raw_text);
+            LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
+            free(decoded);
+            return global_str;
         }
         break;
     }
@@ -1260,8 +1306,12 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         }
         else
         {
-            // get_variable_pointer should have printed an error if var_ptr is NULL.
-            // If element_type is NULL, it's also an error.
+            // Check if it's a function name before reporting error
+            if (LLVMGetNamedFunction(ctx->module, node->data.terminal.text))
+            {
+                return NULL; // It's a function, not a variable to load from
+            }
+            fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
             return NULL;
         }
         break;
