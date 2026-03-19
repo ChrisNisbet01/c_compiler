@@ -1319,6 +1319,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_BINARY_OP:
     case AST_NODE_RELATIONAL_EXPRESSION:
     case AST_NODE_EQUALITY_EXPRESSION:
+    case AST_NODE_AND_EXPRESSION:
+    case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
+    case AST_NODE_INCLUSIVE_OR_EXPRESSION:
     {
         // Handle binary operations like '+', '-', '*', '/', etc.
         // chainl1 can produce nested structures.
@@ -1327,62 +1330,155 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             return process_expression(ctx, node->data.list.children[0]);
         }
 
-        if (node->data.list.count >= 3 && node->data.list.children)
+        if (node->data.list.count >= 2 && node->data.list.children)
         {
-            c_grammar_node_t * lhs_node = node->data.list.children[0];
-            c_grammar_node_t * op_node = node->data.list.children[1];
-            c_grammar_node_t * rhs_node = node->data.list.children[2];
+            LLVMValueRef lhs_val = NULL;
+            LLVMValueRef rhs_val = NULL;
+            char const * op_str = NULL;
 
-            LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
-            LLVMValueRef rhs_val = process_expression(ctx, rhs_node);
-
-            if (lhs_val && rhs_val && op_node->data.terminal.text)
+            if (node->data.list.count == 2)
             {
-                char const * op_str = op_node->data.terminal.text;
+                // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
+                lhs_val = process_expression(ctx, node->data.list.children[0]);
+                rhs_val = process_expression(ctx, node->data.list.children[1]);
+                if (node->type == AST_NODE_AND_EXPRESSION) op_str = "&";
+                else if (node->type == AST_NODE_EXCLUSIVE_OR_EXPRESSION) op_str = "^";
+                else if (node->type == AST_NODE_INCLUSIVE_OR_EXPRESSION) op_str = "|";
+            }
+            else if (node->data.list.count >= 3)
+            {
+                // Standard binary ops: [LHS, OP, RHS]
+                lhs_val = process_expression(ctx, node->data.list.children[0]);
+                rhs_val = process_expression(ctx, node->data.list.children[2]);
+                c_grammar_node_t * op_node = node->data.list.children[1];
+                if (op_node->is_terminal_node) op_str = op_node->data.terminal.text;
+            }
+
+            if (lhs_val && rhs_val && op_str)
+            {
                 LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
                 LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
 
                 // Check if the type is a float or double
                 bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
-                if (strncmp(op_str, "+", 1) == 0)
+                if (strcmp(op_str, "+") == 0)
                     return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
                                        : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
-                if (strncmp(op_str, "-", 1) == 0)
+                if (strcmp(op_str, "-") == 0)
                     return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
                                        : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
-                if (strncmp(op_str, "*", 1) == 0)
+                if (strcmp(op_str, "*") == 0)
                     return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
                                        : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
-                if (strncmp(op_str, "/", 1) == 0)
+                if (strcmp(op_str, "/") == 0)
                     return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
                                        : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+                if (strcmp(op_str, "%") == 0)
+                    return is_float_op ? LLVMBuildFRem(ctx->builder, lhs_val, rhs_val, "frem_tmp")
+                                       : LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
 
-                if (strncmp(op_str, "==", 2) == 0)
+                if (strcmp(op_str, "==") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
-                if (strncmp(op_str, "!=", 2) == 0)
+                if (strcmp(op_str, "!=") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
-                if (strncmp(op_str, "<", 1) == 0)
+                if (strcmp(op_str, "<") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
-                if (strncmp(op_str, ">", 1) == 0)
+                if (strcmp(op_str, ">") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
-                if (strncmp(op_str, "<=", 2) == 0)
+                if (strcmp(op_str, "<=") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
-                if (strncmp(op_str, ">=", 2) == 0)
+                if (strcmp(op_str, ">=") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
-            }
-            else
-            {
-                fprintf(stderr, "IRGen Error: Invalid operands or operator for binary operation.\n");
+
+                // Bitwise Operators
+                if (strcmp(op_str, "&") == 0) return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
+                if (strcmp(op_str, "|") == 0) return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
+                if (strcmp(op_str, "^") == 0) return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
+                if (strcmp(op_str, "<<") == 0) return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
+                if (strcmp(op_str, ">>") == 0) return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
             }
         }
         return NULL;
+    }
+    case AST_NODE_LOGICAL_AND_EXPRESSION:
+    case AST_NODE_LOGICAL_OR_EXPRESSION:
+    {
+        if (node->data.list.count == 1)
+        {
+            return process_expression(ctx, node->data.list.children[0]);
+        }
+
+        bool is_or = (node->type == AST_NODE_LOGICAL_OR_EXPRESSION);
+        c_grammar_node_t * lhs_node = node->data.list.children[0];
+        c_grammar_node_t * rhs_node = node->data.list.children[2];
+
+        LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
+        
+        LLVMBasicBlockRef rhs_block = LLVMAppendBasicBlockInContext(ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_rhs");
+        LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_merge");
+
+        LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
+        // Convert to i1
+        if (LLVMGetTypeKind(LLVMTypeOf(lhs_val)) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(LLVMTypeOf(lhs_val)) != 1)
+        {
+            lhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, LLVMConstNull(LLVMTypeOf(lhs_val)), "bool_tmp");
+        }
+
+        LLVMBuildStore(ctx->builder, lhs_val, res_alloca);
+        if (is_or)
+        {
+            LLVMBuildCondBr(ctx->builder, lhs_val, merge_block, rhs_block);
+        }
+        else
+        {
+            LLVMBuildCondBr(ctx->builder, lhs_val, rhs_block, merge_block);
+        }
+
+        LLVMPositionBuilderAtEnd(ctx->builder, rhs_block);
+        LLVMValueRef rhs_val = process_expression(ctx, rhs_node);
+        if (LLVMGetTypeKind(LLVMTypeOf(rhs_val)) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(LLVMTypeOf(rhs_val)) != 1)
+        {
+            rhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_val, LLVMConstNull(LLVMTypeOf(rhs_val)), "bool_tmp");
+        }
+        LLVMBuildStore(ctx->builder, rhs_val, res_alloca);
+        LLVMBuildBr(ctx->builder, merge_block);
+
+        LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+        return LLVMBuildLoad2(ctx->builder, LLVMInt1TypeInContext(ctx->context), res_alloca, "logical_final");
+    }
+    case AST_NODE_UNARY_OP:
+    {
+        // Unary structure: [Operator, Operand]
+        if (node->data.list.count < 2) return NULL;
+        c_grammar_node_t * op_node = node->data.list.children[0];
+        c_grammar_node_t * operand_node = node->data.list.children[1];
+        LLVMValueRef operand_val = process_expression(ctx, operand_node);
+        if (!operand_val) return NULL;
+
+        char const * op_str = op_node->data.terminal.text;
+        if (strcmp(op_str, "-") == 0)
+        {
+            if (LLVMGetTypeKind(LLVMTypeOf(operand_val)) == LLVMFloatTypeKind || LLVMGetTypeKind(LLVMTypeOf(operand_val)) == LLVMDoubleTypeKind)
+                return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
+            return LLVMBuildNeg(ctx->builder, operand_val, "neg_tmp");
+        }
+        if (strcmp(op_str, "!") == 0)
+        {
+            LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_val, LLVMConstNull(LLVMTypeOf(operand_val)), "not_tmp");
+            return is_zero;
+        }
+        if (strcmp(op_str, "~") == 0)
+        {
+            return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
+        }
+        return operand_val;
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
     default:

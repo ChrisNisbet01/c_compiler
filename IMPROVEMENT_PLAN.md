@@ -15,7 +15,7 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 - [x] Modify `src/c_grammar.gdl` to attach `@AST_ACTION_STRING_LITERAL` to the `StringLiteral` rule.
 - [x] Implement `handle_string_literal` in `src/c_grammar_ast_actions.c` to create the AST node.
 - [x] Update `process_expression` in `src/llvm_ir_generator.c` to handle `AST_NODE_STRING_LITERAL`.
-- [ ] TODO: Handle escape sequences in string literals (e.g., `\n`, `\t`).
+- [x] Handle escape sequences in string literals (e.g., `\n`, `\t`).
 
 ## 2. Improved Integer & Float Literals (with Suffixes)
 
@@ -59,6 +59,7 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
     - [x] Resolve the function name.
     - [x] Process arguments.
     - [x] Generate `LLVMBuildCall2`.
+    - [x] Support auto-declaration of external functions (like `printf`).
 
 ## 5. Type System (Basic)
 
@@ -74,8 +75,10 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 
 **Goal:** Expand binary/unary operator support.
 
-- [ ] Add support for bitwise operators (`&`, `|`, `^`, `<<`, `>>`) in `process_expression`.
-- [ ] Add support for logical operators (`&&`, `||`) with short-circuiting logic.
+- [x] Add support for bitwise operators (`&`, `|`, `^`, `<<`, `>>`) in `process_expression`.
+- [x] Add support for logical operators (`&&`, `||`) with short-circuiting logic.
+- [x] Add support for unary operators (`-`, `!`, `~`).
+- [x] Add support for modulo operator (`%`).
 
 ## 7. Structs and Arrays
 
