@@ -1535,6 +1535,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 
         c_grammar_node_t * base_node = node->data.list.children[0];
         LLVMValueRef base_val = NULL;
+        LLVMValueRef current_ptr = NULL;
+        LLVMTypeRef current_type = NULL;
+        bool have_ptr = false;
 
         // Special handling if base is an identifier being called as a function
         if (base_node->type == AST_NODE_IDENTIFIER)
@@ -1546,6 +1549,20 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         if (!base_val)
         {
             base_val = process_expression(ctx, base_node);
+        }
+
+        // Check if base is a symbol (for array access)
+        if (base_node->type == AST_NODE_IDENTIFIER && !have_ptr)
+        {
+            char const * var_name = base_node->data.terminal.text;
+            LLVMValueRef var_ptr;
+            LLVMTypeRef var_type;
+            if (find_symbol(ctx, var_name, &var_ptr, &var_type))
+            {
+                current_ptr = var_ptr;
+                current_type = var_type;
+                have_ptr = true;
+            }
         }
 
         for (size_t i = 1; i < node->data.list.count; ++i)
@@ -1611,31 +1628,31 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     }
                 }
 
-                if (index_val && base_node && base_node->type == AST_NODE_IDENTIFIER)
+                if (index_val && have_ptr && current_type)
                 {
-                    char const * arr_name = base_node->data.terminal.text;
-                    LLVMValueRef arr_ptr;
-                    LLVMTypeRef arr_type;
-                    if (find_symbol(ctx, arr_name, &arr_ptr, &arr_type))
+                    // Determine element type from current type
+                    LLVMTypeRef elem_type = NULL;
+                    if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                     {
-                        // Create GEP to access element
-                        LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                        indices[1] = index_val;
-                        LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, arr_type, arr_ptr, indices, 2, "arrayidx");
-
-                        // Get element type (array type's element type)
-                        LLVMTypeRef elem_type;
-                        if (LLVMGetTypeKind(arr_type) == LLVMPointerTypeKind)
-                        {
-                            elem_type = LLVMPointerType(LLVMGetElementType(arr_type), 0);
-                        }
-                        else
-                        {
-                            elem_type = LLVMGetElementType(arr_type);
-                        }
-                        base_val = LLVMBuildLoad2(ctx->builder, elem_type, elem_ptr, "arrayelem");
+                        elem_type = LLVMGetElementType(current_type);
                     }
+                    else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
+                    {
+                        elem_type = LLVMGetElementType(current_type);
+                    }
+
+                    // Create GEP to access element
+                    LLVMValueRef indices[2];
+                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                    indices[1] = index_val;
+                    LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
+
+                    // Update current_ptr and current_type for next iteration
+                    current_ptr = elem_ptr;
+                    current_type = elem_type;
+
+                    // Clear base_val so final load uses the correct element type
+                    base_val = NULL;
                 }
             }
             else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
@@ -1750,6 +1767,13 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             {
                 fprintf(stderr, "IRGen Warning: Unhandled postfix suffix type %u\n", suffix->type);
             }
+        }
+
+        // If base_val is NULL but we have a pointer (from array subscript or member access),
+        // load the value from the pointer
+        if (!base_val && have_ptr && current_ptr && current_type)
+        {
+            base_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "load_tmp");
         }
 
         return base_val;
