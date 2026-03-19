@@ -1689,19 +1689,45 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                         }
                     }
 
-                    // Find the member index
+                    // Find the member index by name
                     unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                     unsigned member_index = 0;
                     bool found = false;
-                    for (unsigned j = 0; j < num_elements; ++j)
+                    
+                    // Look up the struct info to find the member by name
+                    struct_info_t * struct_info = NULL;
+                    for (size_t si = 0; si < ctx->struct_count; si++)
                     {
-                        // For now, we assume members are in order
-                        // A proper implementation would track member names
-                        if (j == 0) // Simplified: just get first member for now
+                        if (ctx->structs[si].type == struct_type)
                         {
-                            member_index = j;
-                            found = true;
+                            struct_info = &ctx->structs[si];
                             break;
+                        }
+                    }
+                    
+                    if (struct_info && struct_info->fields)
+                    {
+                        for (unsigned j = 0; j < num_elements && j < struct_info->field_count; ++j)
+                        {
+                            if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0)
+                            {
+                                member_index = j;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: assume members are in order and match the field_count
+                        for (unsigned j = 0; j < num_elements; ++j)
+                        {
+                            if (j == 0)
+                            {
+                                member_index = j;
+                                found = true;
+                                break;
+                            }
                         }
                     }
 
