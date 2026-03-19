@@ -38,6 +38,12 @@ typedef struct ir_generator_ctx
     size_t symbol_count;
     size_t symbol_capacity;
 
+    // --- Struct type registry ---
+    LLVMTypeRef *struct_types;
+    char **struct_names;
+    size_t struct_count;
+    size_t struct_capacity;
+
     // Potentially function/scope management structures
 } ir_generator_ctx_t;
 

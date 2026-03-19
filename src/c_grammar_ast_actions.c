@@ -310,22 +310,8 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 static void
 handle_type_specifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    if (count > 0)
-    {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
-        epc_ast_builder_set_error(ctx, "Type specifier expected no children, but got %u", count);
-        return;
-    }
-
-    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_TYPE_SPECIFIER, node);
-    if (ast_node == NULL)
-    {
-        epc_ast_builder_set_error(ctx, "Memory allocation failed");
-        return;
-    }
+    // Type specifier can have children (e.g., for struct types)
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_SPECIFIER);
     epc_ast_push(ctx, ast_node);
 }
 
@@ -635,6 +621,16 @@ handle_expression_statement(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_struct_definition(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DEFINITION);
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -686,4 +682,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_INIT_DECLARATOR, handle_init_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_NAME, handle_type_name);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXPRESSION_STATEMENT, handle_expression_statement);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_SPECIFIER, handle_struct_definition);
 }

@@ -315,8 +315,9 @@ StructDeclaration = KwExtension? SpecifierQualifierList StructDeclaratorList? Se
 
 StructDeclarationList = StructDeclaration+;
 
-StructOrUnionSpecifier = ((KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
-                       | ((KwStruct | KwUnion) Attribute* Identifier);
+StructOrUnionSpecifierRaw = ((KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
+                        | ((KwStruct | KwUnion) Attribute* Identifier);
+StructOrUnionSpecifier = StructOrUnionSpecifierRaw @AST_ACTION_STRUCT_SPECIFIER;
 
 Enumerator = Identifier (Assign ConditionalExpression)?;
 
@@ -326,11 +327,19 @@ EnumSpecifier = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator,
 // Typedef names are identifiers that have been registered
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
+// StructDefinition: struct with body (definition)
+StructDefinitionRaw = (KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*;
+StructDefinition = StructDefinitionRaw @AST_ACTION_STRUCT_SPECIFIER;
+
+// StructTypeRef: struct without body (reference) - treated as type specifier
+StructTypeRef = (KwStruct | KwUnion) Attribute* Identifier @AST_ACTION_TYPE_SPECIFIER;
+
 NonTypedefTypeSpecifier = (KwVoid | KwChar | KwShort | KwInt | KwLong
-                        | KwFloat | KwDouble | KwSigned | KwUnsigned
-                        | KwBool | KwComplex | KwImaginary
-                        | StructOrUnionSpecifier
-                        | EnumSpecifier) @AST_ACTION_TYPE_SPECIFIER;
+                         | KwFloat | KwDouble | KwSigned | KwUnsigned
+                         | KwBool | KwComplex | KwImaginary
+                         | StructDefinition
+                         | StructTypeRef
+                         | EnumSpecifier) @AST_ACTION_TYPE_SPECIFIER;
 TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 
 // --- Declarations ---

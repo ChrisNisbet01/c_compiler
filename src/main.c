@@ -138,7 +138,8 @@ print_ast(c_grammar_node_t const * node, int indent)
         break;
 
     case AST_NODE_TYPE_SPECIFIER:
-        printf("TypeSpecifier: %s\n", node->data.terminal.text);
+    case AST_NODE_STRUCT_DEFINITION:
+        print_list_type_ast_node(node, indent);
         break;
 
     case AST_NODE_INTEGER_VALUE:
@@ -688,7 +689,9 @@ main(int argc, char * argv[])
         if (!ast_result.has_error)
         {
             c_grammar_node_t * ast_root = ast_result.ast_root;
+            fprintf(stderr, "Starting AST print...\n");
             print_ast(ast_root, 0);
+            fprintf(stderr, "Starting LLVM IR Generation...\n");
             generate_output(ast_root);
             c_grammar_node_free(ast_root, NULL);
         }
