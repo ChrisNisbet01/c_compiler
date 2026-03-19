@@ -1861,7 +1861,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                     LLVMValueRef indices[2];
                                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                                     indices[1] = index_val;
-                                    current_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, current_ptr, indices, 2, "arrayidx");
+                                    current_ptr = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
                                     current_type = elem_type;
                                 }
                             }
