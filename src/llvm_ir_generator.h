@@ -16,6 +16,21 @@ typedef LLVMBuilderRef LLVMBuilderRef;
 typedef LLVMValueRef LLVMValueRef;
 typedef LLVMTypeRef LLVMTypeRef;
 
+// --- Struct type info for member access ---
+typedef struct struct_field
+{
+    char *name;
+    LLVMTypeRef type;
+} struct_field_t;
+
+typedef struct struct_info
+{
+    char *name;
+    LLVMTypeRef type;
+    struct_field_t *fields;
+    size_t field_count;
+} struct_info_t;
+
 // --- Symbol Table Management ---
 // Define symbol_t structure
 typedef struct symbol
@@ -39,8 +54,7 @@ typedef struct ir_generator_ctx
     size_t symbol_capacity;
 
     // --- Struct type registry ---
-    LLVMTypeRef *struct_types;
-    char **struct_names;
+    struct_info_t *structs;
     size_t struct_count;
     size_t struct_capacity;
 

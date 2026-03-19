@@ -107,9 +107,11 @@ find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr,
     return false;
 }
 
-static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
-static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef struct_type);
+static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t * type_child);
+static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef struct_type, char **member_names, LLVMTypeRef *member_types, size_t num_members);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
+static struct_info_t *find_struct_info(ir_generator_ctx_t * ctx, char const * name);
+static c_grammar_node_t *find_direct_declarator(c_grammar_node_t * declarator);
 
 static void
 register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
@@ -157,13 +159,14 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 }
 
 static void
-register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t * type_child)
 {
     if (!ctx || !type_child || type_child->type != AST_NODE_STRUCT_DEFINITION)
         return;
     
     char * struct_name = NULL;
     LLVMTypeRef * member_types = NULL;
+    char ** member_names = NULL;
     size_t num_members = 0;
     
     for (size_t m = 0; m < type_child->data.list.count; ++m)
@@ -190,12 +193,29 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
             type_spec->type == AST_NODE_TYPE_SPECIFIER && 
             decl->type == AST_NODE_DECLARATOR)
         {
+            // Get member type
             LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
+            
+            // Get member name from declarator
+            char * member_name = NULL;
+            c_grammar_node_t * direct_decl = find_direct_declarator(decl);
+            if (direct_decl && direct_decl->data.list.count > 0)
+            {
+                c_grammar_node_t * ident = direct_decl->data.list.children[0];
+                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
+                {
+                    member_name = ident->data.terminal.text;
+                }
+            }
+            
             LLVMTypeRef * new_types = realloc(member_types, (num_members + 1) * sizeof(LLVMTypeRef));
-            if (new_types)
+            char ** new_names = realloc(member_names, (num_members + 1) * sizeof(char *));
+            if (new_types && new_names)
             {
                 member_types = new_types;
+                member_names = new_names;
                 member_types[num_members] = member_type;
+                member_names[num_members] = member_name ? strdup(member_name) : NULL;
                 num_members++;
             }
         }
@@ -205,31 +225,44 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     {
         LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, struct_name);
         LLVMStructSetBody(struct_type, member_types, (unsigned)num_members, false);
-        add_struct_type(ctx, struct_name, struct_type);
+        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members);
     }
     
     if (member_types)
         free(member_types);
+    if (member_names)
+    {
+        for (size_t i = 0; i < num_members; i++)
+            if (member_names[i]) free(member_names[i]);
+        free(member_names);
+    }
 }
 
-static LLVMTypeRef
-find_struct_type(ir_generator_ctx_t * ctx, char const * name)
+static struct_info_t *
+find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 {
     if (!ctx || !name)
         return NULL;
 
     for (size_t i = 0; i < ctx->struct_count; ++i)
     {
-        if (ctx->struct_names[i] && strcmp(ctx->struct_names[i], name) == 0)
+        if (ctx->structs[i].name && strcmp(ctx->structs[i].name, name) == 0)
         {
-            return ctx->struct_types[i];
+            return &ctx->structs[i];
         }
     }
     return NULL;
 }
 
+static LLVMTypeRef
+find_struct_type(ir_generator_ctx_t * ctx, char const * name)
+{
+    struct_info_t *info = find_struct_info(ctx, name);
+    return info ? info->type : NULL;
+}
+
 static void
-add_struct_type(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef struct_type)
+add_struct_type(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef struct_type, char **member_names, LLVMTypeRef *member_types, size_t num_members)
 {
     if (!ctx || !name || !struct_type)
         return;
@@ -242,17 +275,28 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef struct_
     if (ctx->struct_count >= ctx->struct_capacity)
     {
         size_t new_capacity = ctx->struct_capacity * 2;
-        LLVMTypeRef * new_types = realloc(ctx->struct_types, new_capacity * sizeof(LLVMTypeRef));
-        char ** new_names = realloc(ctx->struct_names, new_capacity * sizeof(char *));
-        if (!new_types || !new_names)
+        struct_info_t *new_structs = realloc(ctx->structs, new_capacity * sizeof(struct_info_t));
+        if (!new_structs)
             return;
-        ctx->struct_types = new_types;
-        ctx->struct_names = new_names;
+        ctx->structs = new_structs;
         ctx->struct_capacity = new_capacity;
     }
 
-    ctx->struct_names[ctx->struct_count] = strdup(name);
-    ctx->struct_types[ctx->struct_count] = struct_type;
+    ctx->structs[ctx->struct_count].name = strdup(name);
+    ctx->structs[ctx->struct_count].type = struct_type;
+    ctx->structs[ctx->struct_count].field_count = num_members;
+    ctx->structs[ctx->struct_count].fields = NULL;
+    
+    if (num_members > 0 && member_names && member_types)
+    {
+        ctx->structs[ctx->struct_count].fields = calloc(num_members, sizeof(struct_field_t));
+        for (size_t i = 0; i < num_members; i++)
+        {
+            ctx->structs[ctx->struct_count].fields[i].name = strdup(member_names[i]);
+            ctx->structs[ctx->struct_count].fields[i].type = member_types[i];
+        }
+    }
+    
     ctx->struct_count++;
 }
 
@@ -524,8 +568,7 @@ ir_generator_init()
 
     // Initialize struct type registry
     ctx->struct_capacity = 16;
-    ctx->struct_types = malloc(ctx->struct_capacity * sizeof(LLVMTypeRef));
-    ctx->struct_names = malloc(ctx->struct_capacity * sizeof(char *));
+    ctx->structs = calloc(ctx->struct_capacity, sizeof(struct_info_t));
     ctx->struct_count = 0;
 
     return ctx;
@@ -562,17 +605,23 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
     free_symbol_table(ctx); // Free symbol table first
 
     // Free struct type registry
-    if (ctx->struct_names)
+    if (ctx->structs)
     {
         for (size_t i = 0; i < ctx->struct_count; ++i)
         {
-            free(ctx->struct_names[i]);
+            if (ctx->structs[i].name)
+                free(ctx->structs[i].name);
+            if (ctx->structs[i].fields)
+            {
+                for (size_t j = 0; j < ctx->structs[i].field_count; j++)
+                {
+                    if (ctx->structs[i].fields[j].name)
+                        free(ctx->structs[i].fields[j].name);
+                }
+                free(ctx->structs[i].fields);
+            }
         }
-        free(ctx->struct_names);
-    }
-    if (ctx->struct_types)
-    {
-        free(ctx->struct_types);
+        free(ctx->structs);
     }
 
     if (ctx->builder)
@@ -1749,24 +1798,27 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             LLVMValueRef lhs_ptr = NULL;
             LLVMTypeRef lhs_type = NULL;
 
-            // Check if LHS is a PostfixExpression with array subscript
+            // Check if LHS is a PostfixExpression with array subscript or member access
             if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION && lhs_node->data.list.count >= 2)
             {
                 c_grammar_node_t * base_node = lhs_node->data.list.children[0];
                 if (base_node->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * arr_name = base_node->data.terminal.text;
-                    LLVMValueRef arr_ptr;
-                    LLVMTypeRef arr_type;
-                    if (find_symbol(ctx, arr_name, &arr_ptr, &arr_type))
+                    char const * base_name = base_node->data.terminal.text;
+                    LLVMValueRef base_ptr;
+                    LLVMTypeRef base_type;
+                    if (find_symbol(ctx, base_name, &base_ptr, &base_type))
                     {
-                        // Find the array subscript suffix
+                        LLVMValueRef current_ptr = base_ptr;
+                        LLVMTypeRef current_type = base_type;
+                        
+                        // Process suffixes to handle array subscripts and member access
                         for (size_t i = 1; i < lhs_node->data.list.count; ++i)
                         {
                             c_grammar_node_t * suffix = lhs_node->data.list.children[i];
+                            
                             if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                             {
-                                // Find the index expression
                                 LLVMValueRef index_val = NULL;
                                 for (size_t k = 0; k < suffix->data.list.count; ++k)
                                 {
@@ -1777,19 +1829,86 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                         break;
                                     }
                                 }
-
-                                if (index_val)
+                                
+                                if (index_val && current_type)
                                 {
-                                    // Create GEP to get element pointer
+                                    LLVMTypeRef elem_type = NULL;
+                                    if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                                    {
+                                        elem_type = LLVMGetElementType(current_type);
+                                    }
+                                    else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
+                                    {
+                                        elem_type = LLVMGetElementType(current_type);
+                                    }
+                                    
                                     LLVMValueRef indices[2];
                                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                                     indices[1] = index_val;
-                                    lhs_ptr = LLVMBuildInBoundsGEP2(ctx->builder, arr_type, arr_ptr, indices, 2, "arrayidx");
-                                    lhs_type = LLVMGetElementType(arr_type);
+                                    current_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, current_ptr, indices, 2, "arrayidx");
+                                    current_type = elem_type;
                                 }
-                                break;
+                            }
+                            else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
+                            {
+                                char * member_name = NULL;
+                                for (size_t k = 0; k < suffix->data.list.count; ++k)
+                                {
+                                    c_grammar_node_t * child = suffix->data.list.children[k];
+                                    if (child && child->type == AST_NODE_IDENTIFIER)
+                                    {
+                                        member_name = child->data.terminal.text;
+                                        break;
+                                    }
+                                }
+                                
+                                if (member_name && current_ptr && current_type)
+                                {
+                                    LLVMTypeRef struct_type = current_type;
+                                    if (LLVMGetTypeKind(struct_type) == LLVMPointerTypeKind)
+                                    {
+                                        struct_type = LLVMGetElementType(struct_type);
+                                    }
+                                    
+                                    if (LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
+                                    {
+                                        unsigned num_elements = LLVMCountStructElementTypes(struct_type);
+                                        unsigned member_index = 0;
+                                        struct_info_t *info = NULL;
+                                        
+                                        for (size_t si = 0; si < ctx->struct_count; si++)
+                                        {
+                                            if (ctx->structs[si].type == struct_type)
+                                            {
+                                                info = &ctx->structs[si];
+                                                break;
+                                            }
+                                        }
+                                        
+                                        if (info)
+                                        {
+                                            for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
+                                            {
+                                                if (info->fields[j].name && strcmp(info->fields[j].name, member_name) == 0)
+                                                {
+                                                    member_index = j;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        
+                                        LLVMValueRef indices[2];
+                                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
+                                        current_ptr = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, current_ptr, indices, 2, "memberptr");
+                                        current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
+                                    }
+                                }
                             }
                         }
+                        
+                        lhs_ptr = current_ptr;
+                        lhs_type = current_type;
                     }
                 }
             }
