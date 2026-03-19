@@ -85,9 +85,9 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 **Goal:** Support composite data types.
 
 ### 7.1 Arrays
-- [ ] Support array declarations (e.g., `int arr[10];`).
-- [ ] Support array indexing (e.g., `arr[i]`).
-- [ ] Update `map_type` to handle array types.
+- [x] Support array declarations (e.g., `int arr[10];`).
+- [x] Support array indexing (e.g., `arr[i]`).
+- [x] Update `map_type` to handle array types.
 
 ### 7.2 Structs
 - [ ] Support struct definitions (`struct S { int x; float y; };`).

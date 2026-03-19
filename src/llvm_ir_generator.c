@@ -172,6 +172,15 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 {
     LLVMTypeRef base_type = NULL;
     int pointer_level = 0;
+    size_t * array_sizes = NULL;
+    size_t array_depth = 0;
+    size_t array_capacity = 4;
+
+    array_sizes = malloc(array_capacity * sizeof(size_t));
+    if (!array_sizes)
+    {
+        return LLVMInt32TypeInContext(ctx->context);
+    }
 
     // 1. Process Specifiers (extract base type and any pointers in specifiers)
     if (specifiers)
@@ -204,7 +213,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         }
     }
 
-    // 2. Process Declarator (extract pointers)
+    // 2. Process Declarator (extract pointers and arrays)
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
     {
         for (size_t i = 0; i < declarator->data.list.count; ++i)
@@ -214,6 +223,33 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             {
                 pointer_level++;
             }
+            else if (child->type == AST_NODE_DECLARATOR_SUFFIX)
+            {
+                // Check for array suffixes in declaration
+                // DeclaratorSuffix structure: contains LBracket, Expression, RBracket
+                // But the Expression is directly in the suffix for declarations
+                for (size_t j = 0; j < child->data.list.count; ++j)
+                {
+                    c_grammar_node_t * suffix_child = child->data.list.children[j];
+                    // For array declarations like int arr[5], the suffix contains IntegerValue directly
+                    if (suffix_child && !suffix_child->is_terminal_node)
+                    {
+                        if (suffix_child->type == AST_NODE_INTEGER_VALUE)
+                        {
+                            c_grammar_node_t * base_node = suffix_child->data.list.children[0];
+                            if (base_node && base_node->is_terminal_node)
+                            {
+                                unsigned long long size_val = strtoull(base_node->data.terminal.text, NULL, 10);
+                                if (array_depth < array_capacity)
+                                {
+                                    array_sizes[array_depth] = (size_t)size_val;
+                                    array_depth++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -222,11 +258,21 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         base_type = LLVMInt32TypeInContext(ctx->context);
     }
 
+    // Build array types from innermost to outermost
     LLVMTypeRef final_type = base_type;
+    for (int i = (int)array_depth - 1; i >= 0; --i)
+    {
+        final_type = LLVMArrayType(final_type, (unsigned)array_sizes[i]);
+    }
+
+    // Add pointer types
     for (int i = 0; i < pointer_level; ++i)
     {
         final_type = LLVMPointerType(final_type, 0);
     }
+
+    if (array_sizes)
+        free(array_sizes);
 
     return final_type;
 }
@@ -639,17 +685,67 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_ASSIGNMENT:
     {
-        // Handle assignment like 'variable = expression'.
+        // Handle assignment like 'variable = expression' or 'arr[i] = expression'.
         // Children typically: [LHS_node, Operator_node, RHS_node].
         if (node->data.list.count >= 3 && node->data.list.children)
         {
-            c_grammar_node_t * lhs_node = node->data.list.children[0]; // e.g., AST_NODE_IDENTIFIER.
+            c_grammar_node_t * lhs_node = node->data.list.children[0];
             // Operator node (e.g., '=') is skipped for simplicity.
-            c_grammar_node_t * rhs_node = node->data.list.children[2]; // The expression to assign.
+            c_grammar_node_t * rhs_node = node->data.list.children[2];
 
-            LLVMTypeRef element_type;
-            // Get the LLVM ValueRef for the variable's memory location (pointer).
-            LLVMValueRef lhs_ptr = get_variable_pointer(ctx, lhs_node, &element_type); // Needs symbol table lookup.
+            LLVMValueRef lhs_ptr = NULL;
+            LLVMTypeRef lhs_type = NULL;
+
+            // Check if LHS is a PostfixExpression with array subscript
+            if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION && lhs_node->data.list.count >= 2)
+            {
+                c_grammar_node_t * base_node = lhs_node->data.list.children[0];
+                if (base_node->type == AST_NODE_IDENTIFIER)
+                {
+                    char const * arr_name = base_node->data.terminal.text;
+                    LLVMValueRef arr_ptr;
+                    LLVMTypeRef arr_type;
+                    if (find_symbol(ctx, arr_name, &arr_ptr, &arr_type))
+                    {
+                        // Find the array subscript suffix
+                        for (size_t i = 1; i < lhs_node->data.list.count; ++i)
+                        {
+                            c_grammar_node_t * suffix = lhs_node->data.list.children[i];
+                            if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+                            {
+                                // Find the index expression
+                                LLVMValueRef index_val = NULL;
+                                for (size_t k = 0; k < suffix->data.list.count; ++k)
+                                {
+                                    c_grammar_node_t * child = suffix->data.list.children[k];
+                                    if (child && !child->is_terminal_node)
+                                    {
+                                        index_val = process_expression(ctx, child);
+                                        break;
+                                    }
+                                }
+
+                                if (index_val)
+                                {
+                                    // Create GEP to get element pointer
+                                    LLVMValueRef indices[2];
+                                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                    indices[1] = index_val;
+                                    lhs_ptr = LLVMBuildInBoundsGEP2(ctx->builder, arr_type, arr_ptr, indices, 2, "arrayidx");
+                                    lhs_type = LLVMGetElementType(arr_type);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Simple variable assignment
+                lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type);
+            }
+
             if (!lhs_ptr)
             {
                 fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
@@ -1233,6 +1329,48 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 if (args)
                     free(args);
             }
+            else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+            {
+                // Array subscript: [LBracket, IndexExpression, RBracket]
+                // Find the index expression
+                LLVMValueRef index_val = NULL;
+                for (size_t k = 0; k < suffix->data.list.count; ++k)
+                {
+                    c_grammar_node_t * child = suffix->data.list.children[k];
+                    if (child && !child->is_terminal_node)
+                    {
+                        index_val = process_expression(ctx, child);
+                        break;
+                    }
+                }
+
+                if (index_val && base_node && base_node->type == AST_NODE_IDENTIFIER)
+                {
+                    char const * arr_name = base_node->data.terminal.text;
+                    LLVMValueRef arr_ptr;
+                    LLVMTypeRef arr_type;
+                    if (find_symbol(ctx, arr_name, &arr_ptr, &arr_type))
+                    {
+                        // Create GEP to access element
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                        indices[1] = index_val;
+                        LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, arr_type, arr_ptr, indices, 2, "arrayidx");
+
+                        // Get element type (array type's element type)
+                        LLVMTypeRef elem_type;
+                        if (LLVMGetTypeKind(arr_type) == LLVMPointerTypeKind)
+                        {
+                            elem_type = LLVMPointerType(LLVMGetElementType(arr_type), 0);
+                        }
+                        else
+                        {
+                            elem_type = LLVMGetElementType(arr_type);
+                        }
+                        base_val = LLVMBuildLoad2(ctx->builder, elem_type, elem_ptr, "arrayelem");
+                    }
+                }
+            }
             else
             {
                 fprintf(stderr, "IRGen Warning: Unhandled postfix suffix type %u\n", suffix->type);
@@ -1288,6 +1426,86 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             }
             // Add more cast types as needed (bitcast, pointer casts, etc.)
             return val_to_cast; // Fallback
+        }
+        return NULL;
+    }
+    case AST_NODE_ASSIGNMENT:
+    {
+        if (node->data.list.count >= 3 && node->data.list.children)
+        {
+            c_grammar_node_t * lhs_node = node->data.list.children[0];
+            c_grammar_node_t * rhs_node = node->data.list.children[2];
+
+            LLVMValueRef lhs_ptr = NULL;
+            LLVMTypeRef lhs_type = NULL;
+
+            // Check if LHS is a PostfixExpression with array subscript
+            if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION && lhs_node->data.list.count >= 2)
+            {
+                c_grammar_node_t * base_node = lhs_node->data.list.children[0];
+                if (base_node->type == AST_NODE_IDENTIFIER)
+                {
+                    char const * arr_name = base_node->data.terminal.text;
+                    LLVMValueRef arr_ptr;
+                    LLVMTypeRef arr_type;
+                    if (find_symbol(ctx, arr_name, &arr_ptr, &arr_type))
+                    {
+                        // Find the array subscript suffix
+                        for (size_t i = 1; i < lhs_node->data.list.count; ++i)
+                        {
+                            c_grammar_node_t * suffix = lhs_node->data.list.children[i];
+                            if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+                            {
+                                // Find the index expression
+                                LLVMValueRef index_val = NULL;
+                                for (size_t k = 0; k < suffix->data.list.count; ++k)
+                                {
+                                    c_grammar_node_t * child = suffix->data.list.children[k];
+                                    if (child && !child->is_terminal_node)
+                                    {
+                                        index_val = process_expression(ctx, child);
+                                        break;
+                                    }
+                                }
+
+                                if (index_val)
+                                {
+                                    // Create GEP to get element pointer
+                                    LLVMValueRef indices[2];
+                                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                    indices[1] = index_val;
+                                    lhs_ptr = LLVMBuildInBoundsGEP2(ctx->builder, arr_type, arr_ptr, indices, 2, "arrayidx");
+                                    lhs_type = LLVMGetElementType(arr_type);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // Simple variable assignment
+                lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type);
+            }
+
+            if (!lhs_ptr)
+            {
+                fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
+                return NULL;
+            }
+
+            // Process the RHS expression to get its LLVM ValueRef.
+            LLVMValueRef rhs_value = process_expression(ctx, rhs_node);
+            if (!rhs_value)
+            {
+                fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
+                return NULL;
+            }
+
+            // Generate the store instruction.
+            LLVMBuildStore(ctx->builder, rhs_value, lhs_ptr);
+            return rhs_value;
         }
         return NULL;
     }
