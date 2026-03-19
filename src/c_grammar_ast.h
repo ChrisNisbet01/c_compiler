@@ -53,6 +53,7 @@ typedef enum
     AST_NODE_EXPRESSION_STATEMENT,
     AST_NODE_STRUCT_DEFINITION,
     AST_NODE_STRUCT_TYPE,
+    AST_NODE_INITIALIZER_LIST,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t

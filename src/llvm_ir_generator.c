@@ -21,6 +21,15 @@ static bool find_symbol(
 // Helper to map C types to LLVM types
 static LLVMTypeRef map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
 
+// Helper to process initializer lists recursively for arrays
+static void process_initializer_list(
+    ir_generator_ctx_t * ctx,
+    LLVMValueRef base_ptr,
+    LLVMTypeRef element_type,
+    c_grammar_node_t const * initializer_node,
+    int * current_index
+);
+
 // --- Forward Declarations ---
 // Recursive function to process AST nodes
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
@@ -74,6 +83,99 @@ add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTy
     ctx->symbol_count++;
 
     fprintf(stderr, "IRGen: Added symbol '%s' to table.\n", name);
+}
+
+static void
+process_initializer_list(
+    ir_generator_ctx_t * ctx,
+    LLVMValueRef base_ptr,
+    LLVMTypeRef element_type,
+    c_grammar_node_t const * initializer_node,
+    int * outer_index
+)
+{
+    if (!initializer_node || !base_ptr || !element_type)
+        return;
+
+    LLVMTypeKind kind = LLVMGetTypeKind(element_type);
+
+    if (initializer_node->data.list.count > 0 && !initializer_node->is_terminal_node && initializer_node->data.list.children)
+    {
+        // Use a local index for processing leaf elements at this level
+        int local_index = 0;
+        
+        for (size_t i = 0; i < initializer_node->data.list.count; ++i)
+        {
+            c_grammar_node_t const * child = initializer_node->data.list.children[i];
+            
+            if (!child)
+                break;
+
+            // Skip terminal nodes like LBRACE, RBRACE, COMMA
+            if (child->is_terminal_node)
+                continue;
+
+            // If child is an INITIALIZER_LIST, create GEP to the row and recurse
+            if (child->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
+            {
+                LLVMTypeRef nested_element = LLVMGetElementType(element_type);
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+                LLVMValueRef row_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "row_ptr");
+                process_initializer_list(ctx, row_ptr, nested_element, child, NULL);
+                local_index++;
+                if (outer_index)
+                    (*outer_index)++;
+                continue;
+            }
+
+            // If child is an ASSIGNMENT node, extract the inner expression
+            if (child->type == AST_NODE_ASSIGNMENT)
+            {
+                c_grammar_node_t const * value_child = NULL;
+                for (size_t j = 0; j < child->data.list.count; ++j)
+                {
+                    c_grammar_node_t const * inner = child->data.list.children[j];
+                    if (inner && !inner->is_terminal_node)
+                    {
+                        value_child = inner;
+                        break;
+                    }
+                }
+                if (value_child)
+                    child = value_child;
+            }
+
+            // For array types, create a GEP to the element and recurse
+            if (kind == LLVMArrayTypeKind && child->data.list.count > 0 && child->type != AST_NODE_INTEGER_VALUE)
+            {
+                LLVMTypeRef nested_element = LLVMGetElementType(element_type);
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+                LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+                process_initializer_list(ctx, elem_ptr, nested_element, child, &local_index);
+            }
+            // Process leaf values - store to array
+            else
+            {
+                LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)child);
+                if (value)
+                {
+                    LLVMValueRef indices[2];
+                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+
+                    LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+                    LLVMBuildStore(ctx->builder, value, elem_ptr);
+                    local_index++;
+                    if (outer_index)
+                        (*outer_index)++;
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -882,10 +984,23 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
 
-                // Find initializer if it exists (e.g., 'int i = 42;').
-                if (init_decl_node->data.list.count > 1)
+                // Find initializer - search for a node that contains the initializer data
+                // The init_decl might have multiple children including Assign token and Initializer
+                // We need to find the actual Initializer node (contains { or expression)
+                initializer_expr_node = NULL;
+                for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
                 {
-                    initializer_expr_node = init_decl_node->data.list.children[1];
+                    c_grammar_node_t * child = init_decl_node->data.list.children[ci];
+                    // Skip terminals (Assign token)
+                    if (child->is_terminal_node)
+                        continue;
+                    // Check if this looks like an initializer
+                    if (child->type == AST_NODE_INITIALIZER_LIST ||
+                        (child->data.list.count > 0 && !child->is_terminal_node))
+                    {
+                        initializer_expr_node = child;
+                        break;
+                    }
                 }
 
                 if (var_name)
@@ -899,33 +1014,45 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     // If there's an initializer, process it and store the value.
                     if (initializer_expr_node)
                     {
-                        LLVMValueRef initializer_value = process_expression(ctx, initializer_expr_node);
-                        if (initializer_value)
+                        fprintf(stderr, "DEBUG: var_type_kind=%d, initializer_type=%d, count=%zu\n",
+                                LLVMGetTypeKind(var_type), initializer_expr_node->type, initializer_expr_node->data.list.count);
+                        // Check if this is an array with initializer list
+                        if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
+                            && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                         {
-                            LLVMTypeRef init_type = LLVMTypeOf(initializer_value);
-                            if (LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
-                                || LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
+                            int current_index = 0;
+                            process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                        }
+                        else
+                        {
+                            LLVMValueRef initializer_value = process_expression(ctx, initializer_expr_node);
+                            if (initializer_value)
                             {
-                                if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind)
+                                LLVMTypeRef init_type = LLVMTypeOf(initializer_value);
+                                if (LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
+                                    || LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
                                 {
-                                    initializer_value =
-                                        LLVMBuildSIToFP(ctx->builder, initializer_value, var_type, "casttmp");
+                                    if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind)
+                                    {
+                                        initializer_value =
+                                            LLVMBuildSIToFP(ctx->builder, initializer_value, var_type, "casttmp");
+                                    }
+                                    else if (LLVMGetTypeKind(init_type) == LLVMFloatTypeKind
+                                             && LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
+                                    {
+                                        initializer_value =
+                                            LLVMBuildFPExt(ctx->builder, initializer_value, var_type, "casttmp");
+                                    }
+                                    else if (LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
+                                             && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind)
+                                    {
+                                        initializer_value =
+                                            LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
+                                    }
                                 }
-                                else if (LLVMGetTypeKind(init_type) == LLVMFloatTypeKind
-                                         && LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
-                                {
-                                    initializer_value =
-                                        LLVMBuildFPExt(ctx->builder, initializer_value, var_type, "casttmp");
-                                }
-                                else if (LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
-                                         && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind)
-                                {
-                                    initializer_value =
-                                        LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
-                                }
-                            }
 
-                            LLVMBuildStore(ctx->builder, initializer_value, alloca_inst);
+                                LLVMBuildStore(ctx->builder, initializer_value, alloca_inst);
+                            }
                         }
                     }
                 }

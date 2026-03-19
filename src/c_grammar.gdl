@@ -276,7 +276,7 @@ Designator = (LBracket ConditionalExpression RBracket)
 
 Designation = Designator+ Assign;
 
-InitializerList = delimited_flex(Designation? Initializer, Comma) Comma?;
+InitializerList = delimited_flex(Designation? Initializer, Comma) Comma? @AST_ACTION_INITIALIZER_LIST;
 
 Initializer = (LBrace InitializerList RBrace)
             | AssignmentExpression;
