@@ -1227,19 +1227,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_STRUCT_DEFINITION:
     {
-        fprintf(stderr, "IRGen: Processing struct definition with %zu children\n", node->data.list.count);
-        for (size_t i = 0; i < node->data.list.count; ++i)
-        {
-            c_grammar_node_t * child = node->data.list.children[i];
-            if (child)
-            {
-                fprintf(stderr, "IRGen:   Child %zu: type=%d\n", i, child->type);
-            }
-            else
-            {
-                fprintf(stderr, "IRGen:   Child %zu: NULL\n", i);
-            }
-        }
         break;
     }
         // --- Add cases for other AST_NODE types ---

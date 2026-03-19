@@ -7,5 +7,5 @@ int main() {
     struct Point p;
     p.x = 10;
     p.y = 20;
-    return p.x + p.y;
+    return p.x + p.y; // 30
 }
