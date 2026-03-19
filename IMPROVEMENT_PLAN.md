@@ -90,7 +90,7 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 - [x] Update `map_type` to handle array types.
 
 ### 7.2 Structs
-- [ ] Support struct definitions (`struct S { int x; float y; };`).
-- [ ] Support struct variable declarations.
-- [ ] Support member access via dot (`s.x`) and arrow (`p->x`).
-- [ ] Implement struct type registration in the LLVM context.
+- [x] Support struct definitions (`struct S { int x; float y; };`).
+- [x] Support struct variable declarations.
+- [x] Support member access via dot (`s.x`) and arrow (`p->x`).
+- [x] Implement struct type registration in the LLVM context.
