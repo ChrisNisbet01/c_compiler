@@ -216,7 +216,7 @@ UnaryExpression = memoize(UnaryExpressionRaw);
 // Abstract declarators are used in type names (e.g., in casts)
 AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
 
-TypeNameRaw = SpecifierQualifierList AbstractDeclarator?;
+TypeNameRaw = (SpecifierQualifierList AbstractDeclarator?) @AST_ACTION_TYPE_NAME;
 TypeName = memoize(TypeNameRaw);
 
 CastExpressionWrap = LParen TypeName RParen CastExpression @AST_ACTION_CAST_EXPRESSION;

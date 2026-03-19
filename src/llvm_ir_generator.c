@@ -19,7 +19,7 @@ static bool find_symbol(
 ); // Helper for get_variable_pointer
 
 // Helper to map C types to LLVM types
-static LLVMTypeRef map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers);
+static LLVMTypeRef map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
 
 // --- Forward Declarations ---
 // Recursive function to process AST nodes
@@ -108,44 +108,84 @@ find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr,
 }
 
 // --- IR Generator Context Initialization and Disposal ---
-static LLVMTypeRef
-map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers)
+static c_grammar_node_t *
+find_direct_declarator(c_grammar_node_t * declarator)
 {
-    if (!specifiers)
-        return LLVMInt32TypeInContext(ctx->context); // Default
+    if (!declarator || declarator->type != AST_NODE_DECLARATOR)
+        return NULL;
 
-    // Handle single type specifier or list of specifiers
-    if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
+    for (size_t i = 0; i < declarator->data.list.count; ++i)
     {
-        char const * type_name = specifiers->data.terminal.text;
-        if (strncmp(type_name, "int", 3) == 0)
-            return LLVMInt32TypeInContext(ctx->context);
-        if (strncmp(type_name, "char", 4) == 0)
-            return LLVMInt8TypeInContext(ctx->context);
-        if (strncmp(type_name, "void", 4) == 0)
-            return LLVMVoidTypeInContext(ctx->context);
-        if (strncmp(type_name, "float", 5) == 0)
-            return LLVMFloatTypeInContext(ctx->context);
-        if (strncmp(type_name, "double", 6) == 0)
-            return LLVMDoubleTypeInContext(ctx->context);
-        if (strncmp(type_name, "long", 4) == 0)
-            return LLVMInt64TypeInContext(ctx->context);
-        if (strncmp(type_name, "short", 5) == 0)
-            return LLVMInt16TypeInContext(ctx->context);
-    }
-    else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
-    {
-        // Recursively check children for type specifiers.
-        // For now, just find the first one.
-        for (size_t i = 0; i < specifiers->data.list.count; ++i)
+        if (declarator->data.list.children[i]->type == AST_NODE_DIRECT_DECLARATOR)
         {
-            LLVMTypeRef t = map_type(ctx, specifiers->data.list.children[i]);
-            if (t)
-                return t;
+            return declarator->data.list.children[i];
+        }
+    }
+    return NULL;
+}
+
+static LLVMTypeRef
+map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
+{
+    LLVMTypeRef base_type = NULL;
+    int pointer_level = 0;
+
+    // 1. Process Specifiers (extract base type and any pointers in specifiers)
+    if (specifiers)
+    {
+        if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
+        {
+            char const * type_name = specifiers->data.terminal.text;
+            if (strncmp(type_name, "int", 3) == 0) base_type = LLVMInt32TypeInContext(ctx->context);
+            else if (strncmp(type_name, "char", 4) == 0) base_type = LLVMInt8TypeInContext(ctx->context);
+            else if (strncmp(type_name, "void", 4) == 0) base_type = LLVMVoidTypeInContext(ctx->context);
+            else if (strncmp(type_name, "float", 5) == 0) base_type = LLVMFloatTypeInContext(ctx->context);
+            else if (strncmp(type_name, "double", 6) == 0) base_type = LLVMDoubleTypeInContext(ctx->context);
+            else if (strncmp(type_name, "long", 4) == 0) base_type = LLVMInt64TypeInContext(ctx->context);
+            else if (strncmp(type_name, "short", 5) == 0) base_type = LLVMInt16TypeInContext(ctx->context);
+        }
+        else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
+        {
+            for (size_t i = 0; i < specifiers->data.list.count; ++i)
+            {
+                c_grammar_node_t * child = specifiers->data.list.children[i];
+                if (child->type == AST_NODE_TYPE_SPECIFIER)
+                {
+                    base_type = map_type(ctx, child, NULL);
+                }
+                else if (child->type == AST_NODE_POINTER)
+                {
+                    pointer_level++;
+                }
+            }
         }
     }
 
-    return LLVMInt32TypeInContext(ctx->context); // Default fallback
+    // 2. Process Declarator (extract pointers)
+    if (declarator && declarator->type == AST_NODE_DECLARATOR)
+    {
+        for (size_t i = 0; i < declarator->data.list.count; ++i)
+        {
+            c_grammar_node_t * child = declarator->data.list.children[i];
+            if (child->type == AST_NODE_POINTER)
+            {
+                pointer_level++;
+            }
+        }
+    }
+
+    if (!base_type)
+    {
+        base_type = LLVMInt32TypeInContext(ctx->context);
+    }
+
+    LLVMTypeRef final_type = base_type;
+    for (int i = 0; i < pointer_level; ++i)
+    {
+        final_type = LLVMPointerType(final_type, 0);
+    }
+
+    return final_type;
 }
 
 /**
@@ -338,14 +378,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         char * func_name = "unknown_function";
         c_grammar_node_t * suffix_node = NULL;
 
-        if (declarator_node->data.list.count > 0
-            && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
+        c_grammar_node_t * direct_decl = find_direct_declarator(declarator_node);
+        if (direct_decl && direct_decl->data.list.count > 0 && direct_decl->data.list.children[0]->type == AST_NODE_IDENTIFIER)
         {
-            c_grammar_node_t * direct_decl = declarator_node->data.list.children[0];
-            if (direct_decl->data.list.count > 0 && direct_decl->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-            {
-                func_name = direct_decl->data.list.children[0]->data.terminal.text;
-            }
+            func_name = direct_decl->data.list.children[0]->data.terminal.text;
         }
 
         // Find parameter suffix
@@ -367,27 +403,25 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             // Each parameter typically has [TypeSpecifier, Declarator]
             num_params = suffix_node->data.list.count / 2;
-            param_types = malloc(num_params * sizeof(LLVMTypeRef));
-            param_names = malloc(num_params * sizeof(char *));
+            param_types = calloc(num_params, sizeof(LLVMTypeRef));
+            param_names = calloc(num_params, sizeof(char *));
 
             for (size_t i = 0; i < num_params; ++i)
             {
                 c_grammar_node_t * p_spec = suffix_node->data.list.children[i * 2];
-                param_types[i] = map_type(ctx, p_spec);
-
                 c_grammar_node_t * p_decl = suffix_node->data.list.children[i * 2 + 1];
-                if (p_decl->type == AST_NODE_DECLARATOR && p_decl->data.list.count > 0)
+
+                param_types[i] = map_type(ctx, p_spec, p_decl);
+
+                c_grammar_node_t * p_direct = find_direct_declarator(p_decl);
+                if (p_direct && p_direct->data.list.count > 0 && p_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
                 {
-                    c_grammar_node_t * p_direct = p_decl->data.list.children[0];
-                    if (p_direct->type == AST_NODE_DIRECT_DECLARATOR && p_direct->data.list.count > 0)
-                    {
-                        param_names[i] = p_direct->data.list.children[0]->data.terminal.text;
-                    }
+                    param_names[i] = p_direct->data.list.children[0]->data.terminal.text;
                 }
             }
         }
 
-        LLVMTypeRef return_type = map_type(ctx, decl_specifiers_node);
+        LLVMTypeRef return_type = map_type(ctx, decl_specifiers_node, NULL);
         LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, (unsigned)num_params, false);
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
@@ -399,9 +433,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         for (size_t i = 0; i < num_params; ++i)
         {
             LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
-            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, param_types[i], param_names[i]);
+            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, param_types[i], param_names[i] ? param_names[i] : "");
             LLVMBuildStore(ctx->builder, param_val, alloca_inst);
-            add_symbol(ctx, param_names[i], alloca_inst, param_types[i]);
+            if (param_names[i])
+            {
+                add_symbol(ctx, param_names[i], alloca_inst, param_types[i]);
+            }
         }
 
         if (param_types)
@@ -415,7 +452,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Add a default return if the function doesn't end with one ---
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
-            LLVMBuildRet(ctx->builder, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false));
+            if (LLVMGetTypeKind(return_type) == LLVMVoidTypeKind)
+            {
+                LLVMBuildRetVoid(ctx->builder);
+            }
+            else
+            {
+                LLVMBuildRet(ctx->builder, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false));
+            }
         }
 
         break;
@@ -449,8 +493,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
 
-        LLVMTypeRef var_type = map_type(ctx, decl_specifiers);
-
         // Process InitDeclarators to create variables and initialize them.
         for (size_t i = 0; i < node->data.list.count; ++i)
         {
@@ -460,31 +502,26 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 char * var_name = NULL;
                 c_grammar_node_t * initializer_expr_node = NULL; // Node representing the initializer expression.
+                c_grammar_node_t * declarator_node = NULL;
 
-                // Simplified extraction of variable name from declarator.
+                // Extraction of variable name from declarator.
                 if (init_decl_node->data.list.count > 0
                     && init_decl_node->data.list.children[0]->type == AST_NODE_DECLARATOR)
                 {
-                    c_grammar_node_t * declarator_node = init_decl_node->data.list.children[0];
-                    if (declarator_node->data.list.count > 0
-                        && declarator_node->data.list.children[0]->type == AST_NODE_DIRECT_DECLARATOR)
+                    declarator_node = init_decl_node->data.list.children[0];
+                    c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
+                    if (direct_decl_node && direct_decl_node->data.list.count > 0
+                        && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
                     {
-                        c_grammar_node_t * direct_decl_node = declarator_node->data.list.children[0];
-                        if (direct_decl_node->data.list.count > 0
-                            && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-                        {
-                            var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
-                        }
+                        var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
                     }
                 }
 
+                LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
+
                 // Find initializer if it exists (e.g., 'int i = 42;').
-                // The AST structure for 'int i = 42;' is typically:
-                // DECLARATION -> INIT_DECLARATOR -> DECLARATOR (Identifier 'i'), Initializer (IntegerLiteral '42')
-                // So, if there's more than one child in INIT_DECLARATOR, the second child is the initializer.
                 if (init_decl_node->data.list.count > 1)
                 {
-                    // The second child of INIT_DECLARATOR is the initializer expression.
                     initializer_expr_node = init_decl_node->data.list.children[1];
                 }
 
@@ -493,7 +530,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     // Allocate space for the variable on the stack.
                     LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, var_type, var_name);
 
-                    // Add this variable to the symbol table. <-- THIS IS THE NEW CALL
+                    // Add this variable to the symbol table.
                     add_symbol(ctx, var_name, alloca_inst, var_type);
 
                     // If there's an initializer, process it and store the value.
@@ -502,19 +539,32 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         LLVMValueRef initializer_value = process_expression(ctx, initializer_expr_node);
                         if (initializer_value)
                         {
+                            LLVMTypeRef init_type = LLVMTypeOf(initializer_value);
+                            if (LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
+                                || LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
+                            {
+                                if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind)
+                                {
+                                    initializer_value =
+                                        LLVMBuildSIToFP(ctx->builder, initializer_value, var_type, "casttmp");
+                                }
+                                else if (LLVMGetTypeKind(init_type) == LLVMFloatTypeKind
+                                         && LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
+                                {
+                                    initializer_value =
+                                        LLVMBuildFPExt(ctx->builder, initializer_value, var_type, "casttmp");
+                                }
+                                else if (LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
+                                         && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind)
+                                {
+                                    initializer_value =
+                                        LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
+                                }
+                            }
+
                             LLVMBuildStore(ctx->builder, initializer_value, alloca_inst);
                         }
-                        else
-                        {
-                            fprintf(
-                                stderr, "IRGen Error: Failed to process initializer for variable\n'%s'\n", var_name
-                            );
-                        }
                     }
-                }
-                else
-                {
-                    fprintf(stderr, "IRGen Error: Could not extract variable name for declaration.\n");
                 }
             }
         }
@@ -1119,6 +1169,44 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         {
             // For now, just return the first argument if processed in isolation (rare)
             return process_expression(ctx, node->data.list.children[0]);
+        }
+        return NULL;
+    }
+    case AST_NODE_CAST_EXPRESSION:
+    {
+        // AST structure for CastExpression: [TypeName, CastExpression]
+        if (node->data.list.count < 2)
+            return NULL;
+
+        c_grammar_node_t * type_name_node = node->data.list.children[0];
+        c_grammar_node_t * inner_expr_node = node->data.list.children[1];
+
+        if (type_name_node->type != AST_NODE_TYPE_NAME)
+        {
+            fprintf(stderr, "IRGen Error: Expected TypeName in cast expression, got %u\n", type_name_node->type);
+            return NULL;
+        }
+
+        // TypeName children are [SpecifierQualifierList, AbstractDeclarator?]
+        c_grammar_node_t * spec_qual = type_name_node->data.list.children[0];
+        c_grammar_node_t * abstract_decl = (type_name_node->data.list.count > 1) ? type_name_node->data.list.children[1] : NULL;
+
+        LLVMTypeRef target_type = map_type(ctx, spec_qual, abstract_decl);
+        LLVMValueRef val_to_cast = process_expression(ctx, inner_expr_node);
+
+        if (val_to_cast && target_type)
+        {
+            LLVMTypeRef src_type = LLVMTypeOf(val_to_cast);
+            if (LLVMGetTypeKind(target_type) == LLVMIntegerTypeKind && (LLVMGetTypeKind(src_type) == LLVMFloatTypeKind || LLVMGetTypeKind(src_type) == LLVMDoubleTypeKind))
+            {
+                return LLVMBuildFPToSI(ctx->builder, val_to_cast, target_type, "casttmp");
+            }
+            else if ((LLVMGetTypeKind(target_type) == LLVMFloatTypeKind || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind) && LLVMGetTypeKind(src_type) == LLVMIntegerTypeKind)
+            {
+                return LLVMBuildSIToFP(ctx->builder, val_to_cast, target_type, "casttmp");
+            }
+            // Add more cast types as needed (bitcast, pointer casts, etc.)
+            return val_to_cast; // Fallback
         }
         return NULL;
     }

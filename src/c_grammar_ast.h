@@ -49,6 +49,7 @@ typedef enum
     AST_NODE_CONTINUE_STATEMENT,
     AST_NODE_BREAK_STATEMENT,
     AST_NODE_RETURN_STATEMENT,
+    AST_NODE_TYPE_NAME,
 } c_grammar_node_type_t;
 
 typedef struct c_grammar_node_t
