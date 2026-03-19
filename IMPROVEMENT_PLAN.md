@@ -37,12 +37,12 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 
 ### 3.1 If Statements
 - [x] Implement `AST_NODE_IF_STATEMENT` in `src/llvm_ir_generator.c` (`process_ast_node`).
-    - Generate basic blocks for `then`, `else` (if present), and `merge`.
-    - Use `LLVMBuildCondBr`.
+    - [x] Generate basic blocks for `then`, `else` (if present), and `merge`.
+    - [x] Use `LLVMBuildCondBr`.
 
 ### 3.2 Loops
 - [x] Implement `AST_NODE_WHILE_STATEMENT` in `src/llvm_ir_generator.c`.
-    - Generate blocks for `condition`, `body`, and `after`.
+    - [x] Generate blocks for `condition`, `body`, and `after`.
 - [x] Implement `AST_NODE_FOR_STATEMENT`.
 
 ## 4. Functions
@@ -52,6 +52,7 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 ### 4.1 Function Definition
 - [x] Update `AST_NODE_FUNCTION_DEFINITION` in `src/llvm_ir_generator.c` to handle parameters.
     - [x] Add parameters to the symbol table so they can be referenced in the body.
+    - [x] Correctly handle pointer parameters (e.g., `char ** argv`).
 
 ### 4.2 Function Calls
 - [x] Implement `AST_NODE_FUNCTION_CALL` in `src/llvm_ir_generator.c` (`process_expression`).
@@ -63,8 +64,11 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 
 **Goal:** Move away from hardcoded `int` types.
 
-- [x] Implement a helper to map C AST type specifiers (e.g., `int`, `float`, `char*`) to `LLVMTypeRef`.
-- [x] Use this helper in `AST_NODE_DECLARATION` and function definitions instead of default `i32`.
+- [x] Implement `map_type` helper to map C AST type specifiers (e.g., `int`, `float`, `char`) to `LLVMTypeRef`.
+- [x] Support **Pointers** in the type mapping logic (recursively handling `*`).
+- [x] Implement explicit **Casts** (`AST_NODE_CAST_EXPRESSION`) in `process_expression`.
+    - [x] Support `fptosi`, `sitofp`, `fpext`, `fptrunc`.
+- [x] Implement **Implicit Casting** in variable declarations (`AST_NODE_DECLARATION`).
 
 ## 6. Operators
 
@@ -72,3 +76,18 @@ This plan outlines the steps to enhance the `ncc` compiler to support more compl
 
 - [ ] Add support for bitwise operators (`&`, `|`, `^`, `<<`, `>>`) in `process_expression`.
 - [ ] Add support for logical operators (`&&`, `||`) with short-circuiting logic.
+
+## 7. Structs and Arrays
+
+**Goal:** Support composite data types.
+
+### 7.1 Arrays
+- [ ] Support array declarations (e.g., `int arr[10];`).
+- [ ] Support array indexing (e.g., `arr[i]`).
+- [ ] Update `map_type` to handle array types.
+
+### 7.2 Structs
+- [ ] Support struct definitions (`struct S { int x; float y; };`).
+- [ ] Support struct variable declarations.
+- [ ] Support member access via dot (`s.x`) and arrow (`p->x`).
+- [ ] Implement struct type registration in the LLVM context.

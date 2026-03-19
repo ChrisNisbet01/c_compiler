@@ -73,6 +73,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_BREAK_STATEMENT] = {.name = "BreakStatement"},
     [AST_NODE_RETURN_STATEMENT] = {.name = "ReturnStatement"},
     [AST_NODE_TYPE_NAME] = {.name = "TypeName"},
+    [AST_NODE_EXPRESSION_STATEMENT] = {.name = "ExpressionStatement"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
@@ -178,6 +179,7 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_BREAK_STATEMENT:
     case AST_NODE_RETURN_STATEMENT:
     case AST_NODE_TYPE_NAME:
+    case AST_NODE_EXPRESSION_STATEMENT:
         print_list_type_ast_node(node, indent);
         break;
 

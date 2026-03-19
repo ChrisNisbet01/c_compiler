@@ -477,6 +477,17 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         break;
     }
+    case AST_NODE_EXPRESSION_STATEMENT:
+    {
+        if (node->data.list.children)
+        {
+            for (size_t i = 0; i < node->data.list.count; ++i)
+            {
+                process_expression(ctx, node->data.list.children[i]);
+            }
+        }
+        break;
+    }
     case AST_NODE_DECLARATION:
     {
         // --- Handle Variable Declarations ---
@@ -1144,6 +1155,30 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     for (size_t j = 0; j < num_args; ++j)
                     {
                         args[j] = process_expression(ctx, suffix->data.list.children[j]);
+                    }
+                }
+
+                if (!base_val)
+                {
+                    if (base_node->type == AST_NODE_IDENTIFIER)
+                    {
+                        char const * func_name = base_node->data.terminal.text;
+                        // For undeclared functions like printf, auto-declare as variadic returning i32
+                        LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
+                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
+                        for (size_t j = 0; j < num_args; ++j)
+                        {
+                            arg_types[j] = LLVMTypeOf(args[j]);
+                        }
+                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
+                        base_val = LLVMAddFunction(ctx->module, func_name, func_type);
+                        free(arg_types);
+                    }
+                    else
+                    {
+                        fprintf(stderr, "IRGen Error: Could not resolve function for call.\n");
+                        if (args) free(args);
+                        return NULL;
                     }
                 }
 

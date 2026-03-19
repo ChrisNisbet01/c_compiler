@@ -393,7 +393,8 @@ TypedefDeclaration = wrap(KwExtension? KwTypedef DeclarationSpecifiers TypedefIn
 
 // --- Statements ---
 
-ExpressionStatement = Expression? Semicolon;
+ExpressionStatementRaw = Expression? @AST_ACTION_EXPRESSION_STATEMENT;
+ExpressionStatement = ExpressionStatementRaw Semicolon;
 
 LabeledStatement = (Identifier Colon Statement)
                  | (KwCase ConditionalExpression Colon Statement)
