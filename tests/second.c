@@ -1,4 +1,5 @@
-int main(int argc, char **argv)
+int
+main(int argc, char ** argv)
 {
     int i;
 
@@ -8,7 +9,7 @@ int main(int argc, char **argv)
     }
     else
     {
-        i = 420;
+        i = 0;
     }
 
     return i;

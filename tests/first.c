@@ -1,6 +1,7 @@
-int main()
+int
+main()
 {
     int i = 42;
 
-    return i;
+    return i - 42;
 }
