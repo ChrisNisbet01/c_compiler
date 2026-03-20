@@ -37,44 +37,38 @@ while IFS= read -r -d $'\0' c_file; do
 
     base_name=$(basename "$c_file" .c)
     ll_file="$OUTPUT_DIR/${base_name}.ll"
-    o_name="$OUTPUT_DIR/${base_name}"
+    o_file="$OUTPUT_DIR/${base_name}.o"
     exe_file="$OUTPUT_DIR/${base_name}"
     err_file="$OUTPUT_DIR/${base_name}.err"
     out_file="$OUTPUT_DIR/${base_name}.out"
 
-
     # Clean up previous output for this test file
-    rm -f "$ll_file" "$exe_file" "$err_file"
+    rm -f "$ll_file" "$o_file" "$exe_file" "$err_file"
 
-    # 1. Compile C file to LLVM IR using ncc
+    # 1. Compile C file to LLVM IR using ncc (-S -emit-llvm)
     echo "  [NCC] Compiling $c_file -> $ll_file"
-    # Redirect stderr to a file for detailed error checking
-    if ! "$NCC_COMPILER" -o "$o_name" "$c_file" 1> "$out_file" 2> "$err_file"; then
+    if ! "$NCC_COMPILER" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
         echo "  ERROR: ncc compilation failed for $c_file. Check $err_file"
         TEST_FAILED=true
-        continue # Move to the next test file
+        continue
     fi
-    # Check if stderr file is not empty (indicates warnings/errors from ncc)
     if [ -s "$err_file" ]; then
         echo "  WARNING: ncc produced output/warnings for $c_file. Check $err_file"
     fi
 
     # 2. Compile LLVM IR to an executable using clang
     echo "  [CLANG] Compiling $ll_file -> $exe_file"
-    # Redirect stderr to a file for detailed error checking
     if ! "$LLVM_COMPILER" "$ll_file" -o "$exe_file" 2> "$err_file"; then
         echo "  ERROR: clang compilation failed for $ll_file. Check $err_file"
         TEST_FAILED=true
         continue
     fi
-    # Check if stderr file is not empty
     if [ -s "$err_file" ]; then
         echo "  WARNING: clang produced warnings for $ll_file. Check $err_file"
     fi
 
     # 3. Run the executable and capture output and exit code
     echo "  [RUN] Executing $exe_file"
-    # Redirect stdout and stderr of the executable to a temporary file, then capture exit code
     exec_output_file="$OUTPUT_DIR/${base_name}_exec.log"
     "$exe_file" > "$exec_output_file" 2>&1
     exit_code=$?
@@ -89,6 +83,19 @@ while IFS= read -r -d $'\0' c_file; do
             cat "$exec_output_file"
         fi
     fi
+
+    # 4. Verify -c flag produces object file
+    echo "  [NCC -c] Compiling $c_file -> $o_file"
+    if ! "$NCC_COMPILER" -c -o "$o_file" "$c_file" 1> /dev/null 2> "$err_file"; then
+        echo "  ERROR: ncc -c compilation failed for $c_file. Check $err_file"
+        TEST_FAILED=true
+    elif [ ! -f "$o_file" ]; then
+        echo "  ERROR: ncc -c did not produce object file $o_file"
+        TEST_FAILED=true
+    else
+        echo "  SUCCESS: ncc -c produced object file $o_file."
+    fi
+
 done < <(find "$TEST_DIR" -maxdepth 1 -name "*.c" -print0)
 
 echo ""

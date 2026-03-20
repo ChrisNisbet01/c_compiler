@@ -17,7 +17,9 @@
 
 // --- Global variables to store parsed command-line options ---
 static bool compile_only_flag = false;
-static char * output_filename = "a.out";
+static bool assembly_only_flag = false;
+static bool emit_llvm_flag = false;
+static char * output_filename = NULL;
 static char * march_target = "x86-64";
 
 typedef struct
@@ -539,8 +541,28 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * p
 epc_wrap_callbacks_t typedef_capture_callbacks = {on_capture_entry, on_capture_exit};
 epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit};
 
+static char *
+derive_output_filename(char const * input_path, char const * ext)
+{
+    static char derived[1024];
+    char const * base = strrchr(input_path, '/');
+    base = base ? base + 1 : input_path;
+
+    char const * dot = strrchr(base, '.');
+    size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
+
+    char const * dir_end = strrchr(input_path, '/');
+    size_t dir_len = dir_end ? (size_t)(dir_end - input_path + 1) : 0;
+
+    memcpy(derived, input_path, dir_len);
+    memcpy(derived + dir_len, base, base_len);
+    snprintf(derived + dir_len + base_len, sizeof(derived) - dir_len - base_len, ".%s", ext);
+
+    return derived;
+}
+
 static void
-generate_output(c_grammar_node_t const * ast_root)
+generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 {
     printf("\nStarting LLVM IR Generation...\n");
     ir_generator_ctx_t * ir_ctx = ir_generator_init();
@@ -555,22 +577,77 @@ generate_output(c_grammar_node_t const * ast_root)
         LLVMModuleRef llvm_module = generate_llvm_ir(ir_ctx, ast_root);
         if (llvm_module)
         {
-            if (compile_only_flag)
+            if (!compile_only_flag && !assembly_only_flag)
             {
-                // STOP after object code is created
-                if (emit_to_file(llvm_module, output_filename, march_target, LLVMObjectFile) != 0)
+                fprintf(stderr, "Error: Linking is not supported yet.\n");
+                fprintf(stderr, "Use -S to emit assembly/IR, or -c to emit object code.\n");
+            }
+            else if (assembly_only_flag)
+            {
+                // -S: emit assembly or IR
+                char const * out_path;
+                if (output_filename)
                 {
-                    fprintf(stderr, "Failed to emit object file %s\n", output_filename);
+                    out_path = output_filename;
+                }
+                else if (emit_llvm_flag)
+                {
+                    out_path = derive_output_filename(input_filename, "ll");
+                }
+                else
+                {
+                    out_path = derive_output_filename(input_filename, "s");
+                }
+
+                if (emit_llvm_flag)
+                {
+                    // -S -emit-llvm: emit LLVM IR text
+                    if (write_llvm_ir_to_file(llvm_module, out_path) != 0)
+                    {
+                        fprintf(stderr, "Failed to write LLVM IR to %s\n", out_path);
+                    }
+                }
+                else
+                {
+                    // -S: emit native assembly
+                    if (emit_to_file(llvm_module, out_path, march_target, LLVMAssemblyFile) != 0)
+                    {
+                        fprintf(stderr, "Failed to emit assembly to %s\n", out_path);
+                    }
                 }
             }
-            else
+            else if (compile_only_flag)
             {
-                // Simply output the LLVM IR to a file with extension ".ll" appended
-                char ir_filename[1024];
-                snprintf(ir_filename, sizeof(ir_filename), "%s.ll", output_filename);
-                if (write_llvm_ir_to_file(llvm_module, ir_filename) != 0)
+                // -c: emit object code
+                char const * out_path;
+                if (output_filename)
                 {
-                    fprintf(stderr, "Failed to write LLVM IR to %s\n", ir_filename);
+                    out_path = output_filename;
+                }
+                else if (emit_llvm_flag)
+                {
+                    out_path = derive_output_filename(input_filename, "ll");
+                }
+                else
+                {
+                    out_path = derive_output_filename(input_filename, "o");
+                }
+
+                if (emit_llvm_flag)
+                {
+                    // -c -emit-llvm: emit LLVM IR text
+                    if (write_llvm_ir_to_file(llvm_module, out_path) != 0)
+                    {
+                        fprintf(stderr, "Failed to write LLVM IR to %s\n", out_path);
+                    }
+                }
+                else
+                {
+                    // -c: emit native object file
+                    if (emit_to_file(llvm_module, out_path, march_target, LLVMObjectFile) != 0)
+                    {
+                        fprintf(stderr, "Failed to emit object file %s\n", out_path);
+                    }
                 }
             }
         }
@@ -593,8 +670,10 @@ print_usage(char const * prog_name)
 {
     fprintf(stderr, "Usage: %s [options] <filename>\n", prog_name);
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  -c              Compile only (stop after object code creation)\n");
-    fprintf(stderr, "  -o <file>       Specify output filename (default: a.out)\n");
+    fprintf(stderr, "  -S              Compile to assembly (or LLVM IR with -emit-llvm)\n");
+    fprintf(stderr, "  -c              Compile to object code (or LLVM bitcode with -emit-llvm)\n");
+    fprintf(stderr, "  -emit-llvm      Emit LLVM IR/bitcode instead of native output\n");
+    fprintf(stderr, "  -o <file>       Specify output filename\n");
     fprintf(stderr, "  --march=<arch>  Specify target architecture (default: x86-64)\n");
     fprintf(stderr, "  -h, --help      Display this help message\n");
 }
@@ -602,23 +681,31 @@ print_usage(char const * prog_name)
 int
 main(int argc, char * argv[])
 {
-    static struct option long_options[]
-        = {{"march", required_argument, 0, 'm'}, {"help", no_argument, 0, 'h'}, {0, 0, 0, 0}};
+    static struct option long_options[] = {{"march", required_argument, 0, 'm'},
+                                           {"emit-llvm", no_argument, 0, 'e'},
+                                           {"help", no_argument, 0, 'h'},
+                                           {0, 0, 0, 0}};
 
     int opt;
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "co:h", long_options, &option_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "cSo:h", long_options, &option_index)) != -1)
     {
         switch (opt)
         {
         case 'c':
             compile_only_flag = true;
             break;
+        case 'S':
+            assembly_only_flag = true;
+            break;
         case 'o':
             output_filename = optarg;
             break;
         case 'm':
             march_target = optarg;
+            break;
+        case 'e':
+            emit_llvm_flag = true;
             break;
         case 'h':
             print_usage(argv[0]);
@@ -701,7 +788,7 @@ main(int argc, char * argv[])
             fprintf(stderr, "Starting AST print...\n");
             print_ast(ast_root, 0);
             fprintf(stderr, "Starting LLVM IR Generation...\n");
-            generate_output(ast_root);
+            generate_output(ast_root, filename);
             c_grammar_node_free(ast_root, NULL);
         }
         else
