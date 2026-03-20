@@ -192,8 +192,7 @@ PostfixPart = FunctionCallPart
 
 PostfixExpression = (PrimaryExpression PostfixPart*) @AST_ACTION_POSTFIX_EXPRESSION;
 
-UnaryOpRaw = Amp | Star | Plus | Minus | Tilde | Excl;
-UnaryOp = UnaryOpRaw @AST_ACTION_OPERATOR;
+UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl @AST_ACTION_OPERATOR;
 
 KwSizeofAST = KwSizeof @AST_ACTION_OPERATOR;
 KwAlignofAST = KwAlignof @AST_ACTION_OPERATOR;
@@ -217,30 +216,26 @@ UnaryExpression = memoize(UnaryExpressionRaw);
 // Abstract declarators are used in type names (e.g., in casts)
 AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
 
-TypeNameRaw = (SpecifierQualifierList AbstractDeclarator?) @AST_ACTION_TYPE_NAME;
-TypeName = memoize(TypeNameRaw);
+TypeNameRaw = SpecifierQualifierList AbstractDeclarator?;
+TypeName = memoize(TypeNameRaw) @AST_ACTION_TYPE_NAME;
 
 CastExpressionWrap = LParen TypeName RParen CastExpression @AST_ACTION_CAST_EXPRESSION;
 CastExpressionRaw = CastExpressionWrap | UnaryExpression;
 CastExpression = memoize(CastExpressionRaw);
 
-MulOpRaw = Star | Slash | Percent;
-MulOp = MulOpRaw @AST_ACTION_OPERATOR;
+MulOp = Star | Slash | Percent @AST_ACTION_OPERATOR;
 MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_BINARY_OP;
 
-AddOpRaw = Plus | Minus;
-AddOp = AddOpRaw @AST_ACTION_OPERATOR;
+AddOp = Plus | Minus @AST_ACTION_OPERATOR;
 AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_BINARY_OP;
 
 ShiftOp = Shl | Shr;
 ShiftExpression = chainl1(AdditiveExpression, ShiftOp);
 
-RelOpRaw = Lt | Gt | Le | Ge;
-RelOp = RelOpRaw @AST_ACTION_OPERATOR;
+RelOp = Lt | Gt | Le | Ge @AST_ACTION_OPERATOR;
 RelationalExpression = chainl1(ShiftExpression, RelOp) @AST_ACTION_RELATIONAL;
 
-EqOpRaw = Eq | Ne;
-EqOp = EqOpRaw @AST_ACTION_OPERATOR;
+EqOp = Eq | Ne @AST_ACTION_OPERATOR;
 EqualityExpression = chainl1(RelationalExpression, EqOp) @AST_ACTION_EQUALITY;
 
 AndExpression = chainl1(EqualityExpression, Amp) @AST_ACTION_BITWISE_AND_EXPRESSION;
@@ -255,11 +250,10 @@ LogicalOrExpression = chainl1(LogicalAndExpression, PipePipe) @AST_ACTION_LOGICA
 
 ConditionalExpression = LogicalOrExpression (Question AssignmentExpression Colon ConditionalExpression)?;
 
-AssignmentOpRaw = ShlAssign | ShrAssign
+AssignmentOp = ShlAssign | ShrAssign
                 | PlusAssign | MinusAssign | MulAssign | DivAssign | ModAssign
                 | AndAssign | XorAssign | OrAssign
-                | Assign;
-AssignmentOp = AssignmentOpRaw @AST_ACTION_OPERATOR;
+                | Assign @AST_ACTION_OPERATOR;
 
 Assignment = UnaryExpression AssignmentOp AssignmentExpression @AST_ACTION_ASSIGNMENT;
 
@@ -316,9 +310,8 @@ StructDeclaration = KwExtension? SpecifierQualifierList StructDeclaratorList? Se
 
 StructDeclarationList = StructDeclaration+;
 
-StructOrUnionSpecifierRaw = ((KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
-                        | ((KwStruct | KwUnion) Attribute* Identifier);
-StructOrUnionSpecifier = StructOrUnionSpecifierRaw @AST_ACTION_STRUCT_SPECIFIER;
+StructOrUnionSpecifier = ((KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
+                        | ((KwStruct | KwUnion) Attribute* Identifier) @AST_ACTION_STRUCT_SPECIFIER;
 
 Enumerator = Identifier (Assign ConditionalExpression)?;
 
@@ -329,8 +322,7 @@ EnumSpecifier = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator,
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
 // StructDefinition: struct with body (definition)
-StructDefinitionRaw = (KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*;
-StructDefinition = StructDefinitionRaw @AST_ACTION_STRUCT_SPECIFIER;
+StructDefinition = (KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute* @AST_ACTION_STRUCT_SPECIFIER;
 
 // StructTypeRef: struct without body (reference) - treated as type specifier
 StructTypeRef = (KwStruct | KwUnion) Attribute* Identifier;
@@ -450,9 +442,9 @@ ParameterTypeList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)
 
 ParameterList = LParen ParameterTypeList? RParen;
 
-ExternalDeclaration = PreprocessorDirective | (KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration));
-
 FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
+
+ExternalDeclaration = PreprocessorDirective | (KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration));
 
 TranslationUnit = ExternalDeclaration+ @AST_ACTION_TRANSLATION_UNIT;
 
