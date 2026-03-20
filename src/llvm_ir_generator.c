@@ -18,6 +18,53 @@ static bool find_symbol(
     ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type
 ); // Helper for get_variable_pointer
 
+// Label management functions
+static LLVMBasicBlockRef
+get_or_create_label(ir_generator_ctx_t * ctx, char const * name)
+{
+    if (!ctx || !name)
+        return NULL;
+
+    for (size_t i = 0; i < ctx->label_count; i++)
+    {
+        if (ctx->labels[i].name && strcmp(ctx->labels[i].name, name) == 0)
+        {
+            return ctx->labels[i].block;
+        }
+    }
+
+    if (ctx->label_count >= ctx->label_capacity)
+    {
+        size_t new_cap = ctx->label_capacity == 0 ? 16 : ctx->label_capacity * 2;
+        label_t * new_labels = realloc(ctx->labels, new_cap * sizeof(label_t));
+        if (!new_labels)
+            return NULL;
+        ctx->labels = new_labels;
+        ctx->label_capacity = new_cap;
+    }
+
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+    LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx->context, current_func, name);
+
+    ctx->labels[ctx->label_count].name = strdup(name);
+    ctx->labels[ctx->label_count].block = block;
+    ctx->label_count++;
+
+    return block;
+}
+
+static void
+clear_labels(ir_generator_ctx_t * ctx)
+{
+    if (!ctx)
+        return;
+    for (size_t i = 0; i < ctx->label_count; i++)
+    {
+        free(ctx->labels[i].name);
+    }
+    ctx->label_count = 0;
+}
+
 // Helper to map C types to LLVM types
 static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
@@ -789,6 +836,11 @@ ir_generator_init()
     ctx->structs = calloc(ctx->struct_capacity, sizeof(struct_info_t));
     ctx->struct_count = 0;
 
+    // Initialize label management
+    ctx->label_capacity = 16;
+    ctx->labels = calloc(ctx->label_capacity, sizeof(label_t));
+    ctx->label_count = 0;
+
     return ctx;
 }
 
@@ -811,6 +863,22 @@ free_symbol_table(ir_generator_ctx_t * ctx)
     ctx->symbol_capacity = 0;
 }
 
+static void
+free_labels(ir_generator_ctx_t * ctx)
+{
+    if (!ctx || !ctx->labels)
+        return;
+
+    for (size_t i = 0; i < ctx->label_count; i++)
+    {
+        free(ctx->labels[i].name);
+    }
+    free(ctx->labels);
+    ctx->labels = NULL;
+    ctx->label_count = 0;
+    ctx->label_capacity = 0;
+}
+
 /**
  * @brief Disposes of the IR generator context and associated LLVM resources.
  */
@@ -821,6 +889,7 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
         return;
 
     free_symbol_table(ctx); // Free symbol table first
+    free_labels(ctx);
 
     // Free struct type registry
     if (ctx->structs)
@@ -909,6 +978,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_FUNCTION_DEFINITION:
     {
+        clear_labels(ctx);
         // --- Handle Function Definition ---
         c_grammar_node_t * decl_specifiers_node = NULL;
         c_grammar_node_t * declarator_node = NULL;
@@ -1591,6 +1661,46 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             // Handle 'return;' (e.g., void function or default return).
             // Assuming 'int' return type, so return 0.
             LLVMBuildRet(ctx->builder, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false));
+        }
+        break;
+    }
+    case AST_NODE_GOTO_STATEMENT:
+    {
+        if (node->data.list.count > 0 && node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+        {
+            char const * label_name = node->data.list.children[0]->data.terminal.text;
+            LLVMBasicBlockRef target = get_or_create_label(ctx, label_name);
+            LLVMBuildBr(ctx->builder, target);
+
+            // Start a new basic block for any code after goto (which is technically unreachable
+            // unless there's a label).
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+            LLVMBasicBlockRef unreachable = LLVMAppendBasicBlockInContext(ctx->context, func, "unreachable");
+            LLVMPositionBuilderAtEnd(ctx->builder, unreachable);
+        }
+        break;
+    }
+    case AST_NODE_LABELED_STATEMENT:
+    {
+        // LabeledStatement children: [Identifier, Statement]
+        // (The Colon terminal is not included in the AST)
+
+        if (node->data.list.count >= 2 && node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+        {
+            char const * label_name = node->data.list.children[0]->data.terminal.text;
+            LLVMBasicBlockRef label_block = get_or_create_label(ctx, label_name);
+
+            // If the current block doesn't have a terminator, branch to the label block
+            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+            {
+                LLVMBuildBr(ctx->builder, label_block);
+            }
+
+            // Continue building from the label block
+            LLVMPositionBuilderAtEnd(ctx->builder, label_block);
+
+            // Process the statement part of the labeled statement (the 2nd child)
+            process_ast_node(ctx, node->data.list.children[1]);
         }
         break;
     }

@@ -41,6 +41,13 @@ typedef struct symbol
     char *struct_name; // For pointer-to-struct types, stores the struct name for member access
 } symbol_t;
 
+// --- Label Management ---
+typedef struct label
+{
+    char *name;
+    LLVMBasicBlockRef block;
+} label_t;
+
 // Structure to hold the context for LLVM IR generation.
 // This includes LLVM's core objects and potentially symbol table management.
 typedef struct ir_generator_ctx
@@ -58,6 +65,11 @@ typedef struct ir_generator_ctx
     struct_info_t *structs;
     size_t struct_count;
     size_t struct_capacity;
+
+    // --- Label management for goto statements ---
+    label_t *labels;
+    size_t label_count;
+    size_t label_capacity;
 
     // Potentially function/scope management structures
 } ir_generator_ctx_t;

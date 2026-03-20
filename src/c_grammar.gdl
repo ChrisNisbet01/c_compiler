@@ -400,7 +400,7 @@ ExpressionStatement = ExpressionStatementRaw Semicolon;
 
 LabeledStatement = (Identifier Colon Statement)
                  | (KwCase ConditionalExpression Colon Statement)
-                 | (KwDefault Colon Statement);
+                 | (KwDefault Colon Statement) @AST_ACTION_LABELED_STATEMENT;
 
 IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
 SwitchStatement = (KwSwitch LParen Expression RParen Statement) @AST_ACTION_SWITCH_STATEMENT;
