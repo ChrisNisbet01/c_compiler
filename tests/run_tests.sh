@@ -22,6 +22,9 @@ mkdir -p "$OUTPUT_DIR"
 
 # Flag to indicate if any test failed
 TEST_FAILED=false
+TOTAL_TESTS=0
+PASSED_TESTS=0
+FAILED_TESTS=0
 
 run_test() {
     local c_file="$1"
@@ -31,6 +34,9 @@ run_test() {
     local exe_file="$OUTPUT_DIR/${base_name}"
     local err_file="$OUTPUT_DIR/${base_name}.err"
     local out_file="$OUTPUT_DIR/${base_name}.out"
+    local current_test_failed=false
+
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
 
     echo ""
     echo "--- Testing: $c_file ---"
@@ -43,6 +49,8 @@ run_test() {
     if ! "$NCC_COMPILER" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
         echo "  ERROR: ncc compilation failed for $c_file. Check $err_file"
         TEST_FAILED=true
+        current_test_failed=true
+        FAILED_TESTS=$((FAILED_TESTS + 1))
         return
     fi
     if [ -s "$err_file" ]; then
@@ -54,6 +62,8 @@ run_test() {
     if ! "$LLVM_COMPILER" "$ll_file" -o "$exe_file" 2> "$err_file"; then
         echo "  ERROR: clang compilation failed for $ll_file. Check $err_file"
         TEST_FAILED=true
+        current_test_failed=true
+        FAILED_TESTS=$((FAILED_TESTS + 1))
         return
     fi
     if [ -s "$err_file" ]; then
@@ -69,6 +79,7 @@ run_test() {
     if [ "$exit_code" -ne 0 ] ; then
         echo "  FAILURE: $c_file execution failed with exit code $exit_code."
         TEST_FAILED=true
+        current_test_failed=true
     else
         echo "  SUCCESS: $c_file executed successfully with exit code $exit_code."
         if [ -s "$exec_output_file" ]; then
@@ -82,9 +93,11 @@ run_test() {
     if ! "$NCC_COMPILER" -c -o "$o_file" "$c_file" 1> /dev/null 2> "$err_file"; then
         echo "  ERROR: ncc -c compilation failed for $c_file. Check $err_file"
         TEST_FAILED=true
+        current_test_failed=true
     elif [ ! -f "$o_file" ]; then
         echo "  ERROR: ncc -c did not produce object file $o_file"
         TEST_FAILED=true
+        current_test_failed=true
     else
         echo "  SUCCESS: ncc -c produced object file $o_file."
     fi
@@ -95,9 +108,11 @@ run_test() {
     if ! "$NCC_COMPILER" -o "$link_exe" "$c_file" 1> /dev/null 2> "$err_file"; then
         echo "  ERROR: ncc linking failed for $c_file. Check $err_file"
         TEST_FAILED=true
+        current_test_failed=true
     elif [ ! -f "$link_exe" ]; then
         echo "  ERROR: ncc did not produce executable $link_exe"
         TEST_FAILED=true
+        current_test_failed=true
     else
         echo "  [RUN] Executing $link_exe"
         local link_exec_output="$OUTPUT_DIR/${base_name}_link_exec.log"
@@ -106,9 +121,16 @@ run_test() {
         if [ "$link_exit_code" -ne 0 ]; then
             echo "  FAILURE: linked executable failed with exit code $link_exit_code."
             TEST_FAILED=true
+            current_test_failed=true
         else
             echo "  SUCCESS: linked executable ran successfully."
         fi
+    fi
+
+    if [ "$current_test_failed" = "true" ]; then
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+    else
+        PASSED_TESTS=$((PASSED_TESTS + 1))
     fi
 }
 
@@ -136,10 +158,14 @@ fi
 
 echo ""
 echo "--- Test Suite Summary ---"
+echo "Total Tests: $TOTAL_TESTS"
+echo "Passed:      $PASSED_TESTS"
+echo "Failed:      $FAILED_TESTS"
+
 if [ "$TEST_FAILED" = "true" ]; then
-    echo "Some tests failed."
+    echo "Result: SOME TESTS FAILED"
     exit 1
 else
-    echo "All tests passed!"
+    echo "Result: ALL TESTS PASSED"
     exit 0
 fi
