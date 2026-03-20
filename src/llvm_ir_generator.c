@@ -1061,6 +1061,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         size_t num_params = 0;
         LLVMTypeRef * param_types = NULL;
         char ** param_names = NULL;
+        LLVMTypeRef empty_params[1];
 
         if (suffix_node && !suffix_node->is_terminal_node && suffix_node->data.list.count > 0)
         {
@@ -1086,7 +1087,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         LLVMTypeRef return_type = map_type(ctx, decl_specifiers_node, NULL);
-        LLVMTypeRef func_type = LLVMFunctionType(return_type, param_types, (unsigned)num_params, false);
+        LLVMTypeRef func_type = LLVMFunctionType(return_type, 
+                                                  num_params > 0 ? param_types : empty_params, 
+                                                  (unsigned)num_params, false);
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
         // Create a basic block for the function's entry point.
@@ -2177,14 +2180,22 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     }
 
                     LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
-                    char const * call_name = NULL;
+                    char const * call_name = "";
                     if (LLVMGetReturnType(func_type) != LLVMVoidTypeInContext(ctx->context))
                     {
                         call_name = "call_tmp";
                     }
-                    fprintf(stderr, "DEBUG: calling LLVMBuildCall2, num_args=%u\n", (unsigned)num_args);
-                    base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, args, (unsigned)num_args, call_name);
-                    fprintf(stderr, "DEBUG: LLVMBuildCall2 succeeded\n");
+                    
+                    // For zero-argument calls, pass NULL for args (per LLVM C API docs)
+                    LLVMValueRef * call_args = (num_args > 0) ? args : NULL;
+                    base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
+                    
+                    // For void functions, set base_val to NULL (void calls don't produce values)
+                    if (LLVMGetReturnType(func_type) == LLVMVoidTypeInContext(ctx->context))
+                    {
+                        base_val = NULL;
+                    }
+                    
                     if (args)
                         free(args);
                 }
