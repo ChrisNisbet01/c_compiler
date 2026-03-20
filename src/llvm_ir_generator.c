@@ -1916,6 +1916,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     if (!node)
         return NULL;
 
+    fprintf(stderr, "DEBUG: process_expression node type %d\n", node->type);
+
     switch (node->type)
     {
     case AST_NODE_INTEGER_VALUE:
@@ -1988,6 +1990,51 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
             free(decoded);
             return global_str;
+        }
+        break;
+    }
+    case AST_NODE_CHARACTER_LITERAL:
+    {
+        if (node->data.terminal.text)
+        {
+            char * raw_text = node->data.terminal.text;
+            // Character literal content (no quotes), e.g., "a" or "\\n"
+            char value = 0;
+            if (raw_text[0] == '\\')
+            {
+                switch (raw_text[1])
+                {
+                case 'n':
+                    value = '\n';
+                    break;
+                case 't':
+                    value = '\t';
+                    break;
+                case 'r':
+                    value = '\r';
+                    break;
+                case '0':
+                    value = '\0';
+                    break;
+                case '\\':
+                    value = '\\';
+                    break;
+                case '\'':
+                    value = '\'';
+                    break;
+                case '\"':
+                    value = '\"';
+                    break;
+                default:
+                    value = raw_text[1];
+                    break;
+                }
+            }
+            else
+            {
+                value = raw_text[0];
+            }
+            return LLVMConstInt(LLVMInt8TypeInContext(ctx->context), value, false);
         }
         break;
     }
@@ -2109,28 +2156,51 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 {
                     // Determine element type from current type
                     LLVMTypeRef elem_type = NULL;
+                    LLVMValueRef elem_ptr = NULL;
+
                     if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                     {
                         elem_type = LLVMGetElementType(current_type);
+                        if (!elem_type)
+                        {
+                            elem_type = LLVMInt8TypeInContext(ctx->context); // Heuristic for opaque pointers
+                        }
+
+                        // Load the actual pointer
+                        LLVMValueRef ptr_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "ptr_load");
+
+                        // Use GEP on the loaded pointer with a single index.
+                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_val, 1, "arrayidx");
                     }
                     else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
                     {
                         elem_type = LLVMGetElementType(current_type);
+                        if (!elem_type)
+                        {
+                            fprintf(stderr, "IRGen Error: Could not get element type of an array.\n");
+                            return NULL;
+                        }
+                        // For array types, indexing is [0, index]
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                        indices[1] = index_val;
+                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, current_ptr, indices, 2, "arrayidx");
                     }
 
-                    // Create GEP to access element
-                    LLVMValueRef indices[2];
-                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                    indices[1] = index_val;
-                    LLVMValueRef elem_ptr
-                        = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
+                    if (elem_ptr && elem_type)
+                    {
+                        // Update current_ptr and current_type for next iteration
+                        current_ptr = elem_ptr;
+                        current_type = elem_type;
 
-                    // Update current_ptr and current_type for next iteration
-                    current_ptr = elem_ptr;
-                    current_type = elem_type;
-
-                    // Clear base_val so final load uses the correct element type
-                    base_val = NULL;
+                        // Clear base_val so final load uses the correct element type
+                        base_val = NULL;
+                    }
+                    else
+                    {
+                        fprintf(stderr, "IRGen Error: Could not determine element type for subscript.\n");
+                        return NULL;
+                    }
                 }
             }
             else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
@@ -2517,7 +2587,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             // Load the value from the memory address using LLVMBuildLoad2.
             return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
         }
-        else
+        else if (var_ptr == NULL)
         {
             // Check if it's a function name before reporting error
             if (LLVMGetNamedFunction(ctx->module, node->data.terminal.text))
@@ -2525,6 +2595,11 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 return NULL; // It's a function, not a variable to load from
             }
             fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
+            return NULL;
+        }
+        else
+        {
+            fprintf(stderr, "IRGen Error: NULL element type for variable '%s'.\n", node->data.terminal.text);
             return NULL;
         }
         break;
