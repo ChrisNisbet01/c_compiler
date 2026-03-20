@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 // Forward declare the context structure as it's used before its definition
 // typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
@@ -17,6 +18,30 @@ static void free_symbol_table(ir_generator_ctx_t * ctx);
 static bool find_symbol(
     ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type
 ); // Helper for get_variable_pointer
+
+// Helper function to safely get element type from a pointer, handling opaque pointers
+static LLVMTypeRef
+get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
+{
+    if (!ptr_type || LLVMGetTypeKind(ptr_type) != LLVMPointerTypeKind)
+        return NULL;
+
+    LLVMTypeRef elem_type = LLVMGetElementType(ptr_type);
+    if (!elem_type)
+        return LLVMInt8TypeInContext(ctx->context);
+
+    uintptr_t elem_ptr = (uintptr_t)elem_type;
+    if (elem_ptr < 0x1000 || elem_ptr > 0x7FFFFFFFFFFF)
+        return LLVMInt8TypeInContext(ctx->context);
+
+    LLVMTypeKind tk = LLVMGetTypeKind(elem_type);
+    if (tk != LLVMIntegerTypeKind && tk != LLVMFloatTypeKind && tk != LLVMDoubleTypeKind
+        && tk != LLVMArrayTypeKind && tk != LLVMStructTypeKind && tk != LLVMVectorTypeKind
+        && tk != LLVMHalfTypeKind && tk != LLVMBFloatTypeKind)
+        return LLVMInt8TypeInContext(ctx->context);
+
+    return elem_type;
+}
 
 // Label management functions
 static LLVMBasicBlockRef
@@ -2168,7 +2193,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 
                     if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                     {
-                        elem_type = LLVMInt8TypeInContext(ctx->context);
+                        elem_type = get_pointer_element_type(ctx, current_type);
 
                         // Load the actual pointer
                         LLVMValueRef ptr_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "ptr_load");
@@ -2450,7 +2475,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                     LLVMTypeRef elem_type = NULL;
                                     if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                                     {
-                                        elem_type = LLVMGetElementType(current_type);
+                                        elem_type = get_pointer_element_type(ctx, current_type);
                                     }
                                     else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
                                     {
@@ -2488,9 +2513,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                     char const * sname = find_symbol_struct_name(ctx, base_name);
                                     if (sname)
                                         struct_type = find_struct_type(ctx, sname);
-                                    // Fallback for older LLVM
+                                    // Fallback for opaque pointers
                                     if (!struct_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                                        struct_type = LLVMGetElementType(current_type);
+                                        struct_type = get_pointer_element_type(ctx, current_type);
 
                                     if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
                                     {
@@ -2807,10 +2832,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         if (strcmp(op_str, "*") == 0)
         {
             LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
-            fprintf(stderr, "DEBUG deref: operand_val=%p, ptr_type=%p\n", (void *)operand_val, (void *)ptr_type);
-            if (ptr_type && LLVMGetTypeKind(ptr_type) == LLVMPointerTypeKind)
+            LLVMTypeRef elem_type = get_pointer_element_type(ctx, ptr_type);
+            if (elem_type)
             {
-                LLVMTypeRef elem_type = LLVMGetElementType(ptr_type);
                 return LLVMBuildLoad2(ctx->builder, elem_type, operand_val, "deref_tmp");
             }
             return operand_val;
@@ -2819,7 +2843,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         if (strcmp(op_str, "-") == 0)
         {
             LLVMTypeRef op_type = LLVMTypeOf(operand_val);
-            fprintf(stderr, "DEBUG neg: operand_val=%p, op_type=%p\n", (void *)operand_val, (void *)op_type);
             if (op_type
                 && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
                 return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
@@ -2828,7 +2851,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         if (strcmp(op_str, "!") == 0)
         {
             LLVMTypeRef op_type = LLVMTypeOf(operand_val);
-            fprintf(stderr, "DEBUG not: operand_val=%p, op_type=%p\n", (void *)operand_val, (void *)op_type);
             if (!op_type)
                 return NULL;
             LLVMValueRef is_zero
@@ -2837,11 +2859,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         }
         if (strcmp(op_str, "~") == 0)
         {
-            LLVMTypeRef op_type = LLVMTypeOf(operand_val);
-            fprintf(stderr, "DEBUG bitnot: operand_val=%p, op_type=%p\n", (void *)operand_val, (void *)op_type);
             return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
         }
-        fprintf(stderr, "DEBUG unary default: op_str=%s, operand_val=%p\n", op_str, (void *)operand_val);
         return operand_val;
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
