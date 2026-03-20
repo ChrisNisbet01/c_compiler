@@ -2076,13 +2076,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         bool have_ptr = false;
         bool base_is_array = false;
 
-        // Special handling if base is an identifier being called as a function
-        if (base_node->type == AST_NODE_IDENTIFIER)
-        {
-            char const * func_name = base_node->data.terminal.text;
-            base_val = LLVMGetNamedFunction(ctx->module, func_name);
-        }
-
         // Check if base is a symbol (for array access)
         // Do this before process_expression to avoid double GEP for arrays
         if (base_node->type == AST_NODE_IDENTIFIER && !have_ptr)
@@ -2108,7 +2101,21 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         // Only process base if it's not an array (arrays need suffix handling for subscript)
         if (!base_val && !base_is_array)
         {
-            base_val = process_expression(ctx, base_node);
+            // For function calls, don't call process_expression on the identifier
+            // The function call suffix handling will get the function pointer directly
+            bool has_func_call_suffix = false;
+            for (size_t i = 1; i < node->data.list.count; ++i)
+            {
+                if (node->data.list.children[i]->type == AST_NODE_FUNCTION_CALL)
+                {
+                    has_func_call_suffix = true;
+                    break;
+                }
+            }
+            if (!has_func_call_suffix)
+            {
+                base_val = process_expression(ctx, base_node);
+            }
         }
 
         for (size_t i = 1; i < node->data.list.count; ++i)
@@ -2135,26 +2142,31 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     if (base_node->type == AST_NODE_IDENTIFIER)
                     {
                         char const * func_name = base_node->data.terminal.text;
-                        // For undeclared functions like printf, auto-declare as variadic returning i32
-                        LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
-                        bool all_args_valid = true;
-                        for (size_t j = 0; j < num_args; ++j)
+                        // First try to get existing function
+                        base_val = LLVMGetNamedFunction(ctx->module, func_name);
+                        if (!base_val)
                         {
-                            if (args[j])
+                            // For undeclared functions like printf, auto-declare as variadic returning i32
+                            LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
+                            LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
+                            bool all_args_valid = true;
+                            for (size_t j = 0; j < num_args; ++j)
                             {
-                                arg_types[j] = LLVMTypeOf(args[j]);
+                                if (args[j])
+                                {
+                                    arg_types[j] = LLVMTypeOf(args[j]);
+                                }
+                                else
+                                {
+                                    // Null argument - use i32 as default type
+                                    arg_types[j] = LLVMInt32TypeInContext(ctx->context);
+                                    all_args_valid = false;
+                                }
                             }
-                            else
-                            {
-                                // Null argument - use i32 as default type
-                                arg_types[j] = LLVMInt32TypeInContext(ctx->context);
-                                all_args_valid = false;
-                            }
+                            LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
+                            base_val = LLVMAddFunction(ctx->module, func_name, func_type);
+                            free(arg_types);
                         }
-                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
-                        base_val = LLVMAddFunction(ctx->module, func_name, func_type);
-                        free(arg_types);
                     }
                     else
                     {
@@ -2163,14 +2175,21 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                             free(args);
                         return NULL;
                     }
-                }
 
-                LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
-                base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, args, (unsigned)num_args, "call_tmp");
-                if (args)
-                    free(args);
+                    LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
+                    char const * call_name = NULL;
+                    if (LLVMGetReturnType(func_type) != LLVMVoidTypeInContext(ctx->context))
+                    {
+                        call_name = "call_tmp";
+                    }
+                    fprintf(stderr, "DEBUG: calling LLVMBuildCall2, num_args=%u\n", (unsigned)num_args);
+                    base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, args, (unsigned)num_args, call_name);
+                    fprintf(stderr, "DEBUG: LLVMBuildCall2 succeeded\n");
+                    if (args)
+                        free(args);
+                }
             }
-            else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+                else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
             {
                 // Array subscript: [LBracket, IndexExpression, RBracket]
                 // Find the index expression
