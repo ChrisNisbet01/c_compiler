@@ -2333,7 +2333,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                         {
                                             for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
                                             {
-                                                if (info->fields[j].name
+                                                if (info->fields[j].name != NULL
                                                     && strcmp(info->fields[j].name, member_name) == 0)
                                                 {
                                                     member_index = j;
@@ -2422,9 +2422,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_BINARY_OP:
     case AST_NODE_RELATIONAL_EXPRESSION:
     case AST_NODE_EQUALITY_EXPRESSION:
-    case AST_NODE_AND_EXPRESSION:
-    case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
-    case AST_NODE_INCLUSIVE_OR_EXPRESSION:
+    case AST_NODE_BITWISE_EXPRESSION:
     {
         // Handle binary operations like '+', '-', '*', '/', etc.
         // chainl1 can produce nested structures.
@@ -2444,12 +2442,21 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
                 lhs_val = process_expression(ctx, node->data.list.children[0]);
                 rhs_val = process_expression(ctx, node->data.list.children[1]);
-                if (node->type == AST_NODE_AND_EXPRESSION)
-                    op_str = "&";
-                else if (node->type == AST_NODE_EXCLUSIVE_OR_EXPRESSION)
-                    op_str = "^";
-                else if (node->type == AST_NODE_INCLUSIVE_OR_EXPRESSION)
-                    op_str = "|";
+                if (node->type == AST_NODE_BITWISE_EXPRESSION)
+                {
+                    switch (node->bitwise_op.op)
+                    {
+                    case BITWISE_OP_AND:
+                        op_str = "&";
+                        break;
+                    case BITWISE_OP_OR:
+                        op_str = "|";
+                        break;
+                    case BITWISE_OP_XOR:
+                        op_str = "^";
+                        break;
+                    }
+                }
             }
             else if (node->data.list.count >= 3)
             {
@@ -2458,7 +2465,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 rhs_val = process_expression(ctx, node->data.list.children[2]);
                 c_grammar_node_t * op_node = node->data.list.children[1];
                 if (op_node->is_terminal_node)
+                {
                     op_str = op_node->data.terminal.text;
+                }
             }
 
             if (lhs_val && rhs_val && op_str)

@@ -427,29 +427,35 @@ handle_equality_expression(
 }
 
 static void
-handle_and_expression(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+handle_bitwise_and_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_AND_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    ast_node->bitwise_op.op = BITWISE_OP_AND;
+
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_exclusive_or_expression(
+handle_bitwise_exclusive_or_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_EXCLUSIVE_OR_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    ast_node->bitwise_op.op = BITWISE_OP_XOR;
+
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_inclusive_or_expression(
+handle_bitwise_inclusive_or_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INCLUSIVE_OR_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    ast_node->bitwise_op.op = BITWISE_OP_OR;
+
     epc_ast_push(ctx, ast_node);
 }
 
@@ -671,9 +677,13 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_BINARY_OP, handle_binary_op);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL, handle_relational_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY, handle_equality_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_AND_EXPRESSION, handle_and_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_EXCLUSIVE_OR_EXPRESSION, handle_exclusive_or_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_INCLUSIVE_OR_EXPRESSION, handle_inclusive_or_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_BITWISE_AND_EXPRESSION, handle_bitwise_and_expression);
+    epc_ast_hook_registry_set_action(
+        registry, AST_ACTION_BITWISE_EXCLUSIVE_OR_EXPRESSION, handle_bitwise_exclusive_or_expression
+    );
+    epc_ast_hook_registry_set_action(
+        registry, AST_ACTION_BITWISE_INCLUSIVE_OR_EXPRESSION, handle_bitwise_inclusive_or_expression
+    );
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_AND_EXPRESSION, handle_logical_and_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_OR_EXPRESSION, handle_logical_or_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);

@@ -243,11 +243,11 @@ EqOpRaw = Eq | Ne;
 EqOp = EqOpRaw @AST_ACTION_OPERATOR;
 EqualityExpression = chainl1(RelationalExpression, EqOp) @AST_ACTION_EQUALITY;
 
-AndExpression = chainl1(EqualityExpression, Amp) @AST_ACTION_AND_EXPRESSION;
+AndExpression = chainl1(EqualityExpression, Amp) @AST_ACTION_BITWISE_AND_EXPRESSION;
 
-ExclusiveOrExpression = chainl1(AndExpression, Caret) @AST_ACTION_EXCLUSIVE_OR_EXPRESSION;
+ExclusiveOrExpression = chainl1(AndExpression, Caret) @AST_ACTION_BITWISE_EXCLUSIVE_OR_EXPRESSION;
 
-InclusiveOrExpression = chainl1(ExclusiveOrExpression, Pipe) @AST_ACTION_INCLUSIVE_OR_EXPRESSION;
+InclusiveOrExpression = chainl1(ExclusiveOrExpression, Pipe) @AST_ACTION_BITWISE_INCLUSIVE_OR_EXPRESSION;
 
 LogicalAndExpression = chainl1(InclusiveOrExpression, AmpAmp) @AST_ACTION_LOGICAL_AND_EXPRESSION;
 

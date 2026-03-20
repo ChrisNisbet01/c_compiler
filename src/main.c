@@ -57,9 +57,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_POINTER] = {.name = "Pointer"},
     [AST_NODE_RELATIONAL_EXPRESSION] = {.name = "RelationalExpression"},
     [AST_NODE_EQUALITY_EXPRESSION] = {.name = "EqualityExpression"},
-    [AST_NODE_AND_EXPRESSION] = {.name = "AndExpression"},
-    [AST_NODE_EXCLUSIVE_OR_EXPRESSION] = {.name = "ExclusiveOrExpression"},
-    [AST_NODE_INCLUSIVE_OR_EXPRESSION] = {.name = "InclusiveOrExpression"},
+    [AST_NODE_BITWISE_EXPRESSION] = {.name = "BitwiseExpression"},
     [AST_NODE_LOGICAL_AND_EXPRESSION] = {.name = "LogicalAndExpression"},
     [AST_NODE_LOGICAL_OR_EXPRESSION] = {.name = "LogicalOrExpression"},
     [AST_NODE_FUNCTION_CALL] = {.name = "FunctionCall"},
@@ -158,9 +156,7 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_DECLARATOR_SUFFIX:
     case AST_NODE_RELATIONAL_EXPRESSION:
     case AST_NODE_EQUALITY_EXPRESSION:
-    case AST_NODE_AND_EXPRESSION:
-    case AST_NODE_EXCLUSIVE_OR_EXPRESSION:
-    case AST_NODE_INCLUSIVE_OR_EXPRESSION:
+    case AST_NODE_BITWISE_EXPRESSION:
     case AST_NODE_LOGICAL_AND_EXPRESSION:
     case AST_NODE_LOGICAL_OR_EXPRESSION:
     case AST_NODE_FUNCTION_CALL:

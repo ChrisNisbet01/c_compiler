@@ -28,9 +28,7 @@ typedef enum
     AST_NODE_POINTER,
     AST_NODE_RELATIONAL_EXPRESSION,
     AST_NODE_EQUALITY_EXPRESSION,
-    AST_NODE_AND_EXPRESSION,
-    AST_NODE_EXCLUSIVE_OR_EXPRESSION,
-    AST_NODE_INCLUSIVE_OR_EXPRESSION,
+    AST_NODE_BITWISE_EXPRESSION,
     AST_NODE_LOGICAL_AND_EXPRESSION,
     AST_NODE_LOGICAL_OR_EXPRESSION,
     AST_NODE_FUNCTION_CALL,
@@ -55,22 +53,41 @@ typedef enum
     AST_NODE_INITIALIZER_LIST,
 } c_grammar_node_type_t;
 
+typedef struct
+{
+    struct c_grammar_node_t ** children;
+    size_t count;
+} ast_node_list_t;
+
+typedef enum
+{
+    BITWISE_OP_AND,
+    BITWISE_OP_XOR,
+    BITWISE_OP_OR,
+} bitwise_operator_type_t;
+
+typedef struct
+{
+    bitwise_operator_type_t op;
+} bitwise_operator_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
     bool is_terminal_node;
     union
     {
-        struct
-        {
-            struct c_grammar_node_t ** children;
-            size_t count;
-        } list;
+        ast_node_list_t list; /* TODO: rename to children. */
         struct
         {
             char * text;
         } terminal;
     } data;
+    union
+    {
+        bitwise_operator_data_t bitwise_op;
+    };
+
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
