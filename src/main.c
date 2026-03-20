@@ -138,10 +138,19 @@ print_ast(c_grammar_node_t const * node, int indent)
         break;
 
     case AST_NODE_TYPE_SPECIFIER:
-    case AST_NODE_STRUCT_DEFINITION:
-        print_list_type_ast_node(node, indent);
+        /* Special case. Might be either a list type or a terminal type. */
+        if (node->is_terminal_node)
+        {
+            printf("TypeSpecifier: %s\n", node->data.terminal.text);
+        }
+        else
+        {
+            print_list_type_ast_node(node, indent);
+        }
         break;
 
+    case AST_NODE_INITIALIZER_LIST:
+    case AST_NODE_STRUCT_DEFINITION:
     case AST_NODE_INTEGER_VALUE:
     case AST_NODE_FLOAT_VALUE:
     case AST_NODE_TRANSLATION_UNIT:

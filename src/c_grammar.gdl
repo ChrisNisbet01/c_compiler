@@ -332,7 +332,7 @@ StructDefinitionRaw = (KwStruct | KwUnion) Attribute* Identifier? LBrace StructD
 StructDefinition = StructDefinitionRaw @AST_ACTION_STRUCT_SPECIFIER;
 
 // StructTypeRef: struct without body (reference) - treated as type specifier
-StructTypeRef = (KwStruct | KwUnion) Attribute* Identifier @AST_ACTION_TYPE_SPECIFIER;
+StructTypeRef = (KwStruct | KwUnion) Attribute* Identifier;
 
 NonTypedefTypeSpecifier = (KwVoid | KwChar | KwShort | KwInt | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned
