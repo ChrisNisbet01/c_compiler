@@ -38,6 +38,7 @@ typedef struct symbol
     char *name;
     LLVMValueRef ptr;
     LLVMTypeRef type;
+    char *struct_name; // For pointer-to-struct types, stores the struct name for member access
 } symbol_t;
 
 // Structure to hold the context for LLVM IR generation.
