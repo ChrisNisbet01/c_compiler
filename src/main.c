@@ -81,6 +81,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_STRUCT_DEFINITION] = {.name = "StructDefinition"},
     [AST_NODE_INITIALIZER_LIST] = {.name = "InitializerList"},
     [AST_NODE_LABELED_STATEMENT] = {.name = "LabeledStatement"},
+    [AST_NODE_CHARACTER_LITERAL] = {.name = "CharacterLiteral"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
@@ -99,7 +100,7 @@ get_node_type_name(c_grammar_node_type_t const type)
 static void
 print_list_type_ast_node(c_grammar_node_t const * node, int indent)
 {
-    printf("%s (%zu children)\n", get_node_type_name(node->type), node->data.list.count);
+    printf("%s (%u): (%zu children)\n", get_node_type_name(node->type), node->type, node->data.list.count);
     for (size_t i = 0; i < node->data.list.count; i++)
         print_ast(node->data.list.children[i], indent + 1);
 }
@@ -127,14 +128,15 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_LITERAL_SUFFIX:
     case AST_NODE_IDENTIFIER:
     case AST_NODE_OPERATOR:
-        printf("%s: %s\n", get_node_type_name(node->type), node->data.terminal.text);
+    case AST_NODE_CHARACTER_LITERAL:
+        printf("%s (%u): %s\n", get_node_type_name(node->type), node->type, node->data.terminal.text);
         break;
 
     case AST_NODE_TYPE_SPECIFIER:
         /* Special case. Might be either a list type or a terminal type. */
         if (node->is_terminal_node)
         {
-            printf("%s: %s\n", get_node_type_name(node->type), node->data.terminal.text);
+            printf("%s (%u): %s\n", get_node_type_name(node->type), node->type, node->data.terminal.text);
         }
         else
         {

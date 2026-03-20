@@ -100,8 +100,8 @@ StringChar = ("\\" any) | noneof("\"\\\n\r");
 StringLiteralInner = StringChar* @AST_ACTION_STRING_LITERAL;
 StringLiteral = lexeme('"' StringLiteralInner '"');
 
-CharContent = ("\\" any) | noneof("'\\\n\r");
-CharLiteral = lexeme('\'' CharContent+ '\'');
+CharContent = ("\\" any) | noneof("'\\\n\r")+ @AST_ACTION_CHARACTER_LITERAL;
+CharLiteral = lexeme('\'' CharContent '\'');
 
 // Operators and Punctuation
 LParen = lexeme('(');
