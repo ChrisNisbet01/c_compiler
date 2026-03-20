@@ -1114,18 +1114,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             // Infer array size from string literal
                             char * raw_text = initializer_expr_node->data.terminal.text;
-                            size_t raw_len = strlen(raw_text);
-                            char * str = raw_text;
-                            char * stripped = NULL;
-                            char * decoded = NULL;
-                            
-                            // Strip quotes if present
-                            if (raw_len >= 2 && raw_text[0] == '"' && raw_text[raw_len - 1] == '"')
-                            {
-                                stripped = strndup(raw_text + 1, raw_len - 2);
-                                decoded = decode_string(stripped);
-                                str = decoded;
-                            }
+                            char * decoded = decode_string(raw_text);
+                            char * str = decoded ? decoded : raw_text;
                             
                             size_t str_len = strlen(str);
                             LLVMTypeRef elem_type = LLVMGetElementType(var_type);
@@ -1139,7 +1129,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
                             add_symbol(ctx, var_name, global_var, var_type);
                             
-                            if (stripped) free(stripped);
                             if (decoded) free(decoded);
                         }
                         else
@@ -1758,16 +1747,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         if (node->data.terminal.text)
         {
             char * raw_text = node->data.terminal.text;
-            size_t len = strlen(raw_text);
-            if (len >= 2 && raw_text[0] == '"' && raw_text[len - 1] == '"')
-            {
-                char * stripped = strndup(raw_text + 1, len - 2);
-                char * decoded = decode_string(stripped);
-                LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
-                free(decoded);
-                free(stripped);
-                return global_str;
-            }
             char * decoded = decode_string(raw_text);
             LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
             free(decoded);
