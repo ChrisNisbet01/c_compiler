@@ -599,9 +599,9 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     }
                 }
                 // Empty brackets [] - mark as unsized (will be inferred from initializer)
-                if (!has_size && child->data.list.count == 2)
+                if (!has_size)
                 {
-                    // Two terminals: [ and ] - unsized array
+                    // Unsized array (empty brackets or no size specified)
                     if (array_depth < array_capacity)
                     {
                         array_sizes[array_depth] = 0;
@@ -1002,60 +1002,21 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
                         }
                     }
-                    else if (first_child->type == AST_NODE_INITIALIZER_LIST)
-                    {
-                        // InitDeclarator has Initializer as first child (AST_NODE_INITIALIZER from EPC library)
-                        // Search for Declarator inside the Initializer or as another child
-                        for (size_t di = 0; di < first_child->data.list.count; di++)
-                        {
-                            c_grammar_node_t * ini_child = first_child->data.list.children[di];
-                            if (ini_child && ini_child->type == AST_NODE_DECLARATOR)
-                            {
-                                declarator_node = ini_child;
-                                c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
-                                if (direct_decl_node && direct_decl_node->data.list.count > 0
-                                    && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-                                {
-                                    var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
-                                }
-                                break;
-                            }
-                        }
-                        // Also try to find DirectDeclarator directly
-                        if (!declarator_node)
-                        {
-                            for (size_t di = 0; di < first_child->data.list.count; di++)
-                            {
-                                c_grammar_node_t * ini_child = first_child->data.list.children[di];
-                                if (ini_child && ini_child->type == AST_NODE_DIRECT_DECLARATOR)
-                                {
-                                    if (ini_child->data.list.count > 0
-                                        && ini_child->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-                                    {
-                                        var_name = ini_child->data.list.children[0]->data.terminal.text;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
                 }
 
                 LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
-                fprintf(stderr, "DEBUG: var_name=%s, var_type=%p, kind=%d\n", 
-                        var_name ? var_name : "(null)", (void*)var_type, 
-                        var_type ? LLVMGetTypeKind(var_type) : -1);
 
                 // Find initializer
                 initializer_expr_node = NULL;
                 for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
                 {
                     c_grammar_node_t * child = init_decl_node->data.list.children[ci];
-                    // Skip terminals (Assign token)
-                    if (child->is_terminal_node)
+                    // Skip terminals like Assign token, but accept StringLiteral and other expression terminals
+                    if (child->is_terminal_node && child->type != AST_NODE_STRING_LITERAL)
                         continue;
                     // Check if this looks like an initializer
                     if (child->type == AST_NODE_INITIALIZER_LIST ||
+                        child->type == AST_NODE_STRING_LITERAL ||
                         (child->data.list.count > 0 && !child->is_terminal_node))
                     {
                         initializer_expr_node = child;
@@ -1117,6 +1078,32 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (var_type)
                     {
+                        // Skip void types (e.g., extern void setbuf(...))
+                        if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
+                        {
+                            continue;
+                        }
+                        
+                        // Check if this is a function declaration (declarator has params)
+                        if (declarator_node)
+                        {
+                            bool is_function = false;
+                            for (size_t si = 0; si < declarator_node->data.list.count; si++)
+                            {
+                                c_grammar_node_t * suf = declarator_node->data.list.children[si];
+                                if (suf && suf->type == AST_NODE_DECLARATOR_SUFFIX && suf->data.list.count > 0)
+                                {
+                                    is_function = true;
+                                    break;
+                                }
+                            }
+                            if (is_function)
+                            {
+                                // Function declarations are auto-declared when called
+                                continue;
+                            }
+                        }
+                        
                         // File-scope (global) variable
                         // Check if this is an unsized array with a string initializer
                         bool is_unsized_array = (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && 
@@ -1126,22 +1113,39 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             initializer_expr_node->type == AST_NODE_STRING_LITERAL)
                         {
                             // Infer array size from string literal
-                            const char * str = initializer_expr_node->data.terminal.text;
-                            size_t str_len = strlen(str) + 1; // +1 for null terminator
+                            char * raw_text = initializer_expr_node->data.terminal.text;
+                            size_t raw_len = strlen(raw_text);
+                            char * str = raw_text;
+                            char * stripped = NULL;
+                            char * decoded = NULL;
+                            
+                            // Strip quotes if present
+                            if (raw_len >= 2 && raw_text[0] == '"' && raw_text[raw_len - 1] == '"')
+                            {
+                                stripped = strndup(raw_text + 1, raw_len - 2);
+                                decoded = decode_string(stripped);
+                                str = decoded;
+                            }
+                            
+                            size_t str_len = strlen(str);
                             LLVMTypeRef elem_type = LLVMGetElementType(var_type);
-                            var_type = LLVMArrayType(elem_type, (unsigned)str_len);
+                            var_type = LLVMArrayType(elem_type, (unsigned)(str_len + 1)); // +1 for null terminator
                             
                             // Create the global variable with the correct type
                             LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
                             LLVMSetLinkage(global_var, LLVMInternalLinkage);
                             LLVMSetGlobalConstant(global_var, true);
+                            // Use str_len bytes + auto null terminator (false = DO add null)
                             LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
-                            add_symbol(ctx, var_name, global_var, LLVMPointerType(var_type, 0));
+                            add_symbol(ctx, var_name, global_var, var_type);
+                            
+                            if (stripped) free(stripped);
+                            if (decoded) free(decoded);
                         }
                         else
                         {
                             LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
-                            add_symbol(ctx, var_name, global_var, LLVMPointerType(var_type, 0));
+                            add_symbol(ctx, var_name, global_var, var_type);
                             
                             // Process initializer for global variable
                             if (initializer_expr_node)
@@ -1168,8 +1172,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                             else
                             {
-                                // No initializer - set to zero
-                                LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+                                // No initializer - treat as external declaration
+                                // Don't set an initializer, just mark as externally initialized
+                                LLVMSetExternallyInitialized(global_var, true);
                             }
                         }
                     }
@@ -2243,6 +2248,14 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 
         if (var_ptr && element_type) // Ensure both are valid
         {
+            // Check if the type is an array (for file-scope or local arrays)
+            if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind)
+            {
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                return LLVMBuildInBoundsGEP2(ctx->builder, element_type, var_ptr, indices, 2, "array_ptr");
+            }
             // Load the value from the memory address using LLVMBuildLoad2.
             return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
         }
