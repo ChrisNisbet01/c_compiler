@@ -21,6 +21,10 @@ static bool assembly_only_flag = false;
 static bool emit_llvm_flag = false;
 static char * output_filename = NULL;
 static char * march_target = "x86-64";
+static char * lib_names[64]; // -l flags (e.g., "m" for -lm)
+static int lib_names_count = 0;
+static char * lib_paths[64]; // -L flags (e.g., "/usr/local/lib")
+static int lib_paths_count = 0;
 
 typedef struct
 {
@@ -115,35 +119,21 @@ print_ast(c_grammar_node_t const * node, int indent)
 
     switch (node->type)
     {
+    case AST_NODE_POINTER:
     case AST_NODE_INTEGER_BASE:
-        printf("IntegerBase: %s\n", node->data.terminal.text);
-        break;
-
     case AST_NODE_FLOAT_BASE:
-        printf("FloatBase: %s\n", node->data.terminal.text);
-        break;
-
     case AST_NODE_STRING_LITERAL:
-        printf("StringLiteral: %s\n", node->data.terminal.text);
-        break;
-
     case AST_NODE_LITERAL_SUFFIX:
-        printf("LiteralSuffix: %s\n", node->data.terminal.text);
-        break;
-
     case AST_NODE_IDENTIFIER:
-        printf("Identifier: %s\n", node->data.terminal.text);
-        break;
-
     case AST_NODE_OPERATOR:
-        printf("Operator: %s\n", node->data.terminal.text);
+        printf("%s: %s\n", get_node_type_name(node->type), node->data.terminal.text);
         break;
 
     case AST_NODE_TYPE_SPECIFIER:
         /* Special case. Might be either a list type or a terminal type. */
         if (node->is_terminal_node)
         {
-            printf("TypeSpecifier: %s\n", node->data.terminal.text);
+            printf("%s: %s\n", get_node_type_name(node->type), node->data.terminal.text);
         }
         else
         {
@@ -166,7 +156,6 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX:
-    case AST_NODE_POINTER:
     case AST_NODE_RELATIONAL_EXPRESSION:
     case AST_NODE_EQUALITY_EXPRESSION:
     case AST_NODE_AND_EXPRESSION:
@@ -561,6 +550,52 @@ derive_output_filename(char const * input_path, char const * ext)
     return derived;
 }
 
+static int
+link_to_executable(LLVMModuleRef llvm_module, char const * o_path, char const * exe_path)
+{
+    // 1. Emit object file
+    if (emit_to_file(llvm_module, o_path, march_target, LLVMObjectFile) != 0)
+    {
+        fprintf(stderr, "Failed to emit object file %s\n", o_path);
+        return -1;
+    }
+
+    // 2. Build linker command
+    char cmd[4096];
+    int pos = snprintf(cmd, sizeof(cmd), "cc -no-pie %s", o_path);
+
+    // Add library search paths
+    for (int i = 0; i < lib_paths_count && pos < (int)sizeof(cmd) - 50; i++)
+    {
+        pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -L%s", lib_paths[i]);
+    }
+
+    // Add output filename
+    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o %s", exe_path);
+
+    // Add libraries (must come after -o)
+    for (int i = 0; i < lib_names_count && pos < (int)sizeof(cmd) - 50; i++)
+    {
+        pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -l%s", lib_names[i]);
+    }
+
+    printf("Linking: %s\n", cmd);
+
+    // 3. Invoke linker
+    int status = system(cmd);
+    if (status != 0)
+    {
+        fprintf(stderr, "Linker failed with exit code %d\n", status);
+        return -1;
+    }
+
+    // 4. Clean up temp object file
+    remove(o_path);
+
+    printf("IRGen: Successfully produced executable %s\n", exe_path);
+    return 0;
+}
+
 static void
 generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 {
@@ -579,8 +614,15 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
         {
             if (!compile_only_flag && !assembly_only_flag)
             {
-                fprintf(stderr, "Error: Linking is not supported yet.\n");
-                fprintf(stderr, "Use -S to emit assembly/IR, or -c to emit object code.\n");
+                // Default: link to executable
+                char const * exe_path = output_filename ? output_filename : "a.out";
+                char temp_o_path[1024];
+                snprintf(temp_o_path, sizeof(temp_o_path), "%s.tmp.o", exe_path);
+
+                if (link_to_executable(llvm_module, temp_o_path, exe_path) != 0)
+                {
+                    fprintf(stderr, "Failed to produce executable %s\n", exe_path);
+                }
             }
             else if (assembly_only_flag)
             {
@@ -671,9 +713,11 @@ print_usage(char const * prog_name)
     fprintf(stderr, "Usage: %s [options] <filename>\n", prog_name);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -S              Compile to assembly (or LLVM IR with -emit-llvm)\n");
-    fprintf(stderr, "  -c              Compile to object code (or LLVM bitcode with -emit-llvm)\n");
-    fprintf(stderr, "  -emit-llvm      Emit LLVM IR/bitcode instead of native output\n");
+    fprintf(stderr, "  -c              Compile to object code\n");
+    fprintf(stderr, "  --emit-llvm     Emit LLVM IR instead of native output\n");
     fprintf(stderr, "  -o <file>       Specify output filename\n");
+    fprintf(stderr, "  -l <lib>        Link library (e.g., -lm for libm)\n");
+    fprintf(stderr, "  -L <path>       Add library search path\n");
     fprintf(stderr, "  --march=<arch>  Specify target architecture (default: x86-64)\n");
     fprintf(stderr, "  -h, --help      Display this help message\n");
 }
@@ -681,14 +725,15 @@ print_usage(char const * prog_name)
 int
 main(int argc, char * argv[])
 {
-    static struct option long_options[] = {{"march", required_argument, 0, 'm'},
-                                           {"emit-llvm", no_argument, 0, 'e'},
-                                           {"help", no_argument, 0, 'h'},
-                                           {0, 0, 0, 0}};
+    static struct option long_options[]
+        = {{"march", required_argument, 0, 'm'},
+           {"emit-llvm", no_argument, 0, 'e'},
+           {"help", no_argument, 0, 'h'},
+           {0, 0, 0, 0}};
 
     int opt;
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "cSo:h", long_options, &option_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "cSo:l:L:h", long_options, &option_index)) != -1)
     {
         switch (opt)
         {
@@ -700,6 +745,14 @@ main(int argc, char * argv[])
             break;
         case 'o':
             output_filename = optarg;
+            break;
+        case 'l':
+            if (lib_names_count < (int)(sizeof(lib_names) / sizeof(lib_names[0])))
+                lib_names[lib_names_count++] = optarg;
+            break;
+        case 'L':
+            if (lib_paths_count < (int)(sizeof(lib_paths) / sizeof(lib_paths[0])))
+                lib_paths[lib_paths_count++] = optarg;
             break;
         case 'm':
             march_target = optarg;

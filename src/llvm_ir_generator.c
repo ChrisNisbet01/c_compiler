@@ -532,6 +532,44 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             else if (strncmp(type_name, "long", 4) == 0) base_type = LLVMInt64TypeInContext(ctx->context);
                             else if (strncmp(type_name, "short", 5) == 0) base_type = LLVMInt16TypeInContext(ctx->context);
                         }
+                        else if (child && child->type == AST_NODE_STRUCT_DEFINITION)
+                        {
+                            register_struct_definition(ctx, child);
+                            char const * name = NULL;
+                            for (size_t si = 0; si < child->data.list.count; si++)
+                            {
+                                c_grammar_node_t * sc = child->data.list.children[si];
+                                if (sc && sc->type == AST_NODE_IDENTIFIER && sc->is_terminal_node)
+                                {
+                                    name = sc->data.terminal.text;
+                                    break;
+                                }
+                            }
+                            if (name)
+                            {
+                                LLVMTypeRef st = find_struct_type(ctx, name);
+                                if (st) base_type = st;
+                            }
+                        }
+                        else if (child && child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
+                        {
+                            // Nested TYPE_SPECIFIER - recurse to find the type
+                            LLVMTypeRef nested = map_type(ctx, child, NULL);
+                            if (nested) base_type = nested;
+                        }
+                        else if (child && !child->is_terminal_node && child->data.list.children)
+                        {
+                            // Check if this is a StructTypeRef: first child is KwStruct terminal, second is Identifier
+                            // Note: count may be 0 but children still exist in the array
+                            c_grammar_node_t * first = child->data.list.children[0];
+                            c_grammar_node_t * second = child->data.list.children[1];
+                            if (first && first->is_terminal_node && second && second->is_terminal_node &&
+                                second->type == AST_NODE_IDENTIFIER)
+                            {
+                                LLVMTypeRef st = find_struct_type(ctx, second->data.terminal.text);
+                                if (st) base_type = st;
+                            }
+                        }
                     }
                 }
             }
@@ -1914,6 +1952,11 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 {
                     // Get the struct type
                     LLVMTypeRef base_type = LLVMTypeOf(base_val);
+                    if (!base_type)
+                    {
+                        fprintf(stderr, "IRGen Error: NULL type for member access base.\n");
+                        continue;
+                    }
                     LLVMTypeRef struct_type;
                     bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
 
@@ -2144,7 +2187,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                 if (member_name && current_ptr && current_type)
                                 {
                                     LLVMTypeRef struct_type = current_type;
-                                    if (LLVMGetTypeKind(struct_type) == LLVMPointerTypeKind)
+                                    if (struct_type && LLVMGetTypeKind(struct_type) == LLVMPointerTypeKind)
                                     {
                                         struct_type = LLVMGetElementType(struct_type);
                                     }
@@ -2393,25 +2436,67 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         if (node->data.list.count < 2) return NULL;
         c_grammar_node_t * op_node = node->data.list.children[0];
         c_grammar_node_t * operand_node = node->data.list.children[1];
+
+        char const * op_str = op_node->data.terminal.text;
+
+        // Handle address-of operator &
+        if (strcmp(op_str, "&") == 0)
+        {
+            // For &identifier, return the pointer directly (don't load)
+            if (operand_node->type == AST_NODE_IDENTIFIER)
+            {
+                LLVMValueRef var_ptr;
+                LLVMTypeRef var_type;
+                if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type))
+                {
+                    return var_ptr;
+                }
+            }
+            // For &member or &array[i], process the expression which returns a pointer
+            // These cases already return pointers (GEP results)
+            LLVMValueRef ptr_val = process_expression(ctx, operand_node);
+            return ptr_val;
+        }
+
         LLVMValueRef operand_val = process_expression(ctx, operand_node);
         if (!operand_val) return NULL;
 
-        char const * op_str = op_node->data.terminal.text;
+        // Handle dereference operator *
+        if (strcmp(op_str, "*") == 0)
+        {
+            LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
+            fprintf(stderr, "DEBUG deref: operand_val=%p, ptr_type=%p\n", (void*)operand_val, (void*)ptr_type);
+            if (ptr_type && LLVMGetTypeKind(ptr_type) == LLVMPointerTypeKind)
+            {
+                LLVMTypeRef elem_type = LLVMGetElementType(ptr_type);
+                return LLVMBuildLoad2(ctx->builder, elem_type, operand_val, "deref_tmp");
+            }
+            return operand_val;
+        }
+
         if (strcmp(op_str, "-") == 0)
         {
-            if (LLVMGetTypeKind(LLVMTypeOf(operand_val)) == LLVMFloatTypeKind || LLVMGetTypeKind(LLVMTypeOf(operand_val)) == LLVMDoubleTypeKind)
+            LLVMTypeRef op_type = LLVMTypeOf(operand_val);
+            fprintf(stderr, "DEBUG neg: operand_val=%p, op_type=%p\n", (void*)operand_val, (void*)op_type);
+            if (op_type && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
                 return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
             return LLVMBuildNeg(ctx->builder, operand_val, "neg_tmp");
         }
         if (strcmp(op_str, "!") == 0)
         {
-            LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_val, LLVMConstNull(LLVMTypeOf(operand_val)), "not_tmp");
+            LLVMTypeRef op_type = LLVMTypeOf(operand_val);
+            fprintf(stderr, "DEBUG not: operand_val=%p, op_type=%p\n", (void*)operand_val, (void*)op_type);
+            if (!op_type) return NULL;
+            LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_val, LLVMConstNull(op_type), "not_tmp");
             return is_zero;
         }
         if (strcmp(op_str, "~") == 0)
         {
+            LLVMTypeRef op_type = LLVMTypeOf(operand_val);
+            fprintf(stderr, "DEBUG bitnot: operand_val=%p, op_type=%p\n", (void*)operand_val, (void*)op_type);
             return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
         }
+        fprintf(stderr, "DEBUG unary default: op_str=%s, operand_val=%p\n", op_str, (void*)operand_val);
         return operand_val;
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
