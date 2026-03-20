@@ -1916,8 +1916,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     if (!node)
         return NULL;
 
-    fprintf(stderr, "DEBUG: process_expression node type %d\n", node->type);
-
     switch (node->type)
     {
     case AST_NODE_INTEGER_VALUE:
@@ -2051,6 +2049,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         LLVMValueRef current_ptr = NULL;
         LLVMTypeRef current_type = NULL;
         bool have_ptr = false;
+        bool base_is_array = false;
 
         // Special handling if base is an identifier being called as a function
         if (base_node->type == AST_NODE_IDENTIFIER)
@@ -2059,12 +2058,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             base_val = LLVMGetNamedFunction(ctx->module, func_name);
         }
 
-        if (!base_val)
-        {
-            base_val = process_expression(ctx, base_node);
-        }
-
         // Check if base is a symbol (for array access)
+        // Do this before process_expression to avoid double GEP for arrays
         if (base_node->type == AST_NODE_IDENTIFIER && !have_ptr)
         {
             char const * var_name = base_node->data.terminal.text;
@@ -2075,7 +2070,20 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 current_ptr = var_ptr;
                 current_type = var_type;
                 have_ptr = true;
+                
+                // If base is an array type, we'll handle subscript in the loop
+                // Don't call process_expression for the base to avoid double GEP
+                if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind)
+                {
+                    base_is_array = true;
+                }
             }
+        }
+
+        // Only process base if it's not an array (arrays need suffix handling for subscript)
+        if (!base_val && !base_is_array)
+        {
+            base_val = process_expression(ctx, base_node);
         }
 
         for (size_t i = 1; i < node->data.list.count; ++i)
@@ -2160,11 +2168,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 
                     if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                     {
-                        elem_type = LLVMGetElementType(current_type);
-                        if (!elem_type)
-                        {
-                            elem_type = LLVMInt8TypeInContext(ctx->context); // Heuristic for opaque pointers
-                        }
+                        elem_type = LLVMInt8TypeInContext(ctx->context);
 
                         // Load the actual pointer
                         LLVMValueRef ptr_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "ptr_load");
@@ -2184,7 +2188,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                         LLVMValueRef indices[2];
                         indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                         indices[1] = index_val;
-                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, current_ptr, indices, 2, "arrayidx");
+                        // Pass current_type (the array type) to GEP, not elem_type
+                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
                     }
 
                     if (elem_ptr && elem_type)
