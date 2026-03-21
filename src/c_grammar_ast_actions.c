@@ -654,8 +654,7 @@ handle_logical_and_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_AND_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
 
     if (ast_node)
     {
@@ -680,8 +679,7 @@ handle_logical_or_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_OR_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
 
     if (ast_node)
     {

@@ -13,7 +13,7 @@
 // Symbol table management functions
 static void add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type);
 static LLVMValueRef
-get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t * identifier_node, LLVMTypeRef * out_type);
+get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node, LLVMTypeRef * out_type);
 static void free_symbol_table(ir_generator_ctx_t * ctx);
 static bool find_symbol(
     ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type
@@ -104,7 +104,7 @@ static void process_initializer_list(
 
 // --- Forward Declarations ---
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node);
+static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
 static void
 add_symbol_with_struct(
@@ -403,13 +403,13 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t * type_chi
         add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members);
     }
 
-    if (member_types)
-        free(member_types);
+    free(member_types);
     if (member_names)
     {
         for (size_t i = 0; i < num_members; i++)
-            if (member_names[i])
-                free(member_names[i]);
+        {
+            free(member_names[i]);
+        }
         free(member_names);
     }
 }
@@ -610,7 +610,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             }
             else
             {
-                c_grammar_node_t * type_specifier_node = specifiers;
+                c_grammar_node_t const * type_specifier_node = specifiers;
                 while (type_specifier_node && type_specifier_node->type == AST_NODE_TYPE_SPECIFIER
                        && !type_specifier_node->is_terminal_node)
                 {
@@ -795,8 +795,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         final_type = LLVMPointerType(final_type, 0);
     }
 
-    if (array_sizes)
-        free(array_sizes);
+    free(array_sizes);
 
     return final_type;
 }
@@ -920,14 +919,12 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
     {
         for (size_t i = 0; i < ctx->struct_count; ++i)
         {
-            if (ctx->structs[i].name)
-                free(ctx->structs[i].name);
+            free(ctx->structs[i].name);
             if (ctx->structs[i].fields)
             {
                 for (size_t j = 0; j < ctx->structs[i].field_count; j++)
                 {
-                    if (ctx->structs[i].fields[j].name)
-                        free(ctx->structs[i].fields[j].name);
+                    free(ctx->structs[i].fields[j].name);
                 }
                 free(ctx->structs[i].fields);
             }
@@ -1107,10 +1104,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
 
-        if (param_types)
-            free(param_types);
-        if (param_names)
-            free(param_names);
+        free(param_types);
+        free(param_names);
 
         // Process the compound statement (function body).
         process_ast_node(ctx, compound_stmt_node);
@@ -1349,8 +1344,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             );
                             add_symbol(ctx, var_name, global_var, var_type);
 
-                            if (decoded)
-                                free(decoded);
+                            free(decoded);
                         }
                         else
                         {
@@ -1810,9 +1804,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMPositionBuilderAtEnd(ctx->builder, switch_entry);
 
         // Determine default target
-        LLVMBasicBlockRef default_target = (default_idx != SIZE_MAX && items[default_idx].body_block)
-            ? items[default_idx].body_block
-            : after_switch;
+        LLVMBasicBlockRef default_target
+            = (default_idx != SIZE_MAX && items[default_idx].body_block) ? items[default_idx].body_block : after_switch;
 
         // Count case values for switch instruction
         size_t num_case_values = 0;
@@ -1863,7 +1856,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (child->data.list.count >= 1)
                     {
                         LLVMValueRef case_val = process_expression(ctx, child->data.list.children[0]);
-                        LLVMAddCase(switch_inst, case_val, items[i].body_block ? items[i].body_block : fallthrough_target);
+                        LLVMAddCase(
+                            switch_inst, case_val, items[i].body_block ? items[i].body_block : fallthrough_target
+                        );
                     }
                 }
             }
@@ -1874,7 +1869,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             if (!items[i].body_block)
             {
-                continue;  // No body to process (empty case that falls through)
+                continue; // No body to process (empty case that falls through)
             }
 
             LLVMPositionBuilderAtEnd(ctx->builder, items[i].body_block);
@@ -2026,7 +2021,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // LabeledStatement children: [LabeledIdentifier] or [Identifier, Statement] (legacy)
         // LabeledIdentifier children: [Identifier, Statement]
 
-        c_grammar_node_t * label_id_node = NULL;
+        c_grammar_node_t const * label_id_node = NULL;
         if (node->data.list.count >= 1 && node->data.list.children[0]->type == AST_NODE_LABELED_IDENTIFIER)
         {
             // New format: children[0] is LabeledIdentifier
@@ -2250,7 +2245,7 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
 static LLVMValueRef
 get_variable_pointer(
     ir_generator_ctx_t * ctx,
-    c_grammar_node_t * identifier_node,
+    c_grammar_node_t const * identifier_node,
     LLVMTypeRef * out_type
 ) // Added out_type parameter
 {
@@ -2276,12 +2271,1146 @@ get_variable_pointer(
     }
 }
 
+static LLVMValueRef
+process_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    /* Expecting two child nodes - base value and suffix. */
+    c_grammar_node_t * base_node = node->data.list.children[0];
+    c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
+
+    char * base_text = base_node->data.terminal.text;
+    char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
+
+    // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
+    unsigned long long value = strtoull(base_text, NULL, 0);
+
+    LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context);
+    bool is_unsigned = false;
+
+    if (suffix_text && strlen(suffix_text) > 0)
+    {
+        if (strchr(suffix_text, 'u') || strchr(suffix_text, 'U'))
+        {
+            is_unsigned = true;
+        }
+        if (strstr(suffix_text, "ll") || strstr(suffix_text, "LL") || strchr(suffix_text, 'l')
+            || strchr(suffix_text, 'L'))
+        {
+            int_type = LLVMInt64TypeInContext(ctx->context);
+        }
+    }
+
+    return LLVMConstInt(int_type, value, !is_unsigned);
+}
+
+static LLVMValueRef
+process_float_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    /* Expecting two child nodes - base value and suffix. */
+    c_grammar_node_t * base_node = node->data.list.children[0];
+    c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
+
+    char * base_text = base_node->data.terminal.text;
+    char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
+
+    char * full_text = NULL;
+    asprintf(&full_text, "%s%s", base_text, suffix_text);
+
+    long double value = strtold(full_text, NULL);
+
+    LLVMTypeRef float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
+    if (suffix_text && strlen(suffix_text) > 0)
+    {
+        if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
+        {
+            float_type = LLVMFloatTypeInContext(ctx->context);
+        }
+        else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+        {
+            float_type = LLVMX86FP80TypeInContext(ctx->context);
+        }
+    }
+
+    free(full_text);
+    return LLVMConstReal(float_type, value);
+}
+
+static LLVMValueRef
+process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Handle string literals like "Hello".
+    if (node->data.terminal.text == NULL)
+    {
+        return NULL;
+    }
+
+    char * raw_text = node->data.terminal.text;
+    char * decoded = decode_string(raw_text);
+    LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
+    free(decoded);
+
+    return global_str;
+}
+
+static LLVMValueRef
+process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (node->data.terminal.text == NULL)
+    {
+        return NULL;
+    }
+
+    char * raw_text = node->data.terminal.text;
+    // Character literal content (no quotes), e.g., "a" or "\\n"
+    char value = 0;
+    if (raw_text[0] == '\\')
+    {
+        switch (raw_text[1])
+        {
+        case 'n':
+            value = '\n';
+            break;
+        case 't':
+            value = '\t';
+            break;
+        case 'r':
+            value = '\r';
+            break;
+        case '0':
+            value = '\0';
+            break;
+        case '\\':
+            value = '\\';
+            break;
+        case '\'':
+            value = '\'';
+            break;
+        case '\"':
+            value = '\"';
+            break;
+        default:
+            value = raw_text[1];
+            break;
+        }
+    }
+    else
+    {
+        value = raw_text[0];
+    }
+    return LLVMConstInt(LLVMInt8TypeInContext(ctx->context), value, false);
+}
+
+static LLVMValueRef
+process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
+    if (node->data.list.count < 2)
+    {
+        return process_expression(ctx, node->data.list.children[0]);
+    }
+
+    c_grammar_node_t * base_node = node->data.list.children[0];
+    LLVMValueRef base_val = NULL;
+    LLVMValueRef current_ptr = NULL;
+    LLVMTypeRef current_type = NULL;
+    bool have_ptr = false;
+    bool base_is_array = false;
+
+    // Check if base is a symbol (for array access)
+    // Do this before process_expression to avoid double GEP for arrays
+    if (base_node->type == AST_NODE_IDENTIFIER && !have_ptr)
+    {
+        char const * var_name = base_node->data.terminal.text;
+        LLVMValueRef var_ptr;
+        LLVMTypeRef var_type;
+        if (find_symbol(ctx, var_name, &var_ptr, &var_type))
+        {
+            current_ptr = var_ptr;
+            current_type = var_type;
+            have_ptr = true;
+
+            // If base is an array type, we'll handle subscript in the loop
+            // Don't call process_expression for the base to avoid double GEP
+            if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind)
+            {
+                base_is_array = true;
+            }
+        }
+    }
+
+    // Only process base if it's not an array (arrays need suffix handling for subscript)
+    if (!base_val && !base_is_array)
+    {
+        // For function calls, don't call process_expression on the identifier
+        // The function call suffix handling will get the function pointer directly
+        bool has_func_call_suffix = false;
+        for (size_t i = 1; i < node->data.list.count; ++i)
+        {
+            if (node->data.list.children[i]->type == AST_NODE_FUNCTION_CALL)
+            {
+                has_func_call_suffix = true;
+                break;
+            }
+        }
+        if (!has_func_call_suffix)
+        {
+            base_val = process_expression(ctx, base_node);
+        }
+    }
+
+    for (size_t i = 1; i < node->data.list.count; ++i)
+    {
+        c_grammar_node_t * suffix = node->data.list.children[i];
+        if (suffix->type == AST_NODE_FUNCTION_CALL)
+        {
+            // Handle function call. Arguments might be children directly or in an ArgumentList
+            size_t num_args = 0;
+            LLVMValueRef * args = NULL;
+
+            if (suffix->data.list.count > 0)
+            {
+                num_args = suffix->data.list.count;
+                args = malloc(num_args * sizeof(LLVMValueRef));
+                for (size_t j = 0; j < num_args; ++j)
+                {
+                    args[j] = process_expression(ctx, suffix->data.list.children[j]);
+                }
+            }
+
+            if (!base_val)
+            {
+                if (base_node->type == AST_NODE_IDENTIFIER)
+                {
+                    char const * func_name = base_node->data.terminal.text;
+                    // First try to get existing function
+                    base_val = LLVMGetNamedFunction(ctx->module, func_name);
+                    if (!base_val)
+                    {
+                        // For undeclared functions like printf, auto-declare as variadic returning i32
+                        LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
+                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
+                        for (size_t j = 0; j < num_args; ++j)
+                        {
+                            if (args[j])
+                            {
+                                arg_types[j] = LLVMTypeOf(args[j]);
+                            }
+                            else
+                            {
+                                // Null argument - use i32 as default type
+                                arg_types[j] = LLVMInt32TypeInContext(ctx->context);
+                            }
+                        }
+                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
+                        base_val = LLVMAddFunction(ctx->module, func_name, func_type);
+                        free(arg_types);
+                    }
+                }
+                else
+                {
+                    fprintf(stderr, "IRGen Error: Could not resolve function for call.\n");
+                    free(args);
+                    return NULL;
+                }
+
+                LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
+                char const * call_name = "";
+                if (LLVMGetReturnType(func_type) != LLVMVoidTypeInContext(ctx->context))
+                {
+                    call_name = "call_tmp";
+                }
+
+                // For zero-argument calls, pass NULL for args (per LLVM C API docs)
+                LLVMValueRef * call_args = (num_args > 0) ? args : NULL;
+                base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
+
+                // For void functions, set base_val to NULL (void calls don't produce values)
+                if (LLVMGetReturnType(func_type) == LLVMVoidTypeInContext(ctx->context))
+                {
+                    base_val = NULL;
+                }
+
+                free(args);
+            }
+        }
+        else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+        {
+            // Array subscript: [LBracket, IndexExpression, RBracket]
+            // Find the index expression
+            LLVMValueRef index_val = NULL;
+            for (size_t k = 0; k < suffix->data.list.count; ++k)
+            {
+                c_grammar_node_t * child = suffix->data.list.children[k];
+                if (child && !child->is_terminal_node)
+                {
+                    index_val = process_expression(ctx, child);
+                    break;
+                }
+            }
+
+            if (index_val && have_ptr && current_type)
+            {
+                // Determine element type from current type
+                LLVMTypeRef elem_type = NULL;
+                LLVMValueRef elem_ptr = NULL;
+
+                if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                {
+                    elem_type = get_pointer_element_type(ctx, current_type);
+
+                    // Load the actual pointer
+                    LLVMValueRef ptr_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "ptr_load");
+
+                    // Use GEP on the loaded pointer with a single index.
+                    elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_val, 1, "arrayidx");
+                }
+                else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
+                {
+                    elem_type = LLVMGetElementType(current_type);
+                    if (!elem_type)
+                    {
+                        fprintf(stderr, "IRGen Error: Could not get element type of an array.\n");
+                        return NULL;
+                    }
+                    // For array types, indexing is [0, index]
+                    LLVMValueRef indices[2];
+                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                    indices[1] = index_val;
+                    // Pass current_type (the array type) to GEP, not elem_type
+                    elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
+                }
+
+                if (elem_ptr && elem_type)
+                {
+                    // Update current_ptr and current_type for next iteration
+                    current_ptr = elem_ptr;
+                    current_type = elem_type;
+
+                    // Clear base_val so final load uses the correct element type
+                    base_val = NULL;
+                }
+                else
+                {
+                    fprintf(stderr, "IRGen Error: Could not determine element type for subscript.\n");
+                    return NULL;
+                }
+            }
+        }
+        else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
+        {
+            // Struct member access: s.x or p->x
+            // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
+            // Find the member name
+            char * member_name = NULL;
+            for (size_t k = 0; k < suffix->data.list.count; ++k)
+            {
+                c_grammar_node_t * child = suffix->data.list.children[k];
+                if (child && child->type == AST_NODE_IDENTIFIER)
+                {
+                    member_name = child->data.terminal.text;
+                    break;
+                }
+            }
+
+            if (member_name && base_val)
+            {
+                // Get the struct type
+                LLVMTypeRef base_type = LLVMTypeOf(base_val);
+                if (!base_type)
+                {
+                    fprintf(stderr, "IRGen Error: NULL type for member access base.\n");
+                    continue;
+                }
+                LLVMTypeRef struct_type;
+                bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+
+                // For LLVM 18+ opaque pointers, use struct name from symbol table
+                struct_type = NULL;
+                if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
+                {
+                    char const * sname = find_symbol_struct_name(ctx, base_node->data.terminal.text);
+                    if (sname)
+                        struct_type = find_struct_type(ctx, sname);
+                }
+                // Fallback for older LLVM / dot access
+                if (!struct_type)
+                {
+                    if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
+                        struct_type = LLVMGetElementType(base_type);
+                    else
+                        struct_type = base_type;
+                }
+
+                if (!struct_type || LLVMGetTypeKind(struct_type) != LLVMStructTypeKind)
+                {
+                    fprintf(stderr, "IRGen Error: Could not find struct type for member access.\n");
+                    continue;
+                }
+
+                // Find the member index by name
+                unsigned num_elements = LLVMCountStructElementTypes(struct_type);
+                unsigned member_index = 0;
+                bool found = false;
+
+                // Look up the struct info to find the member by name
+                struct_info_t * struct_info = NULL;
+                for (size_t si = 0; si < ctx->struct_count; si++)
+                {
+                    if (ctx->structs[si].type == struct_type)
+                    {
+                        struct_info = &ctx->structs[si];
+                        break;
+                    }
+                }
+
+                if (struct_info && struct_info->fields)
+                {
+                    for (unsigned j = 0; j < num_elements && j < struct_info->field_count; ++j)
+                    {
+                        if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0)
+                        {
+                            member_index = j;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    // Fallback: assume members are in order and match the field_count
+                    for (unsigned j = 0; j < num_elements; ++j)
+                    {
+                        if (j == 0)
+                        {
+                            member_index = j;
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (found || num_elements > 0)
+                {
+                    // Create GEP to access member
+                    LLVMValueRef indices[2];
+                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
+
+                    LLVMValueRef member_ptr;
+                    if (is_arrow || LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
+                    {
+                        member_ptr = LLVMBuildInBoundsGEP2(ctx->builder, base_type, base_val, indices, 2, "memberptr");
+                    }
+                    else
+                    {
+                        // For value types, we need to get the pointer
+                        LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
+                        LLVMBuildStore(ctx->builder, base_val, struct_ptr);
+                        member_ptr
+                            = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
+                    }
+                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
+                    base_val = LLVMBuildLoad2(ctx->builder, member_type, member_ptr, "member");
+                }
+            }
+        }
+        else if (suffix->type == AST_NODE_POSTFIX_OPERATOR)
+        {
+            // Handle postfix increment/decrement: i++ or i--
+            if (have_ptr && current_ptr && current_type)
+            {
+                // Load current value
+                LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "postfix_val");
+
+                // Create increment/decrement value
+                LLVMTypeKind kind = LLVMGetTypeKind(current_type);
+                LLVMValueRef one;
+                LLVMValueRef new_val;
+
+                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                {
+                    one = LLVMConstReal(current_type, 1.0);
+                    if (suffix->postfix_op.op == POSTFIX_OP_INC)
+                        new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
+                    else
+                        new_val = LLVMBuildFSub(ctx->builder, current_val, one, "postfix_dec");
+                }
+                else
+                {
+                    one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+                    if (suffix->postfix_op.op == POSTFIX_OP_INC)
+                        new_val = LLVMBuildAdd(ctx->builder, current_val, one, "postfix_inc");
+                    else
+                        new_val = LLVMBuildSub(ctx->builder, current_val, one, "postfix_dec");
+                }
+
+                // Store the new value
+                LLVMBuildStore(ctx->builder, new_val, current_ptr);
+
+                // Postfix returns the original value (current_val)
+                base_val = current_val;
+            }
+        }
+        else
+        {
+            fprintf(stderr, "IRGen Warning: Unhandled postfix suffix type %u\n", suffix->type);
+        }
+    }
+
+    // If base_val is NULL but we have a pointer (from array subscript or member access),
+    // load the value from the pointer
+    if (!base_val && have_ptr && current_ptr && current_type)
+    {
+        base_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "load_tmp");
+    }
+
+    return base_val;
+}
+
+static LLVMValueRef
+process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // This node type is typically handled as a suffix in AST_NODE_POSTFIX_EXPRESSION.
+    // If it's encountered on its own, it likely means arguments.
+    // Recursive traversal should yield the values.
+    if (node->data.list.count > 0)
+    {
+        // For now, just return the first argument if processed in isolation (rare)
+        return process_expression(ctx, node->data.list.children[0]);
+    }
+    return NULL;
+}
+
+static LLVMValueRef
+process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // AST structure for CastExpression: [TypeName, CastExpression]
+    if (node->data.list.count < 2)
+    {
+        return NULL;
+    }
+
+    c_grammar_node_t const * type_name_node = node->data.list.children[0];
+    c_grammar_node_t const * inner_expr_node = node->data.list.children[1];
+
+    if (type_name_node->type != AST_NODE_TYPE_NAME)
+    {
+        fprintf(stderr, "IRGen Error: Expected TypeName in cast expression, got %u\n", type_name_node->type);
+        return NULL;
+    }
+
+    // TypeName children are [SpecifierQualifierList, AbstractDeclarator?]
+    c_grammar_node_t * spec_qual = type_name_node->data.list.children[0];
+    c_grammar_node_t * abstract_decl
+        = (type_name_node->data.list.count > 1) ? type_name_node->data.list.children[1] : NULL;
+
+    LLVMTypeRef target_type = map_type(ctx, spec_qual, abstract_decl);
+    LLVMValueRef val_to_cast = process_expression(ctx, inner_expr_node);
+
+    if (val_to_cast && target_type)
+    {
+        LLVMTypeRef src_type = LLVMTypeOf(val_to_cast);
+        if (LLVMGetTypeKind(target_type) == LLVMIntegerTypeKind
+            && (LLVMGetTypeKind(src_type) == LLVMFloatTypeKind || LLVMGetTypeKind(src_type) == LLVMDoubleTypeKind))
+        {
+            return LLVMBuildFPToSI(ctx->builder, val_to_cast, target_type, "casttmp");
+        }
+        else if ((LLVMGetTypeKind(target_type) == LLVMFloatTypeKind
+                  || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind)
+                 && LLVMGetTypeKind(src_type) == LLVMIntegerTypeKind)
+        {
+            return LLVMBuildSIToFP(ctx->builder, val_to_cast, target_type, "casttmp");
+        }
+        // Add more cast types as needed (bitcast, pointer casts, etc.)
+        return val_to_cast; // Fallback
+    }
+    return NULL;
+}
+
+static LLVMValueRef
+process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (node->data.list.count >= 3 && node->data.list.children)
+    {
+        c_grammar_node_t const * lhs_node = node->data.list.children[0];
+        c_grammar_node_t const * rhs_node = node->data.list.children[2];
+
+        LLVMValueRef lhs_ptr = NULL;
+        LLVMTypeRef lhs_type = NULL;
+
+        // Check if LHS is a PostfixExpression with array subscript or member access
+        if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION && lhs_node->data.list.count >= 2)
+        {
+            c_grammar_node_t * base_node = lhs_node->data.list.children[0];
+            if (base_node->type == AST_NODE_IDENTIFIER)
+            {
+                char const * base_name = base_node->data.terminal.text;
+                LLVMValueRef base_ptr;
+                LLVMTypeRef base_type;
+                if (find_symbol(ctx, base_name, &base_ptr, &base_type))
+                {
+                    LLVMValueRef current_ptr = base_ptr;
+                    LLVMTypeRef current_type = base_type;
+
+                    // Process suffixes to handle array subscripts and member access
+                    for (size_t i = 1; i < lhs_node->data.list.count; ++i)
+                    {
+                        c_grammar_node_t * suffix = lhs_node->data.list.children[i];
+
+                        if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+                        {
+                            LLVMValueRef index_val = NULL;
+                            for (size_t k = 0; k < suffix->data.list.count; ++k)
+                            {
+                                c_grammar_node_t * child = suffix->data.list.children[k];
+                                if (child && !child->is_terminal_node)
+                                {
+                                    index_val = process_expression(ctx, child);
+                                    break;
+                                }
+                            }
+
+                            if (index_val && current_type)
+                            {
+                                LLVMTypeRef elem_type = NULL;
+                                if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                                {
+                                    elem_type = get_pointer_element_type(ctx, current_type);
+                                }
+                                else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
+                                {
+                                    elem_type = LLVMGetElementType(current_type);
+                                }
+
+                                LLVMValueRef indices[2];
+                                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                indices[1] = index_val;
+                                current_ptr = LLVMBuildInBoundsGEP2(
+                                    ctx->builder, current_type, current_ptr, indices, 2, "arrayidx"
+                                );
+                                current_type = elem_type;
+                            }
+                        }
+                        else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT
+                                 || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
+                        {
+                            char * member_name = NULL;
+                            for (size_t k = 0; k < suffix->data.list.count; ++k)
+                            {
+                                c_grammar_node_t * child = suffix->data.list.children[k];
+                                if (child && child->type == AST_NODE_IDENTIFIER)
+                                {
+                                    member_name = child->data.terminal.text;
+                                    break;
+                                }
+                            }
+
+                            if (member_name && current_ptr && current_type)
+                            {
+                                LLVMTypeRef struct_type = NULL;
+
+                                // For LLVM 18+ opaque pointers, use struct name from symbol table
+                                char const * sname = find_symbol_struct_name(ctx, base_name);
+                                if (sname)
+                                    struct_type = find_struct_type(ctx, sname);
+                                // Fallback for opaque pointers
+                                if (!struct_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                                    struct_type = get_pointer_element_type(ctx, current_type);
+
+                                if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
+                                {
+                                    // For arrow access, load the pointer first
+                                    LLVMValueRef struct_ptr = current_ptr;
+                                    bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+                                    if (is_arrow)
+                                        struct_ptr
+                                            = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "arrow_ptr");
+
+                                    unsigned num_elements = LLVMCountStructElementTypes(struct_type);
+                                    unsigned member_index = 0;
+                                    struct_info_t * info = NULL;
+
+                                    for (size_t si = 0; si < ctx->struct_count; si++)
+                                    {
+                                        if (ctx->structs[si].type == struct_type)
+                                        {
+                                            info = &ctx->structs[si];
+                                            break;
+                                        }
+                                    }
+
+                                    if (info)
+                                    {
+                                        for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
+                                        {
+                                            if (info->fields[j].name != NULL
+                                                && strcmp(info->fields[j].name, member_name) == 0)
+                                            {
+                                                member_index = j;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    LLVMValueRef indices[2];
+                                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                    indices[1]
+                                        = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
+                                    current_ptr = LLVMBuildInBoundsGEP2(
+                                        ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr"
+                                    );
+                                    current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
+                                }
+                            }
+                        }
+                    }
+
+                    lhs_ptr = current_ptr;
+                    lhs_type = current_type;
+                }
+            }
+        }
+        else
+        {
+            // Simple variable assignment
+            lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type);
+        }
+
+        if (!lhs_ptr)
+        {
+            fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
+            return NULL;
+        }
+
+        // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
+        c_grammar_node_t const * op_node = node->data.list.children[1];
+        bool is_compound = false;
+        assignment_operator_type_t assign_op_type = ASSIGN_OP_SIMPLE;
+
+        if (op_node && op_node->type == AST_NODE_ASSIGNMENT_OPERATOR)
+        {
+            assign_op_type = op_node->assign_op.op;
+            is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
+        }
+
+        LLVMValueRef rhs_value;
+
+        if (is_compound)
+        {
+            // For compound assignment, load current LHS value
+            LLVMValueRef lhs_value = LLVMBuildLoad2(ctx->builder, lhs_type, lhs_ptr, "lhs_load");
+            rhs_value = process_expression(ctx, rhs_node);
+            if (!rhs_value)
+            {
+                fprintf(stderr, "IRGen Error: Failed to process RHS expression in compound assignment.\n");
+                return NULL;
+            }
+
+            // Determine if this is a floating point operation
+            LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
+            bool is_float = (lhs_kind == LLVMFloatTypeKind || lhs_kind == LLVMDoubleTypeKind);
+
+            // Perform the operation
+            switch (assign_op_type)
+            {
+            case ASSIGN_OP_SIMPLE:
+                /* Do nothing. Shouldn't happen. Avoids compiler warning. */
+                break;
+            case ASSIGN_OP_ADD:
+                rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp")
+                                     : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
+                break;
+            case ASSIGN_OP_SUB:
+                rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp")
+                                     : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
+                break;
+            case ASSIGN_OP_MUL:
+                rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp")
+                                     : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
+                break;
+            case ASSIGN_OP_DIV:
+                rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp")
+                                     : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
+                break;
+            case ASSIGN_OP_MOD:
+                rhs_value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_value, "rem_tmp");
+                break;
+            case ASSIGN_OP_AND:
+                rhs_value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_value, "and_tmp");
+                break;
+            case ASSIGN_OP_OR:
+                rhs_value = LLVMBuildOr(ctx->builder, lhs_value, rhs_value, "or_tmp");
+                break;
+            case ASSIGN_OP_XOR:
+                rhs_value = LLVMBuildXor(ctx->builder, lhs_value, rhs_value, "xor_tmp");
+                break;
+            case ASSIGN_OP_SHL:
+                rhs_value = LLVMBuildShl(ctx->builder, lhs_value, rhs_value, "shl_tmp");
+                break;
+            case ASSIGN_OP_SHR:
+                rhs_value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_value, "lshr_tmp");
+                break;
+            default:
+                fprintf(stderr, "IRGen Error: Unknown compound assignment operator.\n");
+                return NULL;
+            }
+        }
+        else
+        {
+            // Process the RHS expression to get its LLVM ValueRef.
+            rhs_value = process_expression(ctx, rhs_node);
+            if (!rhs_value)
+            {
+                fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
+                return NULL;
+            }
+        }
+
+        // Generate the store instruction.
+        LLVMBuildStore(ctx->builder, rhs_value, lhs_ptr);
+        return rhs_value;
+    }
+    return NULL;
+}
+
+static LLVMValueRef
+process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    LLVMValueRef var_ptr;
+    LLVMTypeRef element_type; // This will hold the type (e.g., i32)
+
+    // Get the variable's pointer and its element type from the symbol table.
+    var_ptr = get_variable_pointer(ctx, node, &element_type);
+
+    if (var_ptr && element_type) // Ensure both are valid
+    {
+        // Check if the type is an array (for file-scope or local arrays)
+        if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind)
+        {
+            LLVMValueRef indices[2];
+            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+            return LLVMBuildInBoundsGEP2(ctx->builder, element_type, var_ptr, indices, 2, "array_ptr");
+        }
+        // Load the value from the memory address using LLVMBuildLoad2.
+        return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
+    }
+    else if (var_ptr == NULL)
+    {
+        // Check if it's a function name before reporting error
+        if (LLVMGetNamedFunction(ctx->module, node->data.terminal.text) == NULL)
+        {
+            fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
+        }
+        return NULL;
+    }
+
+    fprintf(stderr, "IRGen Error: NULL element type for variable '%s'.\n", node->data.terminal.text);
+    return NULL;
+}
+
+static LLVMValueRef
+process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
+    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[1]);
+
+    switch (node->bitwise_op.op)
+    {
+    case BITWISE_OP_AND:
+        return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
+    case BITWISE_OP_OR:
+        return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
+    case BITWISE_OP_XOR:
+        return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
+    }
+    return NULL; /* Shouldn't happen. */
+}
+
+static LLVMValueRef
+process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Standard binary ops: [LHS, OP, RHS]
+    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+
+    switch (node->shift_op.op)
+    {
+    case SHIFT_OP_LL:
+        return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
+    case SHIFT_OP_AR:
+        return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
+    }
+    return NULL;
+}
+
+static LLVMValueRef
+process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Standard binary ops: [LHS, OP, RHS]
+    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+    switch (node->arith_op.op)
+    {
+    case ARITH_OP_ADD:
+        return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
+                           : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
+    case ARITH_OP_SUB:
+        return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
+                           : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
+    case ARITH_OP_MUL:
+        return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
+                           : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
+    case ARITH_OP_DIV:
+        return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
+                           : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+    case ARITH_OP_MOD:
+        return LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
+    }
+    return NULL; /* Shouldn't happen. */
+}
+
+static LLVMValueRef
+process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Standard binary ops: [LHS, OP, RHS]
+    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+    switch (node->rel_op.op)
+    {
+    case REL_OP_LT:
+        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
+                           : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+    case REL_OP_GT:
+        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
+                           : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+    case REL_OP_LE:
+        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
+                           : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
+    case REL_OP_GE:
+        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
+                           : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
+    }
+    return NULL; /* Shouldn't happen. */
+}
+
+static LLVMValueRef
+process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Standard binary ops: [LHS, OP, RHS]
+    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+    switch (node->eq_op.op)
+    {
+    case EQ_OP_EQ:
+        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
+                           : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+    case EQ_OP_NE:
+        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
+                           : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+    }
+    return NULL; /* Shouldn't happen. */
+}
+
+static LLVMValueRef
+process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (node->data.list.count == 1)
+    {
+        return process_expression(ctx, node->data.list.children[0]);
+    }
+
+    bool is_or = (node->logical_op.op == LOGICAL_OP_OR);
+    c_grammar_node_t * lhs_node = node->data.list.children[0];
+    c_grammar_node_t * rhs_node = node->data.list.children[2];
+
+    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
+
+    LLVMBasicBlockRef rhs_block = LLVMAppendBasicBlockInContext(
+        ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_rhs"
+    );
+    LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(
+        ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_merge"
+    );
+
+    LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
+    // Convert to i1
+    if (LLVMGetTypeKind(LLVMTypeOf(lhs_val)) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(LLVMTypeOf(lhs_val)) != 1)
+    {
+        lhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, LLVMConstNull(LLVMTypeOf(lhs_val)), "bool_tmp");
+    }
+
+    LLVMBuildStore(ctx->builder, lhs_val, res_alloca);
+    if (is_or)
+    {
+        LLVMBuildCondBr(ctx->builder, lhs_val, merge_block, rhs_block);
+    }
+    else
+    {
+        LLVMBuildCondBr(ctx->builder, lhs_val, rhs_block, merge_block);
+    }
+
+    LLVMPositionBuilderAtEnd(ctx->builder, rhs_block);
+    LLVMValueRef rhs_val = process_expression(ctx, rhs_node);
+    if (LLVMGetTypeKind(LLVMTypeOf(rhs_val)) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(LLVMTypeOf(rhs_val)) != 1)
+    {
+        rhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_val, LLVMConstNull(LLVMTypeOf(rhs_val)), "bool_tmp");
+    }
+    LLVMBuildStore(ctx->builder, rhs_val, res_alloca);
+    LLVMBuildBr(ctx->builder, merge_block);
+
+    LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+    return LLVMBuildLoad2(ctx->builder, LLVMInt1TypeInContext(ctx->context), res_alloca, "logical_final");
+}
+
+static LLVMValueRef
+process_unary_op(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Unary structure: [Operator, Operand]
+    if (node->data.list.count < 2)
+        return NULL;
+    c_grammar_node_t * operand_node = node->data.list.children[1];
+
+    switch (node->unary_op.op)
+    {
+    case UNARY_OP_ADDR:
+    {
+        // For &identifier, return the pointer directly (don't load)
+        if (operand_node->type == AST_NODE_IDENTIFIER)
+        {
+            LLVMValueRef var_ptr;
+            LLVMTypeRef var_type;
+            if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type))
+            {
+                return var_ptr;
+            }
+        }
+        // For &member or &array[i], process the expression which returns a pointer
+        LLVMValueRef ptr_val = process_expression(ctx, operand_node);
+        return ptr_val;
+    }
+
+    case UNARY_OP_DEREF:
+    {
+        LLVMValueRef operand_val = process_expression(ctx, operand_node);
+        if (!operand_val)
+            return NULL;
+        LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
+        LLVMTypeRef elem_type = get_pointer_element_type(ctx, ptr_type);
+        if (elem_type)
+        {
+            return LLVMBuildLoad2(ctx->builder, elem_type, operand_val, "deref_tmp");
+        }
+        return operand_val;
+    }
+
+    case UNARY_OP_MINUS:
+    {
+        LLVMValueRef operand_val = process_expression(ctx, operand_node);
+        if (!operand_val)
+            return NULL;
+        LLVMTypeRef op_type = LLVMTypeOf(operand_val);
+        if (op_type
+            && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
+            return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
+        return LLVMBuildNeg(ctx->builder, operand_val, "neg_tmp");
+    }
+
+    case UNARY_OP_NOT:
+    {
+        LLVMValueRef operand_val = process_expression(ctx, operand_node);
+        if (!operand_val)
+            return NULL;
+        LLVMTypeRef op_type = LLVMTypeOf(operand_val);
+        if (!op_type)
+            return NULL;
+        LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_val, LLVMConstNull(op_type), "not_tmp");
+        return is_zero;
+    }
+
+    case UNARY_OP_BITNOT:
+    {
+        LLVMValueRef operand_val = process_expression(ctx, operand_node);
+        if (!operand_val)
+            return NULL;
+        return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
+    }
+
+    case UNARY_OP_INC:
+    case UNARY_OP_DEC:
+    {
+        LLVMValueRef var_ptr = NULL;
+        LLVMTypeRef var_type = NULL;
+
+        if (operand_node->type == AST_NODE_IDENTIFIER)
+        {
+            var_ptr = get_variable_pointer(ctx, operand_node, &var_type);
+        }
+
+        if (var_ptr && var_type)
+        {
+            LLVMValueRef original_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "orig_val");
+            LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+
+            LLVMValueRef new_val;
+            if (node->unary_op.op == UNARY_OP_INC)
+            {
+                LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                    new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
+                else
+                    new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
+            }
+            else
+            {
+                LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                    new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "dec_tmp");
+                else
+                    new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
+            }
+
+            LLVMBuildStore(ctx->builder, new_val, var_ptr);
+            return original_val;
+        }
+        return NULL;
+    }
+
+    case UNARY_OP_PLUS:
+    {
+        return process_expression(ctx, operand_node);
+    }
+
+    case UNARY_OP_SIZEOF:
+    case UNARY_OP_ALIGNOF:
+    {
+        // sizeof and alignof are handled elsewhere
+        return NULL;
+    }
+    }
+
+    return NULL;
+}
+
 /**
  * @brief Processes an expression AST node and returns its LLVM ValueRef.
  * This function recursively handles various expression types.
  */
 static LLVMValueRef
-process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
+process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (!node)
         return NULL;
@@ -2290,1119 +3419,67 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     {
     case AST_NODE_INTEGER_VALUE:
     {
-        /* Expecting two child nodes - base value and suffix. */
-        c_grammar_node_t * base_node = node->data.list.children[0];
-        c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
-
-        char * base_text = base_node->data.terminal.text;
-        char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
-
-        // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
-        unsigned long long value = strtoull(base_text, NULL, 0);
-
-        LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context);
-        bool is_unsigned = false;
-
-        if (suffix_text && strlen(suffix_text) > 0)
-        {
-            if (strchr(suffix_text, 'u') || strchr(suffix_text, 'U'))
-            {
-                is_unsigned = true;
-            }
-            if (strstr(suffix_text, "ll") || strstr(suffix_text, "LL") || strchr(suffix_text, 'l')
-                || strchr(suffix_text, 'L'))
-            {
-                int_type = LLVMInt64TypeInContext(ctx->context);
-            }
-        }
-
-        return LLVMConstInt(int_type, value, !is_unsigned);
+        return process_integer_value(ctx, node);
     }
     case AST_NODE_FLOAT_VALUE:
     {
-        /* Expecting two child nodes - base value and suffix. */
-        c_grammar_node_t * base_node = node->data.list.children[0];
-        c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
-
-        char * base_text = base_node->data.terminal.text;
-        char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
-
-        char * full_text = NULL;
-        asprintf(&full_text, "%s%s", base_text, suffix_text);
-
-        long double value = strtold(full_text, NULL);
-
-        LLVMTypeRef float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
-        if (suffix_text && strlen(suffix_text) > 0)
-        {
-            if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
-            {
-                float_type = LLVMFloatTypeInContext(ctx->context);
-            }
-            else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
-            {
-                float_type = LLVMX86FP80TypeInContext(ctx->context);
-            }
-        }
-
-        free(full_text);
-        return LLVMConstReal(float_type, value);
+        return process_float_value(ctx, node);
     }
     case AST_NODE_STRING_LITERAL:
     {
-        // Handle string literals like "Hello".
-        if (node->data.terminal.text)
-        {
-            char * raw_text = node->data.terminal.text;
-            char * decoded = decode_string(raw_text);
-            LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
-            free(decoded);
-            return global_str;
-        }
-        break;
+        return process_string_literal(ctx, node);
     }
     case AST_NODE_CHARACTER_LITERAL:
     {
-        if (node->data.terminal.text)
-        {
-            char * raw_text = node->data.terminal.text;
-            // Character literal content (no quotes), e.g., "a" or "\\n"
-            char value = 0;
-            if (raw_text[0] == '\\')
-            {
-                switch (raw_text[1])
-                {
-                case 'n':
-                    value = '\n';
-                    break;
-                case 't':
-                    value = '\t';
-                    break;
-                case 'r':
-                    value = '\r';
-                    break;
-                case '0':
-                    value = '\0';
-                    break;
-                case '\\':
-                    value = '\\';
-                    break;
-                case '\'':
-                    value = '\'';
-                    break;
-                case '\"':
-                    value = '\"';
-                    break;
-                default:
-                    value = raw_text[1];
-                    break;
-                }
-            }
-            else
-            {
-                value = raw_text[0];
-            }
-            return LLVMConstInt(LLVMInt8TypeInContext(ctx->context), value, false);
-        }
-        break;
+        return process_character_literal(ctx, node);
     }
     case AST_NODE_POSTFIX_EXPRESSION:
     {
-        // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
-        if (node->data.list.count < 2)
-        {
-            return process_expression(ctx, node->data.list.children[0]);
-        }
-
-        c_grammar_node_t * base_node = node->data.list.children[0];
-        LLVMValueRef base_val = NULL;
-        LLVMValueRef current_ptr = NULL;
-        LLVMTypeRef current_type = NULL;
-        bool have_ptr = false;
-        bool base_is_array = false;
-
-        // Check if base is a symbol (for array access)
-        // Do this before process_expression to avoid double GEP for arrays
-        if (base_node->type == AST_NODE_IDENTIFIER && !have_ptr)
-        {
-            char const * var_name = base_node->data.terminal.text;
-            LLVMValueRef var_ptr;
-            LLVMTypeRef var_type;
-            if (find_symbol(ctx, var_name, &var_ptr, &var_type))
-            {
-                current_ptr = var_ptr;
-                current_type = var_type;
-                have_ptr = true;
-
-                // If base is an array type, we'll handle subscript in the loop
-                // Don't call process_expression for the base to avoid double GEP
-                if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind)
-                {
-                    base_is_array = true;
-                }
-            }
-        }
-
-        // Only process base if it's not an array (arrays need suffix handling for subscript)
-        if (!base_val && !base_is_array)
-        {
-            // For function calls, don't call process_expression on the identifier
-            // The function call suffix handling will get the function pointer directly
-            bool has_func_call_suffix = false;
-            for (size_t i = 1; i < node->data.list.count; ++i)
-            {
-                if (node->data.list.children[i]->type == AST_NODE_FUNCTION_CALL)
-                {
-                    has_func_call_suffix = true;
-                    break;
-                }
-            }
-            if (!has_func_call_suffix)
-            {
-                base_val = process_expression(ctx, base_node);
-            }
-        }
-
-        for (size_t i = 1; i < node->data.list.count; ++i)
-        {
-            c_grammar_node_t * suffix = node->data.list.children[i];
-            if (suffix->type == AST_NODE_FUNCTION_CALL)
-            {
-                // Handle function call. Arguments might be children directly or in an ArgumentList
-                size_t num_args = 0;
-                LLVMValueRef * args = NULL;
-
-                if (suffix->data.list.count > 0)
-                {
-                    num_args = suffix->data.list.count;
-                    args = malloc(num_args * sizeof(LLVMValueRef));
-                    for (size_t j = 0; j < num_args; ++j)
-                    {
-                        args[j] = process_expression(ctx, suffix->data.list.children[j]);
-                    }
-                }
-
-                if (!base_val)
-                {
-                    if (base_node->type == AST_NODE_IDENTIFIER)
-                    {
-                        char const * func_name = base_node->data.terminal.text;
-                        // First try to get existing function
-                        base_val = LLVMGetNamedFunction(ctx->module, func_name);
-                        if (!base_val)
-                        {
-                            // For undeclared functions like printf, auto-declare as variadic returning i32
-                            LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                            LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
-                            bool all_args_valid = true;
-                            for (size_t j = 0; j < num_args; ++j)
-                            {
-                                if (args[j])
-                                {
-                                    arg_types[j] = LLVMTypeOf(args[j]);
-                                }
-                                else
-                                {
-                                    // Null argument - use i32 as default type
-                                    arg_types[j] = LLVMInt32TypeInContext(ctx->context);
-                                    all_args_valid = false;
-                                }
-                            }
-                            LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
-                            base_val = LLVMAddFunction(ctx->module, func_name, func_type);
-                            free(arg_types);
-                        }
-                    }
-                    else
-                    {
-                        fprintf(stderr, "IRGen Error: Could not resolve function for call.\n");
-                        if (args)
-                            free(args);
-                        return NULL;
-                    }
-
-                    LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
-                    char const * call_name = "";
-                    if (LLVMGetReturnType(func_type) != LLVMVoidTypeInContext(ctx->context))
-                    {
-                        call_name = "call_tmp";
-                    }
-
-                    // For zero-argument calls, pass NULL for args (per LLVM C API docs)
-                    LLVMValueRef * call_args = (num_args > 0) ? args : NULL;
-                    base_val
-                        = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
-
-                    // For void functions, set base_val to NULL (void calls don't produce values)
-                    if (LLVMGetReturnType(func_type) == LLVMVoidTypeInContext(ctx->context))
-                    {
-                        base_val = NULL;
-                    }
-
-                    if (args)
-                        free(args);
-                }
-            }
-            else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
-            {
-                // Array subscript: [LBracket, IndexExpression, RBracket]
-                // Find the index expression
-                LLVMValueRef index_val = NULL;
-                for (size_t k = 0; k < suffix->data.list.count; ++k)
-                {
-                    c_grammar_node_t * child = suffix->data.list.children[k];
-                    if (child && !child->is_terminal_node)
-                    {
-                        index_val = process_expression(ctx, child);
-                        break;
-                    }
-                }
-
-                if (index_val && have_ptr && current_type)
-                {
-                    // Determine element type from current type
-                    LLVMTypeRef elem_type = NULL;
-                    LLVMValueRef elem_ptr = NULL;
-
-                    if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                    {
-                        elem_type = get_pointer_element_type(ctx, current_type);
-
-                        // Load the actual pointer
-                        LLVMValueRef ptr_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "ptr_load");
-
-                        // Use GEP on the loaded pointer with a single index.
-                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_val, 1, "arrayidx");
-                    }
-                    else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                    {
-                        elem_type = LLVMGetElementType(current_type);
-                        if (!elem_type)
-                        {
-                            fprintf(stderr, "IRGen Error: Could not get element type of an array.\n");
-                            return NULL;
-                        }
-                        // For array types, indexing is [0, index]
-                        LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                        indices[1] = index_val;
-                        // Pass current_type (the array type) to GEP, not elem_type
-                        elem_ptr
-                            = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
-                    }
-
-                    if (elem_ptr && elem_type)
-                    {
-                        // Update current_ptr and current_type for next iteration
-                        current_ptr = elem_ptr;
-                        current_type = elem_type;
-
-                        // Clear base_val so final load uses the correct element type
-                        base_val = NULL;
-                    }
-                    else
-                    {
-                        fprintf(stderr, "IRGen Error: Could not determine element type for subscript.\n");
-                        return NULL;
-                    }
-                }
-            }
-            else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
-            {
-                // Struct member access: s.x or p->x
-                // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
-                // Find the member name
-                char * member_name = NULL;
-                for (size_t k = 0; k < suffix->data.list.count; ++k)
-                {
-                    c_grammar_node_t * child = suffix->data.list.children[k];
-                    if (child && child->type == AST_NODE_IDENTIFIER)
-                    {
-                        member_name = child->data.terminal.text;
-                        break;
-                    }
-                }
-
-                if (member_name && base_val)
-                {
-                    // Get the struct type
-                    LLVMTypeRef base_type = LLVMTypeOf(base_val);
-                    if (!base_type)
-                    {
-                        fprintf(stderr, "IRGen Error: NULL type for member access base.\n");
-                        continue;
-                    }
-                    LLVMTypeRef struct_type;
-                    bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
-
-                    // For LLVM 18+ opaque pointers, use struct name from symbol table
-                    struct_type = NULL;
-                    if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
-                    {
-                        char const * sname = find_symbol_struct_name(ctx, base_node->data.terminal.text);
-                        if (sname)
-                            struct_type = find_struct_type(ctx, sname);
-                    }
-                    // Fallback for older LLVM / dot access
-                    if (!struct_type)
-                    {
-                        if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
-                            struct_type = LLVMGetElementType(base_type);
-                        else
-                            struct_type = base_type;
-                    }
-
-                    if (!struct_type || LLVMGetTypeKind(struct_type) != LLVMStructTypeKind)
-                    {
-                        fprintf(stderr, "IRGen Error: Could not find struct type for member access.\n");
-                        continue;
-                    }
-
-                    // For arrow access, load the pointer first
-                    LLVMValueRef struct_ptr = base_val;
-                    if (is_arrow)
-                    {
-                        struct_ptr = LLVMBuildLoad2(ctx->builder, base_type, base_val, "arrow_ptr");
-                    }
-
-                    // Find the member index by name
-                    unsigned num_elements = LLVMCountStructElementTypes(struct_type);
-                    unsigned member_index = 0;
-                    bool found = false;
-
-                    // Look up the struct info to find the member by name
-                    struct_info_t * struct_info = NULL;
-                    for (size_t si = 0; si < ctx->struct_count; si++)
-                    {
-                        if (ctx->structs[si].type == struct_type)
-                        {
-                            struct_info = &ctx->structs[si];
-                            break;
-                        }
-                    }
-
-                    if (struct_info && struct_info->fields)
-                    {
-                        for (unsigned j = 0; j < num_elements && j < struct_info->field_count; ++j)
-                        {
-                            if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0)
-                            {
-                                member_index = j;
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Fallback: assume members are in order and match the field_count
-                        for (unsigned j = 0; j < num_elements; ++j)
-                        {
-                            if (j == 0)
-                            {
-                                member_index = j;
-                                found = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (found || num_elements > 0)
-                    {
-                        // Create GEP to access member
-                        LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
-
-                        LLVMValueRef member_ptr;
-                        if (is_arrow || LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
-                        {
-                            member_ptr
-                                = LLVMBuildInBoundsGEP2(ctx->builder, base_type, base_val, indices, 2, "memberptr");
-                        }
-                        else
-                        {
-                            // For value types, we need to get the pointer
-                            LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
-                            LLVMBuildStore(ctx->builder, base_val, struct_ptr);
-                            member_ptr
-                                = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
-                        }
-                        LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                        base_val = LLVMBuildLoad2(ctx->builder, member_type, member_ptr, "member");
-                    }
-                }
-            }
-            else if (suffix->type == AST_NODE_POSTFIX_OPERATOR)
-            {
-                // Handle postfix increment/decrement: i++ or i--
-                if (have_ptr && current_ptr && current_type)
-                {
-                    // Load current value
-                    LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "postfix_val");
-
-                    // Create increment/decrement value
-                    LLVMTypeKind kind = LLVMGetTypeKind(current_type);
-                    LLVMValueRef one;
-                    LLVMValueRef new_val;
-
-                    if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                    {
-                        one = LLVMConstReal(current_type, 1.0);
-                        if (suffix->postfix_op.op == POSTFIX_OP_INC)
-                            new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
-                        else
-                            new_val = LLVMBuildFSub(ctx->builder, current_val, one, "postfix_dec");
-                    }
-                    else
-                    {
-                        one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-                        if (suffix->postfix_op.op == POSTFIX_OP_INC)
-                            new_val = LLVMBuildAdd(ctx->builder, current_val, one, "postfix_inc");
-                        else
-                            new_val = LLVMBuildSub(ctx->builder, current_val, one, "postfix_dec");
-                    }
-
-                    // Store the new value
-                    LLVMBuildStore(ctx->builder, new_val, current_ptr);
-
-                    // Postfix returns the original value (current_val)
-                    base_val = current_val;
-                }
-            }
-            else
-            {
-                fprintf(stderr, "IRGen Warning: Unhandled postfix suffix type %u\n", suffix->type);
-            }
-        }
-
-        // If base_val is NULL but we have a pointer (from array subscript or member access),
-        // load the value from the pointer
-        if (!base_val && have_ptr && current_ptr && current_type)
-        {
-            base_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "load_tmp");
-        }
-
-        return base_val;
+        return process_postfix_expression(ctx, node);
     }
     case AST_NODE_FUNCTION_CALL:
     {
-        // This node type is typically handled as a suffix in AST_NODE_POSTFIX_EXPRESSION.
-        // If it's encountered on its own, it likely means arguments.
-        // Recursive traversal should yield the values.
-        if (node->data.list.count > 0)
-        {
-            // For now, just return the first argument if processed in isolation (rare)
-            return process_expression(ctx, node->data.list.children[0]);
-        }
-        return NULL;
+        return process_function_call(ctx, node);
     }
     case AST_NODE_CAST_EXPRESSION:
     {
-        // AST structure for CastExpression: [TypeName, CastExpression]
-        if (node->data.list.count < 2)
-            return NULL;
-
-        c_grammar_node_t * type_name_node = node->data.list.children[0];
-        c_grammar_node_t * inner_expr_node = node->data.list.children[1];
-
-        if (type_name_node->type != AST_NODE_TYPE_NAME)
-        {
-            fprintf(stderr, "IRGen Error: Expected TypeName in cast expression, got %u\n", type_name_node->type);
-            return NULL;
-        }
-
-        // TypeName children are [SpecifierQualifierList, AbstractDeclarator?]
-        c_grammar_node_t * spec_qual = type_name_node->data.list.children[0];
-        c_grammar_node_t * abstract_decl
-            = (type_name_node->data.list.count > 1) ? type_name_node->data.list.children[1] : NULL;
-
-        LLVMTypeRef target_type = map_type(ctx, spec_qual, abstract_decl);
-        LLVMValueRef val_to_cast = process_expression(ctx, inner_expr_node);
-
-        if (val_to_cast && target_type)
-        {
-            LLVMTypeRef src_type = LLVMTypeOf(val_to_cast);
-            if (LLVMGetTypeKind(target_type) == LLVMIntegerTypeKind
-                && (LLVMGetTypeKind(src_type) == LLVMFloatTypeKind || LLVMGetTypeKind(src_type) == LLVMDoubleTypeKind))
-            {
-                return LLVMBuildFPToSI(ctx->builder, val_to_cast, target_type, "casttmp");
-            }
-            else if ((LLVMGetTypeKind(target_type) == LLVMFloatTypeKind
-                      || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind)
-                     && LLVMGetTypeKind(src_type) == LLVMIntegerTypeKind)
-            {
-                return LLVMBuildSIToFP(ctx->builder, val_to_cast, target_type, "casttmp");
-            }
-            // Add more cast types as needed (bitcast, pointer casts, etc.)
-            return val_to_cast; // Fallback
-        }
-        return NULL;
+        return process_cast_expression(ctx, node);
     }
     case AST_NODE_ASSIGNMENT:
     {
-        if (node->data.list.count >= 3 && node->data.list.children)
-        {
-            c_grammar_node_t * lhs_node = node->data.list.children[0];
-            c_grammar_node_t * rhs_node = node->data.list.children[2];
-
-            LLVMValueRef lhs_ptr = NULL;
-            LLVMTypeRef lhs_type = NULL;
-
-            // Check if LHS is a PostfixExpression with array subscript or member access
-            if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION && lhs_node->data.list.count >= 2)
-            {
-                c_grammar_node_t * base_node = lhs_node->data.list.children[0];
-                if (base_node->type == AST_NODE_IDENTIFIER)
-                {
-                    char const * base_name = base_node->data.terminal.text;
-                    LLVMValueRef base_ptr;
-                    LLVMTypeRef base_type;
-                    if (find_symbol(ctx, base_name, &base_ptr, &base_type))
-                    {
-                        LLVMValueRef current_ptr = base_ptr;
-                        LLVMTypeRef current_type = base_type;
-
-                        // Process suffixes to handle array subscripts and member access
-                        for (size_t i = 1; i < lhs_node->data.list.count; ++i)
-                        {
-                            c_grammar_node_t * suffix = lhs_node->data.list.children[i];
-
-                            if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
-                            {
-                                LLVMValueRef index_val = NULL;
-                                for (size_t k = 0; k < suffix->data.list.count; ++k)
-                                {
-                                    c_grammar_node_t * child = suffix->data.list.children[k];
-                                    if (child && !child->is_terminal_node)
-                                    {
-                                        index_val = process_expression(ctx, child);
-                                        break;
-                                    }
-                                }
-
-                                if (index_val && current_type)
-                                {
-                                    LLVMTypeRef elem_type = NULL;
-                                    if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                                    {
-                                        elem_type = get_pointer_element_type(ctx, current_type);
-                                    }
-                                    else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                                    {
-                                        elem_type = LLVMGetElementType(current_type);
-                                    }
-
-                                    LLVMValueRef indices[2];
-                                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                                    indices[1] = index_val;
-                                    current_ptr = LLVMBuildInBoundsGEP2(
-                                        ctx->builder, current_type, current_ptr, indices, 2, "arrayidx"
-                                    );
-                                    current_type = elem_type;
-                                }
-                            }
-                            else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT
-                                     || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
-                            {
-                                char * member_name = NULL;
-                                for (size_t k = 0; k < suffix->data.list.count; ++k)
-                                {
-                                    c_grammar_node_t * child = suffix->data.list.children[k];
-                                    if (child && child->type == AST_NODE_IDENTIFIER)
-                                    {
-                                        member_name = child->data.terminal.text;
-                                        break;
-                                    }
-                                }
-
-                                if (member_name && current_ptr && current_type)
-                                {
-                                    LLVMTypeRef struct_type = NULL;
-
-                                    // For LLVM 18+ opaque pointers, use struct name from symbol table
-                                    char const * sname = find_symbol_struct_name(ctx, base_name);
-                                    if (sname)
-                                        struct_type = find_struct_type(ctx, sname);
-                                    // Fallback for opaque pointers
-                                    if (!struct_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                                        struct_type = get_pointer_element_type(ctx, current_type);
-
-                                    if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
-                                    {
-                                        // For arrow access, load the pointer first
-                                        LLVMValueRef struct_ptr = current_ptr;
-                                        bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
-                                        if (is_arrow)
-                                            struct_ptr
-                                                = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "arrow_ptr");
-
-                                        unsigned num_elements = LLVMCountStructElementTypes(struct_type);
-                                        unsigned member_index = 0;
-                                        struct_info_t * info = NULL;
-
-                                        for (size_t si = 0; si < ctx->struct_count; si++)
-                                        {
-                                            if (ctx->structs[si].type == struct_type)
-                                            {
-                                                info = &ctx->structs[si];
-                                                break;
-                                            }
-                                        }
-
-                                        if (info)
-                                        {
-                                            for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
-                                            {
-                                                if (info->fields[j].name != NULL
-                                                    && strcmp(info->fields[j].name, member_name) == 0)
-                                                {
-                                                    member_index = j;
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        LLVMValueRef indices[2];
-                                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                                        indices[1]
-                                            = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
-                                        current_ptr = LLVMBuildInBoundsGEP2(
-                                            ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr"
-                                        );
-                                        current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                                    }
-                                }
-                            }
-                        }
-
-                        lhs_ptr = current_ptr;
-                        lhs_type = current_type;
-                    }
-                }
-            }
-            else
-            {
-                // Simple variable assignment
-                lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type);
-            }
-
-            if (!lhs_ptr)
-            {
-                fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
-                return NULL;
-            }
-
-            // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
-            c_grammar_node_t * op_node = node->data.list.children[1];
-            bool is_compound = false;
-            assignment_operator_type_t assign_op_type = ASSIGN_OP_SIMPLE;
-
-            if (op_node && op_node->type == AST_NODE_ASSIGNMENT_OPERATOR)
-            {
-                assign_op_type = op_node->assign_op.op;
-                is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
-            }
-
-            LLVMValueRef rhs_value;
-
-            if (is_compound)
-            {
-                // For compound assignment, load current LHS value
-                LLVMValueRef lhs_value = LLVMBuildLoad2(ctx->builder, lhs_type, lhs_ptr, "lhs_load");
-                rhs_value = process_expression(ctx, rhs_node);
-                if (!rhs_value)
-                {
-                    fprintf(stderr, "IRGen Error: Failed to process RHS expression in compound assignment.\n");
-                    return NULL;
-                }
-
-                // Determine if this is a floating point operation
-                LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
-                bool is_float = (lhs_kind == LLVMFloatTypeKind || lhs_kind == LLVMDoubleTypeKind);
-
-                // Perform the operation
-                switch (assign_op_type)
-                {
-                case ASSIGN_OP_ADD:
-                    rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp")
-                                         : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
-                    break;
-                case ASSIGN_OP_SUB:
-                    rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp")
-                                         : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
-                    break;
-                case ASSIGN_OP_MUL:
-                    rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp")
-                                         : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
-                    break;
-                case ASSIGN_OP_DIV:
-                    rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp")
-                                         : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
-                    break;
-                case ASSIGN_OP_MOD:
-                    rhs_value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_value, "rem_tmp");
-                    break;
-                case ASSIGN_OP_AND:
-                    rhs_value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_value, "and_tmp");
-                    break;
-                case ASSIGN_OP_OR:
-                    rhs_value = LLVMBuildOr(ctx->builder, lhs_value, rhs_value, "or_tmp");
-                    break;
-                case ASSIGN_OP_XOR:
-                    rhs_value = LLVMBuildXor(ctx->builder, lhs_value, rhs_value, "xor_tmp");
-                    break;
-                case ASSIGN_OP_SHL:
-                    rhs_value = LLVMBuildShl(ctx->builder, lhs_value, rhs_value, "shl_tmp");
-                    break;
-                case ASSIGN_OP_SHR:
-                    rhs_value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_value, "lshr_tmp");
-                    break;
-                default:
-                    fprintf(stderr, "IRGen Error: Unknown compound assignment operator.\n");
-                    return NULL;
-                }
-            }
-            else
-            {
-                // Process the RHS expression to get its LLVM ValueRef.
-                rhs_value = process_expression(ctx, rhs_node);
-                if (!rhs_value)
-                {
-                    fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
-                    return NULL;
-                }
-            }
-
-            // Generate the store instruction.
-            LLVMBuildStore(ctx->builder, rhs_value, lhs_ptr);
-            return rhs_value;
-        }
-        return NULL;
+        return process_assignment(ctx, node);
     }
     case AST_NODE_IDENTIFIER:
     {
-        LLVMValueRef var_ptr;
-        LLVMTypeRef element_type; // This will hold the type (e.g., i32)
-
-        // Get the variable's pointer and its element type from the symbol table.
-        var_ptr = get_variable_pointer(ctx, node, &element_type);
-
-        if (var_ptr && element_type) // Ensure both are valid
-        {
-            // Check if the type is an array (for file-scope or local arrays)
-            if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind)
-            {
-                LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                return LLVMBuildInBoundsGEP2(ctx->builder, element_type, var_ptr, indices, 2, "array_ptr");
-            }
-            // Load the value from the memory address using LLVMBuildLoad2.
-            return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
-        }
-        else if (var_ptr == NULL)
-        {
-            // Check if it's a function name before reporting error
-            if (LLVMGetNamedFunction(ctx->module, node->data.terminal.text))
-            {
-                return NULL; // It's a function, not a variable to load from
-            }
-            fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
-            return NULL;
-        }
-        else
-        {
-            fprintf(stderr, "IRGen Error: NULL element type for variable '%s'.\n", node->data.terminal.text);
-            return NULL;
-        }
-        break;
+        return process_identifier(ctx, node);
     }
     case AST_NODE_BITWISE_EXPRESSION:
     {
-        // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[1]);
-
-        switch (node->bitwise_op.op)
-        {
-        case BITWISE_OP_AND:
-            return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
-        case BITWISE_OP_OR:
-            return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
-        case BITWISE_OP_XOR:
-            return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
-        }
-        return NULL; /* Shouldn't happen. */
+        return process_bitwise_expression(ctx, node);
     }
     case AST_NODE_SHIFT_EXPRESSION:
     {
-        // Standard binary ops: [LHS, OP, RHS]
-        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
-
-        switch (node->shift_op.op)
-        {
-        case SHIFT_OP_LL:
-            return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
-        case SHIFT_OP_AR:
-            return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
-        }
-        return NULL;
+        return process_shift_expression(ctx, node);
     }
     case AST_NODE_ARITHMETIC_EXPRESSION:
     {
-        // Standard binary ops: [LHS, OP, RHS]
-        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
-        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-        switch (node->arith_op.op)
-        {
-        case ARITH_OP_ADD:
-            return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
-                               : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
-        case ARITH_OP_SUB:
-            return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
-                               : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
-        case ARITH_OP_MUL:
-            return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
-                               : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
-        case ARITH_OP_DIV:
-            return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
-                               : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
-        case ARITH_OP_MOD:
-            return LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
-        }
-        return NULL; /* Shouldn't happen. */
+        return process_arithmetic_expression(ctx, node);
     }
     case AST_NODE_RELATIONAL_EXPRESSION:
     {
-        // Standard binary ops: [LHS, OP, RHS]
-        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
-        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-        switch (node->rel_op.op)
-        {
-        case REL_OP_LT:
-            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
-                               : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
-        case REL_OP_GT:
-            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
-                               : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
-        case REL_OP_LE:
-            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
-                               : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
-        case REL_OP_GE:
-            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
-                               : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
-        }
-        return NULL; /* Shouldn't happen. */
+        return process_relational_expression(ctx, node);
     }
     case AST_NODE_EQUALITY_EXPRESSION:
     {
-        // Standard binary ops: [LHS, OP, RHS]
-        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
-        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-        switch (node->eq_op.op)
-        {
-        case EQ_OP_EQ:
-            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
-                               : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
-        case EQ_OP_NE:
-            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
-                               : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
-        }
-        return NULL; /* Shouldn't happen. */
+        return process_equality_expression(ctx, node);
     }
-    case AST_NODE_LOGICAL_AND_EXPRESSION:
-    case AST_NODE_LOGICAL_OR_EXPRESSION:
+    case AST_NODE_LOGICAL_EXPRESSION:
     {
-        if (node->data.list.count == 1)
-        {
-            return process_expression(ctx, node->data.list.children[0]);
-        }
-
-        bool is_or = (node->logical_op.op == LOGICAL_OP_OR);
-        c_grammar_node_t * lhs_node = node->data.list.children[0];
-        c_grammar_node_t * rhs_node = node->data.list.children[2];
-
-        LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
-
-        LLVMBasicBlockRef rhs_block = LLVMAppendBasicBlockInContext(
-            ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_rhs"
-        );
-        LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(
-            ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_merge"
-        );
-
-        LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
-        // Convert to i1
-        if (LLVMGetTypeKind(LLVMTypeOf(lhs_val)) != LLVMIntegerTypeKind
-            || LLVMGetIntTypeWidth(LLVMTypeOf(lhs_val)) != 1)
-        {
-            lhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, LLVMConstNull(LLVMTypeOf(lhs_val)), "bool_tmp");
-        }
-
-        LLVMBuildStore(ctx->builder, lhs_val, res_alloca);
-        if (is_or)
-        {
-            LLVMBuildCondBr(ctx->builder, lhs_val, merge_block, rhs_block);
-        }
-        else
-        {
-            LLVMBuildCondBr(ctx->builder, lhs_val, rhs_block, merge_block);
-        }
-
-        LLVMPositionBuilderAtEnd(ctx->builder, rhs_block);
-        LLVMValueRef rhs_val = process_expression(ctx, rhs_node);
-        if (LLVMGetTypeKind(LLVMTypeOf(rhs_val)) != LLVMIntegerTypeKind
-            || LLVMGetIntTypeWidth(LLVMTypeOf(rhs_val)) != 1)
-        {
-            rhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_val, LLVMConstNull(LLVMTypeOf(rhs_val)), "bool_tmp");
-        }
-        LLVMBuildStore(ctx->builder, rhs_val, res_alloca);
-        LLVMBuildBr(ctx->builder, merge_block);
-
-        LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
-        return LLVMBuildLoad2(ctx->builder, LLVMInt1TypeInContext(ctx->context), res_alloca, "logical_final");
+        return process_logical_expression(ctx, node);
     }
     case AST_NODE_UNARY_OP:
     {
-        // Unary structure: [Operator, Operand]
-        if (node->data.list.count < 2)
-            return NULL;
-        c_grammar_node_t * operand_node = node->data.list.children[1];
-
-        switch (node->unary_op.op)
-        {
-        case UNARY_OP_ADDR:
-        {
-            // For &identifier, return the pointer directly (don't load)
-            if (operand_node->type == AST_NODE_IDENTIFIER)
-            {
-                LLVMValueRef var_ptr;
-                LLVMTypeRef var_type;
-                if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type))
-                {
-                    return var_ptr;
-                }
-            }
-            // For &member or &array[i], process the expression which returns a pointer
-            LLVMValueRef ptr_val = process_expression(ctx, operand_node);
-            return ptr_val;
-        }
-
-        case UNARY_OP_DEREF:
-        {
-            LLVMValueRef operand_val = process_expression(ctx, operand_node);
-            if (!operand_val)
-                return NULL;
-            LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
-            LLVMTypeRef elem_type = get_pointer_element_type(ctx, ptr_type);
-            if (elem_type)
-            {
-                return LLVMBuildLoad2(ctx->builder, elem_type, operand_val, "deref_tmp");
-            }
-            return operand_val;
-        }
-
-        case UNARY_OP_MINUS:
-        {
-            LLVMValueRef operand_val = process_expression(ctx, operand_node);
-            if (!operand_val)
-                return NULL;
-            LLVMTypeRef op_type = LLVMTypeOf(operand_val);
-            if (op_type
-                && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
-                return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
-            return LLVMBuildNeg(ctx->builder, operand_val, "neg_tmp");
-        }
-
-        case UNARY_OP_NOT:
-        {
-            LLVMValueRef operand_val = process_expression(ctx, operand_node);
-            if (!operand_val)
-                return NULL;
-            LLVMTypeRef op_type = LLVMTypeOf(operand_val);
-            if (!op_type)
-                return NULL;
-            LLVMValueRef is_zero
-                = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_val, LLVMConstNull(op_type), "not_tmp");
-            return is_zero;
-        }
-
-        case UNARY_OP_BITNOT:
-        {
-            LLVMValueRef operand_val = process_expression(ctx, operand_node);
-            if (!operand_val)
-                return NULL;
-            return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
-        }
-
-        case UNARY_OP_INC:
-        case UNARY_OP_DEC:
-        {
-            LLVMValueRef var_ptr = NULL;
-            LLVMTypeRef var_type = NULL;
-
-            if (operand_node->type == AST_NODE_IDENTIFIER)
-            {
-                var_ptr = get_variable_pointer(ctx, operand_node, &var_type);
-            }
-
-            if (var_ptr && var_type)
-            {
-                LLVMValueRef original_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "orig_val");
-                LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-
-                LLVMValueRef new_val;
-                if (node->unary_op.op == UNARY_OP_INC)
-                {
-                    LLVMTypeKind kind = LLVMGetTypeKind(var_type);
-                    if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                        new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
-                    else
-                        new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
-                }
-                else
-                {
-                    LLVMTypeKind kind = LLVMGetTypeKind(var_type);
-                    if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                        new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "dec_tmp");
-                    else
-                        new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
-                }
-
-                LLVMBuildStore(ctx->builder, new_val, var_ptr);
-                return original_val;
-            }
-            return NULL;
-        }
-
-        case UNARY_OP_PLUS:
-        {
-            return process_expression(ctx, operand_node);
-        }
-
-        case UNARY_OP_SIZEOF:
-        case UNARY_OP_ALIGNOF:
-        {
-            // sizeof and alignof are handled elsewhere
-            return NULL;
-        }
-        }
-
-        return NULL;
+        return process_unary_op(ctx, node);
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
     default:
