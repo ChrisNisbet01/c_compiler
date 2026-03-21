@@ -85,6 +85,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_LABELED_STATEMENT] = {.name = "LabeledStatement"},
     [AST_NODE_CHARACTER_LITERAL] = {.name = "CharacterLiteral"},
     [AST_NODE_CASE_LABEL] = {.name = "CaseLabel"},
+    [AST_NODE_SWITCH_CASE] = {.name = "SwitchCase"},
     [AST_NODE_DEFAULT_STATEMENT] = {.name = "DefaultStatement"},
     [AST_NODE_LABELED_IDENTIFIER] = {.name = "LabeledIdentifier"},
     [AST_NODE_ASSIGNMENT_OPERATOR] = {.name = "AssignmentOperator"},

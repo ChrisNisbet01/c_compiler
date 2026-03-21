@@ -412,14 +412,18 @@ SwitchBodyStatement = CompoundStatement
                     | PreprocessorDirective
                     ;
 
-CaseLabel = KwCase ConditionalExpression Colon SwitchBodyStatement* @AST_ACTION_CASE_LABEL;
+// CaseLabel matches a single case expression followed by colon
+CaseLabel = KwCase ConditionalExpression Colon @AST_ACTION_CASE_LABEL;
 
-// SwitchCompoundStatement is used inside switch to allow case labels at top level
-SwitchCompoundStatement = LBrace (CaseLabel | LabeledDefaultStatement | SwitchBodyStatement)* RBrace @AST_ACTION_COMPOUND_STATEMENT;
+// SwitchCase groups one or more case labels with their shared body
+SwitchCase = CaseLabel+ SwitchBodyStatement* @AST_ACTION_SWITCH_CASE;
+
+// SwitchCompoundStatement is used inside switch to allow SwitchCase and default at top level
+SwitchCompoundStatement = LBrace (SwitchCase | LabeledDefaultStatement | SwitchBodyStatement)* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
 LabeledStatement = LabeledIdentifier
                  | LabeledDefaultStatement
-                 | CaseLabel @AST_ACTION_LABELED_STATEMENT;
+                 | KwCase ConditionalExpression Colon Statement @AST_ACTION_LABELED_STATEMENT;
 
 IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
 SwitchStatement = (KwSwitch LParen Expression RParen SwitchCompoundStatement) @AST_ACTION_SWITCH_STATEMENT;
