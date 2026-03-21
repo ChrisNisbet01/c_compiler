@@ -19,7 +19,6 @@ typedef enum
     AST_NODE_DECL_SPECIFIERS,
     AST_NODE_ASSIGNMENT,
     AST_NODE_TYPE_SPECIFIER,
-    AST_NODE_BINARY_OP,
     AST_NODE_UNARY_OP,
     AST_NODE_OPERATOR,
     AST_NODE_DECLARATOR,
@@ -77,72 +76,72 @@ typedef enum
 
 typedef enum
 {
-    SHIFT_OP_LL,  // <<
-    SHIFT_OP_AR,  // >>
+    SHIFT_OP_LL, // <<
+    SHIFT_OP_AR, // >>
 } shift_operator_type_t;
 
 typedef enum
 {
-    ARITH_OP_ADD,   // +
-    ARITH_OP_SUB,   // -
-    ARITH_OP_MUL,   // *
-    ARITH_OP_DIV,   // /
-    ARITH_OP_MOD,   // %
+    ARITH_OP_ADD, // +
+    ARITH_OP_SUB, // -
+    ARITH_OP_MUL, // *
+    ARITH_OP_DIV, // /
+    ARITH_OP_MOD, // %
 } arithmetic_operator_type_t;
 
 typedef enum
 {
-    REL_OP_LT,   // <
-    REL_OP_GT,   // >
-    REL_OP_LE,   // <=
-    REL_OP_GE,   // >=
+    REL_OP_LT, // <
+    REL_OP_GT, // >
+    REL_OP_LE, // <=
+    REL_OP_GE, // >=
 } relational_operator_type_t;
 
 typedef enum
 {
-    EQ_OP_EQ,   // ==
-    EQ_OP_NE,   // !=
+    EQ_OP_EQ, // ==
+    EQ_OP_NE, // !=
 } equality_operator_type_t;
 
 typedef enum
 {
-    LOGICAL_OP_AND,   // &&
-    LOGICAL_OP_OR,    // ||
+    LOGICAL_OP_AND, // &&
+    LOGICAL_OP_OR,  // ||
 } logical_operator_type_t;
 
 typedef enum
 {
-    UNARY_OP_PLUS,     // + (unary)
-    UNARY_OP_MINUS,    // - (unary)
-    UNARY_OP_NOT,      // ! (logical not)
-    UNARY_OP_BITNOT,   // ~ (bitwise not)
-    UNARY_OP_ADDR,     // & (address-of)
-    UNARY_OP_DEREF,    // * (dereference)
-    UNARY_OP_INC,      // ++ (prefix increment)
-    UNARY_OP_DEC,      // -- (prefix decrement)
-    UNARY_OP_SIZEOF,   // sizeof
-    UNARY_OP_ALIGNOF,  // __alignof__
+    UNARY_OP_PLUS,    // + (unary)
+    UNARY_OP_MINUS,   // - (unary)
+    UNARY_OP_NOT,     // ! (logical not)
+    UNARY_OP_BITNOT,  // ~ (bitwise not)
+    UNARY_OP_ADDR,    // & (address-of)
+    UNARY_OP_DEREF,   // * (dereference)
+    UNARY_OP_INC,     // ++ (prefix increment)
+    UNARY_OP_DEC,     // -- (prefix decrement)
+    UNARY_OP_SIZEOF,  // sizeof
+    UNARY_OP_ALIGNOF, // __alignof__
 } unary_operator_type_t;
 
 typedef enum
 {
-    POSTFIX_OP_INC,   // ++
-    POSTFIX_OP_DEC,   // --
+    POSTFIX_OP_INC, // ++
+    POSTFIX_OP_DEC, // --
 } postfix_operator_type_t;
 
 typedef enum
 {
-    ASSIGN_OP_SIMPLE,   // =
-    ASSIGN_OP_SHL,     // <<=
-    ASSIGN_OP_SHR,     // >>=
-    ASSIGN_OP_ADD,     // +=
-    ASSIGN_OP_SUB,     // -=
-    ASSIGN_OP_MUL,     // *=
-    ASSIGN_OP_DIV,     // /=
-    ASSIGN_OP_MOD,     // %=
-    ASSIGN_OP_AND,     // &=
-    ASSIGN_OP_XOR,     // ^=
-    ASSIGN_OP_OR,      // |=
+    ASSIGN_OP_SIMPLE, // =
+    ASSIGN_OP_SHL,    // <<=
+    ASSIGN_OP_SHR,    // >>=
+    ASSIGN_OP_ADD,    // +=
+    ASSIGN_OP_SUB,    // -=
+    ASSIGN_OP_MUL,    // *=
+    ASSIGN_OP_DIV,    // /=
+    ASSIGN_OP_MOD,    // %=
+    ASSIGN_OP_AND,    // &=
+    ASSIGN_OP_XOR,    // ^=
+    ASSIGN_OP_OR,     // |=
 } assignment_operator_type_t;
 
 typedef struct

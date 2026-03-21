@@ -48,7 +48,6 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_DECL_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
     [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
     [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},
-    [AST_NODE_BINARY_OP] = {.name = "BinaryOp"},
     [AST_NODE_UNARY_OP] = {.name = "UnaryOp"},
     [AST_NODE_OPERATOR] = {.name = "Operator"},
     [AST_NODE_DECLARATOR] = {.name = "Declarator"},
@@ -161,7 +160,6 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_DECLARATION:
     case AST_NODE_DECL_SPECIFIERS:
     case AST_NODE_ASSIGNMENT:
-    case AST_NODE_BINARY_OP:
     case AST_NODE_UNARY_OP:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:

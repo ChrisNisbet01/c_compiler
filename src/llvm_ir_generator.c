@@ -2,10 +2,10 @@
 
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
 
 // Forward declare the context structure as it's used before its definition
 // typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
@@ -35,9 +35,8 @@ get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
         return LLVMInt8TypeInContext(ctx->context);
 
     LLVMTypeKind tk = LLVMGetTypeKind(elem_type);
-    if (tk != LLVMIntegerTypeKind && tk != LLVMFloatTypeKind && tk != LLVMDoubleTypeKind
-        && tk != LLVMArrayTypeKind && tk != LLVMStructTypeKind && tk != LLVMVectorTypeKind
-        && tk != LLVMHalfTypeKind && tk != LLVMBFloatTypeKind)
+    if (tk != LLVMIntegerTypeKind && tk != LLVMFloatTypeKind && tk != LLVMDoubleTypeKind && tk != LLVMArrayTypeKind
+        && tk != LLVMStructTypeKind && tk != LLVMVectorTypeKind && tk != LLVMHalfTypeKind && tk != LLVMBFloatTypeKind)
         return LLVMInt8TypeInContext(ctx->context);
 
     return elem_type;
@@ -1087,9 +1086,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         LLVMTypeRef return_type = map_type(ctx, decl_specifiers_node, NULL);
-        LLVMTypeRef func_type = LLVMFunctionType(return_type, 
-                                                  num_params > 0 ? param_types : empty_params, 
-                                                  (unsigned)num_params, false);
+        LLVMTypeRef func_type
+            = LLVMFunctionType(return_type, num_params > 0 ? param_types : empty_params, (unsigned)num_params, false);
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
         // Create a basic block for the function's entry point.
@@ -1707,7 +1705,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             LLVMBasicBlockRef block;
             LLVMValueRef case_value; // NULL for default
-            size_t start_idx; // Index in body children where this case starts
+            size_t start_idx;        // Index in body children where this case starts
         } case_info_t;
 
         case_info_t * cases = NULL;
@@ -1728,7 +1726,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     case_or_default = child->data.list.children[0];
                 }
 
-                if (case_or_default->type == AST_NODE_CASE_STATEMENT || case_or_default->type == AST_NODE_DEFAULT_STATEMENT)
+                if (case_or_default->type == AST_NODE_CASE_STATEMENT
+                    || case_or_default->type == AST_NODE_DEFAULT_STATEMENT)
                 {
                     if (num_cases >= cases_capacity)
                     {
@@ -1810,11 +1809,13 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 // Handle case/default statements - they are markers, process their body
                 // Check for direct case/default or wrapped in labeled statement
-                bool is_case_or_default = (child->type == AST_NODE_CASE_STATEMENT || child->type == AST_NODE_DEFAULT_STATEMENT);
+                bool is_case_or_default
+                    = (child->type == AST_NODE_CASE_STATEMENT || child->type == AST_NODE_DEFAULT_STATEMENT);
                 if (child->type == AST_NODE_LABELED_STATEMENT && child->data.list.count >= 1)
                 {
                     c_grammar_node_t * inner = child->data.list.children[0];
-                    is_case_or_default = (inner->type == AST_NODE_CASE_STATEMENT || inner->type == AST_NODE_DEFAULT_STATEMENT);
+                    is_case_or_default
+                        = (inner->type == AST_NODE_CASE_STATEMENT || inner->type == AST_NODE_DEFAULT_STATEMENT);
                 }
 
                 if (is_case_or_default)
@@ -1829,7 +1830,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     // Body is the last child (after KwCase/KwDefault, ConditionalExpression?, Colon)
                     if (case_or_default->data.list.count > 0)
                     {
-                        c_grammar_node_t * body = case_or_default->data.list.children[case_or_default->data.list.count - 1];
+                        c_grammar_node_t * body
+                            = case_or_default->data.list.children[case_or_default->data.list.count - 1];
                         process_ast_node(ctx, body);
                     }
                     // Skip processing body again as a separate statement
@@ -2383,7 +2385,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 current_ptr = var_ptr;
                 current_type = var_type;
                 have_ptr = true;
-                
+
                 // If base is an array type, we'll handle subscript in the loop
                 // Don't call process_expression for the base to avoid double GEP
                 if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind)
@@ -2477,22 +2479,23 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     {
                         call_name = "call_tmp";
                     }
-                    
+
                     // For zero-argument calls, pass NULL for args (per LLVM C API docs)
                     LLVMValueRef * call_args = (num_args > 0) ? args : NULL;
-                    base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
-                    
+                    base_val
+                        = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
+
                     // For void functions, set base_val to NULL (void calls don't produce values)
                     if (LLVMGetReturnType(func_type) == LLVMVoidTypeInContext(ctx->context))
                     {
                         base_val = NULL;
                     }
-                    
+
                     if (args)
                         free(args);
                 }
             }
-                else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
+            else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
             {
                 // Array subscript: [LBracket, IndexExpression, RBracket]
                 // Find the index expression
@@ -2536,7 +2539,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                         indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                         indices[1] = index_val;
                         // Pass current_type (the array type) to GEP, not elem_type
-                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
+                        elem_ptr
+                            = LLVMBuildInBoundsGEP2(ctx->builder, current_type, current_ptr, indices, 2, "arrayidx");
                     }
 
                     if (elem_ptr && elem_type)
@@ -2974,19 +2978,19 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 {
                 case ASSIGN_OP_ADD:
                     rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp")
-                                        : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
+                                         : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
                     break;
                 case ASSIGN_OP_SUB:
                     rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp")
-                                        : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
+                                         : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
                     break;
                 case ASSIGN_OP_MUL:
                     rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp")
-                                        : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
+                                         : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
                     break;
                 case ASSIGN_OP_DIV:
                     rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp")
-                                        : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
+                                         : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
                     break;
                 case ASSIGN_OP_MOD:
                     rhs_value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_value, "rem_tmp");
@@ -3066,7 +3070,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         }
         break;
     }
-    case AST_NODE_BINARY_OP:
     case AST_NODE_RELATIONAL_EXPRESSION:
     case AST_NODE_EQUALITY_EXPRESSION:
     case AST_NODE_BITWISE_EXPRESSION:
@@ -3158,16 +3161,16 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     {
                     case REL_OP_LT:
                         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
-                                          : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+                                           : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
                     case REL_OP_GT:
                         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
-                                          : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+                                           : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
                     case REL_OP_LE:
                         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
-                                          : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
+                                           : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
                     case REL_OP_GE:
                         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
-                                          : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
+                                           : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
                     }
                 }
                 else if (node->type == AST_NODE_EQUALITY_EXPRESSION)
@@ -3180,10 +3183,10 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     {
                     case EQ_OP_EQ:
                         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
-                                          : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+                                           : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
                     case EQ_OP_NE:
                         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
-                                          : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+                                           : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
                     }
                 }
                 else
