@@ -1001,36 +1001,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         clear_labels(ctx);
         // --- Handle Function Definition ---
-        c_grammar_node_t * decl_specifiers_node = NULL;
-        c_grammar_node_t * declarator_node = NULL;
-        c_grammar_node_t * compound_stmt_node = NULL;
-
-        // Iterate through children to find relevant parts: Declarator, CompoundStatement.
-        if (node->data.list.children)
+        if (node->data.list.count != 3)
         {
-            for (size_t i = 0; i < node->data.list.count; ++i)
-            {
-                c_grammar_node_t * child = node->data.list.children[i];
-                if (child->type == AST_NODE_DECL_SPECIFIERS)
-                {
-                    decl_specifiers_node = child;
-                }
-                else if (child->type == AST_NODE_DECLARATOR)
-                {
-                    declarator_node = child;
-                }
-                else if (child->type == AST_NODE_COMPOUND_STATEMENT)
-                {
-                    compound_stmt_node = child;
-                }
-            }
-        }
-
-        if (!declarator_node || !compound_stmt_node)
-        {
-            fprintf(stderr, "IRGen Error: Incomplete function definition.\n");
+            fprintf(stderr, "IRGen Error: Invalid function definition.\n");
             return;
         }
+        c_grammar_node_t * decl_specifiers_node = node->data.list.children[0];
+        c_grammar_node_t * declarator_node = node->data.list.children[1];
+        c_grammar_node_t * compound_stmt_node = node->data.list.children[2];
 
         // --- Extract Function Name ---
         char * func_name = "unknown_function";
@@ -2078,11 +2056,51 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // AST_NODE_IF_STATEMENT, AST_NODE_WHILE_STATEMENT, AST_NODE_FOR_STATEMENT, etc.
         // Each requires specific LLVM IR generation logic.
 
+    case AST_NODE_FLOAT_BASE:
+    case AST_NODE_INTEGER_VALUE:
+    case AST_NODE_FLOAT_VALUE:
+    case AST_NODE_STRING_LITERAL:
+    case AST_NODE_LITERAL_SUFFIX:
+    case AST_NODE_IDENTIFIER:
+    case AST_NODE_DECL_SPECIFIERS:
+    case AST_NODE_TYPE_SPECIFIER:
+    case AST_NODE_UNARY_OP:
+    case AST_NODE_OPERATOR:
+    case AST_NODE_DECLARATOR:
+    case AST_NODE_DIRECT_DECLARATOR:
+    case AST_NODE_DECLARATOR_SUFFIX:
+    case AST_NODE_POINTER:
+    case AST_NODE_RELATIONAL_EXPRESSION:
+    case AST_NODE_EQUALITY_EXPRESSION:
+    case AST_NODE_BITWISE_EXPRESSION:
+    case AST_NODE_LOGICAL_EXPRESSION:
+    case AST_NODE_SHIFT_EXPRESSION:
+    case AST_NODE_ARITHMETIC_EXPRESSION:
+    case AST_NODE_FUNCTION_CALL:
+    case AST_NODE_POSTFIX_EXPRESSION:
+    case AST_NODE_POSTFIX_OPERATOR:
+    case AST_NODE_ARRAY_SUBSCRIPT:
+    case AST_NODE_MEMBER_ACCESS_DOT:
+    case AST_NODE_MEMBER_ACCESS_ARROW:
+    case AST_NODE_CAST_EXPRESSION:
+    case AST_NODE_CONTINUE_STATEMENT:
+    case AST_NODE_TYPE_NAME:
+    case AST_NODE_INITIALIZER_LIST:
+    case AST_NODE_CHARACTER_LITERAL:
+    case AST_NODE_SWITCH_CASE:
+    case AST_NODE_DEFAULT_STATEMENT:
+    case AST_NODE_LABELED_IDENTIFIER:
+    case AST_NODE_ASSIGNMENT_OPERATOR:
+    case AST_NODE_INTEGER_BASE:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
         {
-            // Do nothing for terminal nodes unless handled above
+            /*
+                Do nothing for terminal nodes unless handled above.
+                Shouldn't happen.
+             */
+            fprintf(stderr, "Unhandled terminal node type: %d (%s)\n", node->type, node->data.terminal.text);
         }
         else if (node->data.list.children != NULL)
         {
@@ -2314,8 +2332,8 @@ process_float_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
 
     char * full_text = NULL;
-    asprintf(&full_text, "%s%s", base_text, suffix_text);
-
+    int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
+    (void)res; /* Avoid compiler warnng. Assume alloc succeeded. */
     long double value = strtold(full_text, NULL);
 
     LLVMTypeRef float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
@@ -3481,7 +3499,45 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_unary_op(ctx, node);
     }
-    // TODO: Add cases for other expression types (unary ops, function calls, etc.).
+
+    case AST_NODE_TRANSLATION_UNIT:
+    case AST_NODE_FUNCTION_DEFINITION:
+    case AST_NODE_COMPOUND_STATEMENT:
+    case AST_NODE_DECLARATION:
+    case AST_NODE_INTEGER_BASE:
+    case AST_NODE_FLOAT_BASE:
+    case AST_NODE_LITERAL_SUFFIX:
+    case AST_NODE_DECL_SPECIFIERS:
+    case AST_NODE_TYPE_SPECIFIER:
+    case AST_NODE_OPERATOR:
+    case AST_NODE_DECLARATOR:
+    case AST_NODE_DIRECT_DECLARATOR:
+    case AST_NODE_DECLARATOR_SUFFIX:
+    case AST_NODE_POINTER:
+    case AST_NODE_POSTFIX_OPERATOR:
+    case AST_NODE_ARRAY_SUBSCRIPT:
+    case AST_NODE_MEMBER_ACCESS_DOT:
+    case AST_NODE_MEMBER_ACCESS_ARROW:
+    case AST_NODE_INIT_DECLARATOR:
+    case AST_NODE_IF_STATEMENT:
+    case AST_NODE_SWITCH_STATEMENT:
+    case AST_NODE_WHILE_STATEMENT:
+    case AST_NODE_DO_WHILE_STATEMENT:
+    case AST_NODE_FOR_STATEMENT:
+    case AST_NODE_GOTO_STATEMENT:
+    case AST_NODE_CONTINUE_STATEMENT:
+    case AST_NODE_BREAK_STATEMENT:
+    case AST_NODE_RETURN_STATEMENT:
+    case AST_NODE_TYPE_NAME:
+    case AST_NODE_EXPRESSION_STATEMENT:
+    case AST_NODE_STRUCT_DEFINITION:
+    case AST_NODE_INITIALIZER_LIST:
+    case AST_NODE_LABELED_STATEMENT:
+    case AST_NODE_CASE_LABEL:
+    case AST_NODE_SWITCH_CASE:
+    case AST_NODE_DEFAULT_STATEMENT:
+    case AST_NODE_LABELED_IDENTIFIER:
+    case AST_NODE_ASSIGNMENT_OPERATOR:
     default:
         // Attempt to recursively process if it might yield a value.
         if (!node->is_terminal_node && node->data.list.children != NULL)
