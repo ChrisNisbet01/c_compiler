@@ -193,7 +193,7 @@ PostfixPart = FunctionCallPart
             | PostfixDecOp
             ;
 
-PostfixExpression = (PrimaryExpression PostfixPart*) @AST_ACTION_POSTFIX_EXPRESSION;
+PostfixExpression = PrimaryExpression PostfixPart* @AST_ACTION_POSTFIX_EXPRESSION;
 
 UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl @AST_ACTION_OPERATOR;
 
@@ -209,9 +209,7 @@ UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (DecOp UnaryExpression)
                       @AST_ACTION_UNARY_OP;
 
-UnaryExpressionRaw = UnaryExpressionPrefix
-                 | PostfixExpression
-                 ;
+UnaryExpressionRaw = UnaryExpressionPrefix | PostfixExpression;
 UnaryExpression = memoize(UnaryExpressionRaw);
 
 // Abstract declarators are used in type names (e.g., in casts)
