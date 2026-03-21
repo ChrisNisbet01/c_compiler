@@ -3070,153 +3070,118 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         }
         break;
     }
-    case AST_NODE_RELATIONAL_EXPRESSION:
-    case AST_NODE_EQUALITY_EXPRESSION:
     case AST_NODE_BITWISE_EXPRESSION:
-    case AST_NODE_SHIFT_EXPRESSION:
-    case AST_NODE_ARITHMETIC_EXPRESSION:
     {
-        // Handle binary operations like '+', '-', '*', '/', etc.
-        // chainl1 can produce nested structures.
-        if (node->data.list.count == 1)
+        // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
+        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[1]);
+        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+        // Check if the type is a float or double
+        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+        switch (node->bitwise_op.op)
         {
-            return process_expression(ctx, node->data.list.children[0]);
+        case BITWISE_OP_AND:
+            return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
+        case BITWISE_OP_OR:
+            return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
+        case BITWISE_OP_XOR:
+            return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
         }
+        return NULL; /* Shouldn't happen. */
+    }
+    case AST_NODE_SHIFT_EXPRESSION:
+    {
+        // Standard binary ops: [LHS, OP, RHS]
+        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
-        if (node->data.list.count >= 2 && node->data.list.children)
+        switch (node->shift_op.op)
         {
-            LLVMValueRef lhs_val = NULL;
-            LLVMValueRef rhs_val = NULL;
-            char const * op_str = NULL;
-
-            if (node->data.list.count == 2)
-            {
-                // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-                lhs_val = process_expression(ctx, node->data.list.children[0]);
-                rhs_val = process_expression(ctx, node->data.list.children[1]);
-                if (node->type == AST_NODE_BITWISE_EXPRESSION)
-                {
-                    switch (node->bitwise_op.op)
-                    {
-                    case BITWISE_OP_AND:
-                        op_str = "&";
-                        break;
-                    case BITWISE_OP_OR:
-                        op_str = "|";
-                        break;
-                    case BITWISE_OP_XOR:
-                        op_str = "^";
-                        break;
-                    }
-                }
-            }
-            else if (node->data.list.count >= 3)
-            {
-                // Standard binary ops: [LHS, OP, RHS]
-                lhs_val = process_expression(ctx, node->data.list.children[0]);
-                rhs_val = process_expression(ctx, node->data.list.children[2]);
-
-                // Use enum for shift and arithmetic expressions
-                if (node->type == AST_NODE_SHIFT_EXPRESSION)
-                {
-                    switch (node->shift_op.op)
-                    {
-                    case SHIFT_OP_LL:
-                        return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
-                    case SHIFT_OP_AR:
-                        return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
-                    }
-                }
-                else if (node->type == AST_NODE_ARITHMETIC_EXPRESSION)
-                {
-                    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-                    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-                    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-                    switch (node->arith_op.op)
-                    {
-                    case ARITH_OP_ADD:
-                        return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
-                                           : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
-                    case ARITH_OP_SUB:
-                        return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
-                                           : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
-                    case ARITH_OP_MUL:
-                        return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
-                                           : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
-                    case ARITH_OP_DIV:
-                        return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
-                                           : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
-                    case ARITH_OP_MOD:
-                        return LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
-                    }
-                }
-                else if (node->type == AST_NODE_RELATIONAL_EXPRESSION)
-                {
-                    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-                    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-                    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-                    switch (node->rel_op.op)
-                    {
-                    case REL_OP_LT:
-                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
-                                           : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
-                    case REL_OP_GT:
-                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
-                                           : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
-                    case REL_OP_LE:
-                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
-                                           : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
-                    case REL_OP_GE:
-                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
-                                           : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
-                    }
-                }
-                else if (node->type == AST_NODE_EQUALITY_EXPRESSION)
-                {
-                    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-                    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-                    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-                    switch (node->eq_op.op)
-                    {
-                    case EQ_OP_EQ:
-                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
-                                           : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
-                    case EQ_OP_NE:
-                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
-                                           : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
-                    }
-                }
-                else
-                {
-                    c_grammar_node_t * op_node = node->data.list.children[1];
-                    if (op_node->is_terminal_node)
-                    {
-                        op_str = op_node->data.terminal.text;
-                    }
-                }
-            }
-
-            if (lhs_val && rhs_val && op_str)
-            {
-                LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-                LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-
-                // Check if the type is a float or double
-                bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-                // Bitwise Operators (still using strcmp)
-                if (strcmp(op_str, "&") == 0)
-                    return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
-                if (strcmp(op_str, "|") == 0)
-                    return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
-                if (strcmp(op_str, "^") == 0)
-                    return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
-            }
+        case SHIFT_OP_LL:
+            return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
+        case SHIFT_OP_AR:
+            return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
         }
         return NULL;
+    }
+    case AST_NODE_ARITHMETIC_EXPRESSION:
+    {
+        // Standard binary ops: [LHS, OP, RHS]
+        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+        switch (node->arith_op.op)
+        {
+        case ARITH_OP_ADD:
+            return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
+                               : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
+        case ARITH_OP_SUB:
+            return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
+                               : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
+        case ARITH_OP_MUL:
+            return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
+                               : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
+        case ARITH_OP_DIV:
+            return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
+                               : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+        case ARITH_OP_MOD:
+            return LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
+        }
+        return NULL; /* Shouldn't happen. */
+    }
+    case AST_NODE_RELATIONAL_EXPRESSION:
+    {
+        // Standard binary ops: [LHS, OP, RHS]
+        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+        switch (node->rel_op.op)
+        {
+        case REL_OP_LT:
+            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
+                               : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+        case REL_OP_GT:
+            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
+                               : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+        case REL_OP_LE:
+            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
+                               : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
+        case REL_OP_GE:
+            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
+                               : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
+        }
+        return NULL; /* Shouldn't happen. */
+    }
+    case AST_NODE_EQUALITY_EXPRESSION:
+    {
+        // Standard binary ops: [LHS, OP, RHS]
+        LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
+        LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+        switch (node->eq_op.op)
+        {
+        case EQ_OP_EQ:
+            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
+                               : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+        case EQ_OP_NE:
+            return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
+                               : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+        }
+        return NULL; /* Shouldn't happen. */
     }
     case AST_NODE_LOGICAL_AND_EXPRESSION:
     case AST_NODE_LOGICAL_OR_EXPRESSION:
