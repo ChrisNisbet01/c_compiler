@@ -403,36 +403,54 @@ handle_type_specifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 static void
 handle_unary_op(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count == 0)
+    {
+        epc_ast_builder_set_error(ctx, "Unary operation expected at least one child, but got none");
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNARY_OP);
 
-    if (ast_node && count > 0)
+    if (ast_node == NULL)
     {
-        c_grammar_node_t * op_node = ast_node->data.list.children[0];
-        if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
-        {
-            char const * op_text = op_node->data.terminal.text;
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    /* The first child should always be the operator node. */
+    c_grammar_node_t * op_node = ast_node->data.list.children[0];
+    if (op_node->type != AST_NODE_OPERATOR)
+    {
+        epc_ast_builder_set_error(ctx, "Unary Operator expected operator node, but got %u", op_node->type);
+        c_grammar_node_free(ast_node, user_data);
+        return;
+    }
+    char const * op_text = op_node->data.terminal.text;
 
-            if (strcmp(op_text, "+") == 0)
-                ast_node->unary_op.op = UNARY_OP_PLUS;
-            else if (strcmp(op_text, "-") == 0)
-                ast_node->unary_op.op = UNARY_OP_MINUS;
-            else if (strcmp(op_text, "!") == 0)
-                ast_node->unary_op.op = UNARY_OP_NOT;
-            else if (strcmp(op_text, "~") == 0)
-                ast_node->unary_op.op = UNARY_OP_BITNOT;
-            else if (strcmp(op_text, "&") == 0)
-                ast_node->unary_op.op = UNARY_OP_ADDR;
-            else if (strcmp(op_text, "*") == 0)
-                ast_node->unary_op.op = UNARY_OP_DEREF;
-            else if (strcmp(op_text, "++") == 0)
-                ast_node->unary_op.op = UNARY_OP_INC;
-            else if (strcmp(op_text, "--") == 0)
-                ast_node->unary_op.op = UNARY_OP_DEC;
-            else if (strcmp(op_text, "sizeof") == 0)
-                ast_node->unary_op.op = UNARY_OP_SIZEOF;
-            else if (strcmp(op_text, "__alignof__") == 0 || strcmp(op_text, "_Alignof") == 0)
-                ast_node->unary_op.op = UNARY_OP_ALIGNOF;
-        }
+    if (strcmp(op_text, "+") == 0)
+        ast_node->unary_op.op = UNARY_OP_PLUS;
+    else if (strcmp(op_text, "-") == 0)
+        ast_node->unary_op.op = UNARY_OP_MINUS;
+    else if (strcmp(op_text, "!") == 0)
+        ast_node->unary_op.op = UNARY_OP_NOT;
+    else if (strcmp(op_text, "~") == 0)
+        ast_node->unary_op.op = UNARY_OP_BITNOT;
+    else if (strcmp(op_text, "&") == 0)
+        ast_node->unary_op.op = UNARY_OP_ADDR;
+    else if (strcmp(op_text, "*") == 0)
+        ast_node->unary_op.op = UNARY_OP_DEREF;
+    else if (strcmp(op_text, "++") == 0)
+        ast_node->unary_op.op = UNARY_OP_INC;
+    else if (strcmp(op_text, "--") == 0)
+        ast_node->unary_op.op = UNARY_OP_DEC;
+    else if (strcmp(op_text, "sizeof") == 0)
+        ast_node->unary_op.op = UNARY_OP_SIZEOF;
+    else if (strcmp(op_text, "__alignof__") == 0 || strcmp(op_text, "_Alignof") == 0)
+        ast_node->unary_op.op = UNARY_OP_ALIGNOF;
+    else
+    {
+        epc_ast_builder_set_error(ctx, "Unknown unary operator: %s", op_text);
+        c_grammar_node_free(ast_node, user_data);
+        return;
     }
 
     epc_ast_push(ctx, ast_node);
@@ -688,8 +706,7 @@ handle_shift_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SHIFT_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SHIFT_EXPRESSION);
 
     if (ast_node)
     {
@@ -927,9 +944,7 @@ handle_labeled_identifier(
 }
 
 static void
-handle_case_statement(
-    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
-)
+handle_case_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CASE_STATEMENT);
     epc_ast_push(ctx, ast_node);
