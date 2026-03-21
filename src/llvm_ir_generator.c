@@ -1661,6 +1661,197 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
     }
+    case AST_NODE_BREAK_STATEMENT:
+    {
+        // Break statement: jump to the enclosing switch/loop's after block
+        if (ctx->break_target)
+        {
+            LLVMBuildBr(ctx->builder, ctx->break_target);
+        }
+        else
+        {
+            fprintf(stderr, "IRGen Error: break statement not within a loop or switch.\n");
+        }
+        break;
+    }
+    case AST_NODE_SWITCH_STATEMENT:
+    {
+        // AST structure for SwitchStatement: [SwitchExpression, CompoundStatement with LabeledStatements]
+        if (node->data.list.count < 2)
+        {
+            fprintf(stderr, "IRGen Error: Invalid SwitchStatement AST node.\n");
+            return;
+        }
+
+        c_grammar_node_t * switch_expr = node->data.list.children[0];
+        c_grammar_node_t * body_stmt = node->data.list.children[1];
+
+        LLVMValueRef switch_val = process_expression(ctx, switch_expr);
+        if (!switch_val)
+        {
+            fprintf(stderr, "IRGen Error: Failed to process switch expression.\n");
+            return;
+        }
+
+        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+        // Create after switch block
+        LLVMBasicBlockRef after_switch = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_after");
+
+        // Save the old break target and set the new one
+        LLVMBasicBlockRef old_break_target = ctx->break_target;
+        ctx->break_target = after_switch;
+
+        // Collect all cases from the compound statement
+        typedef struct
+        {
+            LLVMBasicBlockRef block;
+            LLVMValueRef case_value; // NULL for default
+            size_t start_idx; // Index in body children where this case starts
+        } case_info_t;
+
+        case_info_t * cases = NULL;
+        size_t num_cases = 0;
+        size_t cases_capacity = 16;
+        cases = malloc(cases_capacity * sizeof(case_info_t));
+
+        if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
+        {
+            for (size_t i = 0; i < body_stmt->data.list.count; ++i)
+            {
+                c_grammar_node_t * child = body_stmt->data.list.children[i];
+
+                if (child->type == AST_NODE_LABELED_STATEMENT)
+                {
+                    if (num_cases >= cases_capacity)
+                    {
+                        cases_capacity *= 2;
+                        cases = realloc(cases, cases_capacity * sizeof(case_info_t));
+                    }
+
+                    // Create a block for this case
+                    char block_name[64];
+                    snprintf(block_name, sizeof(block_name), "case_%zu", num_cases);
+                    cases[num_cases].block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
+                    cases[num_cases].start_idx = i;
+
+                    // Extract case value or NULL for default
+                    if (child->data.list.count >= 2)
+                    {
+                        c_grammar_node_t * label_node = child->data.list.children[0];
+                        if (label_node->type == AST_NODE_INTEGER_VALUE || label_node->type == AST_NODE_INTEGER_BASE)
+                        {
+                            cases[num_cases].case_value = process_expression(ctx, label_node);
+                        }
+                        else
+                        {
+                            cases[num_cases].case_value = NULL; // default case
+                        }
+                    }
+                    else
+                    {
+                        cases[num_cases].case_value = NULL;
+                    }
+
+                    num_cases++;
+                }
+            }
+        }
+
+        // Find default block
+        LLVMBasicBlockRef default_block = NULL;
+        for (size_t i = 0; i < num_cases; ++i)
+        {
+            if (cases[i].case_value == NULL)
+            {
+                default_block = cases[i].block;
+                break;
+            }
+        }
+
+        // Create entry block for switch logic
+        LLVMBasicBlockRef switch_entry = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_entry");
+        LLVMBuildBr(ctx->builder, switch_entry);
+
+        // Generate switch comparison
+        LLVMPositionBuilderAtEnd(ctx->builder, switch_entry);
+
+        LLVMBasicBlockRef default_target = default_block ? default_block : after_switch;
+
+        // Use LLVM's switch instruction
+        LLVMValueRef switch_inst = LLVMBuildSwitch(ctx->builder, switch_val, default_target, (unsigned)num_cases);
+
+        // Only add non-default cases to the switch
+        for (size_t i = 0; i < num_cases; ++i)
+        {
+            if (cases[i].case_value && cases[i].block != default_block)
+            {
+                LLVMAddCase(switch_inst, cases[i].case_value, cases[i].block);
+            }
+        }
+
+        // Process each case's body
+        for (size_t i = 0; i < num_cases; ++i)
+        {
+            LLVMPositionBuilderAtEnd(ctx->builder, cases[i].block);
+
+            // Determine end index (next case's start or end of compound)
+            size_t end_idx = body_stmt->data.list.count;
+            if (i + 1 < num_cases)
+            {
+                end_idx = cases[i + 1].start_idx;
+            }
+
+            // Process all statements from this case's position up to the next case
+            for (size_t j = cases[i].start_idx; j < end_idx; ++j)
+            {
+                c_grammar_node_t * child = body_stmt->data.list.children[j];
+
+                // Skip labeled statements (they're just markers)
+                if (child->type == AST_NODE_LABELED_STATEMENT)
+                {
+                    // Process the body of the labeled statement if it has one
+                    if (child->data.list.count >= 2)
+                    {
+                        process_ast_node(ctx, child->data.list.children[1]);
+                    }
+                }
+                else
+                {
+                    // Process regular statements (these belong to the current case)
+                    process_ast_node(ctx, child);
+                }
+
+                // If we hit a break, stop processing this case
+                if (child->type == AST_NODE_BREAK_STATEMENT)
+                {
+                    break;
+                }
+            }
+
+            // If no terminator, fall through to default or after switch
+            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+            {
+                if (default_block && default_block != cases[i].block)
+                {
+                    LLVMBuildBr(ctx->builder, default_block);
+                }
+                else
+                {
+                    LLVMBuildBr(ctx->builder, after_switch);
+                }
+            }
+        }
+
+        // Restore break target
+        ctx->break_target = old_break_target;
+
+        // Continue from after switch
+        LLVMPositionBuilderAtEnd(ctx->builder, after_switch);
+
+        free(cases);
+        break;
+    }
     case AST_NODE_IF_STATEMENT:
     {
         // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]

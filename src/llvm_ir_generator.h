@@ -71,6 +71,9 @@ typedef struct ir_generator_ctx
     size_t label_count;
     size_t label_capacity;
 
+    // --- Break target for switch and loops ---
+    LLVMBasicBlockRef break_target;
+
     // Potentially function/scope management structures
 } ir_generator_ctx_t;
 
