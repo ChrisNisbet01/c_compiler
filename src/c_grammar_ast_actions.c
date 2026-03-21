@@ -429,8 +429,43 @@ handle_relational_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 3)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "RelationalExpression expected exactly 3 children, but got %d", count);
+        return;
+    }
+
     c_grammar_node_t * ast_node
         = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RELATIONAL_EXPRESSION);
+
+    if (ast_node)
+    {
+        c_grammar_node_t * op_node = ast_node->data.list.children[1];
+        if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
+        {
+            if (strcmp(op_node->data.terminal.text, "<") == 0)
+            {
+                ast_node->rel_op.op = REL_OP_LT;
+            }
+            else if (strcmp(op_node->data.terminal.text, ">") == 0)
+            {
+                ast_node->rel_op.op = REL_OP_GT;
+            }
+            else if (strcmp(op_node->data.terminal.text, "<=") == 0)
+            {
+                ast_node->rel_op.op = REL_OP_LE;
+            }
+            else if (strcmp(op_node->data.terminal.text, ">=") == 0)
+            {
+                ast_node->rel_op.op = REL_OP_GE;
+            }
+        }
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 

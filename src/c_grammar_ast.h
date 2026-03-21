@@ -88,6 +88,14 @@ typedef enum
     ARITH_OP_MOD,   // %
 } arithmetic_operator_type_t;
 
+typedef enum
+{
+    REL_OP_LT,   // <
+    REL_OP_GT,   // >
+    REL_OP_LE,   // <=
+    REL_OP_GE,   // >=
+} relational_operator_type_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
@@ -102,6 +110,11 @@ typedef struct
 {
     arithmetic_operator_type_t op;
 } arithmetic_operator_data_t;
+
+typedef struct
+{
+    relational_operator_type_t op;
+} relational_operator_data_t;
 
 typedef struct c_grammar_node_t
 {
@@ -120,6 +133,7 @@ typedef struct c_grammar_node_t
         bitwise_operator_data_t bitwise_op;
         shift_operator_data_t shift_op;
         arithmetic_operator_data_t arith_op;
+        relational_operator_data_t rel_op;
     };
 
 } c_grammar_node_t;
