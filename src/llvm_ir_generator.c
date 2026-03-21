@@ -1659,6 +1659,17 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
     }
+    case AST_NODE_CASE_LABEL:
+    {
+        // CaseLabel: [case_expr, (optional) statement]
+        // If there's a statement, process it
+        if (node->data.list.count == 2)
+        {
+            c_grammar_node_t * stmt = node->data.list.children[1];
+            process_ast_node(ctx, stmt);
+        }
+        break;
+    }
     case AST_NODE_BREAK_STATEMENT:
     {
         // Break statement: jump to the enclosing switch/loop's after block
@@ -1674,7 +1685,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_SWITCH_STATEMENT:
     {
-        // AST structure for SwitchStatement: [SwitchExpression, CompoundStatement with LabeledStatements]
+        // AST structure: SwitchStatement: [SwitchExpression, CompoundStatement with CaseLabels/DefaultStatements/Statements]
+        // CaseLabel: [case_expr, statement*]
+        // DefaultStatement: [ColonStatement?]
         if (node->data.list.count < 2)
         {
             fprintf(stderr, "IRGen Error: Invalid SwitchStatement AST node.\n");
@@ -1700,12 +1713,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMBasicBlockRef old_break_target = ctx->break_target;
         ctx->break_target = after_switch;
 
+        // Collect all case labels and default from the compound statement
         typedef struct
         {
-            LLVMBasicBlockRef block;
             LLVMValueRef case_value;
-            size_t start_idx;
             c_grammar_node_t * case_node;
+            LLVMBasicBlockRef target_block;
+            LLVMBasicBlockRef body_block;
+            bool has_body;
         } case_info_t;
 
         case_info_t * cases = NULL;
@@ -1713,27 +1728,18 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         size_t cases_capacity = 16;
         cases = malloc(cases_capacity * sizeof(case_info_t));
 
-        // Collect all cases from the compound statement recursively
+        c_grammar_node_t * default_stmt = NULL;
+
         if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
         {
             for (size_t i = 0; i < body_stmt->data.list.count; ++i)
             {
                 c_grammar_node_t * child = body_stmt->data.list.children[i];
 
-                // Recursively find all case/default labels within this child
-                c_grammar_node_t * queue[32];
-                size_t queue_size = 0;
-                queue[queue_size++] = child;
-
-                while (queue_size > 0)
+                if (child->type == AST_NODE_CASE_LABEL)
                 {
-                    queue_size--;
-                    c_grammar_node_t * node = queue[queue_size];
-
-                    if (!node)
-                        continue;
-
-                    if (node->type == AST_NODE_CASE_STATEMENT || node->type == AST_NODE_DEFAULT_STATEMENT)
+                    // CaseLabel: [case_expr, statement*]
+                    if (child->data.list.count >= 1)
                     {
                         if (num_cases >= cases_capacity)
                         {
@@ -1741,181 +1747,160 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             cases = realloc(cases, cases_capacity * sizeof(case_info_t));
                         }
 
-                        char block_name[64];
-                        snprintf(block_name, sizeof(block_name), "case_%zu", num_cases);
-                        cases[num_cases].block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
-                        cases[num_cases].start_idx = i;
-                        cases[num_cases].case_node = node;
-
-                        if (node->type == AST_NODE_CASE_STATEMENT && node->data.list.count >= 1)
-                        {
-                            c_grammar_node_t * case_expr = node->data.list.children[0];
-                            cases[num_cases].case_value = process_expression(ctx, case_expr);
-                        }
-                        else
-                        {
-                            cases[num_cases].case_value = NULL;
-                        }
+                        c_grammar_node_t * case_expr = child->data.list.children[0];
+                        cases[num_cases].case_value = process_expression(ctx, case_expr);
+                        cases[num_cases].case_node = child;
+                        cases[num_cases].target_block = NULL;
                         num_cases++;
-
-                        // If this case has a body, add it to the queue to search for more cases
-                        if (node->data.list.count >= 2)
-                        {
-                            c_grammar_node_t * body = node->data.list.children[node->data.list.count - 1];
-                            if (queue_size < 32)
-                                queue[queue_size++] = body;
-                        }
                     }
-                    else if (node->type == AST_NODE_LABELED_STATEMENT && node->data.list.count >= 1)
-                    {
-                        // Add the labeled content to the queue
-                        if (queue_size < 32)
-                            queue[queue_size++] = node->data.list.children[0];
-                    }
-                    else if (node->type == AST_NODE_COMPOUND_STATEMENT)
-                    {
-                        for (size_t j = 0; j < node->data.list.count; ++j)
-                        {
-                            if (queue_size < 32)
-                                queue[queue_size++] = node->data.list.children[j];
-                        }
-                    }
+                }
+                else if (child->type == AST_NODE_DEFAULT_STATEMENT)
+                {
+                    default_stmt = child;
                 }
             }
         }
 
-        // Find default block
-        LLVMBasicBlockRef default_block = NULL;
-        for (size_t i = 0; i < num_cases; ++i)
+        // Create default target block if needed
+        LLVMBasicBlockRef default_target = (default_stmt != NULL)
+            ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_default")
+            : after_switch;
+
+        // First pass: determine which cases have bodies
+        for (size_t i = 0; i < num_cases; i++)
         {
-            if (cases[i].case_value == NULL)
+            cases[i].has_body = (cases[i].case_node->data.list.count > 1);
+        }
+
+        // Second pass: create blocks for cases with bodies
+        for (size_t i = 0; i < num_cases; i++)
+        {
+            if (cases[i].has_body)
             {
-                default_block = cases[i].block;
-                break;
+                char block_name[64];
+                snprintf(block_name, sizeof(block_name), "case_body_%zu", i);
+                cases[i].body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
+            }
+            else
+            {
+                cases[i].body_block = NULL;
             }
         }
 
-        // Create entry block for switch logic
+        // Third pass: determine fallthrough targets for cases without bodies
+        // A case without a body falls through to the next case WITH a body
+        for (size_t i = 0; i < num_cases; i++)
+        {
+            if (!cases[i].has_body)
+            {
+                // Find the next case with a body
+                LLVMBasicBlockRef fallthrough_target = NULL;
+                for (size_t j = i + 1; j < num_cases; j++)
+                {
+                    if (cases[j].has_body)
+                    {
+                        fallthrough_target = cases[j].body_block;
+                        break;
+                    }
+                }
+                if (!fallthrough_target)
+                {
+                    fallthrough_target = default_stmt ? default_target : after_switch;
+                }
+                cases[i].target_block = fallthrough_target;
+            }
+        }
+
+        // Fourth pass: determine switch targets for cases with bodies
+        for (size_t i = 0; i < num_cases; i++)
+        {
+            if (cases[i].has_body)
+            {
+                cases[i].target_block = cases[i].body_block;
+            }
+        }
+
+        // Create switch entry block
         LLVMBasicBlockRef switch_entry = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_entry");
         LLVMBuildBr(ctx->builder, switch_entry);
 
         // Generate switch comparison
         LLVMPositionBuilderAtEnd(ctx->builder, switch_entry);
 
-        LLVMBasicBlockRef default_target = default_block ? default_block : after_switch;
-
-        // Use LLVM's switch instruction
         LLVMValueRef switch_inst = LLVMBuildSwitch(ctx->builder, switch_val, default_target, (unsigned)num_cases);
 
-        // Only add non-default cases to the switch
-        for (size_t i = 0; i < num_cases; ++i)
+        // Add all cases to switch
+        // Cases without bodies will fall through to the next case with a body
+        for (size_t i = 0; i < num_cases; i++)
         {
-            if (cases[i].case_value && cases[i].block != default_block)
-            {
-                LLVMAddCase(switch_inst, cases[i].case_value, cases[i].block);
-            }
+            LLVMAddCase(switch_inst, cases[i].case_value, cases[i].target_block);
         }
 
-        // Process each case's body
-        for (size_t i = 0; i < num_cases; ++i)
+        // Process each case body
+        for (size_t i = 0; i < num_cases; i++)
         {
-            LLVMPositionBuilderAtEnd(ctx->builder, cases[i].block);
-
-            // Determine end index (next case's start or end of compound)
-            size_t end_idx = body_stmt->data.list.count;
-            if (i + 1 < num_cases)
+            if (!cases[i].has_body)
             {
-                end_idx = cases[i + 1].start_idx;
+                // Skip cases without bodies
+                continue;
             }
 
-            // Process all statements from this case's position up to the next case
-            for (size_t j = cases[i].start_idx; j < end_idx; ++j)
+            LLVMPositionBuilderAtEnd(ctx->builder, cases[i].body_block);
+
+            // CaseLabel: [case_expr, statement*]
+            // Skip the case_expr (first child) and process remaining statements
+            for (size_t j = 1; j < cases[i].case_node->data.list.count; ++j)
             {
-                c_grammar_node_t * child = body_stmt->data.list.children[j];
+                c_grammar_node_t * stmt = cases[i].case_node->data.list.children[j];
+                process_ast_node(ctx, stmt);
 
-                // Handle case/default statements - they are markers, process their body
-                // Check for direct case/default or wrapped in labeled statement
-                bool is_case_or_default
-                    = (child->type == AST_NODE_CASE_STATEMENT || child->type == AST_NODE_DEFAULT_STATEMENT);
-                if (child->type == AST_NODE_LABELED_STATEMENT && child->data.list.count >= 1)
-                {
-                    c_grammar_node_t * inner = child->data.list.children[0];
-                    is_case_or_default
-                        = (inner->type == AST_NODE_CASE_STATEMENT || inner->type == AST_NODE_DEFAULT_STATEMENT);
-                }
-
-                if (is_case_or_default)
-                {
-                    // Find the actual case/default node (direct or wrapped)
-                    c_grammar_node_t * case_or_default = child;
-                    if (child->type == AST_NODE_LABELED_STATEMENT)
-                    {
-                        case_or_default = child->data.list.children[0];
-                    }
-
-                    // For a LabeledStatement (which wraps the case/default), check if it has any
-                    // actual body statements. If the ONLY content is a nested case/default label
-                    // (no statements between colon and nested case), skip processing this case label.
-                    // The nested case will be processed when we reach its position.
-                    if (child->type == AST_NODE_LABELED_STATEMENT && j == cases[i].start_idx)
-                    {
-                        // A LabeledStatement structure is: [CaseStatement/DefaultStatement, Statement body]
-                        // If children[1] is another case/default label (possibly wrapped), skip
-                        if (child->data.list.count >= 2)
-                        {
-                            c_grammar_node_t * body = child->data.list.children[1];
-                            c_grammar_node_t * actual_body = body;
-                            if (body->type == AST_NODE_LABELED_STATEMENT && body->data.list.count >= 1)
-                            {
-                                actual_body = body->data.list.children[0];
-                            }
-                            // If body is just a case/default label, skip processing
-                            if (actual_body->type == AST_NODE_CASE_STATEMENT || actual_body->type == AST_NODE_DEFAULT_STATEMENT)
-                            {
-                                continue;
-                            }
-                        }
-                    }
-
-                    // Process the body of the case/default statement if it has one
-                    // Body is the last child (after KwCase/KwDefault, ConditionalExpression?, Colon)
-                    if (case_or_default->data.list.count > 0)
-                    {
-                        c_grammar_node_t * body
-                            = case_or_default->data.list.children[case_or_default->data.list.count - 1];
-                        process_ast_node(ctx, body);
-                    }
-                    // Skip processing body again as a separate statement
-                    continue;
-                }
-                else
-                {
-                    // Process regular statements (these belong to the current case)
-                    process_ast_node(ctx, child);
-                }
-
-                // If we hit a break, stop processing this case
-                if (child->type == AST_NODE_BREAK_STATEMENT)
+                // If we hit a break, stop processing
+                if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
                 {
                     break;
                 }
             }
 
-            // If no terminator, fall through to next case or default or after switch
+            // If no terminator, fall through to next case with body, default, or after
             if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
             {
-                if (i + 1 < num_cases && cases[i + 1].block != cases[i].block)
+                // Find next case with body
+                LLVMBasicBlockRef fallthrough_target = NULL;
+                for (size_t j = i + 1; j < num_cases; j++)
                 {
-                    LLVMBuildBr(ctx->builder, cases[i + 1].block);
+                    if (cases[j].has_body)
+                    {
+                        fallthrough_target = cases[j].body_block;
+                        break;
+                    }
                 }
-                else if (default_block && default_block != cases[i].block)
+                if (!fallthrough_target)
                 {
-                    LLVMBuildBr(ctx->builder, default_block);
+                    fallthrough_target = default_stmt ? default_target : after_switch;
                 }
-                else
+                LLVMBuildBr(ctx->builder, fallthrough_target);
+            }
+        }
+
+        // Process default block
+        if (default_stmt)
+        {
+            LLVMPositionBuilderAtEnd(ctx->builder, default_target);
+            // DefaultStatement: children are the statements
+            for (size_t j = 0; j < default_stmt->data.list.count; ++j)
+            {
+                c_grammar_node_t * stmt = default_stmt->data.list.children[j];
+                process_ast_node(ctx, stmt);
+
+                if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
                 {
-                    LLVMBuildBr(ctx->builder, after_switch);
+                    break;
                 }
+            }
+
+            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+            {
+                LLVMBuildBr(ctx->builder, after_switch);
             }
         }
 

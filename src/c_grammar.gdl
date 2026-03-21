@@ -398,14 +398,31 @@ ExpressionStatementRaw = Expression? @AST_ACTION_EXPRESSION_STATEMENT;
 ExpressionStatement = ExpressionStatementRaw Semicolon;
 
 LabeledIdentifier = (Identifier Colon Statement) @AST_ACTION_LABELED_IDENTIFIER;
-LabeledCaseStatement = KwCase ConditionalExpression Colon Statement @AST_ACTION_CASE_STATEMENT;
-LabeledDefaultStatement = KwDefault Colon Statement @AST_ACTION_DEFAULT_STATEMENT;
+LabeledDefaultStatement = KwDefault Colon SwitchBodyStatement* @AST_ACTION_DEFAULT_STATEMENT;
+
+// SwitchBodyStatement is used for statements inside switch bodies
+// It explicitly lists what can appear, NOT including CaseLabel/DefaultStatement
+SwitchBodyStatement = CompoundStatement
+                    | SelectionStatement
+                    | IterationStatement
+                    | Declaration
+                    | JumpStatement
+                    | ExpressionStatement
+                    | (KwAsm Attribute* LParen delimited(Expression, Comma) RParen Semicolon)
+                    | PreprocessorDirective
+                    ;
+
+CaseLabel = KwCase ConditionalExpression Colon SwitchBodyStatement* @AST_ACTION_CASE_LABEL;
+
+// SwitchCompoundStatement is used inside switch to allow case labels at top level
+SwitchCompoundStatement = LBrace (CaseLabel | LabeledDefaultStatement | SwitchBodyStatement)* RBrace @AST_ACTION_COMPOUND_STATEMENT;
+
 LabeledStatement = LabeledIdentifier
-                 | LabeledCaseStatement
-                 | LabeledDefaultStatement @AST_ACTION_LABELED_STATEMENT;
+                 | LabeledDefaultStatement
+                 | CaseLabel @AST_ACTION_LABELED_STATEMENT;
 
 IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
-SwitchStatement = (KwSwitch LParen Expression RParen Statement) @AST_ACTION_SWITCH_STATEMENT;
+SwitchStatement = (KwSwitch LParen Expression RParen SwitchCompoundStatement) @AST_ACTION_SWITCH_STATEMENT;
 SelectionStatement = IfStatement | SwitchStatement;
 
 WhileStatement = (KwWhile LParen Expression RParen Statement) @AST_ACTION_WHILE_STATEMENT;

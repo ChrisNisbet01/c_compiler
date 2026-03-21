@@ -84,7 +84,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_INITIALIZER_LIST] = {.name = "InitializerList"},
     [AST_NODE_LABELED_STATEMENT] = {.name = "LabeledStatement"},
     [AST_NODE_CHARACTER_LITERAL] = {.name = "CharacterLiteral"},
-    [AST_NODE_CASE_STATEMENT] = {.name = "CaseStatement"},
+    [AST_NODE_CASE_LABEL] = {.name = "CaseLabel"},
     [AST_NODE_DEFAULT_STATEMENT] = {.name = "DefaultStatement"},
     [AST_NODE_LABELED_IDENTIFIER] = {.name = "LabeledIdentifier"},
     [AST_NODE_ASSIGNMENT_OPERATOR] = {.name = "AssignmentOperator"},
@@ -765,13 +765,13 @@ main(int argc, char * argv[])
     }
 
     printf("Successfully parsed the C file!\n");
-    // Print the CPT
-    char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
-    if (cpt_str != NULL)
-    {
-        printf("Concrete Parse Tree:\n%s\n", cpt_str);
-        free(cpt_str);
-    }
+    // Print the CPT (commented out for cleaner output)
+    // char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
+    // if (cpt_str != NULL)
+    // {
+    //     printf("Concrete Parse Tree:\n%s\n", cpt_str);
+    //     free(cpt_str);
+    // }
 
     // Build the AST
     epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
