@@ -352,6 +352,37 @@ static void
 handle_unary_op(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNARY_OP);
+
+    if (ast_node && count > 0)
+    {
+        c_grammar_node_t * op_node = ast_node->data.list.children[0];
+        if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
+        {
+            char const * op_text = op_node->data.terminal.text;
+
+            if (strcmp(op_text, "+") == 0)
+                ast_node->unary_op.op = UNARY_OP_PLUS;
+            else if (strcmp(op_text, "-") == 0)
+                ast_node->unary_op.op = UNARY_OP_MINUS;
+            else if (strcmp(op_text, "!") == 0)
+                ast_node->unary_op.op = UNARY_OP_NOT;
+            else if (strcmp(op_text, "~") == 0)
+                ast_node->unary_op.op = UNARY_OP_BITNOT;
+            else if (strcmp(op_text, "&") == 0)
+                ast_node->unary_op.op = UNARY_OP_ADDR;
+            else if (strcmp(op_text, "*") == 0)
+                ast_node->unary_op.op = UNARY_OP_DEREF;
+            else if (strcmp(op_text, "++") == 0)
+                ast_node->unary_op.op = UNARY_OP_INC;
+            else if (strcmp(op_text, "--") == 0)
+                ast_node->unary_op.op = UNARY_OP_DEC;
+            else if (strcmp(op_text, "sizeof") == 0)
+                ast_node->unary_op.op = UNARY_OP_SIZEOF;
+            else if (strcmp(op_text, "__alignof__") == 0 || strcmp(op_text, "_Alignof") == 0)
+                ast_node->unary_op.op = UNARY_OP_ALIGNOF;
+        }
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 

@@ -3269,13 +3269,11 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         // Unary structure: [Operator, Operand]
         if (node->data.list.count < 2)
             return NULL;
-        c_grammar_node_t * op_node = node->data.list.children[0];
         c_grammar_node_t * operand_node = node->data.list.children[1];
 
-        char const * op_str = op_node->data.terminal.text;
-
-        // Handle address-of operator &
-        if (strcmp(op_str, "&") == 0)
+        switch (node->unary_op.op)
+        {
+        case UNARY_OP_ADDR:
         {
             // For &identifier, return the pointer directly (don't load)
             if (operand_node->type == AST_NODE_IDENTIFIER)
@@ -3288,18 +3286,15 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 }
             }
             // For &member or &array[i], process the expression which returns a pointer
-            // These cases already return pointers (GEP results)
             LLVMValueRef ptr_val = process_expression(ctx, operand_node);
             return ptr_val;
         }
 
-        LLVMValueRef operand_val = process_expression(ctx, operand_node);
-        if (!operand_val)
-            return NULL;
-
-        // Handle dereference operator *
-        if (strcmp(op_str, "*") == 0)
+        case UNARY_OP_DEREF:
         {
+            LLVMValueRef operand_val = process_expression(ctx, operand_node);
+            if (!operand_val)
+                return NULL;
             LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
             LLVMTypeRef elem_type = get_pointer_element_type(ctx, ptr_type);
             if (elem_type)
@@ -3309,16 +3304,23 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             return operand_val;
         }
 
-        if (strcmp(op_str, "-") == 0)
+        case UNARY_OP_MINUS:
         {
+            LLVMValueRef operand_val = process_expression(ctx, operand_node);
+            if (!operand_val)
+                return NULL;
             LLVMTypeRef op_type = LLVMTypeOf(operand_val);
             if (op_type
                 && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
                 return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
             return LLVMBuildNeg(ctx->builder, operand_val, "neg_tmp");
         }
-        if (strcmp(op_str, "!") == 0)
+
+        case UNARY_OP_NOT:
         {
+            LLVMValueRef operand_val = process_expression(ctx, operand_node);
+            if (!operand_val)
+                return NULL;
             LLVMTypeRef op_type = LLVMTypeOf(operand_val);
             if (!op_type)
                 return NULL;
@@ -3326,31 +3328,33 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_val, LLVMConstNull(op_type), "not_tmp");
             return is_zero;
         }
-        if (strcmp(op_str, "~") == 0)
+
+        case UNARY_OP_BITNOT:
         {
+            LLVMValueRef operand_val = process_expression(ctx, operand_node);
+            if (!operand_val)
+                return NULL;
             return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
         }
-        
-        // Handle postfix increment/decrement (++ and --)
-        if (strcmp(op_str, "++") == 0 || strcmp(op_str, "--") == 0)
+
+        case UNARY_OP_INC:
+        case UNARY_OP_DEC:
         {
-            // operand_val is the value after increment/decrement
-            // We need to load the original value, then increment/decrement, then store
             LLVMValueRef var_ptr = NULL;
             LLVMTypeRef var_type = NULL;
-            
+
             if (operand_node->type == AST_NODE_IDENTIFIER)
             {
                 var_ptr = get_variable_pointer(ctx, operand_node, &var_type);
             }
-            
+
             if (var_ptr && var_type)
             {
                 LLVMValueRef original_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "orig_val");
                 LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-                
+
                 LLVMValueRef new_val;
-                if (strcmp(op_str, "++") == 0)
+                if (node->unary_op.op == UNARY_OP_INC)
                 {
                     LLVMTypeKind kind = LLVMGetTypeKind(var_type);
                     if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
@@ -3366,13 +3370,27 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     else
                         new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
                 }
-                
+
                 LLVMBuildStore(ctx->builder, new_val, var_ptr);
-                return original_val; // Postfix returns the original value
+                return original_val;
             }
+            return NULL;
         }
-        
-        return operand_val;
+
+        case UNARY_OP_PLUS:
+        {
+            return process_expression(ctx, operand_node);
+        }
+
+        case UNARY_OP_SIZEOF:
+        case UNARY_OP_ALIGNOF:
+        {
+            // sizeof and alignof are handled elsewhere
+            return NULL;
+        }
+        }
+
+        return NULL;
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
     default:

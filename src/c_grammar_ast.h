@@ -108,6 +108,20 @@ typedef enum
     LOGICAL_OP_OR,    // ||
 } logical_operator_type_t;
 
+typedef enum
+{
+    UNARY_OP_PLUS,     // + (unary)
+    UNARY_OP_MINUS,    // - (unary)
+    UNARY_OP_NOT,      // ! (logical not)
+    UNARY_OP_BITNOT,   // ~ (bitwise not)
+    UNARY_OP_ADDR,     // & (address-of)
+    UNARY_OP_DEREF,    // * (dereference)
+    UNARY_OP_INC,      // ++ (prefix increment)
+    UNARY_OP_DEC,      // -- (prefix decrement)
+    UNARY_OP_SIZEOF,   // sizeof
+    UNARY_OP_ALIGNOF,  // __alignof__
+} unary_operator_type_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
@@ -138,6 +152,11 @@ typedef struct
     logical_operator_type_t op;
 } logical_operator_data_t;
 
+typedef struct
+{
+    unary_operator_type_t op;
+} unary_operator_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -158,6 +177,7 @@ typedef struct c_grammar_node_t
         relational_operator_data_t rel_op;
         equality_operator_data_t eq_op;
         logical_operator_data_t logical_op;
+        unary_operator_data_t unary_op;
     };
 
 } c_grammar_node_t;
