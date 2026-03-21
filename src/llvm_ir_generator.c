@@ -3167,6 +3167,22 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                                           : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
                     }
                 }
+                else if (node->type == AST_NODE_EQUALITY_EXPRESSION)
+                {
+                    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+                    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+                    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+                    switch (node->eq_op.op)
+                    {
+                    case EQ_OP_EQ:
+                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
+                                          : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+                    case EQ_OP_NE:
+                        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
+                                          : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+                    }
+                }
                 else
                 {
                     c_grammar_node_t * op_node = node->data.list.children[1];
@@ -3184,13 +3200,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
 
                 // Check if the type is a float or double
                 bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
-                if (strcmp(op_str, "==") == 0)
-                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
-                                       : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
-                if (strcmp(op_str, "!=") == 0)
-                    return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
-                                       : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
 
                 // Bitwise Operators (still using strcmp)
                 if (strcmp(op_str, "&") == 0)

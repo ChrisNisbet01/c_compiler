@@ -96,6 +96,12 @@ typedef enum
     REL_OP_GE,   // >=
 } relational_operator_type_t;
 
+typedef enum
+{
+    EQ_OP_EQ,   // ==
+    EQ_OP_NE,   // !=
+} equality_operator_type_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
@@ -116,6 +122,11 @@ typedef struct
     relational_operator_type_t op;
 } relational_operator_data_t;
 
+typedef struct
+{
+    equality_operator_type_t op;
+} equality_operator_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -134,6 +145,7 @@ typedef struct c_grammar_node_t
         shift_operator_data_t shift_op;
         arithmetic_operator_data_t arith_op;
         relational_operator_data_t rel_op;
+        equality_operator_data_t eq_op;
     };
 
 } c_grammar_node_t;
