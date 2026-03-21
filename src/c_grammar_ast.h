@@ -31,6 +31,7 @@ typedef enum
     AST_NODE_BITWISE_EXPRESSION,
     AST_NODE_LOGICAL_AND_EXPRESSION,
     AST_NODE_LOGICAL_OR_EXPRESSION,
+    AST_NODE_SHIFT_EXPRESSION,
     AST_NODE_FUNCTION_CALL,
     AST_NODE_POSTFIX_EXPRESSION,
     AST_NODE_ARRAY_SUBSCRIPT,
@@ -71,10 +72,21 @@ typedef enum
     BITWISE_OP_OR,
 } bitwise_operator_type_t;
 
+typedef enum
+{
+    SHIFT_OP_LL,  // <<
+    SHIFT_OP_AR,  // >>
+} shift_operator_type_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
 } bitwise_operator_data_t;
+
+typedef struct
+{
+    shift_operator_type_t op;
+} shift_operator_data_t;
 
 typedef struct c_grammar_node_t
 {
@@ -91,6 +103,7 @@ typedef struct c_grammar_node_t
     union
     {
         bitwise_operator_data_t bitwise_op;
+        shift_operator_data_t shift_op;
     };
 
 } c_grammar_node_t;

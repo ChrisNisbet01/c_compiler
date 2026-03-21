@@ -227,8 +227,8 @@ MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_BINARY_OP;
 AddOp = Plus | Minus @AST_ACTION_OPERATOR;
 AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_BINARY_OP;
 
-ShiftOp = Shl | Shr;
-ShiftExpression = chainl1(AdditiveExpression, ShiftOp);
+ShiftOp = Shl | Shr @AST_ACTION_OPERATOR;
+ShiftExpression = chainl1(AdditiveExpression, ShiftOp) @AST_ACTION_SHIFT_EXPRESSION;
 
 RelOp = Lt | Gt | Le | Ge @AST_ACTION_OPERATOR;
 RelationalExpression = chainl1(ShiftExpression, RelOp) @AST_ACTION_RELATIONAL;

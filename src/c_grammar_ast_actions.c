@@ -504,6 +504,43 @@ handle_logical_or_expression(
 }
 
 static void
+handle_shift_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count != 3)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "ShiftExpression expected exactly 3 children, but got %d", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SHIFT_EXPRESSION);
+
+    if (ast_node)
+    {
+        c_grammar_node_t * op_node = ast_node->data.list.children[1];
+        if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
+        {
+            if (strcmp(op_node->data.terminal.text, "<<") == 0)
+            {
+                ast_node->shift_op.op = SHIFT_OP_LL;
+            }
+            else if (strcmp(op_node->data.terminal.text, ">>") == 0)
+            {
+                ast_node->shift_op.op = SHIFT_OP_AR;
+            }
+        }
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_function_call(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FUNCTION_CALL);
@@ -747,6 +784,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     );
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_AND_EXPRESSION, handle_logical_and_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_OR_EXPRESSION, handle_logical_or_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_EXPRESSION, handle_shift_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECL_SPECIFIERS, handle_decl_specifiers);

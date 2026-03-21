@@ -3067,6 +3067,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_RELATIONAL_EXPRESSION:
     case AST_NODE_EQUALITY_EXPRESSION:
     case AST_NODE_BITWISE_EXPRESSION:
+    case AST_NODE_SHIFT_EXPRESSION:
     {
         // Handle binary operations like '+', '-', '*', '/', etc.
         // chainl1 can produce nested structures.
@@ -3107,10 +3108,27 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 // Standard binary ops: [LHS, OP, RHS]
                 lhs_val = process_expression(ctx, node->data.list.children[0]);
                 rhs_val = process_expression(ctx, node->data.list.children[2]);
-                c_grammar_node_t * op_node = node->data.list.children[1];
-                if (op_node->is_terminal_node)
+
+                // Check for shift expression first (uses enum)
+                if (node->type == AST_NODE_SHIFT_EXPRESSION)
                 {
-                    op_str = op_node->data.terminal.text;
+                    switch (node->shift_op.op)
+                    {
+                    case SHIFT_OP_LL:
+                        op_str = "<<";
+                        break;
+                    case SHIFT_OP_AR:
+                        op_str = ">>";
+                        break;
+                    }
+                }
+                else
+                {
+                    c_grammar_node_t * op_node = node->data.list.children[1];
+                    if (op_node->is_terminal_node)
+                    {
+                        op_str = op_node->data.terminal.text;
+                    }
                 }
             }
 
