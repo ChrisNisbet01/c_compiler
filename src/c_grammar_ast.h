@@ -102,6 +102,12 @@ typedef enum
     EQ_OP_NE,   // !=
 } equality_operator_type_t;
 
+typedef enum
+{
+    LOGICAL_OP_AND,   // &&
+    LOGICAL_OP_OR,    // ||
+} logical_operator_type_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
@@ -127,6 +133,11 @@ typedef struct
     equality_operator_type_t op;
 } equality_operator_data_t;
 
+typedef struct
+{
+    logical_operator_type_t op;
+} logical_operator_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -146,6 +157,7 @@ typedef struct c_grammar_node_t
         arithmetic_operator_data_t arith_op;
         relational_operator_data_t rel_op;
         equality_operator_data_t eq_op;
+        logical_operator_data_t logical_op;
     };
 
 } c_grammar_node_t;

@@ -543,8 +543,24 @@ handle_logical_and_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 3)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "LogicalAndExpression expected exactly 3 children, but got %d", count);
+        return;
+    }
+
     c_grammar_node_t * ast_node
         = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_AND_EXPRESSION);
+
+    if (ast_node)
+    {
+        ast_node->logical_op.op = LOGICAL_OP_AND;
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 
@@ -553,8 +569,24 @@ handle_logical_or_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 3)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "LogicalOrExpression expected exactly 3 children, but got %d", count);
+        return;
+    }
+
     c_grammar_node_t * ast_node
         = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_OR_EXPRESSION);
+
+    if (ast_node)
+    {
+        ast_node->logical_op.op = LOGICAL_OP_OR;
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 

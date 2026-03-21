@@ -3220,7 +3220,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             return process_expression(ctx, node->data.list.children[0]);
         }
 
-        bool is_or = (node->type == AST_NODE_LOGICAL_OR_EXPRESSION);
+        bool is_or = (node->logical_op.op == LOGICAL_OP_OR);
         c_grammar_node_t * lhs_node = node->data.list.children[0];
         c_grammar_node_t * rhs_node = node->data.list.children[2];
 
