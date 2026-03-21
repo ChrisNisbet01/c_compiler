@@ -3075,10 +3075,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
         LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
         LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[1]);
-        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-        // Check if the type is a float or double
-        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
         switch (node->bitwise_op.op)
         {
@@ -3096,9 +3092,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         // Standard binary ops: [LHS, OP, RHS]
         LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
         LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
-        LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-        LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-        bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
         switch (node->shift_op.op)
         {
