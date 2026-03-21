@@ -1721,7 +1721,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 c_grammar_node_t * child = body_stmt->data.list.children[i];
 
-                if (child->type == AST_NODE_LABELED_STATEMENT)
+                // Handle both direct case/default statements and wrapped ones
+                c_grammar_node_t * case_or_default = child;
+                if (child->type == AST_NODE_LABELED_STATEMENT && child->data.list.count >= 1)
+                {
+                    case_or_default = child->data.list.children[0];
+                }
+
+                if (case_or_default->type == AST_NODE_CASE_STATEMENT || case_or_default->type == AST_NODE_DEFAULT_STATEMENT)
                 {
                     if (num_cases >= cases_capacity)
                     {
@@ -1735,22 +1742,16 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     cases[num_cases].block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
                     cases[num_cases].start_idx = i;
 
-                    // Extract case value or NULL for default
-                    if (child->data.list.count >= 2)
+                    // Extract case value - for AST_NODE_CASE_STATEMENT it's in child[0] (ConditionalExpression)
+                    // For AST_NODE_DEFAULT_STATEMENT, case_value is NULL
+                    if (case_or_default->type == AST_NODE_CASE_STATEMENT && case_or_default->data.list.count >= 1)
                     {
-                        c_grammar_node_t * label_node = child->data.list.children[0];
-                        if (label_node->type == AST_NODE_INTEGER_VALUE || label_node->type == AST_NODE_INTEGER_BASE)
-                        {
-                            cases[num_cases].case_value = process_expression(ctx, label_node);
-                        }
-                        else
-                        {
-                            cases[num_cases].case_value = NULL; // default case
-                        }
+                        c_grammar_node_t * case_expr = case_or_default->data.list.children[0];
+                        cases[num_cases].case_value = process_expression(ctx, case_expr);
                     }
                     else
                     {
-                        cases[num_cases].case_value = NULL;
+                        cases[num_cases].case_value = NULL; // default case
                     }
 
                     num_cases++;
@@ -1807,14 +1808,32 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 c_grammar_node_t * child = body_stmt->data.list.children[j];
 
-                // Skip labeled statements (they're just markers)
-                if (child->type == AST_NODE_LABELED_STATEMENT)
+                // Handle case/default statements - they are markers, process their body
+                // Check for direct case/default or wrapped in labeled statement
+                bool is_case_or_default = (child->type == AST_NODE_CASE_STATEMENT || child->type == AST_NODE_DEFAULT_STATEMENT);
+                if (child->type == AST_NODE_LABELED_STATEMENT && child->data.list.count >= 1)
                 {
-                    // Process the body of the labeled statement if it has one
-                    if (child->data.list.count >= 2)
+                    c_grammar_node_t * inner = child->data.list.children[0];
+                    is_case_or_default = (inner->type == AST_NODE_CASE_STATEMENT || inner->type == AST_NODE_DEFAULT_STATEMENT);
+                }
+
+                if (is_case_or_default)
+                {
+                    // Find the actual case/default node (direct or wrapped)
+                    c_grammar_node_t * case_or_default = child;
+                    if (child->type == AST_NODE_LABELED_STATEMENT)
                     {
-                        process_ast_node(ctx, child->data.list.children[1]);
+                        case_or_default = child->data.list.children[0];
                     }
+                    // Process the body of the case/default statement if it has one
+                    // Body is the last child (after KwCase/KwDefault, ConditionalExpression?, Colon)
+                    if (case_or_default->data.list.count > 0)
+                    {
+                        c_grammar_node_t * body = case_or_default->data.list.children[case_or_default->data.list.count - 1];
+                        process_ast_node(ctx, body);
+                    }
+                    // Skip processing body again as a separate statement
+                    continue;
                 }
                 else
                 {

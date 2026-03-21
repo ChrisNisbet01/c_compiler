@@ -396,9 +396,12 @@ TypedefDeclaration = wrap(KwExtension? KwTypedef DeclarationSpecifiers TypedefIn
 ExpressionStatementRaw = Expression? @AST_ACTION_EXPRESSION_STATEMENT;
 ExpressionStatement = ExpressionStatementRaw Semicolon;
 
-LabeledStatement = (Identifier Colon Statement)
-                 | (KwCase ConditionalExpression Colon Statement)
-                 | (KwDefault Colon Statement) @AST_ACTION_LABELED_STATEMENT;
+LabeledIdentifier = (Identifier Colon Statement) @AST_ACTION_LABELED_IDENTIFIER;
+LabeledCaseStatement = KwCase ConditionalExpression Colon Statement @AST_ACTION_CASE_STATEMENT;
+LabeledDefaultStatement = KwDefault Colon Statement @AST_ACTION_DEFAULT_STATEMENT;
+LabeledStatement = LabeledIdentifier
+                 | LabeledCaseStatement
+                 | LabeledDefaultStatement @AST_ACTION_LABELED_STATEMENT;
 
 IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
 SwitchStatement = (KwSwitch LParen Expression RParen Statement) @AST_ACTION_SWITCH_STATEMENT;

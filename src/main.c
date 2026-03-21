@@ -82,6 +82,9 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_INITIALIZER_LIST] = {.name = "InitializerList"},
     [AST_NODE_LABELED_STATEMENT] = {.name = "LabeledStatement"},
     [AST_NODE_CHARACTER_LITERAL] = {.name = "CharacterLiteral"},
+    [AST_NODE_CASE_STATEMENT] = {.name = "CaseStatement"},
+    [AST_NODE_DEFAULT_STATEMENT] = {.name = "DefaultStatement"},
+    [AST_NODE_LABELED_IDENTIFIER] = {.name = "LabeledIdentifier"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
@@ -183,6 +186,9 @@ print_ast(c_grammar_node_t const * node, int indent)
     case AST_NODE_TYPE_NAME:
     case AST_NODE_EXPRESSION_STATEMENT:
     case AST_NODE_LABELED_STATEMENT:
+    case AST_NODE_CASE_STATEMENT:
+    case AST_NODE_DEFAULT_STATEMENT:
+    case AST_NODE_LABELED_IDENTIFIER:
         print_list_type_ast_node(node, indent);
         break;
 
