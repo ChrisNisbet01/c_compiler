@@ -1700,12 +1700,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMBasicBlockRef old_break_target = ctx->break_target;
         ctx->break_target = after_switch;
 
-        // Collect all cases from the compound statement
         typedef struct
         {
             LLVMBasicBlockRef block;
-            LLVMValueRef case_value; // NULL for default
-            size_t start_idx;        // Index in body children where this case starts
+            LLVMValueRef case_value;
+            size_t start_idx;
+            c_grammar_node_t * case_node;
         } case_info_t;
 
         case_info_t * cases = NULL;
@@ -1713,47 +1713,73 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         size_t cases_capacity = 16;
         cases = malloc(cases_capacity * sizeof(case_info_t));
 
+        // Collect all cases from the compound statement recursively
         if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
         {
             for (size_t i = 0; i < body_stmt->data.list.count; ++i)
             {
                 c_grammar_node_t * child = body_stmt->data.list.children[i];
 
-                // Handle both direct case/default statements and wrapped ones
-                c_grammar_node_t * case_or_default = child;
-                if (child->type == AST_NODE_LABELED_STATEMENT && child->data.list.count >= 1)
+                // Recursively find all case/default labels within this child
+                c_grammar_node_t * queue[32];
+                size_t queue_size = 0;
+                queue[queue_size++] = child;
+
+                while (queue_size > 0)
                 {
-                    case_or_default = child->data.list.children[0];
-                }
+                    queue_size--;
+                    c_grammar_node_t * node = queue[queue_size];
 
-                if (case_or_default->type == AST_NODE_CASE_STATEMENT
-                    || case_or_default->type == AST_NODE_DEFAULT_STATEMENT)
-                {
-                    if (num_cases >= cases_capacity)
+                    if (!node)
+                        continue;
+
+                    if (node->type == AST_NODE_CASE_STATEMENT || node->type == AST_NODE_DEFAULT_STATEMENT)
                     {
-                        cases_capacity *= 2;
-                        cases = realloc(cases, cases_capacity * sizeof(case_info_t));
+                        if (num_cases >= cases_capacity)
+                        {
+                            cases_capacity *= 2;
+                            cases = realloc(cases, cases_capacity * sizeof(case_info_t));
+                        }
+
+                        char block_name[64];
+                        snprintf(block_name, sizeof(block_name), "case_%zu", num_cases);
+                        cases[num_cases].block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
+                        cases[num_cases].start_idx = i;
+                        cases[num_cases].case_node = node;
+
+                        if (node->type == AST_NODE_CASE_STATEMENT && node->data.list.count >= 1)
+                        {
+                            c_grammar_node_t * case_expr = node->data.list.children[0];
+                            cases[num_cases].case_value = process_expression(ctx, case_expr);
+                        }
+                        else
+                        {
+                            cases[num_cases].case_value = NULL;
+                        }
+                        num_cases++;
+
+                        // If this case has a body, add it to the queue to search for more cases
+                        if (node->data.list.count >= 2)
+                        {
+                            c_grammar_node_t * body = node->data.list.children[node->data.list.count - 1];
+                            if (queue_size < 32)
+                                queue[queue_size++] = body;
+                        }
                     }
-
-                    // Create a block for this case
-                    char block_name[64];
-                    snprintf(block_name, sizeof(block_name), "case_%zu", num_cases);
-                    cases[num_cases].block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
-                    cases[num_cases].start_idx = i;
-
-                    // Extract case value - for AST_NODE_CASE_STATEMENT it's in child[0] (ConditionalExpression)
-                    // For AST_NODE_DEFAULT_STATEMENT, case_value is NULL
-                    if (case_or_default->type == AST_NODE_CASE_STATEMENT && case_or_default->data.list.count >= 1)
+                    else if (node->type == AST_NODE_LABELED_STATEMENT && node->data.list.count >= 1)
                     {
-                        c_grammar_node_t * case_expr = case_or_default->data.list.children[0];
-                        cases[num_cases].case_value = process_expression(ctx, case_expr);
+                        // Add the labeled content to the queue
+                        if (queue_size < 32)
+                            queue[queue_size++] = node->data.list.children[0];
                     }
-                    else
+                    else if (node->type == AST_NODE_COMPOUND_STATEMENT)
                     {
-                        cases[num_cases].case_value = NULL; // default case
+                        for (size_t j = 0; j < node->data.list.count; ++j)
+                        {
+                            if (queue_size < 32)
+                                queue[queue_size++] = node->data.list.children[j];
+                        }
                     }
-
-                    num_cases++;
                 }
             }
         }
@@ -1826,6 +1852,31 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         case_or_default = child->data.list.children[0];
                     }
+
+                    // For a LabeledStatement (which wraps the case/default), check if it has any
+                    // actual body statements. If the ONLY content is a nested case/default label
+                    // (no statements between colon and nested case), skip processing this case label.
+                    // The nested case will be processed when we reach its position.
+                    if (child->type == AST_NODE_LABELED_STATEMENT && j == cases[i].start_idx)
+                    {
+                        // A LabeledStatement structure is: [CaseStatement/DefaultStatement, Statement body]
+                        // If children[1] is another case/default label (possibly wrapped), skip
+                        if (child->data.list.count >= 2)
+                        {
+                            c_grammar_node_t * body = child->data.list.children[1];
+                            c_grammar_node_t * actual_body = body;
+                            if (body->type == AST_NODE_LABELED_STATEMENT && body->data.list.count >= 1)
+                            {
+                                actual_body = body->data.list.children[0];
+                            }
+                            // If body is just a case/default label, skip processing
+                            if (actual_body->type == AST_NODE_CASE_STATEMENT || actual_body->type == AST_NODE_DEFAULT_STATEMENT)
+                            {
+                                continue;
+                            }
+                        }
+                    }
+
                     // Process the body of the case/default statement if it has one
                     // Body is the last child (after KwCase/KwDefault, ConditionalExpression?, Colon)
                     if (case_or_default->data.list.count > 0)
@@ -1850,10 +1901,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 }
             }
 
-            // If no terminator, fall through to default or after switch
+            // If no terminator, fall through to next case or default or after switch
             if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
             {
-                if (default_block && default_block != cases[i].block)
+                if (i + 1 < num_cases && cases[i + 1].block != cases[i].block)
+                {
+                    LLVMBuildBr(ctx->builder, cases[i + 1].block);
+                }
+                else if (default_block && default_block != cases[i].block)
                 {
                     LLVMBuildBr(ctx->builder, default_block);
                 }

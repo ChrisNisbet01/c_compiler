@@ -125,80 +125,13 @@ print_ast(c_grammar_node_t const * node, int indent)
         printf("  ");
     }
 
-    switch (node->type)
+    if (node->is_terminal_node)
     {
-    case AST_NODE_POINTER:
-    case AST_NODE_INTEGER_BASE:
-    case AST_NODE_FLOAT_BASE:
-    case AST_NODE_STRING_LITERAL:
-    case AST_NODE_LITERAL_SUFFIX:
-    case AST_NODE_IDENTIFIER:
-    case AST_NODE_OPERATOR:
-    case AST_NODE_CHARACTER_LITERAL:
         printf("%s (%u): %s\n", get_node_type_name(node->type), node->type, node->data.terminal.text);
-        break;
-
-    case AST_NODE_TYPE_SPECIFIER:
-        /* Special case. Might be either a list type or a terminal type. */
-        if (node->is_terminal_node)
-        {
-            printf("%s (%u): %s\n", get_node_type_name(node->type), node->type, node->data.terminal.text);
-        }
-        else
-        {
-            print_list_type_ast_node(node, indent);
-        }
-        break;
-
-    case AST_NODE_INITIALIZER_LIST:
-    case AST_NODE_STRUCT_DEFINITION:
-    case AST_NODE_INTEGER_VALUE:
-    case AST_NODE_FLOAT_VALUE:
-    case AST_NODE_TRANSLATION_UNIT:
-    case AST_NODE_FUNCTION_DEFINITION:
-    case AST_NODE_COMPOUND_STATEMENT:
-    case AST_NODE_DECLARATION:
-    case AST_NODE_DECL_SPECIFIERS:
-    case AST_NODE_ASSIGNMENT:
-    case AST_NODE_UNARY_OP:
-    case AST_NODE_DECLARATOR:
-    case AST_NODE_DIRECT_DECLARATOR:
-    case AST_NODE_DECLARATOR_SUFFIX:
-    case AST_NODE_RELATIONAL_EXPRESSION:
-    case AST_NODE_EQUALITY_EXPRESSION:
-    case AST_NODE_BITWISE_EXPRESSION:
-    case AST_NODE_LOGICAL_AND_EXPRESSION:
-    case AST_NODE_LOGICAL_OR_EXPRESSION:
-    case AST_NODE_SHIFT_EXPRESSION:
-    case AST_NODE_ARITHMETIC_EXPRESSION:
-    case AST_NODE_FUNCTION_CALL:
-    case AST_NODE_POSTFIX_EXPRESSION:
-    case AST_NODE_ARRAY_SUBSCRIPT:
-    case AST_NODE_MEMBER_ACCESS_DOT:
-    case AST_NODE_MEMBER_ACCESS_ARROW:
-    case AST_NODE_CAST_EXPRESSION:
-    case AST_NODE_INIT_DECLARATOR:
-    case AST_NODE_IF_STATEMENT:
-    case AST_NODE_SWITCH_STATEMENT:
-    case AST_NODE_WHILE_STATEMENT:
-    case AST_NODE_DO_WHILE_STATEMENT:
-    case AST_NODE_FOR_STATEMENT:
-    case AST_NODE_GOTO_STATEMENT:
-    case AST_NODE_CONTINUE_STATEMENT:
-    case AST_NODE_BREAK_STATEMENT:
-    case AST_NODE_RETURN_STATEMENT:
-    case AST_NODE_TYPE_NAME:
-    case AST_NODE_EXPRESSION_STATEMENT:
-    case AST_NODE_LABELED_STATEMENT:
-    case AST_NODE_CASE_STATEMENT:
-    case AST_NODE_DEFAULT_STATEMENT:
-    case AST_NODE_LABELED_IDENTIFIER:
+    }
+    else
+    {
         print_list_type_ast_node(node, indent);
-        break;
-
-    default:
-        printf("Unknown node type %d\n", node->type);
-        break;
     }
 }
 
