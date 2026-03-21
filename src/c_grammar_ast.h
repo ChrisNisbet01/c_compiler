@@ -35,6 +35,7 @@ typedef enum
     AST_NODE_ARITHMETIC_EXPRESSION,
     AST_NODE_FUNCTION_CALL,
     AST_NODE_POSTFIX_EXPRESSION,
+    AST_NODE_POSTFIX_OPERATOR,
     AST_NODE_ARRAY_SUBSCRIPT,
     AST_NODE_MEMBER_ACCESS_DOT,
     AST_NODE_MEMBER_ACCESS_ARROW,
@@ -58,6 +59,7 @@ typedef enum
     AST_NODE_CASE_STATEMENT,
     AST_NODE_DEFAULT_STATEMENT,
     AST_NODE_LABELED_IDENTIFIER,
+    AST_NODE_ASSIGNMENT_OPERATOR,
 } c_grammar_node_type_t;
 
 typedef struct
@@ -122,6 +124,27 @@ typedef enum
     UNARY_OP_ALIGNOF,  // __alignof__
 } unary_operator_type_t;
 
+typedef enum
+{
+    POSTFIX_OP_INC,   // ++
+    POSTFIX_OP_DEC,   // --
+} postfix_operator_type_t;
+
+typedef enum
+{
+    ASSIGN_OP_SIMPLE,   // =
+    ASSIGN_OP_SHL,     // <<=
+    ASSIGN_OP_SHR,     // >>=
+    ASSIGN_OP_ADD,     // +=
+    ASSIGN_OP_SUB,     // -=
+    ASSIGN_OP_MUL,     // *=
+    ASSIGN_OP_DIV,     // /=
+    ASSIGN_OP_MOD,     // %=
+    ASSIGN_OP_AND,     // &=
+    ASSIGN_OP_XOR,     // ^=
+    ASSIGN_OP_OR,      // |=
+} assignment_operator_type_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
@@ -157,6 +180,16 @@ typedef struct
     unary_operator_type_t op;
 } unary_operator_data_t;
 
+typedef struct
+{
+    postfix_operator_type_t op;
+} postfix_operator_data_t;
+
+typedef struct
+{
+    assignment_operator_type_t op;
+} assignment_operator_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -178,6 +211,8 @@ typedef struct c_grammar_node_t
         equality_operator_data_t eq_op;
         logical_operator_data_t logical_op;
         unary_operator_data_t unary_op;
+        postfix_operator_data_t postfix_op;
+        assignment_operator_data_t assign_op;
     };
 
 } c_grammar_node_t;

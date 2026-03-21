@@ -2681,51 +2681,41 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     }
                 }
             }
-            else if (suffix->type == AST_NODE_OPERATOR)
+            else if (suffix->type == AST_NODE_POSTFIX_OPERATOR)
             {
                 // Handle postfix increment/decrement: i++ or i--
                 if (have_ptr && current_ptr && current_type)
                 {
                     // Load current value
                     LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "postfix_val");
-                    
-                    // Get the operator text
-                    char const * op_text = NULL;
-                    if (suffix->is_terminal_node)
+
+                    // Create increment/decrement value
+                    LLVMTypeKind kind = LLVMGetTypeKind(current_type);
+                    LLVMValueRef one;
+                    LLVMValueRef new_val;
+
+                    if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
                     {
-                        op_text = suffix->data.terminal.text;
-                    }
-                    
-                    if (op_text && (strcmp(op_text, "++") == 0 || strcmp(op_text, "--") == 0))
-                    {
-                        // Create increment/decrement value
-                        LLVMTypeKind kind = LLVMGetTypeKind(current_type);
-                        LLVMValueRef one;
-                        LLVMValueRef new_val;
-                        
-                        if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                        {
-                            one = LLVMConstReal(current_type, 1.0);
-                            if (strcmp(op_text, "++") == 0)
-                                new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
-                            else
-                                new_val = LLVMBuildFSub(ctx->builder, current_val, one, "postfix_dec");
-                        }
+                        one = LLVMConstReal(current_type, 1.0);
+                        if (suffix->postfix_op.op == POSTFIX_OP_INC)
+                            new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
                         else
-                        {
-                            one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-                            if (strcmp(op_text, "++") == 0)
-                                new_val = LLVMBuildAdd(ctx->builder, current_val, one, "postfix_inc");
-                            else
-                                new_val = LLVMBuildSub(ctx->builder, current_val, one, "postfix_dec");
-                        }
-                        
-                        // Store the new value
-                        LLVMBuildStore(ctx->builder, new_val, current_ptr);
-                        
-                        // Postfix returns the original value (current_val)
-                        base_val = current_val;
+                            new_val = LLVMBuildFSub(ctx->builder, current_val, one, "postfix_dec");
                     }
+                    else
+                    {
+                        one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+                        if (suffix->postfix_op.op == POSTFIX_OP_INC)
+                            new_val = LLVMBuildAdd(ctx->builder, current_val, one, "postfix_inc");
+                        else
+                            new_val = LLVMBuildSub(ctx->builder, current_val, one, "postfix_dec");
+                    }
+
+                    // Store the new value
+                    LLVMBuildStore(ctx->builder, new_val, current_ptr);
+
+                    // Postfix returns the original value (current_val)
+                    base_val = current_val;
                 }
             }
             else
@@ -2954,23 +2944,16 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
             // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
             c_grammar_node_t * op_node = node->data.list.children[1];
             bool is_compound = false;
-            char const * compound_op = NULL;
-            
-            if (op_node && op_node->type == AST_NODE_OPERATOR && op_node->is_terminal_node)
+            assignment_operator_type_t assign_op_type = ASSIGN_OP_SIMPLE;
+
+            if (op_node && op_node->type == AST_NODE_ASSIGNMENT_OPERATOR)
             {
-                char const * op_text = op_node->data.terminal.text;
-                if (strcmp(op_text, "+=") == 0) { is_compound = true; compound_op = "+"; }
-                else if (strcmp(op_text, "-=") == 0) { is_compound = true; compound_op = "-"; }
-                else if (strcmp(op_text, "*=") == 0) { is_compound = true; compound_op = "*"; }
-                else if (strcmp(op_text, "/=") == 0) { is_compound = true; compound_op = "/"; }
-                else if (strcmp(op_text, "%=") == 0) { is_compound = true; compound_op = "%"; }
-                else if (strcmp(op_text, "&=") == 0) { is_compound = true; compound_op = "&"; }
-                else if (strcmp(op_text, "|=") == 0) { is_compound = true; compound_op = "|"; }
-                else if (strcmp(op_text, "^=") == 0) { is_compound = true; compound_op = "^"; }
+                assign_op_type = op_node->assign_op.op;
+                is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
             }
 
             LLVMValueRef rhs_value;
-            
+
             if (is_compound)
             {
                 // For compound assignment, load current LHS value
@@ -2981,32 +2964,52 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     fprintf(stderr, "IRGen Error: Failed to process RHS expression in compound assignment.\n");
                     return NULL;
                 }
-                
+
                 // Determine if this is a floating point operation
                 LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
                 bool is_float = (lhs_kind == LLVMFloatTypeKind || lhs_kind == LLVMDoubleTypeKind);
-                
+
                 // Perform the operation
-                if (strcmp(compound_op, "+") == 0)
-                    rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp") 
+                switch (assign_op_type)
+                {
+                case ASSIGN_OP_ADD:
+                    rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp")
                                         : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
-                else if (strcmp(compound_op, "-") == 0)
-                    rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp") 
+                    break;
+                case ASSIGN_OP_SUB:
+                    rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp")
                                         : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
-                else if (strcmp(compound_op, "*") == 0)
-                    rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp") 
+                    break;
+                case ASSIGN_OP_MUL:
+                    rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp")
                                         : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
-                else if (strcmp(compound_op, "/") == 0)
-                    rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp") 
+                    break;
+                case ASSIGN_OP_DIV:
+                    rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp")
                                         : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
-                else if (strcmp(compound_op, "%") == 0)
+                    break;
+                case ASSIGN_OP_MOD:
                     rhs_value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_value, "rem_tmp");
-                else if (strcmp(compound_op, "&") == 0)
+                    break;
+                case ASSIGN_OP_AND:
                     rhs_value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_value, "and_tmp");
-                else if (strcmp(compound_op, "|") == 0)
+                    break;
+                case ASSIGN_OP_OR:
                     rhs_value = LLVMBuildOr(ctx->builder, lhs_value, rhs_value, "or_tmp");
-                else if (strcmp(compound_op, "^") == 0)
+                    break;
+                case ASSIGN_OP_XOR:
                     rhs_value = LLVMBuildXor(ctx->builder, lhs_value, rhs_value, "xor_tmp");
+                    break;
+                case ASSIGN_OP_SHL:
+                    rhs_value = LLVMBuildShl(ctx->builder, lhs_value, rhs_value, "shl_tmp");
+                    break;
+                case ASSIGN_OP_SHR:
+                    rhs_value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_value, "lshr_tmp");
+                    break;
+                default:
+                    fprintf(stderr, "IRGen Error: Unknown compound assignment operator.\n");
+                    return NULL;
+                }
             }
             else
             {

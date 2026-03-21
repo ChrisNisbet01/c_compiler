@@ -182,12 +182,15 @@ ArrayIndexPart = (LBracket Expression RBracket) @AST_ACTION_ARRAY_SUBSCRIPT;
 MemberAccessDotPart = (Dot Identifier) @AST_ACTION_MEMBER_ACCESS_DOT;
 MemberAccessArrowPart = (Arrow Identifier) @AST_ACTION_MEMBER_ACCESS_ARROW;
 
+PostfixIncOp = lexeme("++") @AST_ACTION_POSTFIX_OPERATOR;
+PostfixDecOp = lexeme("--") @AST_ACTION_POSTFIX_OPERATOR;
+
 PostfixPart = FunctionCallPart
             | ArrayIndexPart
             | MemberAccessDotPart
             | MemberAccessArrowPart
-            | IncOp
-            | DecOp
+            | PostfixIncOp
+            | PostfixDecOp
             ;
 
 PostfixExpression = (PrimaryExpression PostfixPart*) @AST_ACTION_POSTFIX_EXPRESSION;
@@ -251,7 +254,7 @@ ConditionalExpression = LogicalOrExpression (Question AssignmentExpression Colon
 AssignmentOp = ShlAssign | ShrAssign
                 | PlusAssign | MinusAssign | MulAssign | DivAssign | ModAssign
                 | AndAssign | XorAssign | OrAssign
-                | Assign @AST_ACTION_OPERATOR;
+                | Assign @AST_ACTION_ASSIGNMENT_OPERATOR;
 
 Assignment = UnaryExpression AssignmentOp AssignmentExpression @AST_ACTION_ASSIGNMENT;
 

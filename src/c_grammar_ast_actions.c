@@ -325,6 +325,58 @@ handle_decl_specifiers(
 }
 
 static void
+handle_assignment_operator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "AssignmentOperator expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_ASSIGNMENT_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+
+    char const * text = ast_node->data.terminal.text;
+    if (text)
+    {
+        if (strcmp(text, "=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_SIMPLE;
+        else if (strcmp(text, "<<=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_SHL;
+        else if (strcmp(text, ">>=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_SHR;
+        else if (strcmp(text, "+=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_ADD;
+        else if (strcmp(text, "-=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_SUB;
+        else if (strcmp(text, "*=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_MUL;
+        else if (strcmp(text, "/=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_DIV;
+        else if (strcmp(text, "%=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_MOD;
+        else if (strcmp(text, "&=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_AND;
+        else if (strcmp(text, "^=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_XOR;
+        else if (strcmp(text, "|=") == 0)
+            ast_node->assign_op.op = ASSIGN_OP_OR;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASSIGNMENT);
@@ -715,6 +767,40 @@ handle_function_call(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
 }
 
 static void
+handle_postfix_operator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            c_grammar_node_free(children[i], user_data);
+        }
+        epc_ast_builder_set_error(ctx, "PostfixOperator expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_POSTFIX_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+
+    char const * text = ast_node->data.terminal.text;
+    if (text)
+    {
+        if (strcmp(text, "++") == 0)
+            ast_node->postfix_op.op = POSTFIX_OP_INC;
+        else if (strcmp(text, "--") == 0)
+            ast_node->postfix_op.op = POSTFIX_OP_DEC;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_postfix_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -933,6 +1019,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LITERAL_SUFFIX, handle_literal_suffix);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_CALL, handle_function_call);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_EXPRESSION, handle_postfix_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_OPERATOR, handle_postfix_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARRAY_SUBSCRIPT, handle_array_index);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_ARROW, handle_member_access_arrow);
@@ -953,6 +1040,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_EXPRESSION, handle_shift_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARITHMETIC_EXPRESSION, handle_arithmetic_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT_OPERATOR, handle_assignment_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECL_SPECIFIERS, handle_decl_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);

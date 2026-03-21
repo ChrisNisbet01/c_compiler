@@ -64,6 +64,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_ARITHMETIC_EXPRESSION] = {.name = "ArithmeticExpression"},
     [AST_NODE_FUNCTION_CALL] = {.name = "FunctionCall"},
     [AST_NODE_POSTFIX_EXPRESSION] = {.name = "PostfixExpression"},
+    [AST_NODE_POSTFIX_OPERATOR] = {.name = "PostfixOperator"},
     [AST_NODE_ARRAY_SUBSCRIPT] = {.name = "ArraySubscript"},
     [AST_NODE_MEMBER_ACCESS_DOT] = {.name = "MemberAccessDot"},
     [AST_NODE_MEMBER_ACCESS_ARROW] = {.name = "MemberAccessArrow"},
@@ -87,6 +88,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_CASE_STATEMENT] = {.name = "CaseStatement"},
     [AST_NODE_DEFAULT_STATEMENT] = {.name = "DefaultStatement"},
     [AST_NODE_LABELED_IDENTIFIER] = {.name = "LabeledIdentifier"},
+    [AST_NODE_ASSIGNMENT_OPERATOR] = {.name = "AssignmentOperator"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

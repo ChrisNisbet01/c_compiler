@@ -2,7 +2,7 @@
 
 **Goal**: Shift complexity from IR generator to AST building code by replacing strcmp-based operator detection with pre-computed enum values.
 
-**Status**: Phase 1 COMPLETE
+**Status**: ✅ ALL PHASES COMPLETE
 
 ---
 
@@ -148,12 +148,21 @@ The IR generator (`llvm_ir_generator.c`) has 39 strcmp() calls for operator text
 **Target**: `c_grammar.gdl` lines 185-193, `llvm_ir_generator.c` lines 2699-2720
 
 **Changes**:
-- [ ] AST Header: Add `postfix_operator_type_t` enum (`INC`, `DEC`)
-- [ ] AST Header: Add `postfix_op` field to union
-- [ ] AST Actions: Update `handle_postfix_expression()` to detect and set enum
-- [ ] IR Generator: Replace 3 strcmp calls with enum switch
+- [x] Grammar: Add `PostfixIncOp` and `PostfixDecOp` rules with `@AST_ACTION_POSTFIX_OPERATOR`
+- [x] AST Header: Add `postfix_operator_type_t` enum (`INC`, `DEC`)
+- [x] AST Header: Add `postfix_op` field to union
+- [x] AST Header: Add `AST_NODE_POSTFIX_OPERATOR` node type
+- [x] AST Actions: Add `handle_postfix_operator()` function
+- [x] IR Generator: Update to check `AST_NODE_POSTFIX_OPERATOR` instead of `AST_NODE_OPERATOR` with strcmp
 
-**Tests**: Run test suite after completion
+**Status**: ✅ COMPLETE (34/34 tests pass)
+
+**Files modified**:
+- `src/c_grammar.gdl` - Added `PostfixIncOp` and `PostfixDecOp` rules
+- `src/c_grammar_ast.h` - Added `postfix_operator_type_t` enum, `postfix_operator_data_t` struct, `postfix_op` union field, `AST_NODE_POSTFIX_OPERATOR`
+- `src/c_grammar_ast_actions.c` - Added `handle_postfix_operator()` function
+- `src/llvm_ir_generator.c` - Updated to use `AST_NODE_POSTFIX_OPERATOR` and `postfix_op.op` enum
+- `src/main.c` - Added `PostfixOperator` to node type names
 
 ---
 
@@ -162,13 +171,21 @@ The IR generator (`llvm_ir_generator.c`) has 39 strcmp() calls for operator text
 **Target**: `c_grammar.gdl` lines 251-256, `llvm_ir_generator.c` lines 2954-3008
 
 **Changes**:
-- [ ] Grammar: Add new `AssignmentOp` rule with `@AST_ACTION_ASSIGNMENT_OPERATOR`
-- [ ] AST Header: Add `assignment_operator_type_t` enum (`SIMPLE`, `SHL`, `SHR`, `ADD`, `SUB`, `MUL`, `DIV`, `MOD`, `AND`, `XOR`, `OR`)
-- [ ] AST Header: Add `assign_op` field to union
-- [ ] AST Actions: Add `handle_assignment_operator()` to set enum
-- [ ] IR Generator: Replace 16 strcmp calls with enum switch
+- [x] Grammar: Add `@AST_ACTION_ASSIGNMENT_OPERATOR` to `AssignmentOp` rule
+- [x] AST Header: Add `assignment_operator_type_t` enum (`SIMPLE`, `SHL`, `SHR`, `ADD`, `SUB`, `MUL`, `DIV`, `MOD`, `AND`, `XOR`, `OR`)
+- [x] AST Header: Add `assign_op` field to union
+- [x] AST Header: Add `AST_NODE_ASSIGNMENT_OPERATOR` node type
+- [x] AST Actions: Add `handle_assignment_operator()` to set enum
+- [x] IR Generator: Replace strcmp calls with enum switch for all compound assignment operators
 
-**Tests**: Run test suite after completion
+**Status**: ✅ COMPLETE (34/34 tests pass)
+
+**Files modified**:
+- `src/c_grammar.gdl` - Changed `AssignmentOp` to use `@AST_ACTION_ASSIGNMENT_OPERATOR`
+- `src/c_grammar_ast.h` - Added `assignment_operator_type_t` enum, `assignment_operator_data_t` struct, `assign_op` union field, `AST_NODE_ASSIGNMENT_OPERATOR`
+- `src/c_grammar_ast_actions.c` - Added `handle_assignment_operator()` function
+- `src/llvm_ir_generator.c` - Refactored compound assignment handling to use enum switch
+- `src/main.c` - Added `AssignmentOperator` to node type names
 
 ---
 
@@ -189,9 +206,9 @@ The IR generator (`llvm_ir_generator.c`) has 39 strcmp() calls for operator text
 
 ## Completion Criteria
 
-- [ ] All 33 tests pass after each phase
-- [ ] Zero strcmp() calls for operator comparison in IR generator
-- [ ] All operator types represented by enums in AST nodes
+- [x] All 34 tests pass after each phase
+- [x] Zero strcmp() calls for operator comparison in IR generator (except bitwise which already used enums)
+- [x] All operator types represented by enums in AST nodes
 
 ---
 
