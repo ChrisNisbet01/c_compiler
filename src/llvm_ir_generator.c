@@ -1685,9 +1685,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_SWITCH_STATEMENT:
     {
-        // AST structure: SwitchStatement: [SwitchExpression, CompoundStatement with CaseLabels/DefaultStatements/Statements]
+        // Process switch using reverse-order approach for simpler fallthrough handling
+        // AST structure: SwitchStatement: [SwitchExpression, CompoundStatement with CaseLabels/DefaultStatements]
         // CaseLabel: [case_expr, statement*]
-        // DefaultStatement: [ColonStatement?]
+        // DefaultStatement: [statement*]
         if (node->data.list.count < 2)
         {
             fprintf(stderr, "IRGen Error: Invalid SwitchStatement AST node.\n");
@@ -1713,22 +1714,22 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMBasicBlockRef old_break_target = ctx->break_target;
         ctx->break_target = after_switch;
 
-        // Collect all case labels and default from the compound statement
+        // Collect all items (cases and default) in order
         typedef struct
         {
+            bool is_default;
             LLVMValueRef case_value;
-            c_grammar_node_t * case_node;
-            LLVMBasicBlockRef target_block;
+            c_grammar_node_t * node;
             LLVMBasicBlockRef body_block;
             bool has_body;
-        } case_info_t;
+        } switch_item_t;
 
-        case_info_t * cases = NULL;
-        size_t num_cases = 0;
-        size_t cases_capacity = 16;
-        cases = malloc(cases_capacity * sizeof(case_info_t));
+        switch_item_t * items = NULL;
+        size_t num_items = 0;
+        size_t items_capacity = 16;
+        items = malloc(items_capacity * sizeof(switch_item_t));
 
-        c_grammar_node_t * default_stmt = NULL;
+        size_t default_idx = SIZE_MAX;
 
         if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
         {
@@ -1738,169 +1739,156 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 if (child->type == AST_NODE_CASE_LABEL)
                 {
-                    // CaseLabel: [case_expr, statement*]
                     if (child->data.list.count >= 1)
                     {
-                        if (num_cases >= cases_capacity)
+                        if (num_items >= items_capacity)
                         {
-                            cases_capacity *= 2;
-                            cases = realloc(cases, cases_capacity * sizeof(case_info_t));
+                            items_capacity *= 2;
+                            items = realloc(items, items_capacity * sizeof(switch_item_t));
                         }
-
                         c_grammar_node_t * case_expr = child->data.list.children[0];
-                        cases[num_cases].case_value = process_expression(ctx, case_expr);
-                        cases[num_cases].case_node = child;
-                        cases[num_cases].target_block = NULL;
-                        num_cases++;
+                        items[num_items].is_default = false;
+                        items[num_items].case_value = process_expression(ctx, case_expr);
+                        items[num_items].node = child;
+                        items[num_items].has_body = (child->data.list.count > 1);
+                        items[num_items].body_block = NULL;
+                        num_items++;
                     }
                 }
                 else if (child->type == AST_NODE_DEFAULT_STATEMENT)
                 {
-                    default_stmt = child;
-                }
-            }
-        }
-
-        // Create default target block if needed
-        LLVMBasicBlockRef default_target = (default_stmt != NULL)
-            ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_default")
-            : after_switch;
-
-        // First pass: determine which cases have bodies
-        for (size_t i = 0; i < num_cases; i++)
-        {
-            cases[i].has_body = (cases[i].case_node->data.list.count > 1);
-        }
-
-        // Second pass: create blocks for cases with bodies
-        for (size_t i = 0; i < num_cases; i++)
-        {
-            if (cases[i].has_body)
-            {
-                char block_name[64];
-                snprintf(block_name, sizeof(block_name), "case_body_%zu", i);
-                cases[i].body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
-            }
-            else
-            {
-                cases[i].body_block = NULL;
-            }
-        }
-
-        // Third pass: determine fallthrough targets for cases without bodies
-        // A case without a body falls through to the next case WITH a body
-        for (size_t i = 0; i < num_cases; i++)
-        {
-            if (!cases[i].has_body)
-            {
-                // Find the next case with a body
-                LLVMBasicBlockRef fallthrough_target = NULL;
-                for (size_t j = i + 1; j < num_cases; j++)
-                {
-                    if (cases[j].has_body)
+                    if (num_items >= items_capacity)
                     {
-                        fallthrough_target = cases[j].body_block;
-                        break;
+                        items_capacity *= 2;
+                        items = realloc(items, items_capacity * sizeof(switch_item_t));
                     }
+                    items[num_items].is_default = true;
+                    items[num_items].case_value = NULL;
+                    items[num_items].node = child;
+                    items[num_items].has_body = (child->data.list.count > 0);
+                    items[num_items].body_block = NULL;
+                    default_idx = num_items;
+                    num_items++;
                 }
-                if (!fallthrough_target)
-                {
-                    fallthrough_target = default_stmt ? default_target : after_switch;
-                }
-                cases[i].target_block = fallthrough_target;
             }
         }
 
-        // Fourth pass: determine switch targets for cases with bodies
-        for (size_t i = 0; i < num_cases; i++)
+        // Reverse-order processing: start with after_switch
+        // Process from last item to first, creating blocks and code
+        LLVMBasicBlockRef next_block = after_switch;
+        bool default_has_body = false;
+
+        for (size_t i = num_items; i > 0; --i)
         {
-            if (cases[i].has_body)
+            size_t idx = i - 1;
+            switch_item_t * item = &items[idx];
+
+            if (item->has_body)
             {
-                cases[i].target_block = cases[i].body_block;
+                // Create body block for this item
+                char block_name[64];
+                if (item->is_default)
+                {
+                    snprintf(block_name, sizeof(block_name), "switch_default");
+                    item->body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
+                    default_has_body = true;
+                }
+                else
+                {
+                    snprintf(block_name, sizeof(block_name), "case_body_%zu", idx);
+                    item->body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
+                }
+                next_block = item->body_block;
             }
+            // If no body, this item falls through to next_block
         }
 
-        // Create switch entry block
+        // Now create the switch instruction and add all cases
         LLVMBasicBlockRef switch_entry = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_entry");
         LLVMBuildBr(ctx->builder, switch_entry);
-
-        // Generate switch comparison
         LLVMPositionBuilderAtEnd(ctx->builder, switch_entry);
 
-        LLVMValueRef switch_inst = LLVMBuildSwitch(ctx->builder, switch_val, default_target, (unsigned)num_cases);
+        LLVMBasicBlockRef default_target = default_has_body ? items[default_idx].body_block : after_switch;
+        LLVMValueRef switch_inst = LLVMBuildSwitch(ctx->builder, switch_val, default_target, (unsigned)num_items);
 
-        // Add all cases to switch
-        // Cases without bodies will fall through to the next case with a body
-        for (size_t i = 0; i < num_cases; i++)
+        // Add all cases to switch (use stored body_block as target)
+        for (size_t i = 0; i < num_items; i++)
         {
-            LLVMAddCase(switch_inst, cases[i].case_value, cases[i].target_block);
+            if (!items[i].is_default)
+            {
+                LLVMBasicBlockRef target;
+                if (items[i].has_body)
+                {
+                    target = items[i].body_block;
+                }
+                else
+                {
+                    // Fall through to next item with a body, or after_switch
+                    target = after_switch;
+                    for (size_t j = i + 1; j < num_items; j++)
+                    {
+                        if (items[j].has_body)
+                        {
+                            target = items[j].body_block;
+                            break;
+                        }
+                    }
+                }
+                LLVMAddCase(switch_inst, items[i].case_value, target);
+            }
         }
 
-        // Process each case body
-        for (size_t i = 0; i < num_cases; i++)
+        // Process bodies in forward order, each falls through to its next_block
+        for (size_t i = 0; i < num_items; i++)
         {
-            if (!cases[i].has_body)
+            if (!items[i].has_body)
             {
-                // Skip cases without bodies
                 continue;
             }
 
-            LLVMPositionBuilderAtEnd(ctx->builder, cases[i].body_block);
+            LLVMPositionBuilderAtEnd(ctx->builder, items[i].body_block);
 
-            // CaseLabel: [case_expr, statement*]
-            // Skip the case_expr (first child) and process remaining statements
-            for (size_t j = 1; j < cases[i].case_node->data.list.count; ++j)
+            // Determine what to fall through to
+            LLVMBasicBlockRef fallthrough_target = after_switch;
+            for (size_t j = i + 1; j < num_items; j++)
             {
-                c_grammar_node_t * stmt = cases[i].case_node->data.list.children[j];
-                process_ast_node(ctx, stmt);
-
-                // If we hit a break, stop processing
-                if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+                if (items[j].has_body)
                 {
+                    fallthrough_target = items[j].body_block;
                     break;
                 }
             }
 
-            // If no terminator, fall through to next case with body, default, or after
-            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+            // Process the body
+            if (items[i].is_default)
             {
-                // Find next case with body
-                LLVMBasicBlockRef fallthrough_target = NULL;
-                for (size_t j = i + 1; j < num_cases; j++)
+                // DefaultStatement: process all children
+                for (size_t k = 0; k < items[i].node->data.list.count; ++k)
                 {
-                    if (cases[j].has_body)
+                    process_ast_node(ctx, items[i].node->data.list.children[k]);
+                    if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
                     {
-                        fallthrough_target = cases[j].body_block;
                         break;
                     }
                 }
-                if (!fallthrough_target)
-                {
-                    fallthrough_target = default_stmt ? default_target : after_switch;
-                }
-                LLVMBuildBr(ctx->builder, fallthrough_target);
             }
-        }
-
-        // Process default block
-        if (default_stmt)
-        {
-            LLVMPositionBuilderAtEnd(ctx->builder, default_target);
-            // DefaultStatement: children are the statements
-            for (size_t j = 0; j < default_stmt->data.list.count; ++j)
+            else
             {
-                c_grammar_node_t * stmt = default_stmt->data.list.children[j];
-                process_ast_node(ctx, stmt);
-
-                if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+                // CaseLabel: skip first child (case_expr), process rest
+                for (size_t k = 1; k < items[i].node->data.list.count; ++k)
                 {
-                    break;
+                    process_ast_node(ctx, items[i].node->data.list.children[k]);
+                    if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+                    {
+                        break;
+                    }
                 }
             }
 
+            // Add fallthrough if no terminator
             if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
             {
-                LLVMBuildBr(ctx->builder, after_switch);
+                LLVMBuildBr(ctx->builder, fallthrough_target);
             }
         }
 
@@ -1910,7 +1898,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Continue from after switch
         LLVMPositionBuilderAtEnd(ctx->builder, after_switch);
 
-        free(cases);
+        free(items);
         break;
     }
     case AST_NODE_IF_STATEMENT:
