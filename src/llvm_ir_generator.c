@@ -3068,6 +3068,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
     case AST_NODE_EQUALITY_EXPRESSION:
     case AST_NODE_BITWISE_EXPRESSION:
     case AST_NODE_SHIFT_EXPRESSION:
+    case AST_NODE_ARITHMETIC_EXPRESSION:
     {
         // Handle binary operations like '+', '-', '*', '/', etc.
         // chainl1 can produce nested structures.
@@ -3109,17 +3110,39 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 lhs_val = process_expression(ctx, node->data.list.children[0]);
                 rhs_val = process_expression(ctx, node->data.list.children[2]);
 
-                // Check for shift expression first (uses enum)
+                // Use enum for shift and arithmetic expressions
                 if (node->type == AST_NODE_SHIFT_EXPRESSION)
                 {
                     switch (node->shift_op.op)
                     {
                     case SHIFT_OP_LL:
-                        op_str = "<<";
-                        break;
+                        return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
                     case SHIFT_OP_AR:
-                        op_str = ">>";
-                        break;
+                        return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
+                    }
+                }
+                else if (node->type == AST_NODE_ARITHMETIC_EXPRESSION)
+                {
+                    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+                    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+                    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+                    switch (node->arith_op.op)
+                    {
+                    case ARITH_OP_ADD:
+                        return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
+                                           : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
+                    case ARITH_OP_SUB:
+                        return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
+                                           : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
+                    case ARITH_OP_MUL:
+                        return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
+                                           : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
+                    case ARITH_OP_DIV:
+                        return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
+                                           : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+                    case ARITH_OP_MOD:
+                        return LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
                     }
                 }
                 else
@@ -3140,22 +3163,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 // Check if the type is a float or double
                 bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
-                if (strcmp(op_str, "+") == 0)
-                    return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
-                                       : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
-                if (strcmp(op_str, "-") == 0)
-                    return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
-                                       : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
-                if (strcmp(op_str, "*") == 0)
-                    return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
-                                       : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
-                if (strcmp(op_str, "/") == 0)
-                    return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
-                                       : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
-                if (strcmp(op_str, "%") == 0)
-                    return is_float_op ? LLVMBuildFRem(ctx->builder, lhs_val, rhs_val, "frem_tmp")
-                                       : LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
-
                 if (strcmp(op_str, "==") == 0)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
@@ -3175,17 +3182,13 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                     return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
                                        : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
 
-                // Bitwise Operators
+                // Bitwise Operators (still using strcmp)
                 if (strcmp(op_str, "&") == 0)
                     return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
                 if (strcmp(op_str, "|") == 0)
                     return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
                 if (strcmp(op_str, "^") == 0)
                     return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
-                if (strcmp(op_str, "<<") == 0)
-                    return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
-                if (strcmp(op_str, ">>") == 0)
-                    return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
             }
         }
         return NULL;

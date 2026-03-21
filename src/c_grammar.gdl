@@ -222,10 +222,10 @@ CastExpressionRaw = CastExpressionWrap | UnaryExpression;
 CastExpression = memoize(CastExpressionRaw);
 
 MulOp = Star | Slash | Percent @AST_ACTION_OPERATOR;
-MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_BINARY_OP;
+MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_ARITHMETIC_EXPRESSION;
 
 AddOp = Plus | Minus @AST_ACTION_OPERATOR;
-AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_BINARY_OP;
+AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_ARITHMETIC_EXPRESSION;
 
 ShiftOp = Shl | Shr @AST_ACTION_OPERATOR;
 ShiftExpression = chainl1(AdditiveExpression, ShiftOp) @AST_ACTION_SHIFT_EXPRESSION;
