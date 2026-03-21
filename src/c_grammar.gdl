@@ -153,8 +153,8 @@ PipePipe = lexeme("||");
 Excl = lexeme('!' not('='));
 Question = lexeme('?');
 
-IncOp = lexeme("++");
-DecOp = lexeme("--");
+IncOp = lexeme("++") @AST_ACTION_OPERATOR;
+DecOp = lexeme("--") @AST_ACTION_OPERATOR;
 
 // --- Grammar Rules ---
 
@@ -196,16 +196,14 @@ UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl @AST_ACTION_OPERATOR;
 
 KwSizeofAST = KwSizeof @AST_ACTION_OPERATOR;
 KwAlignofAST = KwAlignof @AST_ACTION_OPERATOR;
-IncOpAST = IncOp @AST_ACTION_OPERATOR;
-DecOpAST = DecOp @AST_ACTION_OPERATOR;
 
 UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (KwSizeofAST UnaryExpression)
                       | (KwAlignofAST LParen TypeName RParen)
                       | (KwAlignofAST UnaryExpression)
                       | (UnaryOp UnaryExpression)
-                      | (IncOpAST UnaryExpression)
-                      | (DecOpAST UnaryExpression)
+                      | (IncOp UnaryExpression)
+                      | (DecOp UnaryExpression)
                       @AST_ACTION_UNARY_OP;
 
 UnaryExpressionRaw = UnaryExpressionPrefix

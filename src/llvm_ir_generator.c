@@ -1151,30 +1151,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
-                c_grammar_node_t * child = node->data.list.children[i];
-                
-                // Handle the case where identifier is followed by ++ (parser limitation)
-                // If child is just an identifier, treat it as increment
-                if (child && child->type == AST_NODE_IDENTIFIER && child->is_terminal_node)
-                {
-                    LLVMValueRef var_ptr;
-                    LLVMTypeRef var_type;
-                    if (find_symbol(ctx, child->data.terminal.text, &var_ptr, &var_type))
-                    {
-                        LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "inc_val");
-                        LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-                        LLVMTypeKind kind = LLVMGetTypeKind(var_type);
-                        LLVMValueRef new_val;
-                        if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                            new_val = LLVMBuildFAdd(ctx->builder, current_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
-                        else
-                            new_val = LLVMBuildAdd(ctx->builder, current_val, one, "inc_tmp");
-                        LLVMBuildStore(ctx->builder, new_val, var_ptr);
-                        continue;
-                    }
-                }
-                
-                process_expression(ctx, child);
+                process_expression(ctx, node->data.list.children[i]);
             }
         }
         break;
@@ -1571,30 +1548,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // 4. Emit Post block
         LLVMPositionBuilderAtEnd(ctx->builder, post_block);
-        
-        // Handle post expression: if it's just an identifier, treat it as increment (i++)
-        // This handles the case where the parser doesn't recognize ++ as a postfix suffix
-        if (post_node && post_node->type == AST_NODE_IDENTIFIER && post_node->is_terminal_node)
-        {
-            LLVMValueRef var_ptr;
-            LLVMTypeRef var_type;
-            if (find_symbol(ctx, post_node->data.terminal.text, &var_ptr, &var_type))
-            {
-                LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "inc_val");
-                LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-                LLVMTypeKind kind = LLVMGetTypeKind(var_type);
-                LLVMValueRef new_val;
-                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                    new_val = LLVMBuildFAdd(ctx->builder, current_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
-                else
-                    new_val = LLVMBuildAdd(ctx->builder, current_val, one, "inc_tmp");
-                LLVMBuildStore(ctx->builder, new_val, var_ptr);
-            }
-        }
-        else
-        {
-            process_expression(ctx, post_node);
-        }
+        process_expression(ctx, post_node);
         LLVMBuildBr(ctx->builder, cond_block);
 
         // 5. Continue from after block
@@ -2485,6 +2439,53 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                         }
                         LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
                         base_val = LLVMBuildLoad2(ctx->builder, member_type, member_ptr, "member");
+                    }
+                }
+            }
+            else if (suffix->type == AST_NODE_OPERATOR)
+            {
+                // Handle postfix increment/decrement: i++ or i--
+                if (have_ptr && current_ptr && current_type)
+                {
+                    // Load current value
+                    LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "postfix_val");
+                    
+                    // Get the operator text
+                    char const * op_text = NULL;
+                    if (suffix->is_terminal_node)
+                    {
+                        op_text = suffix->data.terminal.text;
+                    }
+                    
+                    if (op_text && (strcmp(op_text, "++") == 0 || strcmp(op_text, "--") == 0))
+                    {
+                        // Create increment/decrement value
+                        LLVMTypeKind kind = LLVMGetTypeKind(current_type);
+                        LLVMValueRef one;
+                        LLVMValueRef new_val;
+                        
+                        if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                        {
+                            one = LLVMConstReal(current_type, 1.0);
+                            if (strcmp(op_text, "++") == 0)
+                                new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
+                            else
+                                new_val = LLVMBuildFSub(ctx->builder, current_val, one, "postfix_dec");
+                        }
+                        else
+                        {
+                            one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+                            if (strcmp(op_text, "++") == 0)
+                                new_val = LLVMBuildAdd(ctx->builder, current_val, one, "postfix_inc");
+                            else
+                                new_val = LLVMBuildSub(ctx->builder, current_val, one, "postfix_dec");
+                        }
+                        
+                        // Store the new value
+                        LLVMBuildStore(ctx->builder, new_val, current_ptr);
+                        
+                        // Postfix returns the original value (current_val)
+                        base_val = current_val;
                     }
                 }
             }
