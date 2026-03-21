@@ -262,15 +262,15 @@ find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr,
         return false;
     }
 
-    // Search for the symbol by name
-    for (size_t i = 0; i < ctx->symbol_count; ++i)
+    // Search for the symbol by name, starting from the most recent (inner scope)
+    for (size_t i = ctx->symbol_count; i > 0; --i)
     {
-        if (ctx->symbol_table[i].name != NULL && strcmp(ctx->symbol_table[i].name, name) == 0)
+        if (ctx->symbol_table[i - 1].name != NULL && strcmp(ctx->symbol_table[i - 1].name, name) == 0)
         {
             if (out_ptr)
-                *out_ptr = ctx->symbol_table[i].ptr;
+                *out_ptr = ctx->symbol_table[i - 1].ptr;
             if (out_type)
-                *out_type = ctx->symbol_table[i].type;
+                *out_type = ctx->symbol_table[i - 1].type;
             return true;
         }
     }
@@ -1151,7 +1151,30 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
-                process_expression(ctx, node->data.list.children[i]);
+                c_grammar_node_t * child = node->data.list.children[i];
+                
+                // Handle the case where identifier is followed by ++ (parser limitation)
+                // If child is just an identifier, treat it as increment
+                if (child && child->type == AST_NODE_IDENTIFIER && child->is_terminal_node)
+                {
+                    LLVMValueRef var_ptr;
+                    LLVMTypeRef var_type;
+                    if (find_symbol(ctx, child->data.terminal.text, &var_ptr, &var_type))
+                    {
+                        LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "inc_val");
+                        LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+                        LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                        LLVMValueRef new_val;
+                        if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                            new_val = LLVMBuildFAdd(ctx->builder, current_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
+                        else
+                            new_val = LLVMBuildAdd(ctx->builder, current_val, one, "inc_tmp");
+                        LLVMBuildStore(ctx->builder, new_val, var_ptr);
+                        continue;
+                    }
+                }
+                
+                process_expression(ctx, child);
             }
         }
         break;
@@ -1548,7 +1571,30 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // 4. Emit Post block
         LLVMPositionBuilderAtEnd(ctx->builder, post_block);
-        process_expression(ctx, post_node);
+        
+        // Handle post expression: if it's just an identifier, treat it as increment (i++)
+        // This handles the case where the parser doesn't recognize ++ as a postfix suffix
+        if (post_node && post_node->type == AST_NODE_IDENTIFIER && post_node->is_terminal_node)
+        {
+            LLVMValueRef var_ptr;
+            LLVMTypeRef var_type;
+            if (find_symbol(ctx, post_node->data.terminal.text, &var_ptr, &var_type))
+            {
+                LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "inc_val");
+                LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+                LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                LLVMValueRef new_val;
+                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                    new_val = LLVMBuildFAdd(ctx->builder, current_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
+                else
+                    new_val = LLVMBuildAdd(ctx->builder, current_val, one, "inc_tmp");
+                LLVMBuildStore(ctx->builder, new_val, var_ptr);
+            }
+        }
+        else
+        {
+            process_expression(ctx, post_node);
+        }
         LLVMBuildBr(ctx->builder, cond_block);
 
         // 5. Continue from after block
@@ -1603,6 +1649,59 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             LLVMBuildBr(ctx->builder, cond_block);
         }
+
+        // --- Continue from after block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+        break;
+    }
+    case AST_NODE_DO_WHILE_STATEMENT:
+    {
+        // AST structure for DoWhileStatement: [BodyStatement, ConditionExpression]
+        if (node->data.list.count < 2)
+        {
+            fprintf(stderr, "IRGen Error: Invalid DoWhileStatement AST node.\n");
+            return;
+        }
+
+        c_grammar_node_t * body_node = node->data.list.children[0];
+        c_grammar_node_t * condition_node = node->data.list.children[1];
+
+        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+        LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_body");
+        LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_cond");
+        LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_after");
+
+        // Jump to body block
+        LLVMBuildBr(ctx->builder, body_block);
+
+        // --- Emit body block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, body_block);
+        process_ast_node(ctx, body_node);
+        // Jump to condition
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+        {
+            LLVMBuildBr(ctx->builder, cond_block);
+        }
+
+        // --- Emit condition block ---
+        LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
+        LLVMValueRef condition_val = process_expression(ctx, condition_node);
+        if (!condition_val)
+        {
+            fprintf(stderr, "IRGen Error: Failed to process condition for DoWhileStatement.\n");
+            return;
+        }
+
+        // Convert condition to bool (i1) if it's not already.
+        LLVMTypeRef cond_type = LLVMTypeOf(condition_val);
+        if (cond_type != LLVMInt1TypeInContext(ctx->context))
+        {
+            LLVMValueRef zero = LLVMConstNull(cond_type);
+            condition_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val, zero, "do_cond_bool");
+        }
+
+        LLVMBuildCondBr(ctx->builder, condition_val, body_block, after_block);
 
         // --- Continue from after block ---
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
@@ -2612,12 +2711,72 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
                 return NULL;
             }
 
-            // Process the RHS expression to get its LLVM ValueRef.
-            LLVMValueRef rhs_value = process_expression(ctx, rhs_node);
-            if (!rhs_value)
+            // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
+            c_grammar_node_t * op_node = node->data.list.children[1];
+            bool is_compound = false;
+            char const * compound_op = NULL;
+            
+            if (op_node && op_node->type == AST_NODE_OPERATOR && op_node->is_terminal_node)
             {
-                fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
-                return NULL;
+                char const * op_text = op_node->data.terminal.text;
+                if (strcmp(op_text, "+=") == 0) { is_compound = true; compound_op = "+"; }
+                else if (strcmp(op_text, "-=") == 0) { is_compound = true; compound_op = "-"; }
+                else if (strcmp(op_text, "*=") == 0) { is_compound = true; compound_op = "*"; }
+                else if (strcmp(op_text, "/=") == 0) { is_compound = true; compound_op = "/"; }
+                else if (strcmp(op_text, "%=") == 0) { is_compound = true; compound_op = "%"; }
+                else if (strcmp(op_text, "&=") == 0) { is_compound = true; compound_op = "&"; }
+                else if (strcmp(op_text, "|=") == 0) { is_compound = true; compound_op = "|"; }
+                else if (strcmp(op_text, "^=") == 0) { is_compound = true; compound_op = "^"; }
+            }
+
+            LLVMValueRef rhs_value;
+            
+            if (is_compound)
+            {
+                // For compound assignment, load current LHS value
+                LLVMValueRef lhs_value = LLVMBuildLoad2(ctx->builder, lhs_type, lhs_ptr, "lhs_load");
+                rhs_value = process_expression(ctx, rhs_node);
+                if (!rhs_value)
+                {
+                    fprintf(stderr, "IRGen Error: Failed to process RHS expression in compound assignment.\n");
+                    return NULL;
+                }
+                
+                // Determine if this is a floating point operation
+                LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
+                bool is_float = (lhs_kind == LLVMFloatTypeKind || lhs_kind == LLVMDoubleTypeKind);
+                
+                // Perform the operation
+                if (strcmp(compound_op, "+") == 0)
+                    rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp") 
+                                        : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
+                else if (strcmp(compound_op, "-") == 0)
+                    rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp") 
+                                        : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
+                else if (strcmp(compound_op, "*") == 0)
+                    rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp") 
+                                        : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
+                else if (strcmp(compound_op, "/") == 0)
+                    rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp") 
+                                        : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
+                else if (strcmp(compound_op, "%") == 0)
+                    rhs_value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_value, "rem_tmp");
+                else if (strcmp(compound_op, "&") == 0)
+                    rhs_value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_value, "and_tmp");
+                else if (strcmp(compound_op, "|") == 0)
+                    rhs_value = LLVMBuildOr(ctx->builder, lhs_value, rhs_value, "or_tmp");
+                else if (strcmp(compound_op, "^") == 0)
+                    rhs_value = LLVMBuildXor(ctx->builder, lhs_value, rhs_value, "xor_tmp");
+            }
+            else
+            {
+                // Process the RHS expression to get its LLVM ValueRef.
+                rhs_value = process_expression(ctx, rhs_node);
+                if (!rhs_value)
+                {
+                    fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
+                    return NULL;
+                }
             }
 
             // Generate the store instruction.
@@ -2891,6 +3050,48 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t * node)
         {
             return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
         }
+        
+        // Handle postfix increment/decrement (++ and --)
+        if (strcmp(op_str, "++") == 0 || strcmp(op_str, "--") == 0)
+        {
+            // operand_val is the value after increment/decrement
+            // We need to load the original value, then increment/decrement, then store
+            LLVMValueRef var_ptr = NULL;
+            LLVMTypeRef var_type = NULL;
+            
+            if (operand_node->type == AST_NODE_IDENTIFIER)
+            {
+                var_ptr = get_variable_pointer(ctx, operand_node, &var_type);
+            }
+            
+            if (var_ptr && var_type)
+            {
+                LLVMValueRef original_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "orig_val");
+                LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
+                
+                LLVMValueRef new_val;
+                if (strcmp(op_str, "++") == 0)
+                {
+                    LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                    if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                        new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
+                    else
+                        new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
+                }
+                else
+                {
+                    LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                    if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                        new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "dec_tmp");
+                    else
+                        new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
+                }
+                
+                LLVMBuildStore(ctx->builder, new_val, var_ptr);
+                return original_val; // Postfix returns the original value
+            }
+        }
+        
         return operand_val;
     }
     // TODO: Add cases for other expression types (unary ops, function calls, etc.).
