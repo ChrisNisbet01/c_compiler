@@ -39,7 +39,8 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         free_ast_node_children((void **)node->data.list.children, node->data.list.count, user_data);
         free(node->data.list.children);
     }
-
+    c_grammar_node_free(node->lhs, user_data);
+    c_grammar_node_free(node->rhs, user_data);
     free(node);
 }
 
@@ -193,27 +194,58 @@ handle_float_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 }
 
 static void
-handle_integer_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+handle_integer_literal(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
     /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "Integer value expected 1 or 2 children, but got %u", count);
+        epc_ast_builder_set_error(ctx, "Integer literal expected 1 or 2 children, but got %u", count);
         return;
     }
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INTEGER_VALUE);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_INTEGER_LITERAL, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+
+    // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
+    ast_node->integer_literal.value = strtoull(ast_node->data.terminal.text, NULL, 0);
+
+    if (count == 2)
+    {
+        c_grammar_node_t * suffix_node = children[1];
+        char * suffix_text = suffix_node->is_terminal_node ? suffix_node->data.terminal.text : NULL;
+
+        if (suffix_text != NULL)
+        {
+            if (strchr(suffix_text, 'u') || strchr(suffix_text, 'U'))
+            {
+                ast_node->integer_literal.is_unsigned = true;
+            }
+            if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+            {
+                ast_node->integer_literal.is_long = true;
+            }
+        }
+    }
+
+    free_ast_node_children(children, count, user_data);
+
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_float_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "Float value expected 1 or 2 children, but got %u", count);
+        epc_ast_builder_set_error(ctx, "Float literal expected 1 or 2 children, but got %u", count);
         return;
     }
     c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_FLOAT_LITERAL, node);
@@ -1012,8 +1044,8 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_IDENTIFIER, handle_identifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_BASE, handle_integer_base);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_BASE, handle_float_base);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_VALUE, handle_integer_value);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_VALUE, handle_float_value);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_VALUE, handle_integer_literal);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_VALUE, handle_float_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRING_LITERAL, handle_string_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CHARACTER_LITERAL, handle_character_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LITERAL_SUFFIX, handle_literal_suffix);

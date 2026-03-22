@@ -176,8 +176,10 @@ process_initializer_list(
                 break;
 
             // Skip terminal nodes like LBRACE, RBRACE, COMMA
-            if (child->is_terminal_node)
+            if (child->is_terminal_node && child->type != AST_NODE_INTEGER_LITERAL)
+            {
                 continue;
+            }
 
             // If child is an INITIALIZER_LIST, create GEP to the row and recurse
             if (child->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
@@ -213,7 +215,7 @@ process_initializer_list(
             }
 
             // For array types, create a GEP to the element and recurse
-            if (kind == LLVMArrayTypeKind && child->data.list.count > 0 && child->type != AST_NODE_INTEGER_VALUE)
+            if (kind == LLVMArrayTypeKind && child->type != AST_NODE_INTEGER_LITERAL && child->data.list.count > 0)
             {
                 LLVMTypeRef nested_element = LLVMGetElementType(element_type);
                 LLVMValueRef indices[2];
@@ -238,7 +240,9 @@ process_initializer_list(
                     LLVMBuildStore(ctx->builder, value, elem_ptr);
                     local_index++;
                     if (outer_index)
+                    {
                         (*outer_index)++;
+                    }
                 }
             }
         }
@@ -744,22 +748,15 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 for (size_t j = 0; j < child->data.list.count; ++j)
                 {
                     c_grammar_node_t * suffix_child = child->data.list.children[j];
-                    // For array declarations like int arr[5], the suffix contains IntegerValue directly
-                    if (suffix_child && !suffix_child->is_terminal_node)
+                    // For array declarations like int arr[5], the suffix contains IntegerLiteral directly
+                    if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                     {
-                        if (suffix_child->type == AST_NODE_INTEGER_VALUE)
+                        unsigned long long size_val = suffix_child->integer_literal.value;
+                        if (array_depth < array_capacity)
                         {
-                            c_grammar_node_t * base_node = suffix_child->data.list.children[0];
-                            if (base_node && base_node->is_terminal_node)
-                            {
-                                unsigned long long size_val = strtoull(base_node->data.terminal.text, NULL, 10);
-                                if (array_depth < array_capacity)
-                                {
-                                    array_sizes[array_depth] = (size_t)size_val;
-                                    array_depth++;
-                                    has_size = true;
-                                }
-                            }
+                            array_sizes[array_depth] = (size_t)size_val;
+                            array_depth++;
+                            has_size = true;
                         }
                     }
                 }
@@ -1179,7 +1176,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     c_grammar_node_t * child = init_decl_node->data.list.children[ci];
                     // Check if this looks like an initializer
                     if (child->type == AST_NODE_INITIALIZER_LIST || child->type == AST_NODE_STRING_LITERAL
-                        || child->type == AST_NODE_FLOAT_LITERAL
+                        || child->type == AST_NODE_FLOAT_LITERAL || child->type == AST_NODE_INTEGER_LITERAL
                         || (!child->is_terminal_node && child->data.list.count > 0))
                     {
                         initializer_expr_node = child;
@@ -1406,16 +1403,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             c_grammar_node_t * suffix = lhs_node->data.list.children[i];
                             if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                             {
+                                fprintf(stderr, "check subscript\n");
                                 // Find the index expression
                                 LLVMValueRef index_val = NULL;
                                 for (size_t k = 0; k < suffix->data.list.count; ++k)
                                 {
                                     c_grammar_node_t * child = suffix->data.list.children[k];
-                                    if (child && !child->is_terminal_node)
-                                    {
-                                        index_val = process_expression(ctx, child);
-                                        break;
-                                    }
+                                    index_val = process_expression(ctx, child);
+                                    break;
                                 }
 
                                 if (index_val)
@@ -2055,7 +2050,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Each requires specific LLVM IR generation logic.
 
     case AST_NODE_FLOAT_BASE:
-    case AST_NODE_INTEGER_VALUE:
+    case AST_NODE_INTEGER_LITERAL:
     case AST_NODE_FLOAT_LITERAL:
     case AST_NODE_STRING_LITERAL:
     case AST_NODE_LITERAL_SUFFIX:
@@ -2288,35 +2283,19 @@ get_variable_pointer(
 }
 
 static LLVMValueRef
-process_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+process_integer_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    /* Expecting two child nodes - base value and suffix. */
-    c_grammar_node_t * base_node = node->data.list.children[0];
-    c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
-
-    char * base_text = base_node->data.terminal.text;
-    char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
-
-    // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
-    unsigned long long value = strtoull(base_text, NULL, 0);
-
-    LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context);
-    bool is_unsigned = false;
-
-    if (suffix_text && strlen(suffix_text) > 0)
+    LLVMTypeRef int_type;
+    if (node->integer_literal.is_long)
     {
-        if (strchr(suffix_text, 'u') || strchr(suffix_text, 'U'))
-        {
-            is_unsigned = true;
-        }
-        if (strstr(suffix_text, "ll") || strstr(suffix_text, "LL") || strchr(suffix_text, 'l')
-            || strchr(suffix_text, 'L'))
-        {
-            int_type = LLVMInt64TypeInContext(ctx->context);
-        }
+        int_type = LLVMInt64TypeInContext(ctx->context);
+    }
+    else
+    {
+        int_type = LLVMInt32TypeInContext(ctx->context);
     }
 
-    return LLVMConstInt(int_type, value, !is_unsigned);
+    return LLVMConstInt(int_type, node->integer_literal.value, !node->integer_literal.is_unsigned);
 }
 
 static LLVMValueRef
@@ -2549,11 +2528,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             for (size_t k = 0; k < suffix->data.list.count; ++k)
             {
                 c_grammar_node_t * child = suffix->data.list.children[k];
-                if (child && !child->is_terminal_node)
-                {
-                    index_val = process_expression(ctx, child);
-                    break;
-                }
+                index_val = process_expression(ctx, child);
+                break;
             }
 
             if (index_val && have_ptr && current_type)
@@ -2871,11 +2847,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             for (size_t k = 0; k < suffix->data.list.count; ++k)
                             {
                                 c_grammar_node_t * child = suffix->data.list.children[k];
-                                if (child && !child->is_terminal_node)
-                                {
-                                    index_val = process_expression(ctx, child);
-                                    break;
-                                }
+                                index_val = process_expression(ctx, child);
+                                break;
                             }
 
                             if (index_val && current_type)
@@ -3426,9 +3399,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     fprintf(stderr, "%s type: %d\n", __func__, node->type);
     switch (node->type)
     {
-    case AST_NODE_INTEGER_VALUE:
+    case AST_NODE_INTEGER_LITERAL:
     {
-        return process_integer_value(ctx, node);
+        return process_integer_literal(ctx, node);
     }
     case AST_NODE_FLOAT_LITERAL:
     {

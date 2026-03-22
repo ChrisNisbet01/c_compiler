@@ -11,7 +11,7 @@ typedef enum
     AST_NODE_DECLARATION,
     AST_NODE_INTEGER_BASE,
     AST_NODE_FLOAT_BASE,
-    AST_NODE_INTEGER_VALUE,
+    AST_NODE_INTEGER_LITERAL,
     AST_NODE_FLOAT_LITERAL,
     AST_NODE_STRING_LITERAL,
     AST_NODE_LITERAL_SUFFIX,
@@ -202,6 +202,13 @@ typedef struct
     float_literal_type_t type; /* Default to double. */
 } float_literal_data_t;
 
+typedef struct
+{
+    long long value;
+    bool is_unsigned;
+    bool is_long;
+} integer_literal_data_t;
+
 typedef struct c_grammar_node_t c_grammar_node_t;
 
 struct c_grammar_node_t
@@ -232,6 +239,7 @@ struct c_grammar_node_t
             postfix_operator_data_t postfix_op;
             assignment_operator_data_t assign_op;
             float_literal_data_t float_literal;
+            integer_literal_data_t integer_literal;
         };
     };
 };
