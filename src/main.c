@@ -41,7 +41,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_INTEGER_BASE] = {.name = "IntegerLiteral"},
     [AST_NODE_FLOAT_BASE] = {.name = "FloatLiteral"},
     [AST_NODE_INTEGER_VALUE] = {.name = "IntegerValue"},
-    [AST_NODE_FLOAT_VALUE] = {.name = "FloatValue"},
+    [AST_NODE_FLOAT_LITERAL] = {.name = "FloatLiteral"},
     [AST_NODE_STRING_LITERAL] = {.name = "StringLiteral"},
     [AST_NODE_LITERAL_SUFFIX] = {.name = "LiteralSuffix"},
     [AST_NODE_IDENTIFIER] = {.name = "Identifier"},

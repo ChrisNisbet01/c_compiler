@@ -12,7 +12,7 @@ typedef enum
     AST_NODE_INTEGER_BASE,
     AST_NODE_FLOAT_BASE,
     AST_NODE_INTEGER_VALUE,
-    AST_NODE_FLOAT_VALUE,
+    AST_NODE_FLOAT_LITERAL,
     AST_NODE_STRING_LITERAL,
     AST_NODE_LITERAL_SUFFIX,
     AST_NODE_IDENTIFIER,
@@ -189,7 +189,22 @@ typedef struct
     assignment_operator_type_t op;
 } assignment_operator_data_t;
 
-typedef struct c_grammar_node_t
+typedef enum
+{
+    FLOAT_LITERAL_TYPE_DOUBLE,
+    FLOAT_LITERAL_TYPE_FLOAT,
+    FLOAT_LITERAL_TYPE_LONG_DOUBLE,
+} float_literal_type_t;
+
+typedef struct
+{
+    long double value;
+    float_literal_type_t type; /* Default to double. */
+} float_literal_data_t;
+
+typedef struct c_grammar_node_t c_grammar_node_t;
+
+struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
     bool is_terminal_node;
@@ -201,19 +216,24 @@ typedef struct c_grammar_node_t
             char * text;
         } terminal;
     } data;
-    union
+    struct
     {
-        bitwise_operator_data_t bitwise_op;
-        shift_operator_data_t shift_op;
-        arithmetic_operator_data_t arith_op;
-        relational_operator_data_t rel_op;
-        equality_operator_data_t eq_op;
-        logical_operator_data_t logical_op;
-        unary_operator_data_t unary_op;
-        postfix_operator_data_t postfix_op;
-        assignment_operator_data_t assign_op;
+        c_grammar_node_t * lhs;
+        c_grammar_node_t * rhs;
+        union
+        {
+            bitwise_operator_data_t bitwise_op;
+            shift_operator_data_t shift_op;
+            arithmetic_operator_data_t arith_op;
+            relational_operator_data_t rel_op;
+            equality_operator_data_t eq_op;
+            logical_operator_data_t logical_op;
+            unary_operator_data_t unary_op;
+            postfix_operator_data_t postfix_op;
+            assignment_operator_data_t assign_op;
+            float_literal_data_t float_literal;
+        };
     };
-
-} c_grammar_node_t;
+};
 
 void c_grammar_node_free(void * node, void * user_data);

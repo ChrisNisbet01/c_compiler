@@ -1177,11 +1177,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
                 {
                     c_grammar_node_t * child = init_decl_node->data.list.children[ci];
-                    // Skip terminals like Assign token, but accept StringLiteral and other expression terminals
-                    if (child->is_terminal_node && child->type != AST_NODE_STRING_LITERAL)
-                        continue;
                     // Check if this looks like an initializer
                     if (child->type == AST_NODE_INITIALIZER_LIST || child->type == AST_NODE_STRING_LITERAL
+                        || child->type == AST_NODE_FLOAT_LITERAL
                         || (!child->is_terminal_node && child->data.list.count > 0))
                     {
                         initializer_expr_node = child;
@@ -2058,7 +2056,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     case AST_NODE_FLOAT_BASE:
     case AST_NODE_INTEGER_VALUE:
-    case AST_NODE_FLOAT_VALUE:
+    case AST_NODE_FLOAT_LITERAL:
     case AST_NODE_STRING_LITERAL:
     case AST_NODE_LITERAL_SUFFIX:
     case AST_NODE_IDENTIFIER:
@@ -2322,35 +2320,27 @@ process_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 }
 
 static LLVMValueRef
-process_float_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    /* Expecting two child nodes - base value and suffix. */
-    c_grammar_node_t * base_node = node->data.list.children[0];
-    c_grammar_node_t * suffix_node = (node->data.list.count > 1) ? node->data.list.children[1] : NULL;
-
-    char * base_text = base_node->data.terminal.text;
-    char * suffix_text = (suffix_node && suffix_node->is_terminal_node) ? suffix_node->data.terminal.text : "";
-
-    char * full_text = NULL;
-    int res = asprintf(&full_text, "%s%s", base_text, suffix_text);
-    (void)res; /* Avoid compiler warnng. Assume alloc succeeded. */
-    long double value = strtold(full_text, NULL);
-
-    LLVMTypeRef float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
-    if (suffix_text && strlen(suffix_text) > 0)
+    LLVMTypeRef float_type;
+    if (node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
     {
-        if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
-        {
-            float_type = LLVMFloatTypeInContext(ctx->context);
-        }
-        else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
-        {
-            float_type = LLVMX86FP80TypeInContext(ctx->context);
-        }
+        fprintf(stderr, "type is double\n");
+        float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
     }
+    else if (node->float_literal.type == FLOAT_LITERAL_TYPE_FLOAT)
+    {
+        fprintf(stderr, "type is float\n");
+        float_type = LLVMFloatTypeInContext(ctx->context);
+    }
+    else if (node->float_literal.type == FLOAT_LITERAL_TYPE_LONG_DOUBLE)
+    {
+        fprintf(stderr, "type is long double\n");
+        float_type = LLVMX86FP80TypeInContext(ctx->context);
+    }
+    fprintf(stderr, "value: %Lf\n", node->float_literal.value);
 
-    free(full_text);
-    return LLVMConstReal(float_type, value);
+    return LLVMConstReal(float_type, node->float_literal.value);
 }
 
 static LLVMValueRef
@@ -3433,15 +3423,16 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (!node)
         return NULL;
 
+    fprintf(stderr, "%s type: %d\n", __func__, node->type);
     switch (node->type)
     {
     case AST_NODE_INTEGER_VALUE:
     {
         return process_integer_value(ctx, node);
     }
-    case AST_NODE_FLOAT_VALUE:
+    case AST_NODE_FLOAT_LITERAL:
     {
-        return process_float_value(ctx, node);
+        return process_float_literal(ctx, node);
     }
     case AST_NODE_STRING_LITERAL:
     {

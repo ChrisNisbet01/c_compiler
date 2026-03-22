@@ -7,6 +7,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void
+free_ast_node_children(void ** children, int count, void * user_data)
+{
+    if (children == NULL)
+    {
+        return;
+    }
+    for (int i = 0; i < count; i++)
+    {
+        c_grammar_node_free(children[i], user_data);
+    }
+}
+
 void
 c_grammar_node_free(void * node_ptr, void * user_data)
 {
@@ -21,12 +34,9 @@ c_grammar_node_free(void * node_ptr, void * user_data)
     {
         free(node->data.terminal.text);
     }
-    else if (node->data.list.children != NULL)
+    else
     {
-        for (size_t i = 0; i < node->data.list.count; i++)
-        {
-            c_grammar_node_free(node->data.list.children[i], user_data);
-        }
+        free_ast_node_children((void **)node->data.list.children, node->data.list.count, user_data);
         free(node->data.list.children);
     }
 
@@ -103,10 +113,7 @@ handle_list_node(
     c_grammar_node_t * ast_node = create_list_node(type, children, count);
     if (ast_node == NULL)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
     }
     return ast_node;
@@ -151,10 +158,7 @@ handle_integer_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** 
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Integer base expected no children, but got %u", count);
         return;
     }
@@ -173,10 +177,7 @@ handle_float_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Float base expected no children, but got %u", count);
         return;
     }
@@ -197,10 +198,7 @@ handle_integer_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
     /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Integer value expected 1 or 2 children, but got %u", count);
         return;
     }
@@ -214,14 +212,38 @@ handle_float_value(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
     /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Float value expected 1 or 2 children, but got %u", count);
         return;
     }
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FLOAT_VALUE);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_FLOAT_LITERAL, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+
+    c_grammar_node_t * suffix_node = count == 2 ? children[1] : NULL;
+    char * full_text = ast_node->data.terminal.text;
+
+    ast_node->float_literal.value = strtold(full_text, NULL);
+    ast_node->float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
+    if (suffix_node != NULL)
+    {
+        char * suffix_text = suffix_node->is_terminal_node ? suffix_node->data.terminal.text : "";
+
+        if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
+        {
+            ast_node->float_literal.type = FLOAT_LITERAL_TYPE_FLOAT;
+        }
+        else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+        {
+            ast_node->float_literal.type = FLOAT_LITERAL_TYPE_LONG_DOUBLE;
+        }
+    }
+
+    free_ast_node_children(children, count, user_data);
+
     epc_ast_push(ctx, ast_node);
 }
 
@@ -230,10 +252,7 @@ handle_string_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "String literal expected no children, but got %u", count);
         return;
     }
@@ -254,10 +273,7 @@ handle_character_literal(
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Character literal expected no children, but got %u", count);
         return;
     }
@@ -276,10 +292,7 @@ handle_literal_suffix(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Literal suffix expected no children, but got %u", count);
         return;
     }
@@ -298,10 +311,7 @@ handle_identifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Identifier expected no children, but got %u", count);
         return;
     }
@@ -331,10 +341,7 @@ handle_assignment_operator(
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "AssignmentOperator expected no children, but got %u", count);
         return;
     }
@@ -461,10 +468,7 @@ handle_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** chil
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Operator expected no children, but got %u", count);
         return;
     }
@@ -508,10 +512,7 @@ handle_pointer(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** child
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "Pointer expected no children, but got %u", count);
         return;
     }
@@ -532,10 +533,7 @@ handle_relational_expression(
 {
     if (count != 3)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "RelationalExpression expected exactly 3 children, but got %d", count);
         return;
     }
@@ -577,10 +575,7 @@ handle_equality_expression(
 {
     if (count != 3)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "EqualityExpression expected exactly 3 children, but got %d", count);
         return;
     }
@@ -646,10 +641,7 @@ handle_logical_and_expression(
 {
     if (count != 3)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "LogicalAndExpression expected exactly 3 children, but got %d", count);
         return;
     }
@@ -671,10 +663,7 @@ handle_logical_or_expression(
 {
     if (count != 3)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "LogicalOrExpression expected exactly 3 children, but got %d", count);
         return;
     }
@@ -696,10 +685,7 @@ handle_shift_expression(
 {
     if (count != 3)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "ShiftExpression expected exactly 3 children, but got %d", count);
         return;
     }
@@ -732,10 +718,7 @@ handle_arithmetic_expression(
 {
     if (count != 3)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "ArithmeticExpression expected exactly 3 children, but got %d", count);
         return;
     }
@@ -788,10 +771,7 @@ handle_postfix_operator(
 {
     if (count > 0)
     {
-        for (int i = 0; i < count; i++)
-        {
-            c_grammar_node_free(children[i], user_data);
-        }
+        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "PostfixOperator expected no children, but got %u", count);
         return;
     }
