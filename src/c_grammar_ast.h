@@ -225,8 +225,9 @@ struct c_grammar_node_t
     } data;
     struct
     {
-        c_grammar_node_t * lhs;
-        c_grammar_node_t * rhs;
+        c_grammar_node_t const * lhs;
+        c_grammar_node_t const * op;
+        c_grammar_node_t const * rhs;
         union
         {
             bitwise_operator_data_t bitwise_op;

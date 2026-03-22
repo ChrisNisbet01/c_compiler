@@ -39,8 +39,9 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         free_ast_node_children((void **)node->data.list.children, node->data.list.count, user_data);
         free(node->data.list.children);
     }
-    c_grammar_node_free(node->lhs, user_data);
-    c_grammar_node_free(node->rhs, user_data);
+    c_grammar_node_free((c_grammar_node_t *)node->lhs, user_data);
+    c_grammar_node_free((c_grammar_node_t *)node->op, user_data);
+    c_grammar_node_free((c_grammar_node_t *)node->rhs, user_data);
     free(node);
 }
 
@@ -418,7 +419,19 @@ handle_assignment_operator(
 static void
 handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASSIGNMENT);
+    (void)node;
+
+    if (count != 3)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "Assignment expected 3 children, but got %d", count);
+        return;
+    }
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_ASSIGNMENT, node);
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->op = (c_grammar_node_t *)children[1];
+    ast_node->rhs = (c_grammar_node_t *)children[2];
+
     epc_ast_push(ctx, ast_node);
 }
 
