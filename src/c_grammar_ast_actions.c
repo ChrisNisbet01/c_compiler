@@ -638,7 +638,12 @@ handle_bitwise_and_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    (void)count;
+    (void)user_data;
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_BITWISE_EXPRESSION, node);
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->rhs = (c_grammar_node_t *)children[1];
     ast_node->bitwise_op.op = BITWISE_OP_AND;
 
     epc_ast_push(ctx, ast_node);
@@ -649,7 +654,12 @@ handle_bitwise_exclusive_or_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    (void)count;
+    (void)user_data;
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_BITWISE_EXPRESSION, node);
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->rhs = (c_grammar_node_t *)children[1];
     ast_node->bitwise_op.op = BITWISE_OP_XOR;
 
     epc_ast_push(ctx, ast_node);
@@ -660,7 +670,12 @@ handle_bitwise_inclusive_or_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    (void)count;
+    (void)user_data;
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_BITWISE_EXPRESSION, node);
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->rhs = (c_grammar_node_t *)children[1];
     ast_node->bitwise_op.op = BITWISE_OP_OR;
 
     epc_ast_push(ctx, ast_node);

@@ -3094,8 +3094,8 @@ static LLVMValueRef
 process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[1]);
+    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
+    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
 
     switch (node->bitwise_op.op)
     {
