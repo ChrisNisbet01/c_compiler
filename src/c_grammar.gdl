@@ -153,9 +153,6 @@ PipePipe = lexeme("||");
 Excl = lexeme('!' not('='));
 Question = lexeme('?');
 
-IncOp = lexeme("++") @AST_ACTION_OPERATOR;
-DecOp = lexeme("--") @AST_ACTION_OPERATOR;
-
 // --- Grammar Rules ---
 
 StorageClassSpecifier = KwStatic | KwExtern | KwAuto | KwRegister;
@@ -195,10 +192,13 @@ PostfixPart = FunctionCallPart
 
 PostfixExpression = PrimaryExpression PostfixPart* @AST_ACTION_POSTFIX_EXPRESSION;
 
-UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl @AST_ACTION_OPERATOR;
+IncOp = lexeme("++") @AST_ACTION_UNARY_OPERATOR;
+DecOp = lexeme("--") @AST_ACTION_UNARY_OPERATOR;
 
-KwSizeofAST = KwSizeof @AST_ACTION_OPERATOR;
-KwAlignofAST = KwAlignof @AST_ACTION_OPERATOR;
+UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl @AST_ACTION_UNARY_OPERATOR;
+
+KwSizeofAST = KwSizeof @AST_ACTION_UNARY_OPERATOR;
+KwAlignofAST = KwAlignof @AST_ACTION_UNARY_OPERATOR;
 
 UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (KwSizeofAST UnaryExpression)
@@ -207,7 +207,7 @@ UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (UnaryOp UnaryExpression)
                       | (IncOp UnaryExpression)
                       | (DecOp UnaryExpression)
-                      @AST_ACTION_UNARY_OP;
+                      @AST_ACTION_UNARY_EXPRESSION;
 
 UnaryExpressionRaw = UnaryExpressionPrefix | PostfixExpression;
 UnaryExpression = memoize(UnaryExpressionRaw);

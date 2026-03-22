@@ -1166,6 +1166,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     // Check if this looks like an initializer
                     if (child->type == AST_NODE_INITIALIZER_LIST || child->type == AST_NODE_STRING_LITERAL
                         || child->type == AST_NODE_FLOAT_LITERAL || child->type == AST_NODE_INTEGER_LITERAL
+                        || child->type == AST_NODE_UNARY_EXPRESSION
                         || (!child->is_terminal_node && child->data.list.count > 0))
                     {
                         initializer_expr_node = child;
@@ -2040,7 +2041,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_IDENTIFIER:
     case AST_NODE_DECL_SPECIFIERS:
     case AST_NODE_TYPE_SPECIFIER:
-    case AST_NODE_UNARY_OP:
+    case AST_NODE_UNARY_OPERATOR:
+    case AST_NODE_UNARY_EXPRESSION:
     case AST_NODE_OPERATOR:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:
@@ -3222,12 +3224,10 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 }
 
 static LLVMValueRef
-process_unary_op(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Unary structure: [Operator, Operand]
-    if (node->data.list.count < 2)
-        return NULL;
-    c_grammar_node_t * operand_node = node->data.list.children[1];
+    c_grammar_node_t const * operand_node = node->lhs;
 
     switch (node->unary_op.op)
     {
@@ -3345,9 +3345,14 @@ process_unary_op(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // sizeof and alignof are handled elsewhere
         return NULL;
     }
+    default:
+    {
+        fprintf(stderr, "IRGen Error: Unknown unary operator %u.\n", node->unary_op.op);
+        return NULL;
+    }
     }
 
-    return NULL;
+    return NULL; /* Shouldn't happen. */
 }
 
 /**
@@ -3423,9 +3428,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_logical_expression(ctx, node);
     }
-    case AST_NODE_UNARY_OP:
+    case AST_NODE_UNARY_EXPRESSION:
     {
-        return process_unary_op(ctx, node);
+        return process_unary_expression(ctx, node);
     }
 
     case AST_NODE_TRANSLATION_UNIT:
@@ -3437,6 +3442,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_LITERAL_SUFFIX:
     case AST_NODE_DECL_SPECIFIERS:
     case AST_NODE_TYPE_SPECIFIER:
+    case AST_NODE_UNARY_OPERATOR:
     case AST_NODE_OPERATOR:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:
