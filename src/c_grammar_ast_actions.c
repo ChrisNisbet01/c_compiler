@@ -1,5 +1,6 @@
 #include "c_grammar_ast_actions.h"
 
+#include "ast_node_name.h"
 #include "c_grammar_actions.h"
 #include "c_grammar_ast.h"
 
@@ -444,7 +445,7 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "Shift Expression expected shift operator node at index 1, but got %u", op_node->type
+            ctx, "Shift Expression expected shift operator node at index 1, but got %s", get_node_type_name(op_node)
         );
         return;
     }
@@ -557,7 +558,9 @@ handle_unary_expression(
     if (op_node->type != AST_NODE_UNARY_OPERATOR)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "Unary Operator expected operator node, but got %u", op_node->type);
+        epc_ast_builder_set_error(
+            ctx, "Unary Operator expected operator node, but got %s", get_node_type_name(op_node)
+        );
         return;
     }
 
@@ -687,7 +690,9 @@ handle_relational_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "Relational Expression expected relational operator node at index 1, but got %u", op_node->type
+            ctx,
+            "Relational Expression expected relational operator node at index 1, but got %s",
+            get_node_type_name(op_node)
         );
         return;
     }
@@ -764,7 +769,9 @@ handle_equality_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "Equality Expression expected equality operator node at index 1, but got %u", op_node->type
+            ctx,
+            "Equality Expression expected equality operator node at index 1, but got %s",
+            get_node_type_name(op_node)
         );
         return;
     }
@@ -982,7 +989,7 @@ handle_shift_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "Shift Expression expected shift operator node at index 1, but got %u", op_node->type
+            ctx, "Shift Expression expected shift operator node at index 1, but got %s", get_node_type_name(op_node)
         );
         return;
     }
@@ -1071,7 +1078,9 @@ handle_arithmetic_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "Arithmetic Expression expected arithmetic operator node at index 1, but got %u", op_node->type
+            ctx,
+            "Arithmetic Expression expected arithmetic operator node at index 1, but got %s",
+            get_node_type_name(op_node)
         );
         return;
     }

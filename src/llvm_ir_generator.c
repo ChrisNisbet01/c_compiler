@@ -1,5 +1,6 @@
 #include "llvm_ir_generator.h"
 
+#include "ast_node_name.h"
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
 
 #include <stdint.h>
@@ -961,7 +962,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return;
     }
 
-    fprintf(stderr, "%s node type %u\n", __func__, node->type);
+    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name(node), node->type);
 
     switch (node->type)
     {
@@ -3359,10 +3360,13 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 static LLVMValueRef
 process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    if (!node)
+    if (node == NULL)
+    {
         return NULL;
+    }
 
-    fprintf(stderr, "%s type: %d\n", __func__, node->type);
+    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name(node), node->type);
+
     switch (node->type)
     {
     case AST_NODE_INTEGER_LITERAL:
