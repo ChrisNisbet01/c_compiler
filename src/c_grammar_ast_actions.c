@@ -40,7 +40,6 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         free(node->data.list.children);
     }
     c_grammar_node_free((c_grammar_node_t *)node->lhs, user_data);
-    c_grammar_node_free((c_grammar_node_t *)node->op, user_data);
     c_grammar_node_free((c_grammar_node_t *)node->rhs, user_data);
     free(node);
 }
@@ -429,8 +428,11 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
     }
     c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_ASSIGNMENT, node);
     ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->op = (c_grammar_node_t *)children[1];
     ast_node->rhs = (c_grammar_node_t *)children[2];
+    c_grammar_node_t * op_node = children[1];
+
+    ast_node->assign_op.op = op_node->assign_op.op;
+    c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
 }
@@ -699,14 +701,16 @@ handle_logical_and_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count != 3)
+    if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "LogicalAndExpression expected exactly 3 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "LogicalAndExpression expected exactly 2 children, but got %d", count);
         return;
     }
 
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_LOGICAL_EXPRESSION, node);
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->rhs = (c_grammar_node_t *)children[1];
 
     if (ast_node)
     {
@@ -721,14 +725,16 @@ handle_logical_or_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count != 3)
+    if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "LogicalOrExpression expected exactly 3 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "LogicalOrExpression expected exactly 2 children, but got %d", count);
         return;
     }
 
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_LOGICAL_EXPRESSION, node);
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->rhs = (c_grammar_node_t *)children[1];
 
     if (ast_node)
     {

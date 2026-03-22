@@ -226,7 +226,6 @@ struct c_grammar_node_t
     struct
     {
         c_grammar_node_t const * lhs;
-        c_grammar_node_t const * op;
         c_grammar_node_t const * rhs;
         union
         {

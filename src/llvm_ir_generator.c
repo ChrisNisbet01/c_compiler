@@ -1365,9 +1365,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASSIGNMENT:
     {
         // Handle assignment like 'variable = expression' or 'arr[i] = expression'.
-        // Children typically: [LHS_node, Operator_node, RHS_node].
         c_grammar_node_t const * lhs_node = node->lhs;
-        // Operator node (e.g., '=') is skipped for simplicity.
         c_grammar_node_t const * rhs_node = node->rhs;
 
         LLVMValueRef lhs_ptr = NULL;
@@ -2800,7 +2798,6 @@ static LLVMValueRef
 process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * lhs_node = node->lhs;
-    c_grammar_node_t const * op_node = node->op;
     c_grammar_node_t const * rhs_node = node->rhs;
 
     LLVMValueRef lhs_ptr = NULL;
@@ -2945,14 +2942,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
-    bool is_compound = false;
-    assignment_operator_type_t assign_op_type = ASSIGN_OP_SIMPLE;
-
-    if (op_node && op_node->type == AST_NODE_ASSIGNMENT_OPERATOR)
-    {
-        assign_op_type = op_node->assign_op.op;
-        is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
-    }
+    assignment_operator_type_t assign_op_type = node->assign_op.op;
+    bool is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
 
     LLVMValueRef rhs_value;
 
@@ -3187,14 +3178,9 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 static LLVMValueRef
 process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    if (node->data.list.count == 1)
-    {
-        return process_expression(ctx, node->data.list.children[0]);
-    }
-
     bool is_or = (node->logical_op.op == LOGICAL_OP_OR);
-    c_grammar_node_t * lhs_node = node->data.list.children[0];
-    c_grammar_node_t * rhs_node = node->data.list.children[2];
+    c_grammar_node_t const * lhs_node = node->lhs;
+    c_grammar_node_t const * rhs_node = node->rhs;
 
     LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
 
