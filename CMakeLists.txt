@@ -36,15 +36,34 @@ else()
 endif()
 # --- End LLVM Integration ---
 
+# --- easy_pc Integration ---
+include(FetchContent)
 
-# Set path to easy_pc (since it's a sibling)
-set(easy_pc_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../easy_pc")
+set(EASY_PC_LOCAL_PATH "" CACHE PATH "Path to local easy_pc repository")
 
-# Include the macros from easy_pc
-include("${easy_pc_SOURCE_DIR}/cmake/EasyPcMacros.cmake")
-
-# Add easy_pc as a subdirectory.
-add_subdirectory("${easy_pc_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/easy_pc" EXCLUDE_FROM_ALL)
+if(DEFINED EASY_PC_LOCAL_PATH AND EXISTS ${EASY_PC_LOCAL_PATH})
+  if(NOT IS_DIRECTORY ${EASY_PC_LOCAL_PATH})
+    message(FATAL_ERROR "EASY_PC_LOCAL_PATH is not a valid path: ${EASY_PC_LOCAL_PATH}")
+  endif()
+  message(STATUS "Using local easy_pc repository at: ${EASY_PC_LOCAL_PATH}")
+  add_subdirectory(${EASY_PC_LOCAL_PATH} easy_pc-build)
+else()
+  set(EASY_PC_GIT_REPO "git@github.com:ChrisNisbet01/easy_pc.git")
+  set(EASY_PC_REPO_TAG "0.4.1")
+  message(STATUS "Using github easy_pc repository at: ${EASY_PC_GIT_REPO}:${EASY_PC_REPO_TAG}")
+  FetchContent_Declare(
+    easy_pc
+    GIT_REPOSITORY ${EASY_PC_GIT_REPO}
+    GIT_TAG ${EASY_PC_REPO_TAG}
+  )
+  FetchContent_MakeAvailable(easy_pc)
+  
+  # Create a dummy Doxyfile if it doesn't exist (to prevent docs target failure)
+  if(NOT EXISTS "${easy_pc_SOURCE_DIR}/Doxyfile")
+    file(WRITE "${easy_pc_SOURCE_DIR}/Doxyfile" "# Dummy Doxyfile\nPROJECT_NAME = easy_pc\n")
+  endif()
+endif()
+# --- End easy_pc Integration ---
 
 # Add our source
 add_subdirectory(src)
