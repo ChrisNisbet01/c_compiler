@@ -1927,10 +1927,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_RETURN_STATEMENT:
     {
         // Handle 'return expression;' or 'return;'.
-        if (node->data.list.count > 0 && node->data.list.children)
+        c_grammar_node_t const * expr_node = node->lhs;
+        if (expr_node != NULL)
         {
             // Process the return expression.
-            c_grammar_node_t * expr_node = node->data.list.children[0];
             LLVMValueRef return_value = process_expression(ctx, expr_node);
             if (return_value)
             {
