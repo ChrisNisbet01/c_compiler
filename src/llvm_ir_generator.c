@@ -93,15 +93,6 @@ clear_labels(ir_generator_ctx_t * ctx)
 static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
 
-// Helper to process initializer lists recursively for arrays
-static void process_initializer_list(
-    ir_generator_ctx_t * ctx,
-    LLVMValueRef base_ptr,
-    LLVMTypeRef element_type,
-    c_grammar_node_t const * initializer_node,
-    int * current_index
-);
-
 // --- Forward Declarations ---
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
@@ -157,13 +148,14 @@ process_initializer_list(
     int * outer_index
 )
 {
-    if (!initializer_node || !base_ptr || !element_type)
+    if (initializer_node == NULL || base_ptr == NULL || element_type == NULL)
+    {
         return;
+    }
 
     LLVMTypeKind kind = LLVMGetTypeKind(element_type);
 
-    if (!initializer_node->is_terminal_node && initializer_node->data.list.count > 0
-        && initializer_node->data.list.children)
+    if (!initializer_node->is_terminal_node)
     {
         // Use a local index for processing leaf elements at this level
         int local_index = 0;
@@ -172,8 +164,10 @@ process_initializer_list(
         {
             c_grammar_node_t const * child = initializer_node->data.list.children[i];
 
-            if (!child)
+            if (child == NULL)
+            {
                 break;
+            }
 
             // Skip terminal nodes like LBRACE, RBRACE, COMMA
             if (child->is_terminal_node && child->type != AST_NODE_INTEGER_LITERAL)
