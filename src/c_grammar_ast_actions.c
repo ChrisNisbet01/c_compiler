@@ -39,6 +39,7 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         free_ast_node_children((void **)node->data.list.children, node->data.list.count, user_data);
         free(node->data.list.children);
     }
+    free((char *)node->op.text);
     c_grammar_node_free((c_grammar_node_t *)node->lhs, user_data);
     c_grammar_node_free((c_grammar_node_t *)node->rhs, user_data);
     free(node);
@@ -401,27 +402,27 @@ handle_assignment_operator(
     char const * text = ast_node->data.terminal.text;
 
     if (strcmp(text, "=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_SIMPLE;
+        ast_node->op.assign.op = ASSIGN_OP_SIMPLE;
     else if (strcmp(text, "<<=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_SHL;
+        ast_node->op.assign.op = ASSIGN_OP_SHL;
     else if (strcmp(text, ">>=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_SHR;
+        ast_node->op.assign.op = ASSIGN_OP_SHR;
     else if (strcmp(text, "+=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_ADD;
+        ast_node->op.assign.op = ASSIGN_OP_ADD;
     else if (strcmp(text, "-=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_SUB;
+        ast_node->op.assign.op = ASSIGN_OP_SUB;
     else if (strcmp(text, "*=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_MUL;
+        ast_node->op.assign.op = ASSIGN_OP_MUL;
     else if (strcmp(text, "/=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_DIV;
+        ast_node->op.assign.op = ASSIGN_OP_DIV;
     else if (strcmp(text, "%=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_MOD;
+        ast_node->op.assign.op = ASSIGN_OP_MOD;
     else if (strcmp(text, "&=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_AND;
+        ast_node->op.assign.op = ASSIGN_OP_AND;
     else if (strcmp(text, "^=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_XOR;
+        ast_node->op.assign.op = ASSIGN_OP_XOR;
     else if (strcmp(text, "|=") == 0)
-        ast_node->assign_op.op = ASSIGN_OP_OR;
+        ast_node->op.assign.op = ASSIGN_OP_OR;
 
     epc_ast_push(ctx, ast_node);
 }
@@ -437,6 +438,17 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
         epc_ast_builder_set_error(ctx, "Assignment expected 3 children, but got %d", count);
         return;
     }
+
+    c_grammar_node_t * op_node = children[1];
+    if (op_node->type != AST_NODE_ASSIGNMENT_OPERATOR)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "Shift Expression expected shift operator node at index 1, but got %u", op_node->type
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_ASSIGNMENT, node);
     if (ast_node == NULL)
     {
@@ -445,11 +457,11 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
         return;
     }
 
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[2];
-    c_grammar_node_t * op_node = children[1];
-
-    ast_node->assign_op.op = op_node->assign_op.op;
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[2];
+    ast_node->op.assign.op = op_node->op.assign.op;
+    ast_node->op.text = op_node->data.terminal.text;
+    op_node->data.terminal.text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -499,25 +511,25 @@ handle_unary_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
     char const * op_text = ast_node->data.terminal.text;
 
     if (strcmp(op_text, "+") == 0)
-        ast_node->unary_op.op = UNARY_OP_PLUS;
+        ast_node->op.unary.op = UNARY_OP_PLUS;
     else if (strcmp(op_text, "-") == 0)
-        ast_node->unary_op.op = UNARY_OP_MINUS;
+        ast_node->op.unary.op = UNARY_OP_MINUS;
     else if (strcmp(op_text, "!") == 0)
-        ast_node->unary_op.op = UNARY_OP_NOT;
+        ast_node->op.unary.op = UNARY_OP_NOT;
     else if (strcmp(op_text, "~") == 0)
-        ast_node->unary_op.op = UNARY_OP_BITNOT;
+        ast_node->op.unary.op = UNARY_OP_BITNOT;
     else if (strcmp(op_text, "&") == 0)
-        ast_node->unary_op.op = UNARY_OP_ADDR;
+        ast_node->op.unary.op = UNARY_OP_ADDR;
     else if (strcmp(op_text, "*") == 0)
-        ast_node->unary_op.op = UNARY_OP_DEREF;
+        ast_node->op.unary.op = UNARY_OP_DEREF;
     else if (strcmp(op_text, "++") == 0)
-        ast_node->unary_op.op = UNARY_OP_INC;
+        ast_node->op.unary.op = UNARY_OP_INC;
     else if (strcmp(op_text, "--") == 0)
-        ast_node->unary_op.op = UNARY_OP_DEC;
+        ast_node->op.unary.op = UNARY_OP_DEC;
     else if (strcmp(op_text, "sizeof") == 0)
-        ast_node->unary_op.op = UNARY_OP_SIZEOF;
+        ast_node->op.unary.op = UNARY_OP_SIZEOF;
     else if (strcmp(op_text, "__alignof__") == 0 || strcmp(op_text, "_Alignof") == 0)
-        ast_node->unary_op.op = UNARY_OP_ALIGNOF;
+        ast_node->op.unary.op = UNARY_OP_ALIGNOF;
     else
     {
         epc_ast_builder_set_error(ctx, "Unknown unary operator: %s", op_text);
@@ -558,30 +570,11 @@ handle_unary_expression(
     }
 
     /* The operand should be children[1]. Let's save it into node->lhs. */
-    ast_node->lhs = (c_grammar_node_t *)children[1];
-    ast_node->unary_op.op = op_node->unary_op.op;
-
+    ast_node->lhs = children[1];
+    ast_node->op.unary.op = op_node->op.unary.op;
+    ast_node->op.text = op_node->data.terminal.text;
+    op_node->data.terminal.text = NULL;
     c_grammar_node_free(op_node, user_data);
-
-    epc_ast_push(ctx, ast_node);
-}
-
-static void
-handle_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
-{
-    if (count > 0)
-    {
-        free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "Operator expected no children, but got %u", count);
-        return;
-    }
-
-    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_OPERATOR, node);
-    if (ast_node == NULL)
-    {
-        epc_ast_builder_set_error(ctx, "Memory allocation failed");
-        return;
-    }
 
     epc_ast_push(ctx, ast_node);
 }
@@ -632,6 +625,52 @@ handle_pointer(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** child
 }
 
 static void
+handle_relational_operator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "Relational Operator expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_RELATIONAL_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    char const * op_text = ast_node->data.terminal.text;
+
+    if (strcmp(op_text, "<") == 0)
+    {
+        ast_node->op.rel.op = REL_OP_LT;
+    }
+    else if (strcmp(op_text, ">") == 0)
+    {
+        ast_node->op.rel.op = REL_OP_GT;
+    }
+    else if (strcmp(op_text, "<=") == 0)
+    {
+        ast_node->op.rel.op = REL_OP_LE;
+    }
+    else if (strcmp(op_text, ">=") == 0)
+    {
+        ast_node->op.rel.op = REL_OP_GE;
+    }
+    else
+    {
+        epc_ast_builder_set_error(ctx, "Unknown relational operator: %s", op_text);
+        c_grammar_node_free(ast_node, user_data);
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_relational_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -643,33 +682,66 @@ handle_relational_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RELATIONAL_EXPRESSION);
+    c_grammar_node_t * op_node = children[1];
+    if (op_node->type != AST_NODE_RELATIONAL_OPERATOR)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "Relational Expression expected relational operator node at index 1, but got %u", op_node->type
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_RELATIONAL_EXPRESSION, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
         return;
     }
 
-    c_grammar_node_t * op_node = ast_node->data.list.children[1];
-    if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[2];
+    ast_node->op.rel.op = op_node->op.rel.op;
+    ast_node->op.text = op_node->data.terminal.text;
+    op_node->data.terminal.text = NULL;
+    c_grammar_node_free(op_node, user_data);
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_equality_operator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
     {
-        if (strcmp(op_node->data.terminal.text, "<") == 0)
-        {
-            ast_node->rel_op.op = REL_OP_LT;
-        }
-        else if (strcmp(op_node->data.terminal.text, ">") == 0)
-        {
-            ast_node->rel_op.op = REL_OP_GT;
-        }
-        else if (strcmp(op_node->data.terminal.text, "<=") == 0)
-        {
-            ast_node->rel_op.op = REL_OP_LE;
-        }
-        else if (strcmp(op_node->data.terminal.text, ">=") == 0)
-        {
-            ast_node->rel_op.op = REL_OP_GE;
-        }
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "Equality Operator expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_EQUALITY_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    char const * op_text = ast_node->data.terminal.text;
+
+    if (strcmp(op_text, "==") == 0)
+    {
+        ast_node->op.eq.op = EQ_OP_EQ;
+    }
+    else if (strcmp(op_text, "!=") == 0)
+    {
+        ast_node->op.eq.op = EQ_OP_NE;
+    }
+    else
+    {
+        epc_ast_builder_set_error(ctx, "Unknown equality operator: %s", op_text);
+        c_grammar_node_free(ast_node, user_data);
+        return;
     }
 
     epc_ast_push(ctx, ast_node);
@@ -687,25 +759,29 @@ handle_equality_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_EQUALITY_EXPRESSION);
+    c_grammar_node_t * op_node = children[1];
+    if (op_node->type != AST_NODE_EQUALITY_OPERATOR)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "Equality Expression expected equality operator node at index 1, but got %u", op_node->type
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_EQUALITY_EXPRESSION, node);
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
         return;
     }
 
-    c_grammar_node_t * op_node = ast_node->data.list.children[1];
-    if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
-    {
-        if (strcmp(op_node->data.terminal.text, "==") == 0)
-        {
-            ast_node->eq_op.op = EQ_OP_EQ;
-        }
-        else if (strcmp(op_node->data.terminal.text, "!=") == 0)
-        {
-            ast_node->eq_op.op = EQ_OP_NE;
-        }
-    }
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[2];
+    ast_node->op.eq.op = op_node->op.eq.op;
+    ast_node->op.text = op_node->data.terminal.text;
+    op_node->data.terminal.text = NULL;
+    c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
 }
@@ -733,9 +809,10 @@ handle_bitwise_and_expression(
         return;
     }
 
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[1];
-    ast_node->bitwise_op.op = BITWISE_OP_AND;
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[1];
+    ast_node->op.bitwise.op = BITWISE_OP_AND;
+    ast_node->op.text = strdup("&");
 
     epc_ast_push(ctx, ast_node);
 }
@@ -760,9 +837,10 @@ handle_bitwise_exclusive_or_expression(
         return;
     }
 
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[1];
-    ast_node->bitwise_op.op = BITWISE_OP_XOR;
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[1];
+    ast_node->op.bitwise.op = BITWISE_OP_XOR;
+    ast_node->op.text = strdup("^");
 
     epc_ast_push(ctx, ast_node);
 }
@@ -787,9 +865,10 @@ handle_bitwise_inclusive_or_expression(
         return;
     }
 
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[1];
-    ast_node->bitwise_op.op = BITWISE_OP_OR;
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[1];
+    ast_node->op.bitwise.op = BITWISE_OP_OR;
+    ast_node->op.text = strdup("|");
 
     epc_ast_push(ctx, ast_node);
 }
@@ -814,13 +893,10 @@ handle_logical_and_expression(
         return;
     }
 
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[1];
-
-    if (ast_node)
-    {
-        ast_node->logical_op.op = LOGICAL_OP_AND;
-    }
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[1];
+    ast_node->op.logical.op = LOGICAL_OP_AND;
+    ast_node->op.text = strdup("&&");
 
     epc_ast_push(ctx, ast_node);
 }
@@ -845,12 +921,45 @@ handle_logical_or_expression(
         return;
     }
 
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[1];
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[1];
+    ast_node->op.logical.op = LOGICAL_OP_OR;
+    ast_node->op.text = strdup("||");
 
-    if (ast_node)
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_shift_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count > 0)
     {
-        ast_node->logical_op.op = LOGICAL_OP_OR;
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "Shift Operator expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_SHIFT_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    char const * op_text = ast_node->data.terminal.text;
+
+    if (strcmp(op_text, "<<") == 0)
+    {
+        ast_node->op.shift.op = SHIFT_OP_LL;
+    }
+    else if (strcmp(op_text, ">>") == 0)
+    {
+        ast_node->op.shift.op = SHIFT_OP_AR;
+    }
+    else
+    {
+        epc_ast_builder_set_error(ctx, "Unknown shift operator: %s", op_text);
+        c_grammar_node_free(ast_node, user_data);
+        return;
     }
 
     epc_ast_push(ctx, ast_node);
@@ -868,23 +977,29 @@ handle_shift_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SHIFT_EXPRESSION);
-
-    if (ast_node)
+    c_grammar_node_t * op_node = children[1];
+    if (op_node->type != AST_NODE_SHIFT_OPERATOR)
     {
-        c_grammar_node_t * op_node = ast_node->data.list.children[1];
-        if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
-        {
-            if (strcmp(op_node->data.terminal.text, "<<") == 0)
-            {
-                ast_node->shift_op.op = SHIFT_OP_LL;
-            }
-            else if (strcmp(op_node->data.terminal.text, ">>") == 0)
-            {
-                ast_node->shift_op.op = SHIFT_OP_AR;
-            }
-        }
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "Shift Expression expected shift operator node at index 1, but got %u", op_node->type
+        );
+        return;
     }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_SHIFT_EXPRESSION, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[2];
+    ast_node->op.shift.op = op_node->op.shift.op;
+    ast_node->op.text = op_node->data.terminal.text;
+    op_node->data.terminal.text = NULL;
+    c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
 }
@@ -911,23 +1026,23 @@ handle_arithmetic_operator(
     char const * op_text = ast_node->data.terminal.text;
     if (strcmp(op_text, "+") == 0)
     {
-        ast_node->arith_op.op = ARITH_OP_ADD;
+        ast_node->op.arith.op = ARITH_OP_ADD;
     }
     else if (strcmp(op_text, "-") == 0)
     {
-        ast_node->arith_op.op = ARITH_OP_SUB;
+        ast_node->op.arith.op = ARITH_OP_SUB;
     }
     else if (strcmp(op_text, "*") == 0)
     {
-        ast_node->arith_op.op = ARITH_OP_MUL;
+        ast_node->op.arith.op = ARITH_OP_MUL;
     }
     else if (strcmp(op_text, "/") == 0)
     {
-        ast_node->arith_op.op = ARITH_OP_DIV;
+        ast_node->op.arith.op = ARITH_OP_DIV;
     }
     else if (strcmp(op_text, "%") == 0)
     {
-        ast_node->arith_op.op = ARITH_OP_MOD;
+        ast_node->op.arith.op = ARITH_OP_MOD;
     }
     else
     {
@@ -967,9 +1082,11 @@ handle_arithmetic_expression(
         epc_ast_builder_set_error(ctx, "Memory allocation failed");
         return;
     }
-    ast_node->lhs = (c_grammar_node_t *)children[0];
-    ast_node->rhs = (c_grammar_node_t *)children[2];
-    ast_node->arith_op.op = op_node->arith_op.op;
+    ast_node->lhs = children[0];
+    ast_node->rhs = children[2];
+    ast_node->op.arith.op = op_node->op.arith.op;
+    ast_node->op.text = op_node->data.terminal.text;
+    op_node->data.terminal.text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -1005,11 +1122,11 @@ handle_postfix_operator(
 
     if (strcmp(text, "++") == 0)
     {
-        ast_node->postfix_op.op = POSTFIX_OP_INC;
+        ast_node->op.postfix.op = POSTFIX_OP_INC;
     }
     else if (strcmp(text, "--") == 0)
     {
-        ast_node->postfix_op.op = POSTFIX_OP_DEC;
+        ast_node->op.postfix.op = POSTFIX_OP_DEC;
     }
     else
     {
@@ -1249,11 +1366,12 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARRAY_SUBSCRIPT, handle_array_index);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_ARROW, handle_member_access_arrow);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_OPERATOR, handle_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_OPERATOR, handle_unary_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_EXPRESSION, handle_unary_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CAST_EXPRESSION, handle_cast_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL_OPERATOR, handle_relational_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL, handle_relational_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY_OPERATOR, handle_equality_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY, handle_equality_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_BITWISE_AND_EXPRESSION, handle_bitwise_and_expression);
     epc_ast_hook_registry_set_action(
@@ -1264,11 +1382,12 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     );
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_AND_EXPRESSION, handle_logical_and_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_OR_EXPRESSION, handle_logical_or_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_OPERATOR, handle_shift_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_EXPRESSION, handle_shift_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARITHMETIC_OPERATOR, handle_arithmetic_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARITHMETIC_EXPRESSION, handle_arithmetic_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT_OPERATOR, handle_assignment_operator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECL_SPECIFIERS, handle_decl_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);

@@ -21,15 +21,17 @@ typedef enum
     AST_NODE_TYPE_SPECIFIER,
     AST_NODE_UNARY_OPERATOR,
     AST_NODE_UNARY_EXPRESSION,
-    AST_NODE_OPERATOR,
     AST_NODE_DECLARATOR,
     AST_NODE_DIRECT_DECLARATOR,
     AST_NODE_DECLARATOR_SUFFIX,
     AST_NODE_POINTER,
+    AST_NODE_RELATIONAL_OPERATOR,
     AST_NODE_RELATIONAL_EXPRESSION,
+    AST_NODE_EQUALITY_OPERATOR,
     AST_NODE_EQUALITY_EXPRESSION,
     AST_NODE_BITWISE_EXPRESSION,
     AST_NODE_LOGICAL_EXPRESSION,
+    AST_NODE_SHIFT_OPERATOR,
     AST_NODE_SHIFT_EXPRESSION,
     AST_NODE_ARITHMETIC_OPERATOR,
     AST_NODE_ARITHMETIC_EXPRESSION,
@@ -229,17 +231,26 @@ struct c_grammar_node_t
     {
         c_grammar_node_t const * lhs;
         c_grammar_node_t const * rhs;
+        struct
+        {
+            char const * text;
+
+            union
+            {
+                bitwise_operator_data_t bitwise;
+                shift_operator_data_t shift;
+                arithmetic_operator_data_t arith;
+                relational_operator_data_t rel;
+                equality_operator_data_t eq;
+                logical_operator_data_t logical;
+                unary_operator_data_t unary;
+                postfix_operator_data_t postfix;
+                assignment_operator_data_t assign;
+            };
+        } op;
+
         union
         {
-            bitwise_operator_data_t bitwise_op;
-            shift_operator_data_t shift_op;
-            arithmetic_operator_data_t arith_op;
-            relational_operator_data_t rel_op;
-            equality_operator_data_t eq_op;
-            logical_operator_data_t logical_op;
-            unary_operator_data_t unary_op;
-            postfix_operator_data_t postfix_op;
-            assignment_operator_data_t assign_op;
             float_literal_data_t float_literal;
             integer_literal_data_t integer_literal;
         };

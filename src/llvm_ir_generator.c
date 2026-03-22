@@ -2043,15 +2043,17 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_SPECIFIER:
     case AST_NODE_UNARY_OPERATOR:
     case AST_NODE_UNARY_EXPRESSION:
-    case AST_NODE_OPERATOR:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX:
     case AST_NODE_POINTER:
+    case AST_NODE_RELATIONAL_OPERATOR:
     case AST_NODE_RELATIONAL_EXPRESSION:
+    case AST_NODE_EQUALITY_OPERATOR:
     case AST_NODE_EQUALITY_EXPRESSION:
     case AST_NODE_BITWISE_EXPRESSION:
     case AST_NODE_LOGICAL_EXPRESSION:
+    case AST_NODE_SHIFT_OPERATOR:
     case AST_NODE_SHIFT_EXPRESSION:
     case AST_NODE_ARITHMETIC_OPERATOR:
     case AST_NODE_ARITHMETIC_EXPRESSION:
@@ -2700,7 +2702,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
                 {
                     one = LLVMConstReal(current_type, 1.0);
-                    if (suffix->postfix_op.op == POSTFIX_OP_INC)
+                    if (suffix->op.postfix.op == POSTFIX_OP_INC)
                         new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
                     else
                         new_val = LLVMBuildFSub(ctx->builder, current_val, one, "postfix_dec");
@@ -2708,7 +2710,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 else
                 {
                     one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
-                    if (suffix->postfix_op.op == POSTFIX_OP_INC)
+                    if (suffix->op.postfix.op == POSTFIX_OP_INC)
                         new_val = LLVMBuildAdd(ctx->builder, current_val, one, "postfix_inc");
                     else
                         new_val = LLVMBuildSub(ctx->builder, current_val, one, "postfix_dec");
@@ -2945,7 +2947,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
-    assignment_operator_type_t assign_op_type = node->assign_op.op;
+    assignment_operator_type_t assign_op_type = node->op.assign.op;
     bool is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
 
     LLVMValueRef rhs_value;
@@ -3069,7 +3071,7 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
     LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
 
-    switch (node->bitwise_op.op)
+    switch (node->op.bitwise.op)
     {
     case BITWISE_OP_AND:
         return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
@@ -3085,10 +3087,10 @@ static LLVMValueRef
 process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
+    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
 
-    switch (node->shift_op.op)
+    switch (node->op.shift.op)
     {
     case SHIFT_OP_LL:
         return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
@@ -3108,7 +3110,7 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
-    switch (node->arith_op.op)
+    switch (node->op.arith.op)
     {
     case ARITH_OP_ADD:
         return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
@@ -3132,13 +3134,13 @@ static LLVMValueRef
 process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
+    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
-    switch (node->rel_op.op)
+    switch (node->op.rel.op)
     {
     case REL_OP_LT:
         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
@@ -3160,13 +3162,13 @@ static LLVMValueRef
 process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
+    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
-    switch (node->eq_op.op)
+    switch (node->op.eq.op)
     {
     case EQ_OP_EQ:
         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
@@ -3181,7 +3183,7 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 static LLVMValueRef
 process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    bool is_or = (node->logical_op.op == LOGICAL_OP_OR);
+    bool is_or = (node->op.logical.op == LOGICAL_OP_OR);
     c_grammar_node_t const * lhs_node = node->lhs;
     c_grammar_node_t const * rhs_node = node->rhs;
 
@@ -3230,7 +3232,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     // Unary structure: [Operator, Operand]
     c_grammar_node_t const * operand_node = node->lhs;
 
-    switch (node->unary_op.op)
+    switch (node->op.unary.op)
     {
     case UNARY_OP_ADDR:
     {
@@ -3312,7 +3314,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
 
             LLVMValueRef new_val;
-            if (node->unary_op.op == UNARY_OP_INC)
+            if (node->op.unary.op == UNARY_OP_INC)
             {
                 LLVMTypeKind kind = LLVMGetTypeKind(var_type);
                 if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
@@ -3348,7 +3350,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
     default:
     {
-        fprintf(stderr, "IRGen Error: Unknown unary operator %u.\n", node->unary_op.op);
+        fprintf(stderr, "IRGen Error: Unknown unary operator %u.\n", node->op.unary.op);
         return NULL;
     }
     }
@@ -3445,7 +3447,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_SPECIFIER:
     case AST_NODE_UNARY_OPERATOR:
     case AST_NODE_ARITHMETIC_OPERATOR:
-    case AST_NODE_OPERATOR:
+    case AST_NODE_SHIFT_OPERATOR:
+    case AST_NODE_RELATIONAL_OPERATOR:
+    case AST_NODE_EQUALITY_OPERATOR:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX:

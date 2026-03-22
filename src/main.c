@@ -50,15 +50,17 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},
     [AST_NODE_UNARY_OPERATOR] = {.name = "UnaryOperator"},
     [AST_NODE_UNARY_EXPRESSION] = {.name = "UnaryExpression"},
-    [AST_NODE_OPERATOR] = {.name = "Operator"},
     [AST_NODE_DECLARATOR] = {.name = "Declarator"},
     [AST_NODE_DIRECT_DECLARATOR] = {.name = "DirectDeclarator"},
     [AST_NODE_DECLARATOR_SUFFIX] = {.name = "DeclaratorSuffix"},
     [AST_NODE_POINTER] = {.name = "Pointer"},
+    [AST_NODE_RELATIONAL_OPERATOR] = {.name = "RelationalOperator"},
     [AST_NODE_RELATIONAL_EXPRESSION] = {.name = "RelationalExpression"},
+    [AST_NODE_EQUALITY_OPERATOR] = {.name = "EqualityOperator"},
     [AST_NODE_EQUALITY_EXPRESSION] = {.name = "EqualityExpression"},
     [AST_NODE_BITWISE_EXPRESSION] = {.name = "BitwiseExpression"},
     [AST_NODE_LOGICAL_EXPRESSION] = {.name = "LogicalExpression"},
+    [AST_NODE_SHIFT_OPERATOR] = {.name = "ShiftOperator"},
     [AST_NODE_SHIFT_EXPRESSION] = {.name = "ShiftExpression"},
     [AST_NODE_ARITHMETIC_OPERATOR] = {.name = "ArithmeticOperator"},
     [AST_NODE_ARITHMETIC_EXPRESSION] = {.name = "ArithmeticExpression"},
@@ -137,6 +139,11 @@ print_ast(c_grammar_node_t const * node, int indent)
             print_indent(indent);
             printf("LHS: \n");
             print_ast(node->lhs, indent + 1);
+        }
+        if (node->op.text != NULL)
+        {
+            print_indent(indent);
+            printf("Operator: %s\n", node->op.text);
         }
         if (node->rhs)
         {
