@@ -60,6 +60,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_BITWISE_EXPRESSION] = {.name = "BitwiseExpression"},
     [AST_NODE_LOGICAL_EXPRESSION] = {.name = "LogicalExpression"},
     [AST_NODE_SHIFT_EXPRESSION] = {.name = "ShiftExpression"},
+    [AST_NODE_ARITHMETIC_OPERATOR] = {.name = "ArithmeticOperator"},
     [AST_NODE_ARITHMETIC_EXPRESSION] = {.name = "ArithmeticExpression"},
     [AST_NODE_FUNCTION_CALL] = {.name = "FunctionCall"},
     [AST_NODE_POSTFIX_EXPRESSION] = {.name = "PostfixExpression"},
@@ -113,6 +114,12 @@ print_list_type_ast_node(c_grammar_node_t const * node, int indent)
 }
 
 static void
+print_indent(unsigned int indent)
+{
+    printf("%*s", indent * 2, "");
+}
+
+static void
 print_ast(c_grammar_node_t const * node, int indent)
 {
     if (node == NULL)
@@ -120,15 +127,23 @@ print_ast(c_grammar_node_t const * node, int indent)
         printf("NULL node\n");
         return;
     }
-
-    for (int i = 0; i < indent; i++)
-    {
-        printf("  ");
-    }
+    print_indent(indent);
 
     if (node->is_terminal_node)
     {
         printf("%s (%u): %s\n", get_node_type_name(node->type), node->type, node->data.terminal.text);
+        if (node->lhs)
+        {
+            print_indent(indent);
+            printf("LHS: \n");
+            print_ast(node->lhs, indent + 1);
+        }
+        if (node->rhs)
+        {
+            print_indent(indent);
+            printf("RHS: \n");
+            print_ast(node->rhs, indent + 1);
+        }
     }
     else
     {

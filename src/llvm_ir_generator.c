@@ -2053,6 +2053,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_BITWISE_EXPRESSION:
     case AST_NODE_LOGICAL_EXPRESSION:
     case AST_NODE_SHIFT_EXPRESSION:
+    case AST_NODE_ARITHMETIC_OPERATOR:
     case AST_NODE_ARITHMETIC_EXPRESSION:
     case AST_NODE_FUNCTION_CALL:
     case AST_NODE_POSTFIX_EXPRESSION:
@@ -3101,8 +3102,8 @@ static LLVMValueRef
 process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->data.list.children[0]);
-    LLVMValueRef rhs_val = process_expression(ctx, node->data.list.children[2]);
+    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
+    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
@@ -3443,6 +3444,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DECL_SPECIFIERS:
     case AST_NODE_TYPE_SPECIFIER:
     case AST_NODE_UNARY_OPERATOR:
+    case AST_NODE_ARITHMETIC_OPERATOR:
     case AST_NODE_OPERATOR:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:

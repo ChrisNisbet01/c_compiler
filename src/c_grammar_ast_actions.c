@@ -639,7 +639,7 @@ handle_relational_expression(
     if (count != 3)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "RelationalExpression expected exactly 3 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "RelationalExpression expected 3 children, but got %d", count);
         return;
     }
 
@@ -683,7 +683,7 @@ handle_equality_expression(
     if (count != 3)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "EqualityExpression expected exactly 3 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "EqualityExpression expected 3 children, but got %d", count);
         return;
     }
 
@@ -721,7 +721,7 @@ handle_bitwise_and_expression(
     if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "BitwiseAndExpression expected exactly 2 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "BitwiseAndExpression expected 2 children, but got %d", count);
         return;
     }
 
@@ -748,7 +748,7 @@ handle_bitwise_exclusive_or_expression(
     if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "BitwiseOrExpression expected exactly 2 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "BitwiseOrExpression expected 2 children, but got %d", count);
         return;
     }
 
@@ -775,7 +775,7 @@ handle_bitwise_inclusive_or_expression(
     if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "BitwiseOrExpression expected exactly 2 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "BitwiseOrExpression expected 2 children, but got %d", count);
         return;
     }
 
@@ -802,7 +802,7 @@ handle_logical_and_expression(
     if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "LogicalAndExpression expected exactly 2 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "LogicalAndExpression expected 2 children, but got %d", count);
         return;
     }
 
@@ -833,7 +833,7 @@ handle_logical_or_expression(
     if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "LogicalOrExpression expected exactly 2 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "LogicalOrExpression expected 2 children, but got %d", count);
         return;
     }
 
@@ -890,6 +890,56 @@ handle_shift_expression(
 }
 
 static void
+handle_arithmetic_operator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "Arithmetic operator expected no children, but got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_ARITHMETIC_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+
+    char const * op_text = ast_node->data.terminal.text;
+    if (strcmp(op_text, "+") == 0)
+    {
+        ast_node->arith_op.op = ARITH_OP_ADD;
+    }
+    else if (strcmp(op_text, "-") == 0)
+    {
+        ast_node->arith_op.op = ARITH_OP_SUB;
+    }
+    else if (strcmp(op_text, "*") == 0)
+    {
+        ast_node->arith_op.op = ARITH_OP_MUL;
+    }
+    else if (strcmp(op_text, "/") == 0)
+    {
+        ast_node->arith_op.op = ARITH_OP_DIV;
+    }
+    else if (strcmp(op_text, "%") == 0)
+    {
+        ast_node->arith_op.op = ARITH_OP_MOD;
+    }
+    else
+    {
+        epc_ast_builder_set_error(ctx, "Unknown arithmetic operator: %s", op_text);
+        c_grammar_node_free(ast_node, user_data);
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_arithmetic_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -897,40 +947,30 @@ handle_arithmetic_expression(
     if (count != 3)
     {
         free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(ctx, "ArithmeticExpression expected exactly 3 children, but got %d", count);
+        epc_ast_builder_set_error(ctx, "ArithmeticExpression expected 3 children, but got %d", count);
         return;
     }
 
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ARITHMETIC_EXPRESSION);
-
-    if (ast_node)
+    c_grammar_node_t * op_node = (c_grammar_node_t *)children[1];
+    if (op_node->type != AST_NODE_ARITHMETIC_OPERATOR)
     {
-        c_grammar_node_t * op_node = ast_node->data.list.children[1];
-        if (op_node && op_node->is_terminal_node && op_node->data.terminal.text)
-        {
-            if (strcmp(op_node->data.terminal.text, "+") == 0)
-            {
-                ast_node->arith_op.op = ARITH_OP_ADD;
-            }
-            else if (strcmp(op_node->data.terminal.text, "-") == 0)
-            {
-                ast_node->arith_op.op = ARITH_OP_SUB;
-            }
-            else if (strcmp(op_node->data.terminal.text, "*") == 0)
-            {
-                ast_node->arith_op.op = ARITH_OP_MUL;
-            }
-            else if (strcmp(op_node->data.terminal.text, "/") == 0)
-            {
-                ast_node->arith_op.op = ARITH_OP_DIV;
-            }
-            else if (strcmp(op_node->data.terminal.text, "%") == 0)
-            {
-                ast_node->arith_op.op = ARITH_OP_MOD;
-            }
-        }
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "Arithmetic Expression expected arithmetic operator node at index 1, but got %u", op_node->type
+        );
+        return;
     }
+
+    c_grammar_node_t * ast_node = create_terminal_node(AST_NODE_ARITHMETIC_EXPRESSION, node);
+    if (ast_node == NULL)
+    {
+        epc_ast_builder_set_error(ctx, "Memory allocation failed");
+        return;
+    }
+    ast_node->lhs = (c_grammar_node_t *)children[0];
+    ast_node->rhs = (c_grammar_node_t *)children[2];
+    ast_node->arith_op.op = op_node->arith_op.op;
+    c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1225,6 +1265,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_AND_EXPRESSION, handle_logical_and_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_OR_EXPRESSION, handle_logical_or_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_EXPRESSION, handle_shift_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ARITHMETIC_OPERATOR, handle_arithmetic_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARITHMETIC_EXPRESSION, handle_arithmetic_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT_OPERATOR, handle_assignment_operator);

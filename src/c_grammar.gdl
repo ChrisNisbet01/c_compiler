@@ -222,10 +222,10 @@ CastExpressionWrap = LParen TypeName RParen CastExpression @AST_ACTION_CAST_EXPR
 CastExpressionRaw = CastExpressionWrap | UnaryExpression;
 CastExpression = memoize(CastExpressionRaw);
 
-MulOp = Star | Slash | Percent @AST_ACTION_OPERATOR;
+MulOp = Star | Slash | Percent @AST_ACTION_ARITHMETIC_OPERATOR;
 MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_ARITHMETIC_EXPRESSION;
 
-AddOp = Plus | Minus @AST_ACTION_OPERATOR;
+AddOp = Plus | Minus @AST_ACTION_ARITHMETIC_OPERATOR;
 AdditiveExpression = chainl1(MultiplicativeExpression, AddOp) @AST_ACTION_ARITHMETIC_EXPRESSION;
 
 ShiftOp = Shl | Shr @AST_ACTION_OPERATOR;
