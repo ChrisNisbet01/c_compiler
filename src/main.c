@@ -134,22 +134,22 @@ print_ast(c_grammar_node_t const * node, int indent)
     if (node->is_terminal_node)
     {
         printf("%s (%u): %s\n", get_node_type_name(node->type), node->type, node->data.terminal.text);
-        if (node->lhs)
+        if (node->lhs != NULL)
         {
-            print_indent(indent);
+            print_indent(indent + 1);
             printf("LHS: \n");
-            print_ast(node->lhs, indent + 1);
+            print_ast(node->lhs, indent + 2);
         }
         if (node->op.text != NULL)
         {
-            print_indent(indent);
+            print_indent(indent + 1);
             printf("Operator: %s\n", node->op.text);
         }
-        if (node->rhs)
+        if (node->rhs != NULL)
         {
-            print_indent(indent);
+            print_indent(indent + 1);
             printf("RHS: \n");
-            print_ast(node->rhs, indent + 1);
+            print_ast(node->rhs, indent + 2);
         }
     }
     else
