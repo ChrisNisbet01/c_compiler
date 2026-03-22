@@ -10,8 +10,9 @@ epc_generate_grammar(
 
 add_executable(${app} 
   main.c 
+  ast_node_name.c
   c_grammar_ast_actions.c
-  llvm_ir_generator.c # <-- Added this line
+  llvm_ir_generator.c
 )
 
 target_compile_options(${app} PRIVATE -Wall -Wextra -Wswitch-enum -pedantic)
