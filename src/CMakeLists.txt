@@ -11,6 +11,7 @@ epc_generate_grammar(
 add_executable(${app} 
   main.c 
   ast_node_name.c
+  ast_print.c
   c_grammar_ast_actions.c
   llvm_ir_generator.c
 )

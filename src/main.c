@@ -1,4 +1,4 @@
-#include "ast_node_name.h"
+#include "ast_print.h"
 #include "c_grammar.h"
 #include "c_grammar_ast.h"
 #include "c_grammar_ast_actions.h"
@@ -24,59 +24,6 @@ static char * lib_names[64]; // -l flags (e.g., "m" for -lm)
 static int lib_names_count = 0;
 static char * lib_paths[64]; // -L flags (e.g., "/usr/local/lib")
 static int lib_paths_count = 0;
-
-static void print_ast(c_grammar_node_t const * node, int indent);
-
-static void
-print_list_type_ast_node(c_grammar_node_t const * node, int indent)
-{
-    printf("%s (%u): (%zu children)\n", get_node_type_name(node), node->type, node->data.list.count);
-    for (size_t i = 0; i < node->data.list.count; i++)
-        print_ast(node->data.list.children[i], indent + 1);
-}
-
-static void
-print_indent(unsigned int indent)
-{
-    printf("%*s", indent * 2, "");
-}
-
-static void
-print_ast(c_grammar_node_t const * node, int indent)
-{
-    if (node == NULL)
-    {
-        printf("NULL node\n");
-        return;
-    }
-    print_indent(indent);
-
-    if (node->is_terminal_node)
-    {
-        printf("%s (%u): %s\n", get_node_type_name(node), node->type, node->data.terminal.text);
-        if (node->lhs != NULL)
-        {
-            print_indent(indent + 1);
-            printf("LHS: \n");
-            print_ast(node->lhs, indent + 2);
-        }
-        if (node->op.text != NULL)
-        {
-            print_indent(indent + 1);
-            printf("Operator: %s\n", node->op.text);
-        }
-        if (node->rhs != NULL)
-        {
-            print_indent(indent + 1);
-            printf("RHS: \n");
-            print_ast(node->rhs, indent + 2);
-        }
-    }
-    else
-    {
-        print_list_type_ast_node(node, indent);
-    }
-}
 
 // --- Symbol Table Implementation ---
 
@@ -727,7 +674,7 @@ main(int argc, char * argv[])
         {
             c_grammar_node_t * ast_root = ast_result.ast_root;
             fprintf(stderr, "Starting AST print...\n");
-            print_ast(ast_root, 0);
+            print_ast(ast_root);
             fprintf(stderr, "Starting LLVM IR Generation...\n");
             generate_output(ast_root, filename);
             c_grammar_node_free(ast_root, NULL);

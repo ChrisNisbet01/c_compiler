@@ -962,7 +962,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return;
     }
 
-    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name(node), node->type);
+    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {
@@ -3365,7 +3365,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NULL;
     }
 
-    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name(node), node->type);
+    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {

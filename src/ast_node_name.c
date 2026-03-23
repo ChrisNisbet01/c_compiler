@@ -71,13 +71,22 @@ static node_type_name_t const node_type_names[] = {
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
 
 char const *
-get_node_type_name(c_grammar_node_t const * node)
+get_node_type_name_from_type(c_grammar_node_type_t node_type)
 {
-
-    if (node->type < 0 || node->type >= NUM_NODE_TYPE_NAMES || node_type_names[node->type].name == NULL)
+    if (node_type < 0 || node_type >= NUM_NODE_TYPE_NAMES || node_type_names[node_type].name == NULL)
     {
         return "Unknown";
     }
 
-    return node_type_names[node->type].name;
+    return node_type_names[node_type].name;
+}
+
+char const *
+get_node_type_name_from_node(c_grammar_node_t const * node)
+{
+    if (node == NULL)
+    {
+        return "NULL";
+    }
+    return get_node_type_name_from_type(node->type);
 }
