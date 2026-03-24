@@ -258,9 +258,7 @@ Assignment = UnaryExpression AssignmentOp AssignmentExpression @AST_ACTION_ASSIG
 
 AssignmentExpression = Assignment | ConditionalExpression;
 
-CommaExpression = chainl1(AssignmentExpression, Comma);
-
-Expression = CommaExpression;
+Expression = chainl1(AssignmentExpression, Comma);
 
 // --- User Defined Types & Initializers ---
 

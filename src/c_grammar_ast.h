@@ -219,7 +219,9 @@ typedef struct c_grammar_node_t c_grammar_node_t;
 struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
+
     bool is_terminal_node;
+    /* terminal/non-terminal node specific. */
     union
     {
         ast_node_list_t list; /* TODO: rename to children. */
@@ -228,33 +230,36 @@ struct c_grammar_node_t
             char * text;
         } terminal;
     } data;
+
+    /* Expression specific. */
+    c_grammar_node_t const * lhs;
+    c_grammar_node_t const * rhs;
+
+    bool is_initialiser_node;
+
+    /* Operator specific. */
     struct
     {
-        c_grammar_node_t const * lhs;
-        c_grammar_node_t const * rhs;
-        struct
-        {
-            char const * text;
-
-            union
-            {
-                bitwise_operator_data_t bitwise;
-                shift_operator_data_t shift;
-                arithmetic_operator_data_t arith;
-                relational_operator_data_t rel;
-                equality_operator_data_t eq;
-                logical_operator_data_t logical;
-                unary_operator_data_t unary;
-                postfix_operator_data_t postfix;
-                assignment_operator_data_t assign;
-            };
-        } op;
+        char const * text;
 
         union
         {
-            float_literal_data_t float_literal;
-            integer_literal_data_t integer_literal;
+            bitwise_operator_data_t bitwise;
+            shift_operator_data_t shift;
+            arithmetic_operator_data_t arith;
+            relational_operator_data_t rel;
+            equality_operator_data_t eq;
+            logical_operator_data_t logical;
+            unary_operator_data_t unary;
+            postfix_operator_data_t postfix;
+            assignment_operator_data_t assign;
         };
+    } op;
+
+    union
+    {
+        float_literal_data_t float_literal;
+        integer_literal_data_t integer_literal;
     };
 };
 

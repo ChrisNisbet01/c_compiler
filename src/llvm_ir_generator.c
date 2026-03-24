@@ -1464,12 +1464,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
                 {
                     c_grammar_node_t * child = init_decl_node->data.list.children[ci];
+
                     // Check if this looks like an initializer
                     // TODO: Need a better way to determine if this child node can be processed.
-                    if (child->type == AST_NODE_INITIALIZER_LIST || child->type == AST_NODE_STRING_LITERAL
-                        || child->type == AST_NODE_FLOAT_LITERAL || child->type == AST_NODE_INTEGER_LITERAL
-                        || child->type == AST_NODE_UNARY_EXPRESSION || child->type == AST_NODE_POSTFIX_EXPRESSION
-                        || (!child->is_terminal_node && child->data.list.count > 0))
+                    if (child->is_initialiser_node || (!child->is_terminal_node && child->data.list.count > 0))
                     {
                         initializer_expr_node = child;
                         break;

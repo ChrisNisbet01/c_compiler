@@ -251,6 +251,8 @@ handle_integer_literal(
         return;
     }
 
+    ast_node->is_initialiser_node = true;
+
     // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
     ast_node->integer_literal.value = strtoull(ast_node->data.terminal.text, NULL, 0);
 
@@ -296,6 +298,8 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         return;
     }
 
+    ast_node->is_initialiser_node = true;
+
     c_grammar_node_t * suffix_node = count == 2 ? children[1] : NULL;
     char * full_text = ast_node->data.terminal.text;
 
@@ -337,6 +341,8 @@ handle_string_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
     {
         return;
     }
+
+    ast_node->is_initialiser_node = true;
 
     epc_ast_push(ctx, ast_node);
 }
@@ -623,6 +629,8 @@ handle_unary_expression(
         free_ast_node_children(children, count, user_data);
         return;
     }
+
+    ast_node->is_initialiser_node = true;
 
     /* The operand should be children[1]. Let's save it into node->lhs. */
     ast_node->lhs = children[1];
@@ -1335,6 +1343,8 @@ handle_postfix_expression(
         return;
     }
 
+    ast_node->is_initialiser_node = true;
+
     ast_node->lhs = base;
     ast_node->rhs = postfix;
 
@@ -1419,6 +1429,8 @@ handle_initializer_list(
     {
         return;
     }
+
+    ast_node->is_initialiser_node = true;
 
     epc_ast_push(ctx, ast_node);
 }
