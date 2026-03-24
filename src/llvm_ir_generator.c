@@ -1440,22 +1440,13 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 char * var_name = NULL;
                 c_grammar_node_t * initializer_expr_node = NULL; // Node representing the initializer expression.
-                c_grammar_node_t * declarator_node = NULL;
+                c_grammar_node_t * declarator_node = init_decl_node->data.list.children[0];
+                c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
 
-                // Extraction of variable name from declarator.
-                if (init_decl_node->data.list.count > 0)
+                if (direct_decl_node && direct_decl_node->data.list.count > 0
+                    && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
                 {
-                    c_grammar_node_t * first_child = init_decl_node->data.list.children[0];
-                    if (first_child->type == AST_NODE_DECLARATOR)
-                    {
-                        declarator_node = first_child;
-                        c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
-                        if (direct_decl_node && direct_decl_node->data.list.count > 0
-                            && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-                        {
-                            var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
-                        }
-                    }
+                    var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
                 }
 
                 LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
@@ -1646,19 +1637,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         }
                     }
                 }
-            }
-        }
-        break;
-    }
-    case AST_NODE_INIT_DECLARATOR:
-    {
-        // This node is generally processed within AST_NODE_DECLARATION for simplicity.
-        // If the AST structure required it, we would handle it here.
-        if (node->data.list.children)
-        {
-            for (size_t i = 0; i < node->data.list.count; ++i)
-            {
-                process_ast_node(ctx, node->data.list.children[i]);
             }
         }
         break;
@@ -2353,6 +2331,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_LABELED_IDENTIFIER:
     case AST_NODE_ASSIGNMENT_OPERATOR:
     case AST_NODE_INTEGER_BASE:
+    case AST_NODE_INIT_DECLARATOR:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)

@@ -64,8 +64,8 @@ StandardReservedWord = KwStatic | KwExtern | KwAuto | KwRegister
              | KwVoid | KwChar | KwShort | KwInt | KwLong | KwFloat | KwDouble | KwSigned | KwUnsigned
              | KwBool | KwComplex | KwImaginary
              | KwStruct | KwUnion | KwEnum | KwTypedef
-             | KwReturn | KwIf | KwElse | KwWhile | KwDo | KwFor | KwSwitch | KwCase | KwDefault | KwGoto | KwContinue | KwBreak | KwSizeof
-             | KwInline;
+             | KwReturn | KwIf | KwElse | KwWhile | KwDo | KwFor | KwSwitch | KwCase | KwDefault | KwGoto | KwContinue 
+             | KwBreak | KwSizeof | KwInline;
 
 ExtensionReservedWord = KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
 
@@ -360,7 +360,7 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
 DeclaratorRaw = Pointer* DirectDeclarator DeclaratorSuffix* Attribute*;
 Declarator = memoize(DeclaratorRaw) @AST_ACTION_DECLARATOR;
 
-InitDeclarator = (Declarator Attribute* AsmName? Attribute* (Assign Initializer)?) @AST_ACTION_INIT_DECLARATOR;
+InitDeclarator = Declarator Attribute* AsmName? Attribute* (Assign Initializer)? @AST_ACTION_INIT_DECLARATOR;
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
