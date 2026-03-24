@@ -188,7 +188,7 @@ process_postfix_suffixes(
                     if (!current_val)
                     {
                         LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
+                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(*arg_types));
                         for (size_t j = 0; j < num_args; ++j)
                         {
                             if (args[j])
@@ -860,12 +860,11 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 {
     LLVMTypeRef base_type = NULL;
     int pointer_level = 0;
-    size_t * array_sizes = NULL;
     size_t array_depth = 0;
     size_t array_capacity = 4;
+    size_t * array_sizes = malloc(array_capacity * sizeof(*array_sizes));
 
-    array_sizes = malloc(array_capacity * sizeof(size_t));
-    if (!array_sizes)
+    if (array_sizes == NULL)
     {
         return LLVMInt32TypeInContext(ctx->context);
     }
@@ -1132,7 +1131,7 @@ ir_generator_init()
 
     // Initialize symbol table
     ctx->symbol_capacity = 16; // Initial capacity
-    ctx->symbol_table = malloc(ctx->symbol_capacity * sizeof(symbol_t));
+    ctx->symbol_table = malloc(ctx->symbol_capacity * sizeof(*ctx->symbol_table));
     if (!ctx->symbol_table)
     {
         fprintf(stderr, "IRGen: Failed to allocate memory for symbol table.\n");
@@ -1948,10 +1947,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             LLVMBasicBlockRef body_block;
         } switch_item_t;
 
-        switch_item_t * items = NULL;
         size_t num_items = 0;
         size_t items_capacity = 16;
-        items = malloc(items_capacity * sizeof(switch_item_t));
+        switch_item_t * items = malloc(items_capacity * sizeof(*items));
 
         size_t default_idx = SIZE_MAX;
 
@@ -2655,11 +2653,6 @@ static LLVMValueRef
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
-    if (node->data.list.count < 2)
-    {
-        return process_expression(ctx, node->data.list.children[0]);
-    }
-
     c_grammar_node_t * base_node = node->data.list.children[0];
     LLVMValueRef base_val = NULL;
     LLVMValueRef current_ptr = NULL;
@@ -2669,7 +2662,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
     // Check if base is a symbol (for array access)
     // Do this before process_expression to avoid double GEP for arrays
-    if (base_node->type == AST_NODE_IDENTIFIER && !have_ptr)
+    if (base_node->type == AST_NODE_IDENTIFIER)
     {
         char const * var_name = base_node->data.terminal.text;
         LLVMValueRef var_ptr;
@@ -2721,7 +2714,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             if (suffix->data.list.count > 0)
             {
                 num_args = suffix->data.list.count;
-                args = malloc(num_args * sizeof(LLVMValueRef));
+                args = malloc(num_args * sizeof(*args));
                 for (size_t j = 0; j < num_args; ++j)
                 {
                     args[j] = process_expression(ctx, suffix->data.list.children[j]);
@@ -2739,7 +2732,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     {
                         // For undeclared functions like printf, auto-declare as variadic returning i32
                         LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(LLVMTypeRef));
+                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(*arg_types));
                         for (size_t j = 0; j < num_args; ++j)
                         {
                             if (args[j])
