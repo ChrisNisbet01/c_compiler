@@ -1384,14 +1384,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         c_grammar_node_t * suffix = lhs_node->data.list.children[i];
                         if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                         {
-                            fprintf(stderr, "check subscript\n");
                             // Find the index expression
                             LLVMValueRef index_val = NULL;
-                            for (size_t k = 0; k < suffix->data.list.count; ++k)
+                            if (suffix->data.list.count == 1)
                             {
-                                c_grammar_node_t * child = suffix->data.list.children[k];
+                                c_grammar_node_t * child = suffix->data.list.children[0];
                                 index_val = process_expression(ctx, child);
-                                break;
                             }
 
                             if (index_val)
@@ -2508,11 +2506,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Array subscript: [LBracket, IndexExpression, RBracket]
             // Find the index expression
             LLVMValueRef index_val = NULL;
-            for (size_t k = 0; k < suffix->data.list.count; ++k)
+            if (suffix->data.list.count == 1)
             {
-                c_grammar_node_t * child = suffix->data.list.children[k];
+                c_grammar_node_t * child = suffix->data.list.children[0];
                 index_val = process_expression(ctx, child);
-                break;
             }
 
             if (index_val && have_ptr && current_type)
@@ -2825,11 +2822,10 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
                         LLVMValueRef index_val = NULL;
-                        for (size_t k = 0; k < suffix->data.list.count; ++k)
+                        if (suffix->data.list.count == 1)
                         {
-                            c_grammar_node_t * child = suffix->data.list.children[k];
+                            c_grammar_node_t * child = suffix->data.list.children[0];
                             index_val = process_expression(ctx, child);
-                            break;
                         }
 
                         if (index_val && current_type)
