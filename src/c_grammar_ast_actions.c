@@ -1277,29 +1277,66 @@ handle_postfix_operator(
 }
 
 static void
-handle_postfix_expression(
-    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
-)
+handle_postfix_parts(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    if (count == 0)
-    {
-        epc_ast_builder_set_error(
-            ctx, "%s expected at least 1 child, but got none", get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION)
-        );
-        return;
-    }
-
-    if (count == 1)
-    {
-        epc_ast_push(ctx, children[0]);
-        return;
-    }
-
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_POSTFIX_EXPRESSION);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_POSTFIX_PARTS);
     if (ast_node == NULL)
     {
         return;
     }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_postfix_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count != 2) /* Expecting [PrimaryExpression][Postfix Parts placeholder] */
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION), count
+        );
+        return;
+    }
+
+    c_grammar_node_t const * base = children[0];
+    c_grammar_node_t const * postfix = children[1];
+
+    if (postfix->type != AST_NODE_POSTFIX_PARTS)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected postfix parts node at index 1, but got %s",
+            get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION),
+            get_node_type_name_from_node(postfix)
+        );
+        return;
+    }
+
+    /*
+       If the postfix parts list is empty then we just have a plain expression, so don't bother with a postfix
+       expression node.
+    */
+    if (postfix->data.list.count == 0)
+    {
+        c_grammar_node_free((c_grammar_node_t *)postfix, user_data);
+        epc_ast_push(ctx, (c_grammar_node_t *)base);
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_POSTFIX_EXPRESSION, node);
+    if (ast_node == NULL)
+    {
+        free_ast_node_children(children, count, user_data);
+        return;
+    }
+
+    ast_node->lhs = base;
+    ast_node->rhs = postfix;
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1698,4 +1735,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_NAME, handle_type_name);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXPRESSION_STATEMENT, handle_expression_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_SPECIFIER, handle_struct_definition);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);
 }

@@ -169,8 +169,7 @@ PrimaryExpression = NumberLiteral
                   | CharLiteral
                   | (LParen TypeName RParen LBrace InitializerList RBrace)
                   | Identifier
-                  | (LParen Expression RParen)
-                  ;
+                  | (LParen Expression RParen);
 
 ArgumentList = delimited(AssignmentExpression, Comma);
 
@@ -189,8 +188,9 @@ PostfixPart = FunctionCallPart
             | PostfixIncOp
             | PostfixDecOp
             ;
+PostfixParts = PostfixPart* @AST_ACTION_POSTFIX_PARTS;
 
-PostfixExpression = PrimaryExpression PostfixPart* @AST_ACTION_POSTFIX_EXPRESSION;
+PostfixExpression = PrimaryExpression PostfixParts @AST_ACTION_POSTFIX_EXPRESSION;
 
 IncOp = lexeme("++") @AST_ACTION_UNARY_OPERATOR;
 DecOp = lexeme("--") @AST_ACTION_UNARY_OPERATOR;

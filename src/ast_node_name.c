@@ -39,6 +39,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_ARITHMETIC_OPERATOR] = {.name = "ArithmeticOperator"},
     [AST_NODE_ARITHMETIC_EXPRESSION] = {.name = "ArithmeticExpression"},
     [AST_NODE_FUNCTION_CALL] = {.name = "FunctionCall"},
+    [AST_NODE_POSTFIX_PARTS] = {.name = "PostfixParts"},
     [AST_NODE_POSTFIX_EXPRESSION] = {.name = "PostfixExpression"},
     [AST_NODE_POSTFIX_OPERATOR] = {.name = "PostfixOperator"},
     [AST_NODE_ARRAY_SUBSCRIPT] = {.name = "ArraySubscript"},

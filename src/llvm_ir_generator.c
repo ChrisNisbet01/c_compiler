@@ -142,7 +142,7 @@ process_postfix_suffixes(
     LLVMTypeRef current_type = base_type;
     LLVMValueRef current_val = base_val;
 
-    for (size_t i = 1; i < postfix_node->data.list.count; ++i)
+    for (size_t i = 0; i < postfix_node->data.list.count; ++i)
     {
         c_grammar_node_t * suffix = postfix_node->data.list.children[i];
 
@@ -1461,14 +1461,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
 
                 // Find initializer
-                initializer_expr_node = NULL;
                 for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
                 {
                     c_grammar_node_t * child = init_decl_node->data.list.children[ci];
                     // Check if this looks like an initializer
+                    // TODO: Need a better way to determine if this child node can be processed.
                     if (child->type == AST_NODE_INITIALIZER_LIST || child->type == AST_NODE_STRING_LITERAL
                         || child->type == AST_NODE_FLOAT_LITERAL || child->type == AST_NODE_INTEGER_LITERAL
-                        || child->type == AST_NODE_UNARY_EXPRESSION
+                        || child->type == AST_NODE_UNARY_EXPRESSION || child->type == AST_NODE_POSTFIX_EXPRESSION
                         || (!child->is_terminal_node && child->data.list.count > 0))
                     {
                         initializer_expr_node = child;
@@ -1677,7 +1677,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Check if LHS is a PostfixExpression with suffixes (array subscript, member access)
         if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
         {
-            c_grammar_node_t * base_node = lhs_node->data.list.children[0];
+            c_grammar_node_t const * base_node = lhs_node->lhs;
+
             if (base_node->type == AST_NODE_IDENTIFIER)
             {
                 char const * base_name = base_node->data.terminal.text;
@@ -1685,8 +1686,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 LLVMTypeRef base_type;
                 if (find_symbol(ctx, base_name, &base_ptr, &base_type))
                 {
+                    c_grammar_node_t const * postfix_node = lhs_node->rhs;
+
                     // Use helper to process all suffixes (array subscript, member access)
-                    process_postfix_suffixes(ctx, base_ptr, base_type, NULL, base_node, lhs_node, &lhs_ptr, &lhs_type);
+                    process_postfix_suffixes(
+                        ctx, base_ptr, base_type, NULL, base_node, postfix_node, &lhs_ptr, &lhs_type
+                    );
                 }
             }
         }
@@ -2298,8 +2303,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         break;
     }
+    case AST_NODE_POSTFIX_PARTS:
     case AST_NODE_STRUCT_DEFINITION:
     {
+        /* Probably a bug to see these nodes at this level. */
+        fprintf(stderr, "Ignoring AST node type %s\n", get_node_type_name_from_type(node->type));
         break;
     }
         // --- Add cases for other AST_NODE types ---
@@ -2653,7 +2661,8 @@ static LLVMValueRef
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
-    c_grammar_node_t * base_node = node->data.list.children[0];
+    c_grammar_node_t const * base_node = node->lhs;
+    c_grammar_node_t const * postfix_node = node->rhs;
     LLVMValueRef base_val = NULL;
     LLVMValueRef current_ptr = NULL;
     LLVMTypeRef current_type = NULL;
@@ -2688,9 +2697,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         // For function calls, don't call process_expression on the identifier
         // The function call suffix handling will get the function pointer directly
         bool has_func_call_suffix = false;
-        for (size_t i = 1; i < node->data.list.count; ++i)
+
+        for (size_t i = 0; i < postfix_node->data.list.count; ++i)
         {
-            if (node->data.list.children[i]->type == AST_NODE_FUNCTION_CALL)
+            if (postfix_node->data.list.children[i]->type == AST_NODE_FUNCTION_CALL)
             {
                 has_func_call_suffix = true;
                 break;
@@ -2702,9 +2712,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
     }
 
-    for (size_t i = 1; i < node->data.list.count; ++i)
+    for (size_t i = 0; i < postfix_node->data.list.count; ++i)
     {
-        c_grammar_node_t * suffix = node->data.list.children[i];
+        c_grammar_node_t * suffix = postfix_node->data.list.children[i];
         if (suffix->type == AST_NODE_FUNCTION_CALL)
         {
             // Handle function call. Arguments might be children directly or in an ArgumentList
@@ -3038,7 +3048,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     // Check if LHS is a PostfixExpression with array subscript or member access
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
-        c_grammar_node_t * base_node = lhs_node->data.list.children[0];
+        c_grammar_node_t const * base_node = lhs_node->lhs;
         if (base_node->type == AST_NODE_IDENTIFIER)
         {
             char const * base_name = base_node->data.terminal.text;
@@ -3048,11 +3058,12 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 LLVMValueRef current_ptr = base_ptr;
                 LLVMTypeRef current_type = base_type;
+                c_grammar_node_t const * postfix_node = lhs_node->rhs;
 
                 // Process suffixes to handle array subscripts and member access
-                for (size_t i = 1; i < lhs_node->data.list.count; ++i)
+                for (size_t i = 0; i < postfix_node->data.list.count; ++i)
                 {
-                    c_grammar_node_t * suffix = lhs_node->data.list.children[i];
+                    c_grammar_node_t * suffix = postfix_node->data.list.children[i];
 
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
@@ -3637,7 +3648,12 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_unary_expression(ctx, node);
     }
-
+    case AST_NODE_POSTFIX_PARTS:
+    {
+        fprintf(stderr, "BUG: got %s in %s", get_node_type_name_from_type(node->type), __func__);
+        /* Shouldn't happen. */
+        break;
+    }
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
     case AST_NODE_COMPOUND_STATEMENT:
