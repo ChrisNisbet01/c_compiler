@@ -364,7 +364,9 @@ InitDeclarator = Declarator Attribute* AsmName? Attribute* (Assign Initializer)?
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
-Declaration = KwExtension? DeclarationSpecifiers InitDeclaratorList? Semicolon @AST_ACTION_DECLARATION;
+OptionalKwExtension = KwExtension? @AST_ACTION_OPTIONAL_KW_EXTENSION;
+OptionalInitDeclaratorList = InitDeclaratorList? @AST_ACTION_OPTIONAL_INIT_DECLARATOR_LIST;
+Declaration = OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorList Semicolon @AST_ACTION_DECLARATION;
 
 // --- Typedef Specific Rules ---
 
