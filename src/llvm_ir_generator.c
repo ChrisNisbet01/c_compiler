@@ -37,7 +37,6 @@ static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name)
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
 
-
 // Helper function to safely get element type from a pointer, handling opaque pointers
 static LLVMTypeRef
 get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
@@ -64,14 +63,10 @@ get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
 // Helper to process array subscript - extracts index and generates GEP
 static LLVMValueRef
 process_array_subscript(
-    ir_generator_ctx_t * ctx,
-    LLVMValueRef base_ptr,
-    LLVMTypeRef base_type,
-    c_grammar_node_t const * subscript_node,
-    LLVMValueRef * out_index_val
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, LLVMValueRef base_ptr, LLVMTypeRef base_type
 )
 {
-    if (!ctx || !base_ptr || !base_type || !subscript_node)
+    if (ctx == NULL || base_ptr == NULL || base_type == NULL || subscript_node == NULL)
     {
         return NULL;
     }
@@ -84,14 +79,9 @@ process_array_subscript(
         index_val = process_expression(ctx, index_node);
     }
 
-    if (!index_val)
+    if (index_val == NULL)
     {
         return NULL;
-    }
-
-    if (out_index_val)
-    {
-        *out_index_val = index_val;
     }
 
     // Determine element type and build GEP based on whether base is pointer or array
@@ -102,7 +92,7 @@ process_array_subscript(
     {
         // For pointer: load it first, then use single index GEP
         elem_type = get_pointer_element_type(ctx, base_type);
-        if (!elem_type)
+        if (elem_type == NULL)
         {
             return NULL;
         }
@@ -114,7 +104,7 @@ process_array_subscript(
     {
         // For array: use [0, index] GEP
         elem_type = LLVMGetElementType(base_type);
-        if (!elem_type)
+        if (elem_type == NULL)
         {
             return NULL;
         }
@@ -138,16 +128,16 @@ process_array_subscript(
 static LLVMValueRef
 process_postfix_suffixes(
     ir_generator_ctx_t * ctx,
+    c_grammar_node_t const * postfix_node,
     LLVMValueRef base_ptr,
     LLVMTypeRef base_type,
     LLVMValueRef base_val,
     c_grammar_node_t const * base_node,
-    c_grammar_node_t const * postfix_node,
     LLVMValueRef * out_ptr,
     LLVMTypeRef * out_type
 )
 {
-    if (!ctx || !postfix_node)
+    if (ctx == NULL || postfix_node == NULL)
     {
         return NULL;
     }
@@ -163,7 +153,7 @@ process_postfix_suffixes(
         // Handle ARRAY_SUBSCRIPT
         if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
         {
-            LLVMValueRef new_ptr = process_array_subscript(ctx, current_ptr, current_type, suffix, NULL);
+            LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
             if (new_ptr)
             {
                 current_ptr = new_ptr;
@@ -487,12 +477,6 @@ process_initializer_list(
         {
             c_grammar_node_t const * child = initializer_node->data.list.children[i];
 
-            if (child == NULL)
-            {
-                break;
-            }
-
-            // Skip terminal nodes like LBRACE, RBRACE, COMMA
             if (child->is_terminal_node && child->type != AST_NODE_INTEGER_LITERAL)
             {
                 continue;
@@ -521,7 +505,8 @@ process_initializer_list(
             }
 
             // For array types, create a GEP to the element and recurse
-            if (kind == LLVMArrayTypeKind && child->type != AST_NODE_INTEGER_LITERAL && child->data.list.count > 0)
+            if (kind == LLVMArrayTypeKind && child->type != AST_NODE_INTEGER_LITERAL && !child->is_terminal_node
+                && child->data.list.count > 0)
             {
                 LLVMTypeRef nested_element = LLVMGetElementType(element_type);
                 LLVMValueRef indices[2];
@@ -641,8 +626,10 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 static void
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
-    if (!ctx || !type_child || type_child->type != AST_NODE_STRUCT_DEFINITION)
+    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION)
+    {
         return;
+    }
 
     char * struct_name = NULL;
     LLVMTypeRef * member_types = NULL;
@@ -652,18 +639,23 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     for (size_t m = 0; m < type_child->data.list.count; ++m)
     {
         c_grammar_node_t * struct_child = type_child->data.list.children[m];
-        if (struct_child && struct_child->type == AST_NODE_IDENTIFIER && struct_child->is_terminal_node)
+
+        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->is_terminal_node)
         {
             struct_name = struct_child->data.terminal.text;
             break;
         }
     }
 
-    if (!struct_name)
+    if (struct_name == NULL)
+    {
         return;
+    }
 
     if (find_struct_type(ctx, struct_name))
+    {
         return;
+    }
 
     for (size_t m = 1; m + 1 < type_child->data.list.count; m += 2)
     {
@@ -1520,14 +1512,18 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         initializer_value
                                             = LLVMBuildSIToFP(ctx->builder, initializer_value, var_type, "casttmp");
                                     }
-                                    else if (LLVMGetTypeKind(init_type) == LLVMFloatTypeKind
-                                             && LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind)
+                                    else if (
+                                        LLVMGetTypeKind(init_type) == LLVMFloatTypeKind
+                                        && LLVMGetTypeKind(var_type) == LLVMDoubleTypeKind
+                                    )
                                     {
                                         initializer_value
                                             = LLVMBuildFPExt(ctx->builder, initializer_value, var_type, "casttmp");
                                     }
-                                    else if (LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
-                                             && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind)
+                                    else if (
+                                        LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
+                                        && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
+                                    )
                                     {
                                         initializer_value
                                             = LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
@@ -1661,7 +1657,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     // Use helper to process all suffixes (array subscript, member access)
                     process_postfix_suffixes(
-                        ctx, base_ptr, base_type, NULL, base_node, postfix_node, &lhs_ptr, &lhs_type
+                        ctx, postfix_node, base_ptr, base_type, NULL, base_node, &lhs_ptr, &lhs_type
                     );
                 }
             }
@@ -2766,7 +2762,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Array subscript: use helper function
             if (have_ptr && current_type)
             {
-                LLVMValueRef new_ptr = process_array_subscript(ctx, current_ptr, current_type, suffix, NULL);
+                LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
                 if (new_ptr)
                 {
                     // Update current_ptr and current_type for next iteration
@@ -2998,9 +2994,10 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             return LLVMBuildFPToSI(ctx->builder, val_to_cast, target_type, "casttmp");
         }
-        else if ((LLVMGetTypeKind(target_type) == LLVMFloatTypeKind
-                  || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind)
-                 && LLVMGetTypeKind(src_type) == LLVMIntegerTypeKind)
+        else if (
+            (LLVMGetTypeKind(target_type) == LLVMFloatTypeKind || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind)
+            && LLVMGetTypeKind(src_type) == LLVMIntegerTypeKind
+        )
         {
             return LLVMBuildSIToFP(ctx->builder, val_to_cast, target_type, "casttmp");
         }
@@ -3041,7 +3038,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
-                        LLVMValueRef new_ptr = process_array_subscript(ctx, current_ptr, current_type, suffix, NULL);
+                        LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
                         if (new_ptr)
                         {
                             current_ptr = new_ptr;
