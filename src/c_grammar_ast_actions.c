@@ -1281,6 +1281,14 @@ handle_postfix_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count == 0)
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s expected at least 1 child, but got none", get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION)
+        );
+        return;
+    }
+
     if (count == 1)
     {
         epc_ast_push(ctx, children[0]);
