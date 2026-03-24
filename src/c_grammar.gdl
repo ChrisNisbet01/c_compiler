@@ -174,8 +174,8 @@ PrimaryExpression = NumberLiteral
 
 ArgumentList = delimited(AssignmentExpression, Comma);
 
-FunctionCallPart = (LParen ArgumentList? RParen) @AST_ACTION_FUNCTION_CALL;
-ArrayIndexPart = (LBracket Expression RBracket) @AST_ACTION_ARRAY_SUBSCRIPT;
+FunctionCallPart = LParen ArgumentList? RParen @AST_ACTION_FUNCTION_CALL;
+ArrayIndexPart = LBracket Expression RBracket @AST_ACTION_ARRAY_SUBSCRIPT;
 MemberAccessDotPart = (Dot Identifier) @AST_ACTION_MEMBER_ACCESS_DOT;
 MemberAccessArrowPart = (Arrow Identifier) @AST_ACTION_MEMBER_ACCESS_ARROW;
 
@@ -256,8 +256,7 @@ AssignmentOp = ShlAssign | ShrAssign
 
 Assignment = UnaryExpression AssignmentOp AssignmentExpression @AST_ACTION_ASSIGNMENT;
 
-AssignmentExpression = Assignment
-                     | ConditionalExpression;
+AssignmentExpression = Assignment | ConditionalExpression;
 
 CommaExpression = chainl1(AssignmentExpression, Comma);
 
@@ -265,18 +264,15 @@ Expression = CommaExpression;
 
 // --- User Defined Types & Initializers ---
 
-Designator = (LBracket ConditionalExpression RBracket)
-           | (Dot Identifier);
+Designator = (LBracket ConditionalExpression RBracket) | (Dot Identifier);
 
 Designation = Designator+ Assign;
 
 InitializerList = delimited_flex(Designation? Initializer, Comma) Comma? @AST_ACTION_INITIALIZER_LIST;
 
-Initializer = (LBrace InitializerList RBrace)
-            | AssignmentExpression;
+Initializer = (LBrace InitializerList RBrace) | AssignmentExpression;
 
-StructDeclarator = (Declarator? Colon ConditionalExpression)
-                 | Declarator;
+StructDeclarator = (Declarator? Colon ConditionalExpression) | Declarator;
 
 StructDeclaratorList = delimited(StructDeclarator, Comma);
 
@@ -348,14 +344,12 @@ DeclarationSpecifiersRaw = (DeclarationSpecifier* TypedefName DeclarationSpecifi
                       | (DeclarationSpecifier | NonTypedefTypeSpecifier)+;
 DeclarationSpecifiers = memoize(DeclarationSpecifiersRaw) @AST_ACTION_DECL_SPECIFIERS;
 
-SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*)
-                       | (TypeQualifier | NonTypedefTypeSpecifier)+;
+SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) | (TypeQualifier | NonTypedefTypeSpecifier)+;
 
 // Common Declarator: supports pointers, arrays, and function pointers
 Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 
-DirectDeclaratorRaw = (LParen Declarator RParen)
-                 | (Identifier Attribute*);
+DirectDeclaratorRaw = (LParen Declarator RParen) | (Identifier Attribute*);
 DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
 // Declarator suffix: arrays or function parameters
@@ -379,8 +373,7 @@ Declaration = KwExtension? DeclarationSpecifiers InitDeclaratorList? Semicolon @
 // A specialized identifier that captures itself when parsed
 TypedefDefiningIdentifier = wrap(Identifier, typedef_capture_callbacks, NULL);
 
-TypedefDirectDeclarator = (LParen TypedefDeclarator RParen)
-                        | (TypedefDefiningIdentifier Attribute*);
+TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier Attribute*);
 
 // A specialized declarator that uses the capturing identifier
 TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* Attribute*;
