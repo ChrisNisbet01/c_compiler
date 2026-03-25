@@ -239,7 +239,6 @@ struct c_grammar_node_t
     c_grammar_node_t const * lhs;
     c_grammar_node_t const * rhs;
 
-    bool is_initialiser_node;
     enum /* Relevant to 'keyword' nodes only. */
     {
         KEYWORD_UNKNOWN,
