@@ -102,6 +102,75 @@ get_type_alignment(LLVMTypeRef type)
     }
 }
 
+// Helper function to get size in bytes for a type
+static LLVMValueRef
+get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
+{
+    if (!type)
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+
+    LLVMTypeKind kind = LLVMGetTypeKind(type);
+    switch (kind)
+    {
+    case LLVMIntegerTypeKind:
+    {
+        unsigned bits = LLVMGetIntTypeWidth(type);
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), bits / 8, false);
+    }
+    case LLVMFloatTypeKind:
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 4, false);
+    case LLVMDoubleTypeKind:
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 8, false);
+    case LLVMX86_FP80TypeKind:
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 16, false);
+    case LLVMPointerTypeKind:
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 8, false);
+    case LLVMStructTypeKind:
+    {
+        unsigned count = LLVMCountStructElementTypes(type);
+        if (count == 0)
+            return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+
+        unsigned struct_size = 0;
+        unsigned max_alignment = 1;
+
+        for (unsigned i = 0; i < count; i++)
+        {
+            LLVMTypeRef elem = LLVMStructGetTypeAtIndex(type, i);
+            unsigned elem_align = get_type_alignment(elem);
+
+            if (elem_align > max_alignment)
+                max_alignment = elem_align;
+
+            struct_size = (struct_size + elem_align - 1) & ~(elem_align - 1);
+            unsigned elem_size = LLVMGetIntTypeWidth(elem) / 8;
+            if (LLVMGetTypeKind(elem) == LLVMFloatTypeKind)
+                elem_size = 4;
+            else if (LLVMGetTypeKind(elem) == LLVMDoubleTypeKind)
+                elem_size = 8;
+            else if (LLVMGetTypeKind(elem) == LLVMPointerTypeKind)
+                elem_size = 8;
+            else if (LLVMGetTypeKind(elem) == LLVMStructTypeKind)
+            {
+                elem_size = 0;
+            }
+            struct_size += elem_size;
+        }
+
+        struct_size = (struct_size + max_alignment - 1) & ~(max_alignment - 1);
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), struct_size, false);
+    }
+    case LLVMArrayTypeKind:
+    {
+        unsigned count = LLVMGetArrayLength(type);
+        LLVMValueRef elem_size = get_type_size(ctx, LLVMGetElementType(type));
+        return LLVMConstMul(elem_size, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), count, false));
+    }
+    default:
+        return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+    }
+}
+
 // Helper wrapper for LLVMBuildStore with proper alignment
 static LLVMValueRef
 aligned_store(LLVMBuilderRef builder, LLVMValueRef value, LLVMValueRef ptr)
@@ -4050,9 +4119,140 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
 
     case UNARY_OP_SIZEOF:
+    {
+        LLVMTypeRef target_type = NULL;
+
+        // Check if operand is a TypeName (e.g., sizeof(int))
+        if (operand_node->type == AST_NODE_TYPE_NAME)
+        {
+            // TypeName contains TypeSpecifier(s)
+            for (size_t i = 0; i < operand_node->data.list.count; i++)
+            {
+                c_grammar_node_t * child = operand_node->data.list.children[i];
+                if (child->type == AST_NODE_TYPE_SPECIFIER && child->is_terminal_node && child->data.terminal.text)
+                {
+                    char const * type_name = child->data.terminal.text;
+                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                    if (struct_type)
+                    {
+                        target_type = struct_type;
+                        break;
+                    }
+                    else if (strncmp(type_name, "int", 3) == 0)
+                        target_type = LLVMInt32TypeInContext(ctx->context);
+                    else if (strncmp(type_name, "char", 4) == 0)
+                        target_type = LLVMInt8TypeInContext(ctx->context);
+                    else if (strncmp(type_name, "void", 4) == 0)
+                        target_type = LLVMVoidTypeInContext(ctx->context);
+                    else if (strncmp(type_name, "float", 5) == 0)
+                        target_type = LLVMFloatTypeInContext(ctx->context);
+                    else if (strncmp(type_name, "double", 6) == 0)
+                        target_type = LLVMDoubleTypeInContext(ctx->context);
+                    else if (strncmp(type_name, "long", 4) == 0)
+                        target_type = LLVMInt64TypeInContext(ctx->context);
+                    else if (strncmp(type_name, "short", 5) == 0)
+                        target_type = LLVMInt16TypeInContext(ctx->context);
+                    if (target_type != NULL)
+                        break;
+                }
+            }
+        }
+        // Check if operand is a type specifier (e.g., sizeof(int))
+        else if (operand_node->type == AST_NODE_TYPE_SPECIFIER)
+        {
+            if (operand_node->is_terminal_node && operand_node->data.terminal.text)
+            {
+                char const * type_name = operand_node->data.terminal.text;
+                LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                if (struct_type)
+                {
+                    target_type = struct_type;
+                }
+                else if (strncmp(type_name, "int", 3) == 0)
+                    target_type = LLVMInt32TypeInContext(ctx->context);
+                else if (strncmp(type_name, "char", 4) == 0)
+                    target_type = LLVMInt8TypeInContext(ctx->context);
+                else if (strncmp(type_name, "void", 4) == 0)
+                    target_type = LLVMVoidTypeInContext(ctx->context);
+                else if (strncmp(type_name, "float", 5) == 0)
+                    target_type = LLVMFloatTypeInContext(ctx->context);
+                else if (strncmp(type_name, "double", 6) == 0)
+                    target_type = LLVMDoubleTypeInContext(ctx->context);
+                else if (strncmp(type_name, "long", 4) == 0)
+                    target_type = LLVMInt64TypeInContext(ctx->context);
+                else if (strncmp(type_name, "short", 5) == 0)
+                    target_type = LLVMInt16TypeInContext(ctx->context);
+            }
+            else
+            {
+                // Non-terminal type specifier - use map_type
+                target_type = map_type(ctx, operand_node, NULL);
+            }
+        }
+        else if (operand_node->type == AST_NODE_DECL_SPECIFIERS)
+        {
+            target_type = map_type(ctx, operand_node, NULL);
+        }
+        // Check if operand is an identifier (e.g., sizeof(x) or sizeof(arr))
+        else if (operand_node->type == AST_NODE_IDENTIFIER)
+        {
+            char const * var_name = operand_node->data.terminal.text;
+            LLVMValueRef var_ptr;
+            LLVMTypeRef var_type;
+            if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
+            {
+                target_type = var_type;
+            }
+        }
+        // Otherwise, try processing as expression (for things like sizeof(*ptr))
+        else
+        {
+            LLVMValueRef expr_val = process_expression(ctx, operand_node);
+            if (expr_val != NULL)
+            {
+                target_type = LLVMTypeOf(expr_val);
+            }
+        }
+
+        if (target_type != NULL)
+        {
+            return get_type_size(ctx, target_type);
+        }
+        return NULL;
+    }
     case UNARY_OP_ALIGNOF:
     {
-        // sizeof and alignof are handled elsewhere
+        // alignof is similar to sizeof but returns alignment
+        LLVMTypeRef target_type = NULL;
+
+        if (operand_node->type == AST_NODE_TYPE_SPECIFIER || operand_node->type == AST_NODE_DECL_SPECIFIERS)
+        {
+            target_type = map_type(ctx, operand_node, NULL);
+        }
+        else if (operand_node->type == AST_NODE_IDENTIFIER)
+        {
+            char const * var_name = operand_node->data.terminal.text;
+            LLVMValueRef var_ptr;
+            LLVMTypeRef var_type;
+            if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
+            {
+                target_type = var_type;
+            }
+        }
+        else
+        {
+            LLVMValueRef expr_val = process_expression(ctx, operand_node);
+            if (expr_val != NULL)
+            {
+                target_type = LLVMTypeOf(expr_val);
+            }
+        }
+
+        if (target_type != NULL)
+        {
+            unsigned alignment = get_type_alignment(target_type);
+            return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), alignment, false);
+        }
         return NULL;
     }
     default:
