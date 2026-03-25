@@ -1743,16 +1743,28 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     // Find struct name for pointer-to-struct types
                     char const * struct_name = NULL;
-                    if (decl_specifiers && !decl_specifiers->is_terminal_node)
+                    if (decl_specifiers)
                     {
+                        // Iterate through DeclarationSpecifiers children
                         for (size_t si = 0; si < decl_specifiers->data.list.count && !struct_name; si++)
                         {
-                            c_grammar_node_t * sc = decl_specifiers->data.list.children[si];
-                            if (sc && sc->type == AST_NODE_TYPE_SPECIFIER && !sc->is_terminal_node)
+                            c_grammar_node_t * child = decl_specifiers->data.list.children[si];
+                            
+                            // Handle terminal TypeSpecifier (typedef name like "FloatMember")
+                            if (child && child->type == AST_NODE_TYPE_SPECIFIER && child->is_terminal_node
+                                && child->data.terminal.text)
                             {
-                                for (size_t ssi = 0; ssi < sc->data.list.count && !struct_name; ssi++)
+                                if (find_struct_type(ctx, child->data.terminal.text))
                                 {
-                                    c_grammar_node_t * ssc = sc->data.list.children[ssi];
+                                    struct_name = child->data.terminal.text;
+                                }
+                            }
+                            // Handle non-terminal TypeSpecifier
+                            else if (child && child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
+                            {
+                                for (size_t ssi = 0; ssi < child->data.list.count && !struct_name; ssi++)
+                                {
+                                    c_grammar_node_t * ssc = child->data.list.children[ssi];
                                     if (ssc && ssc->is_terminal_node && ssc->type == AST_NODE_IDENTIFIER)
                                     {
                                         if (find_struct_type(ctx, ssc->data.terminal.text))
