@@ -667,6 +667,53 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             is_struct_declaration = true;
         }
     }
+    else if (node->type == AST_NODE_TYPEDEF_DECLARATION)
+    {
+        // Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier]
+        // DeclarationSpecifiers contains the struct/union definition
+        // Identifier is the typedef name
+        if (node->data.list.count >= 2)
+        {
+            c_grammar_node_t * decl_specs = node->data.list.children[0];
+            c_grammar_node_t * typedef_name_node = node->data.list.children[1];
+
+            if (decl_specs && typedef_name_node 
+                && decl_specs->type == AST_NODE_DECL_SPECIFIERS
+                && typedef_name_node->type == AST_NODE_IDENTIFIER
+                && typedef_name_node->is_terminal_node)
+            {
+                char * typedef_name = typedef_name_node->data.terminal.text;
+                c_grammar_node_t const * struct_def_node = NULL;
+
+                // Look for struct definition inside DeclarationSpecifiers
+                for (size_t i = 0; i < decl_specs->data.list.count; ++i)
+                {
+                    c_grammar_node_t * spec_child = decl_specs->data.list.children[i];
+
+                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
+                    {
+                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                        {
+                            c_grammar_node_t const * type_child = spec_child->data.list.children[j];
+                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
+                            {
+                                struct_def_node = type_child;
+                                break;
+                            }
+                        }
+                    }
+                    if (struct_def_node)
+                        break;
+                }
+
+                if (struct_def_node && typedef_name)
+                {
+                    register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
+                    is_struct_declaration = true;
+                }
+            }
+        }
+    }
 
     // Handle typedef declarations at TranslationUnit level
     // Pattern: DeclarationSpecifiers (with struct/union) followed by Identifier (typedef name)
