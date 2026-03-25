@@ -584,6 +584,10 @@ find_symbol(
     return false;
 }
 
+static void register_struct_definition_with_name(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
+);
+
 static void
 register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
@@ -614,6 +618,87 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         register_struct_definition(ctx, type_child);
                         is_struct_declaration = true;
                     }
+                }
+            }
+        }
+    }
+    else if (node->type == AST_NODE_DECL_SPECIFIERS)
+    {
+        // Handle typedef declarations (struct/union inside DeclarationSpecifiers)
+        // The typedef name (e.g., "IntFloat") is a sibling Identifier in DeclarationSpecifiers
+        char * typedef_name = NULL;
+        c_grammar_node_t const * struct_def_node = NULL;
+
+        for (size_t i = 0; i < node->data.list.count; ++i)
+        {
+            c_grammar_node_t * spec_child = node->data.list.children[i];
+
+            if (spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
+            {
+                for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                {
+                    c_grammar_node_t const * type_child = spec_child->data.list.children[j];
+
+                    if (type_child->type == AST_NODE_STRUCT_DEFINITION)
+                    {
+                        struct_def_node = type_child;
+                    }
+                }
+            }
+            else if (spec_child->type == AST_NODE_IDENTIFIER && spec_child->is_terminal_node)
+            {
+                typedef_name = spec_child->data.terminal.text;
+            }
+        }
+
+        if (struct_def_node && typedef_name)
+        {
+            register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
+            is_struct_declaration = true;
+        }
+    }
+
+    // Handle typedef declarations at TranslationUnit level
+    // Pattern: DeclarationSpecifiers (with struct/union) followed by Identifier (typedef name)
+    if (node->type == AST_NODE_TRANSLATION_UNIT && node->data.list.count >= 2)
+    {
+        for (size_t i = 0; i + 1 < node->data.list.count; ++i)
+        {
+            c_grammar_node_t * child_i = node->data.list.children[i];
+            c_grammar_node_t * child_ip1 = node->data.list.children[i + 1];
+
+            if (child_i && child_i->type == AST_NODE_DECL_SPECIFIERS && child_ip1
+                && child_ip1->type == AST_NODE_IDENTIFIER && child_ip1->is_terminal_node)
+            {
+                // Check if DECL_SPECIFIERS contains a struct definition
+                char * typedef_name = child_ip1->data.terminal.text;
+                c_grammar_node_t const * struct_def_node = NULL;
+
+                for (size_t j = 0; j < child_i->data.list.count; ++j)
+                {
+                    c_grammar_node_t * spec_child = child_i->data.list.children[j];
+
+                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
+                    {
+                        for (size_t k = 0; k < spec_child->data.list.count; ++k)
+                        {
+                            c_grammar_node_t const * type_child = spec_child->data.list.children[k];
+
+                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
+                            {
+                                struct_def_node = type_child;
+                                break;
+                            }
+                        }
+                    }
+                    if (struct_def_node)
+                        break;
+                }
+
+                if (struct_def_node && typedef_name)
+                {
+                    register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
+                    is_struct_declaration = true;
                 }
             }
         }
@@ -680,6 +765,87 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
             LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
 
             // Get member name from declarator
+            char * member_name = NULL;
+            c_grammar_node_t * direct_decl = find_direct_declarator(decl);
+            if (direct_decl && direct_decl->data.list.count > 0)
+            {
+                c_grammar_node_t * ident = direct_decl->data.list.children[0];
+                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
+                {
+                    member_name = ident->data.terminal.text;
+                }
+            }
+
+            LLVMTypeRef * new_types = realloc(member_types, (num_members + 1) * sizeof(LLVMTypeRef));
+            char ** new_names = realloc(member_names, (num_members + 1) * sizeof(char *));
+            if (new_types && new_names)
+            {
+                member_types = new_types;
+                member_names = new_names;
+                member_types[num_members] = member_type;
+                member_names[num_members] = member_name ? strdup(member_name) : NULL;
+                num_members++;
+            }
+        }
+    }
+
+    if (struct_name && num_members > 0 && member_types)
+    {
+        LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, struct_name);
+        LLVMStructSetBody(struct_type, member_types, (unsigned)num_members, false);
+        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members);
+    }
+
+    free(member_types);
+    if (member_names)
+    {
+        for (size_t i = 0; i < num_members; i++)
+        {
+            free(member_names[i]);
+        }
+        free(member_names);
+    }
+}
+
+static void
+register_struct_definition_with_name(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
+)
+{
+    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION || struct_name == NULL)
+    {
+        return;
+    }
+
+    if (find_struct_type(ctx, struct_name))
+    {
+        return;
+    }
+
+    LLVMTypeRef * member_types = NULL;
+    char ** member_names = NULL;
+    size_t num_members = 0;
+
+    // Members are at indices: 0,1 (first), 2,3 (second), etc.
+    // We need to find pairs of TypeSpecifier + Declarator (in that order)
+    for (size_t m = 0; m + 1 < type_child->data.list.count; m += 2)
+    {
+        c_grammar_node_t * child0 = type_child->data.list.children[m];
+        c_grammar_node_t * child1 = type_child->data.list.children[m + 1];
+
+        // Look for TypeSpecifier followed by Declarator (in order)
+        c_grammar_node_t * type_spec = NULL;
+        c_grammar_node_t * decl = NULL;
+        if (child0 && child0->type == AST_NODE_TYPE_SPECIFIER && child1 && child1->type == AST_NODE_DECLARATOR)
+        {
+            type_spec = child0;
+            decl = child1;
+        }
+
+        if (type_spec && decl)
+        {
+            LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
+
             char * member_name = NULL;
             c_grammar_node_t * direct_decl = find_direct_declarator(decl);
             if (direct_decl && direct_decl->data.list.count > 0)
@@ -884,7 +1050,93 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     // 1. Process Specifiers (extract base type and any pointers in specifiers)
     if (specifiers)
     {
-        if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
+        // Handle terminal TypeSpecifier (e.g., typedef name "IntFloat", or basic type "int", "float")
+        if (specifiers->type == AST_NODE_TYPE_SPECIFIER && specifiers->is_terminal_node
+            && specifiers->data.terminal.text)
+        {
+            char const * type_name = specifiers->data.terminal.text;
+            // First check if it's a struct/union type
+            LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+            if (struct_type)
+            {
+                base_type = struct_type;
+            }
+            // Then check for basic types
+            else if (strncmp(type_name, "int", 3) == 0)
+                base_type = LLVMInt32TypeInContext(ctx->context);
+            else if (strncmp(type_name, "char", 4) == 0)
+                base_type = LLVMInt8TypeInContext(ctx->context);
+            else if (strncmp(type_name, "void", 4) == 0)
+                base_type = LLVMVoidTypeInContext(ctx->context);
+            else if (strncmp(type_name, "float", 5) == 0)
+                base_type = LLVMFloatTypeInContext(ctx->context);
+            else if (strncmp(type_name, "double", 6) == 0)
+                base_type = LLVMDoubleTypeInContext(ctx->context);
+            else if (strncmp(type_name, "long", 4) == 0)
+                base_type = LLVMInt64TypeInContext(ctx->context);
+            else if (strncmp(type_name, "short", 5) == 0)
+                base_type = LLVMInt16TypeInContext(ctx->context);
+        }
+        // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
+        else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
+        {
+            for (size_t i = 0; i < specifiers->data.list.count; ++i)
+            {
+                c_grammar_node_t * child = specifiers->data.list.children[i];
+                if (child && child->type == AST_NODE_TYPE_SPECIFIER)
+                {
+                    // Found TypeSpecifier, process it
+                    if (child->is_terminal_node && child->data.terminal.text)
+                    {
+                        char const * type_name = child->data.terminal.text;
+                        LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                        if (struct_type)
+                        {
+                            base_type = struct_type;
+                            break;
+                        }
+                        // Fallback: check for basic types
+                        if (strncmp(type_name, "int", 3) == 0)
+                            base_type = LLVMInt32TypeInContext(ctx->context);
+                        else if (strncmp(type_name, "char", 4) == 0)
+                            base_type = LLVMInt8TypeInContext(ctx->context);
+                        else if (strncmp(type_name, "void", 4) == 0)
+                            base_type = LLVMVoidTypeInContext(ctx->context);
+                        else if (strncmp(type_name, "float", 5) == 0)
+                            base_type = LLVMFloatTypeInContext(ctx->context);
+                        else if (strncmp(type_name, "double", 6) == 0)
+                            base_type = LLVMDoubleTypeInContext(ctx->context);
+                        else if (strncmp(type_name, "long", 4) == 0)
+                            base_type = LLVMInt64TypeInContext(ctx->context);
+                        else if (strncmp(type_name, "short", 5) == 0)
+                            base_type = LLVMInt16TypeInContext(ctx->context);
+                        if (base_type)
+                            break;
+                    }
+                    else if (!child->is_terminal_node && child->data.list.count > 0)
+                    {
+                        // Check children for typedef names or struct definitions
+                        for (size_t j = 0; j < child->data.list.count; ++j)
+                        {
+                            c_grammar_node_t * tchild = child->data.list.children[j];
+                            if (tchild && tchild->is_terminal_node && tchild->type == AST_NODE_IDENTIFIER)
+                            {
+                                char const * type_name = tchild->data.terminal.text;
+                                LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                                if (struct_type)
+                                {
+                                    base_type = struct_type;
+                                    break;
+                                }
+                            }
+                        }
+                        if (base_type)
+                            break;
+                    }
+                }
+            }
+        }
+        else if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
         {
             if (specifiers->is_terminal_node)
             {
@@ -931,7 +1183,18 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         break;
                     }
                 }
-                if (type_specifier_node && !type_specifier_node->is_terminal_node
+                // Handle terminal type specifiers (e.g., typedef names like "IntFloat")
+                if (type_specifier_node && type_specifier_node->is_terminal_node
+                    && type_specifier_node->type == AST_NODE_IDENTIFIER)
+                {
+                    char const * type_name = type_specifier_node->data.terminal.text;
+                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                    if (struct_type)
+                    {
+                        base_type = struct_type;
+                    }
+                }
+                else if (type_specifier_node && !type_specifier_node->is_terminal_node
                     && type_specifier_node->data.list.count > 0)
                 {
                     for (size_t i = 0; i < type_specifier_node->data.list.count; ++i)
@@ -2596,24 +2859,22 @@ static LLVMValueRef
 process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     LLVMTypeRef float_type;
+    long double value = node->float_literal.value;
     if (node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
     {
-        fprintf(stderr, "type is double\n");
-        float_type = LLVMDoubleTypeInContext(ctx->context); // Default to double
+        float_type = LLVMDoubleTypeInContext(ctx->context);
     }
     else if (node->float_literal.type == FLOAT_LITERAL_TYPE_FLOAT)
     {
-        fprintf(stderr, "type is float\n");
         float_type = LLVMFloatTypeInContext(ctx->context);
+        value = (double)value;
     }
     else if (node->float_literal.type == FLOAT_LITERAL_TYPE_LONG_DOUBLE)
     {
-        fprintf(stderr, "type is long double\n");
         float_type = LLVMX86FP80TypeInContext(ctx->context);
     }
-    fprintf(stderr, "value: %Lf\n", node->float_literal.value);
 
-    return LLVMConstReal(float_type, node->float_literal.value);
+    return LLVMConstReal(float_type, value);
 }
 
 static LLVMValueRef
