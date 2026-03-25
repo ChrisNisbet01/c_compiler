@@ -1924,17 +1924,35 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         initializer_value
                                             = LLVMBuildFPExt(ctx->builder, initializer_value, var_type, "casttmp");
                                     }
-                                    else if (
+                                else if (
                                         LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
                                         && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
                                     )
-                                    {
-                                        initializer_value
-                                            = LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
-                                    }
+                                {
+                                    initializer_value
+                                        = LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
                                 }
+                            }
 
-                                aligned_store(ctx->builder, initializer_value, alloca_inst);
+                            // Handle integer type conversion (e.g., i32 literal to i8 char)
+                            if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind
+                                && LLVMGetTypeKind(var_type) == LLVMIntegerTypeKind)
+                            {
+                                unsigned init_bits = LLVMGetIntTypeWidth(init_type);
+                                unsigned var_bits = LLVMGetIntTypeWidth(var_type);
+                                if (init_bits > var_bits)
+                                {
+                                    initializer_value
+                                        = LLVMBuildTrunc(ctx->builder, initializer_value, var_type, "trunc_init");
+                                }
+                                else if (init_bits < var_bits)
+                                {
+                                    initializer_value
+                                        = LLVMBuildSExt(ctx->builder, initializer_value, var_type, "sext_init");
+                                }
+                            }
+
+                            aligned_store(ctx->builder, initializer_value, alloca_inst);
                             }
                         }
                     }
