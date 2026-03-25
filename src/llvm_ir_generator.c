@@ -2086,6 +2086,26 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             return;
         }
 
+        // Convert RHS to LHS type if needed (e.g., i32 literal to i8 char)
+        if (lhs_type != NULL && rhs_value != NULL)
+        {
+            LLVMTypeRef rhs_type = LLVMTypeOf(rhs_value);
+            if (lhs_type != rhs_type && LLVMGetTypeKind(lhs_type) == LLVMIntegerTypeKind
+                && LLVMGetTypeKind(rhs_type) == LLVMIntegerTypeKind)
+            {
+                unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
+                unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
+                if (lhs_bits < rhs_bits)
+                {
+                    rhs_value = LLVMBuildTrunc(ctx->builder, rhs_value, lhs_type, "trunc_rhs");
+                }
+                else if (lhs_bits > rhs_bits)
+                {
+                    rhs_value = LLVMBuildSExt(ctx->builder, rhs_value, lhs_type, "sext_rhs");
+                }
+            }
+        }
+
         // Generate the store instruction.
         aligned_store(ctx->builder, rhs_value, lhs_ptr);
         break;
@@ -3799,8 +3819,26 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
     LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+
+    // Handle type promotion for integer operands - both sides must match
+    if (!is_float_op && type_kind == LLVMIntegerTypeKind && LLVMGetTypeKind(rhs_type) == LLVMIntegerTypeKind)
+    {
+        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
+        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
+        if (lhs_bits > rhs_bits)
+        {
+            rhs_val = LLVMBuildSExt(ctx->builder, rhs_val, lhs_type, "promote_rhs");
+            rhs_type = lhs_type;
+        }
+        else if (rhs_bits > lhs_bits)
+        {
+            lhs_val = LLVMBuildSExt(ctx->builder, lhs_val, rhs_type, "promote_lhs");
+            lhs_type = rhs_type;
+        }
+    }
 
     switch (node->op.eq.op)
     {
