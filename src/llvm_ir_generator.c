@@ -14,15 +14,18 @@
 // Symbol table management functions
 static void
 add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type);
-static LLVMValueRef
-get_variable_pointer(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node, LLVMTypeRef * out_type,
+static LLVMValueRef get_variable_pointer(
+    ir_generator_ctx_t * ctx,
+    c_grammar_node_t const * identifier_node,
+    LLVMTypeRef * out_type,
     LLVMTypeRef * out_pointee_type
 );
 static void free_symbol_table(ir_generator_ctx_t * ctx);
-static bool
-find_symbol(
-    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type,
+static bool find_symbol(
+    ir_generator_ctx_t * ctx,
+    char const * name,
+    LLVMValueRef * out_ptr,
+    LLVMTypeRef * out_type,
     LLVMTypeRef * out_pointee_type
 ); // Helper for get_variable_pointer
 
@@ -418,7 +421,11 @@ static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_
 
 static void
 add_symbol_with_struct(
-    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type,
+    ir_generator_ctx_t * ctx,
+    char const * name,
+    LLVMValueRef ptr,
+    LLVMTypeRef type,
+    LLVMTypeRef pointee_type,
     char const * struct_name
 )
 {
@@ -558,7 +565,10 @@ process_initializer_list(
  */
 static bool
 find_symbol(
-    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type,
+    ir_generator_ctx_t * ctx,
+    char const * name,
+    LLVMValueRef * out_ptr,
+    LLVMTypeRef * out_type,
     LLVMTypeRef * out_pointee_type
 )
 {
@@ -1194,8 +1204,10 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         base_type = struct_type;
                     }
                 }
-                else if (type_specifier_node && !type_specifier_node->is_terminal_node
-                    && type_specifier_node->data.list.count > 0)
+                else if (
+                    type_specifier_node && !type_specifier_node->is_terminal_node
+                    && type_specifier_node->data.list.count > 0
+                )
                 {
                     for (size_t i = 0; i < type_specifier_node->data.list.count; ++i)
                     {
@@ -1749,7 +1761,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         for (size_t si = 0; si < decl_specifiers->data.list.count && !struct_name; si++)
                         {
                             c_grammar_node_t * child = decl_specifiers->data.list.children[si];
-                            
+
                             // Handle terminal TypeSpecifier (typedef name like "FloatMember")
                             if (child && child->type == AST_NODE_TYPE_SPECIFIER && child->is_terminal_node
                                 && child->data.terminal.text)
@@ -2650,6 +2662,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INIT_DECLARATOR:
     case AST_NODE_OPTIONAL_KW_EXTENSION:
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
+    case AST_NODE_TYPEDEF_DECLARATION:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -3991,10 +4004,12 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FOR_STATEMENT:
     case AST_NODE_GOTO_STATEMENT:
     case AST_NODE_BREAK_STATEMENT:
+    case AST_NODE_CONTINUE_STATEMENT:
     case AST_NODE_RETURN_STATEMENT:
     case AST_NODE_TYPE_NAME:
     case AST_NODE_EXPRESSION_STATEMENT:
     case AST_NODE_STRUCT_DEFINITION:
+    case AST_NODE_TYPEDEF_DECLARATION:
     case AST_NODE_INITIALIZER_LIST:
     case AST_NODE_LABELED_STATEMENT:
     case AST_NODE_CASE_LABEL:

@@ -4,12 +4,12 @@ typedef struct
 {
     float f;
     float f2;
-} FloatMember;
+} FloatMemberStruct;
 
 int
 main()
 {
-    FloatMember fm;
+    FloatMemberStruct fm;
     fm.f = 42.f;
     if (fm.f != 42.f)
     {

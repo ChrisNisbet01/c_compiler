@@ -320,12 +320,12 @@ StructDefinition = (KwStruct | KwUnion) Attribute* Identifier? LBrace StructDecl
 // StructTypeRef: struct without body (reference) - treated as type specifier
 StructTypeRef = (KwStruct | KwUnion) Attribute* Identifier;
 
-NonTypedefTypeSpecifier = (KwVoid | KwChar | KwShort | KwInt | KwLong
+NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned
                          | KwBool | KwComplex | KwImaginary
                          | StructDefinition
                          | StructTypeRef
-                         | EnumSpecifier) @AST_ACTION_TYPE_SPECIFIER;
+                         | EnumSpecifier @AST_ACTION_TYPE_SPECIFIER;
 TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 
 // --- Declarations ---
@@ -383,7 +383,8 @@ TypedefInitDeclarator = TypedefDeclarator Attribute* AsmName? Attribute* (Assign
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma);
 
 // The whole typedef declaration is wrapped to commit/discard the captured names
-TypedefDeclaration = wrap(KwExtension? KwTypedef DeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL);
+TypedefDeclaration = wrap(KwExtension? KwTypedef DeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL) 
+                   @AST_ACTION_TYPEDEF_DECLARATION;
 
 // --- Statements ---
 
