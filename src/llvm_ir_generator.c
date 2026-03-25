@@ -3018,6 +3018,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TERNARY_OPERATION:
     case AST_NODE_ENUM_SPECIFIER:
     case AST_NODE_ENUMERATOR:
+    case AST_NODE_COMMA_EXPRESSION:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -4655,6 +4656,20 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_CONDITIONAL_EXPRESSION:
     {
         return process_conditional_expression(ctx, node);
+    }
+    case AST_NODE_COMMA_EXPRESSION:
+    {
+        /* Comma expression: evaluate all expressions, return the last value. */
+        LLVMValueRef result = NULL;
+        for (size_t i = 0; i < node->data.list.count; ++i)
+        {
+            result = process_expression(ctx, node->data.list.children[i]);
+            if (!result)
+            {
+                return NULL;
+            }
+        }
+        return result;
     }
     case AST_NODE_UNARY_EXPRESSION:
     {
