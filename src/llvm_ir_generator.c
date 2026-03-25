@@ -560,6 +560,16 @@ process_initializer_list(
 
     LLVMTypeKind kind = LLVMGetTypeKind(element_type);
 
+    // For structs, zero-initialize the entire struct first (including padding)
+    // Then process explicit initializers
+    if (kind == LLVMStructTypeKind)
+    {
+        LLVMTypeRef int8_type = LLVMInt8TypeInContext(ctx->context);
+        LLVMValueRef size = LLVMSizeOf(element_type);
+        LLVMValueRef zero = LLVMConstNull(int8_type);
+        LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, get_type_alignment(element_type));
+    }
+
     if (!initializer_node->is_terminal_node)
     {
         // Use a local index for processing leaf elements at this level
@@ -608,7 +618,7 @@ process_initializer_list(
                     = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
                 process_initializer_list(ctx, elem_ptr, nested_element, child, &local_index);
             }
-            // Process leaf values - store to array
+            // Process leaf values - store to array or struct member
             else
             {
                 LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)child);
@@ -620,6 +630,28 @@ process_initializer_list(
 
                     LLVMValueRef elem_ptr
                         = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+
+                    // For structs, cast the value to the member type
+                    LLVMTypeRef value_type = LLVMTypeOf(value);
+                    if (kind == LLVMStructTypeKind)
+                    {
+                        LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(element_type, (unsigned)local_index);
+                        if (member_type && member_type != value_type)
+                        {
+                            LLVMTypeKind member_kind = LLVMGetTypeKind(member_type);
+                            LLVMTypeKind value_kind = LLVMGetTypeKind(value_type);
+                            if (member_kind == LLVMIntegerTypeKind && value_kind == LLVMIntegerTypeKind)
+                            {
+                                unsigned member_bits = LLVMGetIntTypeWidth(member_type);
+                                unsigned value_bits = LLVMGetIntTypeWidth(value_type);
+                                if (member_bits < value_bits)
+                                    value = LLVMBuildTrunc(ctx->builder, value, member_type, "trunc_val");
+                                else if (member_bits > value_bits)
+                                    value = LLVMBuildSExt(ctx->builder, value, member_type, "sext_val");
+                            }
+                        }
+                    }
+
                     aligned_store(ctx->builder, value, elem_ptr);
                     local_index++;
                     if (outer_index)
@@ -1863,7 +1895,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     // Process initializer if present
                     if (initializer_expr_node)
                     {
-                        if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
+                        if ((LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
+                            || LLVMGetTypeKind(var_type) == LLVMStructTypeKind)
                             && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                         {
                             int current_index = 0;
