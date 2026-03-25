@@ -796,6 +796,9 @@ static void register_struct_definition_with_name(
 );
 
 static void
+register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+
+static void
 register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (ctx == NULL || node == NULL)
@@ -825,6 +828,11 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         register_struct_definition(ctx, type_child);
                         is_struct_declaration = true;
                     }
+                    else if (type_child->type == AST_NODE_ENUM_SPECIFIER)
+                    {
+                        register_enum_definition(ctx, type_child);
+                        is_struct_declaration = true;
+                    }
                 }
             }
         }
@@ -832,7 +840,7 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     else if (node->type == AST_NODE_TYPEDEF_DECLARATION)
     {
         // Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier]
-        // DeclarationSpecifiers contains the struct/union definition
+        // DeclarationSpecifiers contains the struct/union/enum definition
         // Identifier is the typedef name
         if (node->data.list.count >= 2)
         {
@@ -844,8 +852,9 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             {
                 char * typedef_name = typedef_name_node->data.terminal.text;
                 c_grammar_node_t const * struct_def_node = NULL;
+                c_grammar_node_t const * enum_def_node = NULL;
 
-                // Look for struct definition inside DeclarationSpecifiers
+                // Look for struct/union/enum definition inside DeclarationSpecifiers
                 for (size_t i = 0; i < decl_specs->data.list.count; ++i)
                 {
                     c_grammar_node_t * spec_child = decl_specs->data.list.children[i];
@@ -860,15 +869,26 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                                 struct_def_node = type_child;
                                 break;
                             }
+                            else if (type_child && type_child->type == AST_NODE_ENUM_SPECIFIER)
+                            {
+                                enum_def_node = type_child;
+                                break;
+                            }
                         }
                     }
-                    if (struct_def_node)
+                    if (struct_def_node || enum_def_node)
                         break;
                 }
 
                 if (struct_def_node && typedef_name)
                 {
                     register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
+                    is_struct_declaration = true;
+                }
+                else if (enum_def_node)
+                {
+                    // Register the enum values as constants
+                    register_enum_definition(ctx, enum_def_node);
                     is_struct_declaration = true;
                 }
             }
@@ -888,6 +908,92 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             {
                 register_structs_in_node(ctx, node->data.list.children[i]);
             }
+        }
+    }
+}
+
+static void
+register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
+{
+    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_SPECIFIER)
+    {
+        return;
+    }
+
+    // EnumDefinition structure: [KwEnum, Identifier?, Enumerator, Enumerator, ...]
+    // The enumerators contain the enum constant names and values
+
+    // Enumerate values and register them as global constants
+    int current_value = 0;
+
+    for (size_t i = 1; i < enum_node->data.list.count; ++i)
+    {
+        c_grammar_node_t * child = enum_node->data.list.children[i];
+
+        if (child->type == AST_NODE_ENUMERATOR && child->data.list.count >= 1)
+        {
+            // Enumerator = [Identifier] or [Identifier, Assign, IntegerLiteral]
+            c_grammar_node_t * name_node = child->data.list.children[0];
+
+            if (name_node && name_node->type == AST_NODE_IDENTIFIER && name_node->is_terminal_node)
+            {
+                char const * enum_name = name_node->data.terminal.text;
+
+                // Check if there's an explicit value assignment
+                // The enumerator could be [Identifier, Value] or [Identifier, Assign, Value]
+                c_grammar_node_t * value_node = NULL;
+
+                if (child->data.list.count == 2)
+                {
+                    // [Identifier, Value]
+                    value_node = child->data.list.children[1];
+                }
+                else if (child->data.list.count >= 3)
+                {
+                    // [Identifier, Assign, Value]
+                    value_node = child->data.list.children[2];
+                }
+
+                if (value_node)
+                {
+                    // Walk down the expression tree to find the integer literal
+                    if (value_node->type == AST_NODE_INTEGER_LITERAL)
+                    {
+                        current_value = (int)value_node->integer_literal.value;
+                    }
+                    else if (value_node->lhs)
+                    {
+                        // Try lhs recursively for wrapped expressions
+                        c_grammar_node_t * node = (c_grammar_node_t *)value_node;
+                        while (node && node->lhs)
+                        {
+                            if (node->type == AST_NODE_INTEGER_LITERAL)
+                            {
+                                current_value = (int)node->integer_literal.value;
+                                break;
+                            }
+                            node = (c_grammar_node_t *)node->lhs;
+                        }
+                    }
+                }
+
+                // Create a global constant for this enum value
+                LLVMValueRef const_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_value, true);
+                LLVMValueRef global = LLVMAddGlobal(ctx->module, LLVMInt32TypeInContext(ctx->context), enum_name);
+                LLVMSetInitializer(global, const_val);
+                LLVMSetGlobalConstant(global, true);
+                LLVMSetLinkage(global, LLVMInternalLinkage);
+
+                // Also add to symbol table for immediate lookup
+                add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL);
+
+                current_value++;
+            }
+        }
+        else if (child->type == AST_NODE_IDENTIFIER && child->is_terminal_node)
+        {
+            // This might be the enum name, skip it
+            continue;
         }
     }
 }
@@ -2910,7 +3016,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_DECLARATION:
     case AST_NODE_KEYWORD:
     case AST_NODE_TERNARY_OPERATION:
-    case AST_NODE_CONDITIONAL_EXPRESSION:
+    case AST_NODE_ENUM_SPECIFIER:
+    case AST_NODE_ENUMERATOR:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -4607,6 +4714,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     case AST_NODE_KEYWORD:
     case AST_NODE_TERNARY_OPERATION:
+    case AST_NODE_ENUM_SPECIFIER:
+    case AST_NODE_ENUMERATOR:
     default:
         // Attempt to recursively process if it might yield a value.
         if (!node->is_terminal_node)

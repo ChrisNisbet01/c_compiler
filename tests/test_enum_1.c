@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-typedef enum
+enum Number
 {
     ZERO = 0,
     ONE = 1,
@@ -11,13 +11,15 @@ typedef enum
 int
 main()
 {
-    Number n = ONE;
+    enum Number n = ONE;
     printf("n: %d\n", n);
-    if (n != 1) return 1;
-    
+    if (n != 1)
+        return 1;
+
     n = TEN;
     printf("n: %d\n", n);
-    if (n != 10) return 2;
-    
+    if (n != 10)
+        return 2;
+
     return 0;
 }

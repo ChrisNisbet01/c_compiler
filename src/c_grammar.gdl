@@ -310,10 +310,11 @@ StructOrUnion = KwStruct | KwUnion;
 StructOrUnionSpecifier = (StructOrUnion Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
                         | (StructOrUnion Attribute* Identifier) @AST_ACTION_STRUCT_SPECIFIER;
 
-Enumerator = Identifier (Assign ConditionalExpression)?;
+Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
 
-EnumSpecifier = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace Attribute*)
-              | (KwEnum Attribute* Identifier);
+EnumDefinition = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace Attribute*) @AST_ACTION_ENUM_SPECIFIER;
+
+EnumTypeRef = KwEnum Attribute* Identifier;
 
 // Typedef names are identifiers that have been registered
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
@@ -329,7 +330,9 @@ NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | 
                          | KwBool | KwComplex | KwImaginary
                          | StructDefinition
                          | StructTypeRef
-                         | EnumSpecifier @AST_ACTION_TYPE_SPECIFIER;
+                         | EnumDefinition
+                         | EnumTypeRef 
+                         @AST_ACTION_TYPE_SPECIFIER;
 TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 
 // --- Declarations ---

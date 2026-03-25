@@ -73,6 +73,8 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_KEYWORD] = {.name = "Keyword"},
     [AST_NODE_TERNARY_OPERATION] = {.name = "TernaryOperation"},
     [AST_NODE_CONDITIONAL_EXPRESSION] = {.name = "ConditionalExpression"},
+    [AST_NODE_ENUM_SPECIFIER] = {.name = "EnumSpecifier"},
+    [AST_NODE_ENUMERATOR] = {.name = "Enumerator"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
