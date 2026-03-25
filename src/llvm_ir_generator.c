@@ -729,7 +729,20 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         return;
     }
 
-    for (size_t m = 1; m + 1 < type_child->data.list.count; m += 2)
+    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, Declarator, TypeSpec, Declarator, ...]
+    // Skip Keyword and optional Identifier to get to member pairs
+    size_t start_idx = 2; // Skip Keyword and struct name
+    // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
+    if (type_child->data.list.count > 1 && type_child->data.list.children[1] 
+        && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
+    {
+        start_idx = 2;
+    }
+    else
+    {
+        start_idx = 1;
+    }
+    for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
     {
         c_grammar_node_t * type_spec = type_child->data.list.children[m];
         c_grammar_node_t * decl = type_child->data.list.children[m + 1];
@@ -800,9 +813,20 @@ register_struct_definition_with_name(
     char ** member_names = NULL;
     size_t num_members = 0;
 
-    // Members are at indices: 0,1 (first), 2,3 (second), etc.
-    // We need to find pairs of TypeSpecifier + Declarator (in that order)
-    for (size_t m = 0; m + 1 < type_child->data.list.count; m += 2)
+    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, Declarator, TypeSpec, Declarator, ...]
+    // Skip Keyword and optional Identifier to get to member pairs
+    size_t start_idx = 2; // Skip Keyword and struct name
+    // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
+    if (type_child->data.list.count > 1 && type_child->data.list.children[1] 
+        && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
+    {
+        start_idx = 2;
+    }
+    else
+    {
+        start_idx = 1;
+    }
+    for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
     {
         c_grammar_node_t * child0 = type_child->data.list.children[m];
         c_grammar_node_t * child1 = type_child->data.list.children[m + 1];
