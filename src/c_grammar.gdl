@@ -31,8 +31,8 @@ KwUnsigned = lexeme("unsigned" IdBoundary);
 KwBool = lexeme("_Bool" IdBoundary);
 KwComplex = lexeme("_Complex" IdBoundary);
 KwImaginary = lexeme("_Imaginary" IdBoundary);
-KwStruct = lexeme("struct" IdBoundary);
-KwUnion = lexeme("union" IdBoundary);
+KwStruct = lexeme("struct" IdBoundary) @AST_ACTION_KEYWORD;
+KwUnion = lexeme("union" IdBoundary) @AST_ACTION_KEYWORD;
 KwEnum = lexeme("enum" IdBoundary);
 KwTypedef = lexeme("typedef" IdBoundary);
 
@@ -303,8 +303,10 @@ StructDeclaration = KwExtension? SpecifierQualifierList StructDeclaratorList? Se
 
 StructDeclarationList = StructDeclaration+;
 
-StructOrUnionSpecifier = ((KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
-                        | ((KwStruct | KwUnion) Attribute* Identifier) @AST_ACTION_STRUCT_SPECIFIER;
+StructOrUnion = KwStruct | KwUnion;
+
+StructOrUnionSpecifier = (StructOrUnion Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute*)
+                        | (StructOrUnion Attribute* Identifier) @AST_ACTION_STRUCT_SPECIFIER;
 
 Enumerator = Identifier (Assign ConditionalExpression)?;
 
@@ -315,10 +317,10 @@ EnumSpecifier = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator,
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
 // StructDefinition: struct with body (definition)
-StructDefinition = (KwStruct | KwUnion) Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute* @AST_ACTION_STRUCT_SPECIFIER;
+StructDefinition = StructOrUnion Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute* @AST_ACTION_STRUCT_SPECIFIER;
 
 // StructTypeRef: struct without body (reference) - treated as type specifier
-StructTypeRef = (KwStruct | KwUnion) Attribute* Identifier;
+StructTypeRef = StructOrUnion Attribute* Identifier;
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned

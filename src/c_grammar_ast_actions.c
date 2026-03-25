@@ -1749,6 +1749,36 @@ handle_typedef_declaration(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_keyword(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_KEYWORD, node);
+    if (ast_node == NULL)
+    {
+        free_ast_node_children(children, count, user_data);
+        return;
+    }
+    /* TODO: make this work for all keywords. Grammar and possibly code gen will need to be updated as well. */
+    if (strcmp(ast_node->data.terminal.text, "struct") == 0)
+    {
+        ast_node->keyword = KEYWORD_STRUCT;
+    }
+    else if (strcmp(ast_node->data.terminal.text, "union") == 0)
+    {
+        ast_node->keyword = KEYWORD_UNION;
+    }
+    else
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s: Unknown keyword: %s", get_node_type_name_from_type(AST_NODE_KEYWORD), ast_node->data.terminal.text
+        );
+        c_grammar_node_free(ast_node, user_data);
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -1825,4 +1855,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_SPECIFIER, handle_struct_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_DECLARATION, handle_typedef_declaration);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_KEYWORD, handle_keyword);
 }

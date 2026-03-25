@@ -642,10 +642,8 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             c_grammar_node_t * decl_specs = node->data.list.children[0];
             c_grammar_node_t * typedef_name_node = node->data.list.children[1];
 
-            if (decl_specs && typedef_name_node 
-                && decl_specs->type == AST_NODE_DECL_SPECIFIERS
-                && typedef_name_node->type == AST_NODE_IDENTIFIER
-                && typedef_name_node->is_terminal_node)
+            if (decl_specs && typedef_name_node && decl_specs->type == AST_NODE_DECL_SPECIFIERS
+                && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->is_terminal_node)
             {
                 char * typedef_name = typedef_name_node->data.terminal.text;
                 c_grammar_node_t const * struct_def_node = NULL;
@@ -2629,6 +2627,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_KW_EXTENSION:
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     case AST_NODE_TYPEDEF_DECLARATION:
+    case AST_NODE_KEYWORD:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -3985,6 +3984,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASSIGNMENT_OPERATOR:
     case AST_NODE_OPTIONAL_KW_EXTENSION:
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
+    case AST_NODE_KEYWORD:
     default:
         // Attempt to recursively process if it might yield a value.
         if (!node->is_terminal_node)

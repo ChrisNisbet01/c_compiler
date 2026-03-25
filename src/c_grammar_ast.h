@@ -67,6 +67,7 @@ typedef enum
     AST_NODE_DEFAULT_STATEMENT,
     AST_NODE_LABELED_IDENTIFIER,
     AST_NODE_ASSIGNMENT_OPERATOR,
+    AST_NODE_KEYWORD,
 } c_grammar_node_type_t;
 
 typedef struct
@@ -239,6 +240,12 @@ struct c_grammar_node_t
     c_grammar_node_t const * rhs;
 
     bool is_initialiser_node;
+    enum /* Relevant to 'keyword' nodes only. */
+    {
+        KEYWORD_UNKNOWN,
+        KEYWORD_STRUCT,
+        KEYWORD_UNION,
+    } keyword;
 
     /* Operator specific. */
     struct
