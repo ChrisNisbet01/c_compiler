@@ -40,8 +40,7 @@ static void add_struct_type(
     LLVMTypeRef struct_type,
     char ** member_names,
     LLVMTypeRef * member_types,
-    size_t num_members,
-    bool is_union
+    size_t num_members
 );
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
@@ -282,10 +281,7 @@ process_postfix_suffixes(
                         }
                     }
 
-                    // For unions, all members are at offset 0
-                    bool is_union = info && info->is_union;
-
-                    if (!is_union && info)
+                    if (info)
                     {
                         for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
                         {
@@ -296,7 +292,6 @@ process_postfix_suffixes(
                             }
                         }
                     }
-                    // For unions, member_index stays 0
 
                     LLVMValueRef indices[2];
                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
@@ -321,28 +316,7 @@ process_postfix_suffixes(
 
                     if (current_ptr)
                     {
-                        // For unions, look up member type by name; for structs, use struct index
-                        LLVMTypeRef member_type;
-                        if (is_union && info && info->fields)
-                        {
-                            // Find the type for this specific member by name
-                            member_type = NULL;
-                            for (unsigned j = 0; j < info->field_count; j++)
-                            {
-                                if (info->fields[j].name && strcmp(info->fields[j].name, member_name) == 0)
-                                {
-                                    member_type = info->fields[j].type;
-                                    break;
-                                }
-                            }
-                            if (!member_type)
-                                member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                        }
-                        else
-                        {
-                            member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                        }
-                        current_type = member_type;
+                        current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
                         current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "member");
                     }
                 }
@@ -730,20 +704,9 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     }
 
     char * struct_name = NULL;
-    bool is_union = false;
     LLVMTypeRef * member_types = NULL;
     char ** member_names = NULL;
     size_t num_members = 0;
-
-    // Check if this is a union (Keyword at index 0)
-    if (type_child->data.list.count > 0)
-    {
-        c_grammar_node_t * keyword_node = type_child->data.list.children[0];
-        if (keyword_node && keyword_node->type == AST_NODE_KEYWORD && keyword_node->is_terminal_node)
-        {
-            is_union = (keyword_node->keyword == KEYWORD_UNION);
-        }
-    }
 
     for (size_t m = 0; m < type_child->data.list.count; ++m)
     {
@@ -817,7 +780,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     {
         LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, struct_name);
         LLVMStructSetBody(struct_type, member_types, (unsigned)num_members, false);
-        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members, is_union);
+        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members);
     }
 
     free(member_types);
@@ -844,17 +807,6 @@ register_struct_definition_with_name(
     if (find_struct_type(ctx, struct_name))
     {
         return;
-    }
-
-    // Check if this is a union (Keyword at index 0)
-    bool is_union = false;
-    if (type_child->data.list.count > 0)
-    {
-        c_grammar_node_t * keyword_node = type_child->data.list.children[0];
-        if (keyword_node && keyword_node->type == AST_NODE_KEYWORD && keyword_node->is_terminal_node)
-        {
-            is_union = (keyword_node->keyword == KEYWORD_UNION);
-        }
     }
 
     LLVMTypeRef * member_types = NULL;
@@ -920,7 +872,7 @@ register_struct_definition_with_name(
     {
         LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, struct_name);
         LLVMStructSetBody(struct_type, member_types, (unsigned)num_members, false);
-        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members, is_union);
+        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members);
     }
 
     free(member_types);
@@ -957,13 +909,6 @@ find_struct_type(ir_generator_ctx_t * ctx, char const * name)
     return info ? info->type : NULL;
 }
 
-static bool
-is_union_type(ir_generator_ctx_t * ctx, char const * name)
-{
-    struct_info_t * info = find_struct_info(ctx, name);
-    return info ? info->is_union : false;
-}
-
 static void
 add_struct_type(
     ir_generator_ctx_t * ctx,
@@ -971,8 +916,7 @@ add_struct_type(
     LLVMTypeRef struct_type,
     char ** member_names,
     LLVMTypeRef * member_types,
-    size_t num_members,
-    bool is_union
+    size_t num_members
 )
 {
     if (!ctx || !name || !struct_type)
@@ -996,7 +940,6 @@ add_struct_type(
     ctx->structs[ctx->struct_count].name = strdup(name);
     ctx->structs[ctx->struct_count].type = struct_type;
     ctx->structs[ctx->struct_count].field_count = num_members;
-    ctx->structs[ctx->struct_count].is_union = is_union;
     ctx->structs[ctx->struct_count].fields = NULL;
 
     if (num_members > 0 && member_names && member_types)
@@ -1775,14 +1718,13 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
 
-            // Find initializer
+            // Find initializer - child[0] is the declarator, rest are initializers
             for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
             {
                 c_grammar_node_t * child = init_decl_node->data.list.children[ci];
 
-                // Check if this looks like an initializer
-                // TODO: Need a better way to determine if this child node can be processed.
-                if (child->is_initialiser_node || (!child->is_terminal_node && child->data.list.count > 0))
+                // Skip declarator nodes - anything else is an initializer
+                if (child && child->type != AST_NODE_DECLARATOR)
                 {
                     initializer_expr_node = child;
                     break;
@@ -3228,10 +3170,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
 
-                // For unions, all members are at offset 0 regardless of which member
-                bool is_union = struct_info && struct_info->is_union;
-
-                if (!is_union && struct_info && struct_info->fields)
+                if (struct_info && struct_info->fields)
                 {
                     for (unsigned j = 0; j < num_elements && j < struct_info->field_count; ++j)
                     {
@@ -3243,9 +3182,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         }
                     }
                 }
-                else if (!is_union)
+                else
                 {
-                    // Fallback for structs without field info: assume members are in order
+                    // Fallback: assume members are in order and match the field_count
                     for (unsigned j = 0; j < num_elements; ++j)
                     {
                         if (j == 0)
@@ -3256,7 +3195,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         }
                     }
                 }
-                // For unions, member_index stays 0
 
                 if (found || num_elements > 0)
                 {
@@ -3278,27 +3216,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
                     }
-                    // For unions, look up member type by name; for structs, use struct index
-                    LLVMTypeRef member_type;
-                    if (is_union && struct_info && struct_info->fields)
-                    {
-                        // Find the type for this specific member by name
-                        member_type = NULL;
-                        for (unsigned j = 0; j < struct_info->field_count; j++)
-                        {
-                            if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0)
-                            {
-                                member_type = struct_info->fields[j].type;
-                                break;
-                            }
-                        }
-                        if (!member_type)
-                            member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                    }
-                    else
-                    {
-                        member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                    }
+                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
                     base_val = LLVMBuildLoad2(ctx->builder, member_type, member_ptr, "member");
                 }
             }
@@ -3490,10 +3408,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     }
                                 }
 
-                                // For unions, all members are at offset 0
-                                if (info == NULL || !info->is_union)
+                                if (info != NULL)
                                 {
-                                    // For structs, find the actual member index
                                     for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
                                     {
                                         if (info->fields[j].name != NULL
@@ -3504,7 +3420,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         }
                                     }
                                 }
-                                // For unions, member_index stays 0
 
                                 LLVMValueRef indices[2];
                                 indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
@@ -3696,8 +3611,28 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
     LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
+    LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
+    bool is_float_op = (lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind);
+
+    // Handle type promotion for integer operands
+    // If lhs is wider than rhs (e.g., long vs int), promote rhs to match
+    if (!is_float_op && lhs_type_kind == LLVMIntegerTypeKind && rhs_type_kind == LLVMIntegerTypeKind)
+    {
+        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
+        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
+        if (lhs_bits > rhs_bits)
+        {
+            rhs_val = LLVMBuildSExt(ctx->builder, rhs_val, lhs_type, "promote_rhs");
+            rhs_type = lhs_type;
+        }
+        else if (rhs_bits > lhs_bits)
+        {
+            lhs_val = LLVMBuildSExt(ctx->builder, lhs_val, rhs_type, "promote_lhs");
+            lhs_type = rhs_type;
+        }
+    }
 
     switch (node->op.arith.op)
     {

@@ -29,7 +29,6 @@ typedef struct struct_info
     LLVMTypeRef type;
     struct_field_t *fields;
     size_t field_count;
-    bool is_union; // True if this is a union, false if struct
 } struct_info_t;
 
 // --- Symbol Table Management ---
