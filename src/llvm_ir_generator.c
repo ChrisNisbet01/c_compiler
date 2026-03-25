@@ -632,41 +632,6 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             }
         }
     }
-    else if (node->type == AST_NODE_DECL_SPECIFIERS)
-    {
-        // Handle typedef declarations (struct/union inside DeclarationSpecifiers)
-        // The typedef name (e.g., "IntFloat") is a sibling Identifier in DeclarationSpecifiers
-        char * typedef_name = NULL;
-        c_grammar_node_t const * struct_def_node = NULL;
-
-        for (size_t i = 0; i < node->data.list.count; ++i)
-        {
-            c_grammar_node_t * spec_child = node->data.list.children[i];
-
-            if (spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
-            {
-                for (size_t j = 0; j < spec_child->data.list.count; ++j)
-                {
-                    c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-
-                    if (type_child->type == AST_NODE_STRUCT_DEFINITION)
-                    {
-                        struct_def_node = type_child;
-                    }
-                }
-            }
-            else if (spec_child->type == AST_NODE_IDENTIFIER && spec_child->is_terminal_node)
-            {
-                typedef_name = spec_child->data.terminal.text;
-            }
-        }
-
-        if (struct_def_node && typedef_name)
-        {
-            register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
-            is_struct_declaration = true;
-        }
-    }
     else if (node->type == AST_NODE_TYPEDEF_DECLARATION)
     {
         // Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier]
@@ -695,52 +660,6 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         for (size_t j = 0; j < spec_child->data.list.count; ++j)
                         {
                             c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
-                            {
-                                struct_def_node = type_child;
-                                break;
-                            }
-                        }
-                    }
-                    if (struct_def_node)
-                        break;
-                }
-
-                if (struct_def_node && typedef_name)
-                {
-                    register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
-                    is_struct_declaration = true;
-                }
-            }
-        }
-    }
-
-    // Handle typedef declarations at TranslationUnit level
-    // Pattern: DeclarationSpecifiers (with struct/union) followed by Identifier (typedef name)
-    if (node->type == AST_NODE_TRANSLATION_UNIT && node->data.list.count >= 2)
-    {
-        for (size_t i = 0; i + 1 < node->data.list.count; ++i)
-        {
-            c_grammar_node_t * child_i = node->data.list.children[i];
-            c_grammar_node_t * child_ip1 = node->data.list.children[i + 1];
-
-            if (child_i && child_i->type == AST_NODE_DECL_SPECIFIERS && child_ip1
-                && child_ip1->type == AST_NODE_IDENTIFIER && child_ip1->is_terminal_node)
-            {
-                // Check if DECL_SPECIFIERS contains a struct definition
-                char * typedef_name = child_ip1->data.terminal.text;
-                c_grammar_node_t const * struct_def_node = NULL;
-
-                for (size_t j = 0; j < child_i->data.list.count; ++j)
-                {
-                    c_grammar_node_t * spec_child = child_i->data.list.children[j];
-
-                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
-                    {
-                        for (size_t k = 0; k < spec_child->data.list.count; ++k)
-                        {
-                            c_grammar_node_t const * type_child = spec_child->data.list.children[k];
-
                             if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
                             {
                                 struct_def_node = type_child;
