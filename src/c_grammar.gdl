@@ -427,9 +427,9 @@ DoWhileStatement = (KwDo Statement KwWhile LParen Expression RParen Semicolon) @
 ForStatement = (KwFor LParen (Declaration | ExpressionStatement) ExpressionStatement Expression? RParen Statement) @AST_ACTION_FOR_STATEMENT;
 IterationStatement = WhileStatement | DoWhileStatement | ForStatement;
 
-GotoStatement = (KwGoto Identifier Semicolon) @AST_ACTION_GOTO_STATEMENT;
-ContinueStatement = (KwContinue Semicolon) @AST_ACTION_CONTINUE_STATEMENT;
-BreakStatement = (KwBreak Semicolon) @AST_ACTION_BREAK_STATEMENT;
+GotoStatement = KwGoto Identifier Semicolon @AST_ACTION_GOTO_STATEMENT;
+ContinueStatement = KwContinue Semicolon @AST_ACTION_CONTINUE_STATEMENT;
+BreakStatement = KwBreak Semicolon @AST_ACTION_BREAK_STATEMENT;
 ReturnStatement = (KwReturn Expression? Semicolon) @AST_ACTION_RETURN_STATEMENT;
 JumpStatement = GotoStatement | ContinueStatement | BreakStatement | ReturnStatement
               | (KwAsm Attribute* LParen delimited(Expression, Comma) RParen Semicolon);
