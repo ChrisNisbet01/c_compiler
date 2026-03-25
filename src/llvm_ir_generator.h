@@ -38,6 +38,7 @@ typedef struct symbol
     char *name;
     LLVMValueRef ptr;
     LLVMTypeRef type;
+    LLVMTypeRef pointee_type; // For pointer types, stores the pointed-to type (e.g., for int* this would be i32)
     char *struct_name; // For pointer-to-struct types, stores the struct name for member access
 } symbol_t;
 

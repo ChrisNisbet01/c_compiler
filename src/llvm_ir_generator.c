@@ -12,12 +12,18 @@
 // typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
 
 // Symbol table management functions
-static void add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type);
+static void
+add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type);
 static LLVMValueRef
-get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node, LLVMTypeRef * out_type);
+get_variable_pointer(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node, LLVMTypeRef * out_type,
+    LLVMTypeRef * out_pointee_type
+);
 static void free_symbol_table(ir_generator_ctx_t * ctx);
-static bool find_symbol(
-    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type
+static bool
+find_symbol(
+    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type,
+    LLVMTypeRef * out_pointee_type
 ); // Helper for get_variable_pointer
 
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
@@ -412,7 +418,8 @@ static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_
 
 static void
 add_symbol_with_struct(
-    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, char const * struct_name
+    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type,
+    char const * struct_name
 )
 {
     if (!ctx || !name || !ptr || !type)
@@ -429,14 +436,15 @@ add_symbol_with_struct(
     ctx->symbol_table[ctx->symbol_count].name = strdup(name);
     ctx->symbol_table[ctx->symbol_count].ptr = ptr;
     ctx->symbol_table[ctx->symbol_count].type = type;
+    ctx->symbol_table[ctx->symbol_count].pointee_type = pointee_type;
     ctx->symbol_table[ctx->symbol_count].struct_name = struct_name ? strdup(struct_name) : NULL;
     ctx->symbol_count++;
 }
 
 static void
-add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type)
+add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type)
 {
-    add_symbol_with_struct(ctx, name, ptr, type, NULL);
+    add_symbol_with_struct(ctx, name, ptr, type, pointee_type, NULL);
 }
 
 static char const *
@@ -549,7 +557,10 @@ process_initializer_list(
  * @return True if the symbol was found, false otherwise.
  */
 static bool
-find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type)
+find_symbol(
+    ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr, LLVMTypeRef * out_type,
+    LLVMTypeRef * out_pointee_type
+)
 {
     if (!ctx || !name || !ctx->symbol_table)
     {
@@ -565,6 +576,8 @@ find_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef * out_ptr,
                 *out_ptr = ctx->symbol_table[i - 1].ptr;
             if (out_type)
                 *out_type = ctx->symbol_table[i - 1].type;
+            if (out_pointee_type)
+                *out_pointee_type = ctx->symbol_table[i - 1].pointee_type;
             return true;
         }
     }
@@ -1365,7 +1378,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             LLVMBuildStore(ctx->builder, param_val, alloca_inst);
             if (param_names[i])
             {
-                add_symbol(ctx, param_names[i], alloca_inst, param_types[i]);
+                add_symbol(ctx, param_names[i], alloca_inst, param_types[i], NULL);
             }
         }
 
@@ -1487,7 +1500,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         }
                     }
 
-                    add_symbol_with_struct(ctx, var_name, alloca_inst, var_type, struct_name);
+                    // Compute pointee_type for pointer variables
+                    LLVMTypeRef pointee_type = NULL;
+                    if (var_type && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+                    {
+                        pointee_type = LLVMGetElementType(var_type);
+                    }
+
+                    add_symbol_with_struct(ctx, var_name, alloca_inst, var_type, pointee_type, struct_name);
 
                     // Process initializer if present
                     if (initializer_expr_node)
@@ -1588,14 +1608,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         LLVMSetInitializer(
                             global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false)
                         );
-                        add_symbol(ctx, var_name, global_var, var_type);
+                        add_symbol(ctx, var_name, global_var, var_type, NULL);
 
                         free(decoded);
                     }
                     else
                     {
                         LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
-                        add_symbol(ctx, var_name, global_var, var_type);
+                        add_symbol(ctx, var_name, global_var, var_type, NULL);
 
                         // Process initializer for global variable
                         if (initializer_expr_node)
@@ -1651,7 +1671,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 char const * base_name = base_node->data.terminal.text;
                 LLVMValueRef base_ptr;
                 LLVMTypeRef base_type;
-                if (find_symbol(ctx, base_name, &base_ptr, &base_type))
+                if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
                 {
                     c_grammar_node_t const * postfix_node = lhs_node->rhs;
 
@@ -1665,7 +1685,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         else
         {
             // Simple variable assignment
-            lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type);
+            lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type, NULL);
         }
 
         if (!lhs_ptr)
@@ -2527,8 +2547,9 @@ static LLVMValueRef
 get_variable_pointer(
     ir_generator_ctx_t * ctx,
     c_grammar_node_t const * identifier_node,
-    LLVMTypeRef * out_type
-) // Added out_type parameter
+    LLVMTypeRef * out_type,
+    LLVMTypeRef * out_pointee_type
+)
 {
     if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->data.terminal.text)
     {
@@ -2538,12 +2559,15 @@ get_variable_pointer(
     char const * name = identifier_node->data.terminal.text;
 
     LLVMValueRef var_ptr;
-    LLVMTypeRef retrieved_type; // Use a different name to avoid confusion
+    LLVMTypeRef retrieved_type;
+    LLVMTypeRef pointee_type;
 
-    if (find_symbol(ctx, name, &var_ptr, &retrieved_type))
+    if (find_symbol(ctx, name, &var_ptr, &retrieved_type, &pointee_type))
     {
         if (out_type)
-            *out_type = retrieved_type; // Pass the type back
+            *out_type = retrieved_type;
+        if (out_pointee_type)
+            *out_pointee_type = pointee_type;
         return var_ptr;
     }
     else
@@ -2676,7 +2700,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         char const * var_name = base_node->data.terminal.text;
         LLVMValueRef var_ptr;
         LLVMTypeRef var_type;
-        if (find_symbol(ctx, var_name, &var_ptr, &var_type))
+        if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
         {
             current_ptr = var_ptr;
             current_type = var_type;
@@ -3041,7 +3065,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             char const * base_name = base_node->data.terminal.text;
             LLVMValueRef base_ptr;
             LLVMTypeRef base_type;
-            if (find_symbol(ctx, base_name, &base_ptr, &base_type))
+            if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
             {
                 LLVMValueRef current_ptr = base_ptr;
                 LLVMTypeRef current_type = base_type;
@@ -3143,7 +3167,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     else
     {
         // Simple variable assignment
-        lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type);
+        lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type, NULL);
     }
 
     if (!lhs_ptr)
@@ -3238,10 +3262,10 @@ static LLVMValueRef
 process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     LLVMValueRef var_ptr;
-    LLVMTypeRef element_type; // This will hold the type (e.g., i32)
+    LLVMTypeRef element_type;
 
     // Get the variable's pointer and its element type from the symbol table.
-    var_ptr = get_variable_pointer(ctx, node, &element_type);
+    var_ptr = get_variable_pointer(ctx, node, &element_type, NULL);
 
     if (var_ptr && element_type) // Ensure both are valid
     {
@@ -3447,7 +3471,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         {
             LLVMValueRef var_ptr;
             LLVMTypeRef var_type;
-            if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type))
+            if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type, NULL))
             {
                 return var_ptr;
             }
@@ -3462,8 +3486,28 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         LLVMValueRef operand_val = process_expression(ctx, operand_node);
         if (!operand_val)
             return NULL;
-        LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
-        LLVMTypeRef elem_type = get_pointer_element_type(ctx, ptr_type);
+
+        // Try to get the pointee_type from the symbol table if operand is an identifier
+        LLVMTypeRef elem_type = NULL;
+
+        if (operand_node && operand_node->type == AST_NODE_IDENTIFIER)
+        {
+            LLVMValueRef var_ptr = NULL;
+            LLVMTypeRef var_type = NULL;
+            LLVMTypeRef pointee_type = NULL;
+            if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type, &pointee_type))
+            {
+                elem_type = pointee_type;
+            }
+        }
+
+        // If we couldn't get pointee_type from symbol, try the generic approach
+        if (!elem_type)
+        {
+            LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
+            elem_type = get_pointer_element_type(ctx, ptr_type);
+        }
+
         if (elem_type)
         {
             return LLVMBuildLoad2(ctx->builder, elem_type, operand_val, "deref_tmp");
@@ -3509,7 +3553,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         LLVMValueRef var_ptr = NULL;
         LLVMTypeRef var_type = NULL;
 
-        var_ptr = get_variable_pointer(ctx, operand_node, &var_type);
+        var_ptr = get_variable_pointer(ctx, operand_node, &var_type, NULL);
 
         if (var_ptr && var_type)
         {
