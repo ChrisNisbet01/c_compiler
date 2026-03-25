@@ -46,6 +46,83 @@ static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name)
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
 
+// Helper function to get natural alignment for a type
+static unsigned
+get_type_alignment(LLVMTypeRef type)
+{
+    if (!type)
+        return 1;
+
+    LLVMTypeKind kind = LLVMGetTypeKind(type);
+    switch (kind)
+    {
+    case LLVMIntegerTypeKind:
+    {
+        unsigned bits = LLVMGetIntTypeWidth(type);
+        if (bits <= 8)
+            return 1;
+        if (bits <= 16)
+            return 2;
+        if (bits <= 32)
+            return 4;
+        if (bits <= 64)
+            return 8;
+        return 16;
+    }
+    case LLVMFloatTypeKind:
+        return 4;
+    case LLVMDoubleTypeKind:
+        return 8;
+    case LLVMX86_FP80TypeKind:
+        return 16;
+    case LLVMPointerTypeKind:
+        return 8;
+    case LLVMStructTypeKind:
+    {
+        unsigned count = LLVMCountStructElementTypes(type);
+        if (count == 0)
+            return 1;
+        unsigned max_align = 1;
+        for (unsigned i = 0; i < count; i++)
+        {
+            LLVMTypeRef elem = LLVMStructGetTypeAtIndex(type, i);
+            unsigned elem_align = get_type_alignment(elem);
+            if (elem_align > max_align)
+                max_align = elem_align;
+        }
+        return max_align;
+    }
+    case LLVMArrayTypeKind:
+    {
+        LLVMTypeRef elem = LLVMGetElementType(type);
+        return get_type_alignment(elem);
+    }
+    default:
+        return 1;
+    }
+}
+
+// Helper wrapper for LLVMBuildStore with proper alignment
+static LLVMValueRef
+aligned_store(LLVMBuilderRef builder, LLVMValueRef value, LLVMValueRef ptr)
+{
+    LLVMValueRef store = LLVMBuildStore(builder, value, ptr);
+    LLVMTypeRef value_type = LLVMTypeOf(value);
+    unsigned alignment = get_type_alignment(value_type);
+    LLVMSetAlignment(store, alignment);
+    return store;
+}
+
+// Helper wrapper for LLVMBuildLoad2 with proper alignment
+static LLVMValueRef
+aligned_load(LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name)
+{
+    LLVMValueRef load = LLVMBuildLoad2(builder, ty, ptr, name);
+    unsigned alignment = get_type_alignment(ty);
+    LLVMSetAlignment(load, alignment);
+    return load;
+}
+
 // Helper function to safely get element type from a pointer, handling opaque pointers
 static LLVMTypeRef
 get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
@@ -106,7 +183,7 @@ process_array_subscript(
             return NULL;
         }
 
-        LLVMValueRef ptr_val = LLVMBuildLoad2(ctx->builder, base_type, base_ptr, "ptr_load");
+        LLVMValueRef ptr_val = aligned_load(ctx->builder, base_type, base_ptr, "ptr_load");
         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_val, 1, "arrayidx");
     }
     else if (LLVMGetTypeKind(base_type) == LLVMArrayTypeKind)
@@ -300,7 +377,7 @@ process_postfix_suffixes(
                     if (is_arrow || (current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind))
                     {
                         if (is_arrow && current_ptr)
-                            current_ptr = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "arrow_ptr");
+                            current_ptr = aligned_load(ctx->builder, current_type, current_ptr, "arrow_ptr");
                         else if (current_val)
                             current_ptr = LLVMBuildInBoundsGEP2(
                                 ctx->builder, current_type, current_val, indices, 2, "memberptr"
@@ -309,7 +386,7 @@ process_postfix_suffixes(
                     else if (current_val)
                     {
                         LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
-                        LLVMBuildStore(ctx->builder, current_val, struct_ptr);
+                        aligned_store(ctx->builder, current_val, struct_ptr);
                         current_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
                     }
@@ -317,7 +394,7 @@ process_postfix_suffixes(
                     if (current_ptr)
                     {
                         current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                        current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "member");
+                        current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
                     }
                 }
             }
@@ -327,7 +404,7 @@ process_postfix_suffixes(
         {
             if (current_ptr && current_type)
             {
-                LLVMValueRef current_v = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "postfix_val");
+                LLVMValueRef current_v = aligned_load(ctx->builder, current_type, current_ptr, "postfix_val");
 
                 LLVMTypeKind kind = LLVMGetTypeKind(current_type);
                 LLVMValueRef one;
@@ -350,7 +427,7 @@ process_postfix_suffixes(
                         new_val = LLVMBuildSub(ctx->builder, current_v, one, "postfix_dec");
                 }
 
-                LLVMBuildStore(ctx->builder, new_val, current_ptr);
+                aligned_store(ctx->builder, new_val, current_ptr);
                 current_val = current_v;
             }
         }
@@ -543,7 +620,7 @@ process_initializer_list(
 
                     LLVMValueRef elem_ptr
                         = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-                    LLVMBuildStore(ctx->builder, value, elem_ptr);
+                    aligned_store(ctx->builder, value, elem_ptr);
                     local_index++;
                     if (outer_index)
                     {
@@ -1638,7 +1715,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
             LLVMValueRef alloca_inst
                 = LLVMBuildAlloca(ctx->builder, param_types[i], param_names[i] ? param_names[i] : "");
-            LLVMBuildStore(ctx->builder, param_val, alloca_inst);
+            aligned_store(ctx->builder, param_val, alloca_inst);
             if (param_names[i])
             {
                 add_symbol(ctx, param_names[i], alloca_inst, param_types[i], NULL);
@@ -1824,7 +1901,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     }
                                 }
 
-                                LLVMBuildStore(ctx->builder, initializer_value, alloca_inst);
+                                aligned_store(ctx->builder, initializer_value, alloca_inst);
                             }
                         }
                     }
@@ -1977,7 +2054,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // Generate the store instruction.
-        LLVMBuildStore(ctx->builder, rhs_value, lhs_ptr);
+        aligned_store(ctx->builder, rhs_value, lhs_ptr);
         break;
     }
     case AST_NODE_FOR_STATEMENT:
@@ -3212,12 +3289,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     {
                         // For value types, we need to get the pointer
                         LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
-                        LLVMBuildStore(ctx->builder, base_val, struct_ptr);
+                        aligned_store(ctx->builder, base_val, struct_ptr);
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
                     }
                     LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
-                    base_val = LLVMBuildLoad2(ctx->builder, member_type, member_ptr, "member");
+                    base_val = aligned_load(ctx->builder, member_type, member_ptr, "member");
                 }
             }
         }
@@ -3227,7 +3304,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             if (have_ptr && current_ptr && current_type)
             {
                 // Load current value
-                LLVMValueRef current_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "postfix_val");
+                LLVMValueRef current_val = aligned_load(ctx->builder, current_type, current_ptr, "postfix_val");
 
                 // Create increment/decrement value
                 LLVMTypeKind kind = LLVMGetTypeKind(current_type);
@@ -3252,7 +3329,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
 
                 // Store the new value
-                LLVMBuildStore(ctx->builder, new_val, current_ptr);
+                aligned_store(ctx->builder, new_val, current_ptr);
 
                 // Postfix returns the original value (current_val)
                 base_val = current_val;
@@ -3268,7 +3345,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     // load the value from the pointer
     if (!base_val && have_ptr && current_ptr && current_type)
     {
-        base_val = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "load_tmp");
+        base_val = aligned_load(ctx->builder, current_type, current_ptr, "load_tmp");
     }
 
     return base_val;
@@ -3392,7 +3469,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
                                 if (is_arrow)
                                 {
-                                    struct_ptr = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "arrow_ptr");
+                                    struct_ptr = aligned_load(ctx->builder, current_type, current_ptr, "arrow_ptr");
                                 }
 
                                 unsigned num_elements = LLVMCountStructElementTypes(struct_type);
@@ -3459,7 +3536,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (is_compound)
     {
         // For compound assignment, load current LHS value
-        LLVMValueRef lhs_value = LLVMBuildLoad2(ctx->builder, lhs_type, lhs_ptr, "lhs_load");
+        LLVMValueRef lhs_value = aligned_load(ctx->builder, lhs_type, lhs_ptr, "lhs_load");
         rhs_value = process_expression(ctx, rhs_node);
         if (!rhs_value)
         {
@@ -3528,7 +3605,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Generate the store instruction.
-    LLVMBuildStore(ctx->builder, rhs_value, lhs_ptr);
+    aligned_store(ctx->builder, rhs_value, lhs_ptr);
     return rhs_value;
 }
 
@@ -3552,7 +3629,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             return LLVMBuildInBoundsGEP2(ctx->builder, element_type, var_ptr, indices, 2, "array_ptr");
         }
         // Load the value from the memory address using LLVMBuildLoad2.
-        return LLVMBuildLoad2(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
+        return aligned_load(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
     }
     else if (var_ptr == NULL)
     {
@@ -3727,7 +3804,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         lhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, LLVMConstNull(LLVMTypeOf(lhs_val)), "bool_tmp");
     }
 
-    LLVMBuildStore(ctx->builder, lhs_val, res_alloca);
+    aligned_store(ctx->builder, lhs_val, res_alloca);
     if (is_or)
     {
         LLVMBuildCondBr(ctx->builder, lhs_val, merge_block, rhs_block);
@@ -3743,11 +3820,11 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     {
         rhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_val, LLVMConstNull(LLVMTypeOf(rhs_val)), "bool_tmp");
     }
-    LLVMBuildStore(ctx->builder, rhs_val, res_alloca);
+    aligned_store(ctx->builder, rhs_val, res_alloca);
     LLVMBuildBr(ctx->builder, merge_block);
 
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
-    return LLVMBuildLoad2(ctx->builder, LLVMInt1TypeInContext(ctx->context), res_alloca, "logical_final");
+    return aligned_load(ctx->builder, LLVMInt1TypeInContext(ctx->context), res_alloca, "logical_final");
 }
 
 static LLVMValueRef
@@ -3804,7 +3881,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 
         if (elem_type)
         {
-            return LLVMBuildLoad2(ctx->builder, elem_type, operand_val, "deref_tmp");
+            return aligned_load(ctx->builder, elem_type, operand_val, "deref_tmp");
         }
         return operand_val;
     }
@@ -3851,7 +3928,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 
         if (var_ptr && var_type)
         {
-            LLVMValueRef original_val = LLVMBuildLoad2(ctx->builder, var_type, var_ptr, "orig_val");
+            LLVMValueRef original_val = aligned_load(ctx->builder, var_type, var_ptr, "orig_val");
             LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
 
             LLVMValueRef new_val;
@@ -3872,7 +3949,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                     new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
             }
 
-            LLVMBuildStore(ctx->builder, new_val, var_ptr);
+            aligned_store(ctx->builder, new_val, var_ptr);
             return original_val;
         }
         return NULL;
