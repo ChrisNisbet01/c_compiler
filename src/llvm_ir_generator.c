@@ -1707,6 +1707,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMBasicBlockRef post_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_post");
         LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_after");
 
+        // Save and set break/continue targets for this loop
+        LLVMBasicBlockRef old_break_target = ctx->break_target;
+        LLVMBasicBlockRef old_continue_target = ctx->continue_target;
+        ctx->break_target = after_block;
+        ctx->continue_target = post_block;
+
         // 1. Process Init
         process_ast_node(ctx, init_node);
         LLVMBuildBr(ctx->builder, cond_block);
@@ -1745,6 +1751,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         process_expression(ctx, post_node);
         LLVMBuildBr(ctx->builder, cond_block);
 
+        // Restore old break/continue targets
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+
         // 5. Continue from after block
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
@@ -1766,6 +1776,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_cond");
         LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_body");
         LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_after");
+
+        // Save and set break/continue targets for this loop
+        LLVMBasicBlockRef old_break_target = ctx->break_target;
+        LLVMBasicBlockRef old_continue_target = ctx->continue_target;
+        ctx->break_target = after_block;
+        ctx->continue_target = cond_block;
 
         // Jump to condition block
         LLVMBuildBr(ctx->builder, cond_block);
@@ -1798,6 +1814,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             LLVMBuildBr(ctx->builder, cond_block);
         }
 
+        // Restore old break/continue targets
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+
         // --- Continue from after block ---
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
@@ -1819,6 +1839,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_body");
         LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_cond");
         LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_after");
+
+        // Save and set break/continue targets for this loop
+        LLVMBasicBlockRef old_break_target = ctx->break_target;
+        LLVMBasicBlockRef old_continue_target = ctx->continue_target;
+        ctx->break_target = after_block;
+        ctx->continue_target = cond_block;
 
         // Jump to body block
         LLVMBuildBr(ctx->builder, body_block);
@@ -1851,6 +1877,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         LLVMBuildCondBr(ctx->builder, condition_val, body_block, after_block);
 
+        // Restore old break/continue targets
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+
         // --- Continue from after block ---
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
@@ -1876,6 +1906,19 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         else
         {
             fprintf(stderr, "IRGen Error: break statement not within a loop or switch.\n");
+        }
+        break;
+    }
+    case AST_NODE_CONTINUE_STATEMENT:
+    {
+        // Continue statement: jump to the enclosing loop's continue (post) block
+        if (ctx->continue_target)
+        {
+            LLVMBuildBr(ctx->builder, ctx->continue_target);
+        }
+        else
+        {
+            fprintf(stderr, "IRGen Error: continue statement not within a loop.\n");
         }
         break;
     }
@@ -2301,7 +2344,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_MEMBER_ACCESS_DOT:
     case AST_NODE_MEMBER_ACCESS_ARROW:
     case AST_NODE_CAST_EXPRESSION:
-    case AST_NODE_CONTINUE_STATEMENT:
     case AST_NODE_TYPE_NAME:
     case AST_NODE_INITIALIZER_LIST:
     case AST_NODE_CHARACTER_LITERAL:
@@ -3631,7 +3673,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DO_WHILE_STATEMENT:
     case AST_NODE_FOR_STATEMENT:
     case AST_NODE_GOTO_STATEMENT:
-    case AST_NODE_CONTINUE_STATEMENT:
     case AST_NODE_BREAK_STATEMENT:
     case AST_NODE_RETURN_STATEMENT:
     case AST_NODE_TYPE_NAME:

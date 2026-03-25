@@ -73,6 +73,8 @@ typedef struct ir_generator_ctx
 
     // --- Break target for switch and loops ---
     LLVMBasicBlockRef break_target;
+    // --- Continue target for loops ---
+    LLVMBasicBlockRef continue_target;
 
     // Potentially function/scope management structures
 } ir_generator_ctx_t;
