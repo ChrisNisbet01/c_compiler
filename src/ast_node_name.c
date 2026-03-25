@@ -71,6 +71,8 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_OPTIONAL_KW_EXTENSION] = {.name = "OptionalKwExtension"},
     [AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST] = {.name = "OptionalInitDeclaratorList"},
     [AST_NODE_KEYWORD] = {.name = "Keyword"},
+    [AST_NODE_TERNARY_OPERATION] = {.name = "TernaryOperation"},
+    [AST_NODE_CONDITIONAL_EXPRESSION] = {.name = "ConditionalExpression"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

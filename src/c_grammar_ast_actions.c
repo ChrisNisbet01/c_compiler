@@ -1333,6 +1333,7 @@ handle_postfix_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    fprintf(stderr, "%s count %u\n", __func__, count);
     if (count != 2) /* Expecting [PrimaryExpression][Postfix Parts placeholder] */
     {
         free_ast_node_children(children, count, user_data);
@@ -1350,9 +1351,10 @@ handle_postfix_expression(
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
-            "%s expected postfix parts node at index 1, but got %s",
+            "%s expected postfix parts node at index 1, but got %s (%u)",
             get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION),
-            get_node_type_name_from_node(postfix)
+            get_node_type_name_from_node(postfix),
+            postfix->type
         );
         return;
     }
@@ -1767,6 +1769,55 @@ handle_keyword(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** child
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_ternary_operation(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TERNARY_OPERATION);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_conditional_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected 2 children, but got %u",
+            get_node_type_name_from_type(AST_NODE_CONDITIONAL_EXPRESSION),
+            count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ternary = children[1];
+    if (ternary->data.list.count == 0)
+    {
+        c_grammar_node_free(children[1], user_data);
+        epc_ast_push(ctx, children[0]);
+        return;
+    }
+
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CONDITIONAL_EXPRESSION);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -1844,4 +1895,6 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_DECLARATION, handle_typedef_declaration);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_KEYWORD, handle_keyword);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TERNARY_OPERATION, handle_ternary_operation);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_CONDITIONAL_EXPRESSION, handle_conditional_expression);
 }

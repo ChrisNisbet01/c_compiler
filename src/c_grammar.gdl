@@ -247,7 +247,9 @@ LogicalAndExpression = chainl1(InclusiveOrExpression, AmpAmp) @AST_ACTION_LOGICA
 
 LogicalOrExpression = chainl1(LogicalAndExpression, PipePipe) @AST_ACTION_LOGICAL_OR_EXPRESSION;
 
-ConditionalExpression = LogicalOrExpression (Question AssignmentExpression Colon ConditionalExpression)?;
+TernaryOperation = (Question AssignmentExpression Colon ConditionalExpression)? @AST_ACTION_TERNARY_OPERATION;
+
+ConditionalExpression = LogicalOrExpression TernaryOperation @AST_ACTION_CONDITIONAL_EXPRESSION;
 
 AssignmentOp = ShlAssign | ShrAssign
                 | PlusAssign | MinusAssign | MulAssign | DivAssign | ModAssign
