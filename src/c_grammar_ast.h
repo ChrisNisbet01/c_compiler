@@ -240,6 +240,7 @@ struct c_grammar_node_t
     /* Expression specific. */
     c_grammar_node_t const * lhs;
     c_grammar_node_t const * rhs;
+    c_grammar_node_t const * false_expr; /* Used by ConditionExpression. */
 
     enum /* Relevant to 'keyword' nodes only. */
     {

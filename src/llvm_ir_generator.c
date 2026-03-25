@@ -97,6 +97,19 @@ get_type_alignment(LLVMTypeRef type)
         LLVMTypeRef elem = LLVMGetElementType(type);
         return get_type_alignment(elem);
     }
+    case LLVMHalfTypeKind:
+    case LLVMFP128TypeKind:
+    case LLVMPPC_FP128TypeKind:
+    case LLVMLabelTypeKind:
+    case LLVMFunctionTypeKind:
+    case LLVMVectorTypeKind:
+    case LLVMMetadataTypeKind:
+    case LLVMTokenTypeKind:
+    case LLVMScalableVectorTypeKind:
+    case LLVMBFloatTypeKind:
+    case LLVMX86_AMXTypeKind:
+    case LLVMTargetExtTypeKind:
+    case LLVMVoidTypeKind:
     default:
         return 1;
     }
@@ -166,6 +179,19 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
         LLVMValueRef elem_size = get_type_size(ctx, LLVMGetElementType(type));
         return LLVMConstMul(elem_size, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), count, false));
     }
+    case LLVMHalfTypeKind:
+    case LLVMFP128TypeKind:
+    case LLVMPPC_FP128TypeKind:
+    case LLVMLabelTypeKind:
+    case LLVMFunctionTypeKind:
+    case LLVMVectorTypeKind:
+    case LLVMMetadataTypeKind:
+    case LLVMTokenTypeKind:
+    case LLVMScalableVectorTypeKind:
+    case LLVMBFloatTypeKind:
+    case LLVMX86_AMXTypeKind:
+    case LLVMTargetExtTypeKind:
+    case LLVMVoidTypeKind:
     default:
         return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
     }
@@ -347,17 +373,10 @@ process_postfix_suffixes(
                     if (!current_val)
                     {
                         LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(*arg_types));
-                        for (size_t j = 0; j < num_args; ++j)
-                        {
-                            if (args[j])
-                                arg_types[j] = LLVMTypeOf(args[j]);
-                            else
-                                arg_types[j] = LLVMInt32TypeInContext(ctx->context);
-                        }
-                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
+                        // Use a varargs function with no required arguments to support
+                        // functions being called with different numbers of arguments (like printf)
+                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, NULL, 0, true);
                         current_val = LLVMAddFunction(ctx->module, func_name, func_type);
-                        free(arg_types);
                     }
                 }
                 else
@@ -911,7 +930,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     // Skip Keyword and optional Identifier to get to member pairs
     size_t start_idx = 2; // Skip Keyword and struct name
     // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
-    if (type_child->data.list.count > 1 && type_child->data.list.children[1] 
+    if (type_child->data.list.count > 1 && type_child->data.list.children[1]
         && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
     {
         start_idx = 2;
@@ -995,7 +1014,7 @@ register_struct_definition_with_name(
     // Skip Keyword and optional Identifier to get to member pairs
     size_t start_idx = 2; // Skip Keyword and struct name
     // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
-    if (type_child->data.list.count > 1 && type_child->data.list.children[1] 
+    if (type_child->data.list.count > 1 && type_child->data.list.children[1]
         && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
     {
         start_idx = 2;
@@ -1987,7 +2006,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (initializer_expr_node)
                     {
                         if ((LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
-                            || LLVMGetTypeKind(var_type) == LLVMStructTypeKind)
+                             || LLVMGetTypeKind(var_type) == LLVMStructTypeKind)
                             && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                         {
                             int current_index = 0;
@@ -2015,35 +2034,35 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         initializer_value
                                             = LLVMBuildFPExt(ctx->builder, initializer_value, var_type, "casttmp");
                                     }
-                                else if (
+                                    else if (
                                         LLVMGetTypeKind(init_type) == LLVMDoubleTypeKind
                                         && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
                                     )
-                                {
-                                    initializer_value
-                                        = LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
+                                    {
+                                        initializer_value
+                                            = LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
+                                    }
                                 }
-                            }
 
-                            // Handle integer type conversion (e.g., i32 literal to i8 char)
-                            if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind
-                                && LLVMGetTypeKind(var_type) == LLVMIntegerTypeKind)
-                            {
-                                unsigned init_bits = LLVMGetIntTypeWidth(init_type);
-                                unsigned var_bits = LLVMGetIntTypeWidth(var_type);
-                                if (init_bits > var_bits)
+                                // Handle integer type conversion (e.g., i32 literal to i8 char)
+                                if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind
+                                    && LLVMGetTypeKind(var_type) == LLVMIntegerTypeKind)
                                 {
-                                    initializer_value
-                                        = LLVMBuildTrunc(ctx->builder, initializer_value, var_type, "trunc_init");
+                                    unsigned init_bits = LLVMGetIntTypeWidth(init_type);
+                                    unsigned var_bits = LLVMGetIntTypeWidth(var_type);
+                                    if (init_bits > var_bits)
+                                    {
+                                        initializer_value
+                                            = LLVMBuildTrunc(ctx->builder, initializer_value, var_type, "trunc_init");
+                                    }
+                                    else if (init_bits < var_bits)
+                                    {
+                                        initializer_value
+                                            = LLVMBuildSExt(ctx->builder, initializer_value, var_type, "sext_init");
+                                    }
                                 }
-                                else if (init_bits < var_bits)
-                                {
-                                    initializer_value
-                                        = LLVMBuildSExt(ctx->builder, initializer_value, var_type, "sext_init");
-                                }
-                            }
 
-                            aligned_store(ctx->builder, initializer_value, alloca_inst);
+                                aligned_store(ctx->builder, initializer_value, alloca_inst);
                             }
                         }
                     }
@@ -2890,6 +2909,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     case AST_NODE_TYPEDEF_DECLARATION:
     case AST_NODE_KEYWORD:
+    case AST_NODE_TERNARY_OPERATION:
+    case AST_NODE_CONDITIONAL_EXPRESSION:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -3278,23 +3299,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     if (!base_val)
                     {
                         // For undeclared functions like printf, auto-declare as variadic returning i32
+                        // with no required arguments to support different call patterns
                         LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                        LLVMTypeRef * arg_types = malloc(num_args * sizeof(*arg_types));
-                        for (size_t j = 0; j < num_args; ++j)
-                        {
-                            if (args[j])
-                            {
-                                arg_types[j] = LLVMTypeOf(args[j]);
-                            }
-                            else
-                            {
-                                // Null argument - use i32 as default type
-                                arg_types[j] = LLVMInt32TypeInContext(ctx->context);
-                            }
-                        }
-                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, arg_types, (unsigned)num_args, true);
+                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, NULL, 0, true);
                         base_val = LLVMAddFunction(ctx->module, func_name, func_type);
-                        free(arg_types);
                     }
                 }
                 else
@@ -4008,6 +4016,84 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 }
 
 static LLVMValueRef
+process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Conditional expression: condition ? true_expr : false_expr
+    // Stored in node->lhs (condition), node->rhs (true_expr), node->false_expr (false_expr)
+    c_grammar_node_t const * condition_node = node->lhs;
+    c_grammar_node_t const * true_expr_node = node->rhs;
+    c_grammar_node_t const * false_expr_node = node->false_expr;
+
+    if (!condition_node || !true_expr_node || !false_expr_node)
+    {
+        fprintf(stderr, "IRGen Error: Invalid conditional expression\n");
+        return NULL;
+    }
+
+    // Get current function and create blocks
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+    LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "cond_then");
+    LLVMBasicBlockRef else_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "cond_else");
+    LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "cond_merge");
+
+    // Evaluate condition
+    LLVMValueRef cond_val = process_expression(ctx, condition_node);
+    if (!cond_val)
+    {
+        return NULL;
+    }
+
+    // Convert condition to i1 if needed
+    LLVMTypeRef cond_type = LLVMTypeOf(cond_val);
+    if (LLVMGetTypeKind(cond_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(cond_type) != 1)
+    {
+        cond_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_val, LLVMConstNull(cond_type), "cond_bool");
+    }
+
+    // Branch to then or else
+    LLVMBuildCondBr(ctx->builder, cond_val, then_block, else_block);
+
+    // Generate then block
+    LLVMPositionBuilderAtEnd(ctx->builder, then_block);
+    LLVMValueRef true_val = process_expression(ctx, true_expr_node);
+    if (!true_val)
+    {
+        return NULL;
+    }
+    // After processing true_expr (which might be a nested ternary), the builder
+    // is positioned at the nested ternary's merge block. Save this block
+    // before branching to our merge block.
+    LLVMBasicBlockRef true_block = LLVMGetInsertBlock(ctx->builder);
+    LLVMBuildBr(ctx->builder, merge_block);
+
+    // Generate else block
+    LLVMPositionBuilderAtEnd(ctx->builder, else_block);
+    LLVMValueRef false_val = process_expression(ctx, false_expr_node);
+    if (!false_val)
+    {
+        return NULL;
+    }
+    // After processing false_expr (which might be a nested ternary), the builder
+    // is positioned at the nested ternary's merge block. Save this block
+    // before branching to our merge block.
+    LLVMBasicBlockRef false_block = LLVMGetInsertBlock(ctx->builder);
+    LLVMBuildBr(ctx->builder, merge_block);
+
+    // Merge and create phi node
+    LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+
+    LLVMTypeRef result_type = LLVMTypeOf(true_val);
+    LLVMValueRef phi = LLVMBuildPhi(ctx->builder, result_type, "cond_result");
+
+    // Add phi operands using the actual blocks where the expressions ended
+    LLVMAddIncoming(phi, &true_val, &true_block, 1);
+    LLVMAddIncoming(phi, &false_val, &false_block, 1);
+
+    return phi;
+}
+
+static LLVMValueRef
 process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Unary structure: [Operator, Operand]
@@ -4263,7 +4349,8 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                     if (find_symbol(ctx, var_name, &var_ptr, &var_type, &pointee_type))
                     {
                         // If pointee_type is NULL (due to opaque pointer), compute from var_type manually
-                        if (pointee_type == NULL && var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+                        if (pointee_type == NULL && var_type != NULL
+                            && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
                         {
                             // Try to get the type from the declaration specifiers - look up in struct registry
                             // This is a workaround for opaque pointers
@@ -4458,6 +4545,10 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_logical_expression(ctx, node);
     }
+    case AST_NODE_CONDITIONAL_EXPRESSION:
+    {
+        return process_conditional_expression(ctx, node);
+    }
     case AST_NODE_UNARY_EXPRESSION:
     {
         return process_unary_expression(ctx, node);
@@ -4515,6 +4606,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_KW_EXTENSION:
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     case AST_NODE_KEYWORD:
+    case AST_NODE_TERNARY_OPERATION:
     default:
         // Attempt to recursively process if it might yield a value.
         if (!node->is_terminal_node)

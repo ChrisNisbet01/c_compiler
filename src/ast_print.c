@@ -50,6 +50,12 @@ print_ast_internal(c_grammar_node_t const * node, int indent)
             printf("RHS: \n");
             print_ast_internal(node->rhs, indent + 2);
         }
+        if (node->false_expr != NULL)
+        {
+            print_indent(indent + 1);
+            printf("Ternary False Expression: \n");
+            print_ast_internal(node->false_expr, indent + 2);
+        }
     }
     else
     {

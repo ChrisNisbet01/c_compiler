@@ -43,6 +43,8 @@ c_grammar_node_free(void * node_ptr, void * user_data)
     free((char *)node->op.text);
     c_grammar_node_free((c_grammar_node_t *)node->lhs, user_data);
     c_grammar_node_free((c_grammar_node_t *)node->rhs, user_data);
+    c_grammar_node_free((c_grammar_node_t *)node->false_expr, user_data);
+
     free(node);
 }
 
@@ -1788,6 +1790,12 @@ handle_conditional_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count == 1)
+    {
+        epc_ast_push(ctx, children[0]);
+        return;
+    }
+
     if (count != 2)
     {
         free_ast_node_children(children, count, user_data);
@@ -1800,20 +1808,35 @@ handle_conditional_expression(
         return;
     }
 
-    c_grammar_node_t * ternary = children[1];
-    if (ternary->data.list.count == 0)
+    // Create the AST node - store all three in the list for IR generator to access
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_CONDITIONAL_EXPRESSION, node);
+    if (ast_node == NULL)
     {
-        c_grammar_node_free(children[1], user_data);
-        epc_ast_push(ctx, children[0]);
+        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CONDITIONAL_EXPRESSION);
-    if (ast_node == NULL)
-    {
-        return;
-    }
+    // Ternary operation present: a ? b : c
+    c_grammar_node_t * ternary = children[1];
+
+    // TernaryOperation children: [AssignmentExpression, ConditionalExpression]
+    // children[0] = LogicalOrExpression (condition)
+    // ternary->data.list.children[0] = true expression (AssignmentExpression)
+    // ternary->data.list.children[1] = false expression (ConditionalExpression)
+
+    c_grammar_node_t * condition = children[0];
+    c_grammar_node_t * true_expr = ternary->data.list.children[0];
+    c_grammar_node_t * false_expr = ternary->data.list.children[1];
+    ternary->data.list.count = 0;
+
+    /* Ownership of the ternary child nodes has been transferred to the ConditionalExression node, so it can be freed
+     * now. */
+    c_grammar_node_free(ternary, user_data);
+
+    // Also set lhs/rhs for consistency with other binary ops
+    ast_node->lhs = condition;
+    ast_node->rhs = true_expr;
+    ast_node->false_expr = false_expr;
 
     epc_ast_push(ctx, ast_node);
 }
