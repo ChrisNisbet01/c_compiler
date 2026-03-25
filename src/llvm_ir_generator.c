@@ -2203,18 +2203,16 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_GOTO_STATEMENT:
     {
-        if (node->data.list.count > 0 && node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-        {
-            char const * label_name = node->data.list.children[0]->data.terminal.text;
-            LLVMBasicBlockRef target = get_or_create_label(ctx, label_name);
-            LLVMBuildBr(ctx->builder, target);
+        char const * label_name = node->data.list.children[0]->data.terminal.text;
+        LLVMBasicBlockRef target = get_or_create_label(ctx, label_name);
+        LLVMBuildBr(ctx->builder, target);
 
-            // Start a new basic block for any code after goto (which is technically unreachable
-            // unless there's a label).
-            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-            LLVMBasicBlockRef unreachable = LLVMAppendBasicBlockInContext(ctx->context, func, "unreachable");
-            LLVMPositionBuilderAtEnd(ctx->builder, unreachable);
-        }
+        // Start a new basic block for any code after goto (which is technically unreachable
+        // unless there's a label).
+        LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+        LLVMBasicBlockRef unreachable = LLVMAppendBasicBlockInContext(ctx->context, func, "unreachable");
+        LLVMPositionBuilderAtEnd(ctx->builder, unreachable);
+
         break;
     }
     case AST_NODE_LABELED_STATEMENT:
@@ -2234,23 +2232,13 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             label_id_node = node;
         }
 
-        if (label_id_node)
+        if (label_id_node != NULL)
         {
-            c_grammar_node_t * identifier_node;
-            c_grammar_node_t * statement_node;
+            c_grammar_node_t * identifier_node = label_id_node->data.list.children[0];
+            c_grammar_node_t * statement_node
+                = label_id_node->data.list.count >= 2 ? label_id_node->data.list.children[1] : NULL;
 
-            if (node->data.list.count >= 1 && node->data.list.children[0]->type == AST_NODE_LABELED_IDENTIFIER)
-            {
-                identifier_node = label_id_node->data.list.children[0];
-                statement_node = label_id_node->data.list.count >= 2 ? label_id_node->data.list.children[1] : NULL;
-            }
-            else
-            {
-                identifier_node = label_id_node->data.list.children[0];
-                statement_node = label_id_node->data.list.count >= 2 ? label_id_node->data.list.children[1] : NULL;
-            }
-
-            if (identifier_node->type == AST_NODE_IDENTIFIER && statement_node)
+            if (identifier_node->type == AST_NODE_IDENTIFIER && statement_node != NULL)
             {
                 char const * label_name = identifier_node->data.terminal.text;
                 LLVMBasicBlockRef label_block = get_or_create_label(ctx, label_name);
@@ -2335,7 +2323,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
              */
             fprintf(stderr, "Unhandled terminal node type: %d (%s)\n", node->type, node->data.terminal.text);
         }
-        else if (node->data.list.children != NULL)
+        else
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
@@ -2947,20 +2935,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 }
 
 static LLVMValueRef
-process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    // This node type is typically handled as a suffix in AST_NODE_POSTFIX_EXPRESSION.
-    // If it's encountered on its own, it likely means arguments.
-    // Recursive traversal should yield the values.
-    if (node->data.list.count > 0)
-    {
-        // For now, just return the first argument if processed in isolation (rare)
-        return process_expression(ctx, node->data.list.children[0]);
-    }
-    return NULL;
-}
-
-static LLVMValueRef
 process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for CastExpression: [TypeName, CastExpression]
@@ -3052,8 +3026,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
                     {
                         /* The one and only child is an IDENTIFIER node. */
-                        c_grammar_node_t * child = suffix->data.list.children[0];
-                        char * member_name = child->data.terminal.text;
+                        c_grammar_node_t * member_node = suffix->data.list.children[0];
+                        char * member_name = member_node->data.terminal.text;
 
                         if (current_ptr && current_type)
                         {
@@ -3061,11 +3035,15 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                             // For LLVM 18+ opaque pointers, use struct name from symbol table
                             char const * sname = find_symbol_struct_name(ctx, base_name);
-                            if (sname)
+                            if (sname != NULL)
+                            {
                                 struct_type = find_struct_type(ctx, sname);
+                            }
                             // Fallback for opaque pointers
-                            if (!struct_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                            if (struct_type == NULL && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                            {
                                 struct_type = get_pointer_element_type(ctx, current_type);
+                            }
 
                             if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
                             {
@@ -3073,7 +3051,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 LLVMValueRef struct_ptr = current_ptr;
                                 bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
                                 if (is_arrow)
+                                {
                                     struct_ptr = LLVMBuildLoad2(ctx->builder, current_type, current_ptr, "arrow_ptr");
+                                }
 
                                 unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                                 unsigned member_index = 0;
@@ -3088,7 +3068,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     }
                                 }
 
-                                if (info)
+                                if (info != NULL)
                                 {
                                     for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
                                     {
@@ -3575,10 +3555,6 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_postfix_expression(ctx, node);
     }
-    case AST_NODE_FUNCTION_CALL:
-    {
-        return process_function_call(ctx, node);
-    }
     case AST_NODE_CAST_EXPRESSION:
     {
         return process_cast_expression(ctx, node);
@@ -3619,6 +3595,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_unary_expression(ctx, node);
     }
+    case AST_NODE_FUNCTION_CALL:
     case AST_NODE_POSTFIX_PARTS:
     {
         fprintf(stderr, "BUG: got %s in %s", get_node_type_name_from_type(node->type), __func__);
@@ -3671,14 +3648,24 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
-        if (!node->is_terminal_node && node->data.list.children != NULL)
+        if (!node->is_terminal_node)
         {
+            fprintf(
+                stderr,
+                "Default processing for list node: %s %u\n",
+                get_node_type_name_from_type(node->type),
+                node->type
+            );
             for (size_t i = 0; i < node->data.list.count; ++i)
             {
                 LLVMValueRef res = process_expression(ctx, node->data.list.children[i]);
                 if (res)
                     return res; // Return the first valid result found.
             }
+        }
+        else
+        {
+            fprintf(stderr, "Ignoring terminal node %s (%u)\n", get_node_type_name_from_type(node->type), node->type);
         }
         break;
     }

@@ -675,7 +675,6 @@ main(int argc, char * argv[])
             c_grammar_node_t * ast_root = ast_result.ast_root;
             fprintf(stderr, "Starting AST print...\n");
             print_ast(ast_root);
-            fprintf(stderr, "Starting LLVM IR Generation...\n");
             generate_output(ast_root, filename);
             c_grammar_node_free(ast_root, NULL);
         }
