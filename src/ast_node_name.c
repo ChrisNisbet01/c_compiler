@@ -76,6 +76,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_COMMA_EXPRESSION] = {.name = "CommaExpression"},
     [AST_NODE_ENUM_SPECIFIER] = {.name = "EnumSpecifier"},
     [AST_NODE_ENUMERATOR] = {.name = "Enumerator"},
+    [AST_NODE_FUNCTION_POINTER_DECLARATOR] = {.name = "FunctionPointerDeclarator"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

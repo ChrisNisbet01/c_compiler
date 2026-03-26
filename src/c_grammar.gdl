@@ -354,7 +354,11 @@ SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) | (TypeQual
 // Common Declarator: supports pointers, arrays, and function pointers
 Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 
-DirectDeclaratorRaw = (LParen Declarator RParen) | (Identifier Attribute*);
+// Explicit rule for function pointer declarators like (*name)[size]
+FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffix* RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR;
+
+DirectDeclaratorRaw = (FunctionPointerDeclarator Attribute*) | (LParen Declarator RParen) | (Identifier Attribute*);
+
 DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
 // Declarator suffix: arrays or function parameters

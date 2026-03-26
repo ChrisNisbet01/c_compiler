@@ -1748,7 +1748,73 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             }
                         }
                     }
+                    else if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                    {
+                        // Function pointer parameter: int (*func)(int, int)
+                        is_function_pointer = true;
+                        for (size_t k = 0; k < direct_child->data.list.count; ++k)
+                        {
+                            c_grammar_node_t * fp_child = direct_child->data.list.children[k];
+                            if (fp_child->type == AST_NODE_POINTER)
+                            {
+                                pointer_level++;
+                            }
+                            else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
+                            {
+                                // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
+                                for (size_t m = 0; m < fp_child->data.list.count; ++m)
+                                {
+                                    c_grammar_node_t * suffix_child = fp_child->data.list.children[m];
+                                    if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                                    {
+                                        unsigned long long size_val = suffix_child->integer_literal.value;
+                                        if (array_depth < array_capacity)
+                                        {
+                                            array_sizes[array_depth] = (size_t)size_val;
+                                            array_depth++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Continue processing to check for additional DeclaratorSuffix after FunctionPointerDeclarator
+                        // (which contains array size like (*ops[2]))
+                    }
                 }
+            }
+            else if (child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+            {
+                // FunctionPointerDeclarator contains: Pointer, Identifier, DeclaratorSuffix*
+                // This includes both the pointer AND any array suffix (e.g., (*ops[2]))
+                is_function_pointer = true;
+                for (size_t j = 0; j < child->data.list.count; ++j)
+                {
+                    c_grammar_node_t * fp_child = child->data.list.children[j];
+                    if (fp_child->type == AST_NODE_POINTER)
+                    {
+                        pointer_level++;
+                    }
+                    else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
+                    {
+                        // Check for array size (e.g., (*ops[2])(int, int))
+                        for (size_t k = 0; k < fp_child->data.list.count; ++k)
+                        {
+                            c_grammar_node_t * suffix_child = fp_child->data.list.children[k];
+                            if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                            {
+                                unsigned long long size_val = suffix_child->integer_literal.value;
+                                if (array_depth < array_capacity)
+                                {
+                                    array_sizes[array_depth] = (size_t)size_val;
+                                    array_depth++;
+                                }
+                            }
+                        }
+                    }
+                }
+                // We've handled the function pointer declarator, don't process outer DeclaratorSuffix
+                // which contains the function parameters - it's already accounted for
+                break;
             }
             else if (child->type == AST_NODE_DECLARATOR_SUFFIX)
             {
@@ -1766,8 +1832,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         has_function_params = true;
                         if (func_ptr_num_params < 16)
                         {
-                            func_ptr_param_types[func_ptr_num_params++]
-                                = map_type(ctx, suffix_child, NULL);
+                            func_ptr_param_types[func_ptr_num_params++] = map_type(ctx, suffix_child, NULL);
                         }
                     }
                     else if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
@@ -1788,18 +1853,9 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         has_function_params = true;
                         if (func_ptr_num_params < 16)
                         {
-                            func_ptr_param_types[func_ptr_num_params++]
-                                = map_type(ctx, child, NULL);
+                            func_ptr_param_types[func_ptr_num_params++] = map_type(ctx, child, NULL);
                         }
                     }
-                }
-
-                // If this is a function suffix and we have a pointer, it's a function pointer
-                if (has_function_params && pointer_level > 0)
-                {
-                    is_function_pointer = true;
-                    pointer_level--; // Already handled as function pointer
-                    break; // Skip remaining declarator processing
                 }
 
                 // Empty brackets [] - mark as unsized (for arrays)
@@ -1898,7 +1954,7 @@ ir_generator_init(void)
     }
 
     // Initialize with global scope
-    ctx->current_scope = scope_create(NULL);  // NULL parent = global scope
+    ctx->current_scope = scope_create(NULL); // NULL parent = global scope
     if (!ctx->current_scope)
     {
         fprintf(stderr, "IRGen: Failed to create global scope.\n");
@@ -2126,6 +2182,19 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             param_names[i] = nested_direct->data.list.children[0]->data.terminal.text;
                         }
                     }
+                    else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                    {
+                        // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
+                        for (size_t k = 0; k < first_child->data.list.count; ++k)
+                        {
+                            c_grammar_node_t * fp_child = first_child->data.list.children[k];
+                            if (fp_child->type == AST_NODE_IDENTIFIER)
+                            {
+                                param_names[i] = fp_child->data.terminal.text;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2225,7 +2294,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
 
             // For regular variables: DirectDeclarator -> Identifier
-            // For function pointers: DirectDeclarator -> Declarator -> DirectDeclarator -> Identifier
+            // For function pointers: DirectDeclarator -> FunctionPointerDeclarator -> {Pointer, Identifier,
+            // DeclaratorSuffix*}
             if (direct_decl_node && direct_decl_node->data.list.count > 0)
             {
                 c_grammar_node_t * first_child = direct_decl_node->data.list.children[0];
@@ -2242,6 +2312,19 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         && nested_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
                     {
                         var_name = nested_direct->data.list.children[0]->data.terminal.text;
+                    }
+                }
+                else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                {
+                    // FunctionPointerDeclarator contains Pointer, Identifier, DeclaratorSuffix*
+                    for (size_t k = 0; k < first_child->data.list.count; ++k)
+                    {
+                        c_grammar_node_t * fp_child = first_child->data.list.children[k];
+                        if (fp_child->type == AST_NODE_IDENTIFIER)
+                        {
+                            var_name = fp_child->data.terminal.text;
+                            break;
+                        }
                     }
                 }
             }
@@ -2359,9 +2442,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             // Create GEP to element
                                             LLVMValueRef indices[2];
                                             indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                                            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_index, false);
+                                            indices[1] = LLVMConstInt(
+                                                LLVMInt32TypeInContext(ctx->context), current_index, false
+                                            );
                                             LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(
-                                                ctx->builder, var_type, alloca_inst, indices, 2, "init_elem_ptr");
+                                                ctx->builder, var_type, alloca_inst, indices, 2, "init_elem_ptr"
+                                            );
                                             aligned_store(ctx->builder, value, elem_ptr);
                                         }
                                         current_index++;
@@ -2371,13 +2457,17 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 {
                                     // Regular array or struct initializer
                                     int current_index = 0;
-                                    process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                                    process_initializer_list(
+                                        ctx, alloca_inst, var_type, initializer_expr_node, &current_index
+                                    );
                                 }
                             }
                             else
                             {
                                 int current_index = 0;
-                                process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                                process_initializer_list(
+                                    ctx, alloca_inst, var_type, initializer_expr_node, &current_index
+                                );
                             }
                         }
                         else
@@ -3282,6 +3372,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ENUMERATOR:
     case AST_NODE_COMMA_EXPRESSION:
     case AST_NODE_CONDITIONAL_EXPRESSION:
+    case AST_NODE_FUNCTION_POINTER_DECLARATOR:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -3664,8 +3755,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             {
                 // Check if we have a current_ptr from array subscript or other suffix
                 // This handles cases like ops[0](...) where current_ptr points to the function pointer element
-                if (have_ptr && current_ptr && current_type
-                    && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                if (have_ptr && current_ptr && current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                 {
                     // Load the function pointer from the element pointer
                     base_val = aligned_load(ctx->builder, current_type, current_ptr, "func_ptr");
@@ -5042,6 +5132,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TERNARY_OPERATION:
     case AST_NODE_ENUM_SPECIFIER:
     case AST_NODE_ENUMERATOR:
+    case AST_NODE_FUNCTION_POINTER_DECLARATOR:
     default:
         // Attempt to recursively process if it might yield a value.
         if (!node->is_terminal_node)

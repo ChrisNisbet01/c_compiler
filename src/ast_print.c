@@ -9,7 +9,13 @@ static void print_ast_internal(c_grammar_node_t const * node, int indent);
 static void
 print_list_type_ast_node(c_grammar_node_t const * node, int indent)
 {
-    printf("%s (%u): (%zu children)\n", get_node_type_name_from_node(node), node->type, node->data.list.count);
+    printf(
+        "%s (%u): (%zu child%s)\n",
+        get_node_type_name_from_node(node),
+        node->type,
+        node->data.list.count,
+        (node->data.list.count == 1) ? "" : "ren"
+    );
     for (size_t i = 0; i < node->data.list.count; i++)
         print_ast_internal(node->data.list.children[i], indent + 1);
 }
