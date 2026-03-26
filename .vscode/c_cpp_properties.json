@@ -4,14 +4,19 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/include/llvm-c-20"
+                "/home/chris/projects/easy_pc/include",
+                "${workspaceFolder}/build/src/generated",
+                "${workspaceFolder}/build/src/generated/bootstrap",
+                "/usr/include/llvm-c-20",
+                "/usr/include/llvm-20/"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",
             "cStandard": "c17",
             "cppStandard": "c++17",
             "intelliSenseMode": "linux-clang-x64",
-            "configurationProvider": "ms-vscode.cmake-tools"
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
         }
     ],
     "version": 4
