@@ -42,6 +42,15 @@ typedef struct symbol
     char * struct_name;       // For pointer-to-struct types, stores the struct name for member access
 } symbol_t;
 
+// --- Scope structure for hierarchical symbol tables ---
+typedef struct scope
+{
+    symbol_t * symbols;
+    size_t count;
+    size_t capacity;
+    struct scope * parent;  // Chain to outer scope (NULL for global)
+} scope_t;
+
 // --- Label Management ---
 typedef struct label
 {
@@ -57,10 +66,8 @@ typedef struct ir_generator_ctx
     LLVMModuleRef module;
     LLVMBuilderRef builder;
 
-    // --- Symbol table for local variables within a function scope ---
-    symbol_t * symbol_table;
-    size_t symbol_count;
-    size_t symbol_capacity;
+    // --- Scope-based symbol table ---
+    scope_t * current_scope;  // Innermost active scope
 
     // --- Struct type registry ---
     struct_info_t * structs;
@@ -76,8 +83,6 @@ typedef struct ir_generator_ctx
     LLVMBasicBlockRef break_target;
     // --- Continue target for loops ---
     LLVMBasicBlockRef continue_target;
-
-    // Potentially function/scope management structures
 } ir_generator_ctx_t;
 
 /**

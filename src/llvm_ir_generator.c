@@ -12,6 +12,10 @@
 // typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
 
 // Symbol table management functions
+static scope_t * scope_create(scope_t * parent);
+static void scope_free(scope_t * scope);
+static void scope_push(ir_generator_ctx_t * ctx);
+static void scope_pop(ir_generator_ctx_t * ctx);
 static void
 add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type);
 static LLVMValueRef get_variable_pointer(
@@ -584,6 +588,67 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
+// --- Scope management functions ---
+
+static scope_t *
+scope_create(scope_t * parent)
+{
+    scope_t * scope = calloc(1, sizeof(*scope));
+    if (!scope)
+        return NULL;
+
+    scope->capacity = 16;
+    scope->symbols = calloc(scope->capacity, sizeof(*scope->symbols));
+    if (!scope->symbols)
+    {
+        free(scope);
+        return NULL;
+    }
+    scope->count = 0;
+    scope->parent = parent;
+    return scope;
+}
+
+static void
+scope_free(scope_t * scope)
+{
+    if (!scope)
+        return;
+
+    // Free all symbol names and struct names in this scope
+    for (size_t i = 0; i < scope->count; ++i)
+    {
+        free(scope->symbols[i].name);
+        free(scope->symbols[i].struct_name);
+    }
+    free(scope->symbols);
+    free(scope);
+}
+
+static void
+scope_push(ir_generator_ctx_t * ctx)
+{
+    if (!ctx)
+        return;
+
+    scope_t * new_scope = scope_create(ctx->current_scope);
+    if (new_scope)
+    {
+        ctx->current_scope = new_scope;
+    }
+}
+
+static void
+scope_pop(ir_generator_ctx_t * ctx)
+{
+    if (!ctx || !ctx->current_scope)
+        return;
+
+    scope_t * old_scope = ctx->current_scope;
+    ctx->current_scope = old_scope->parent;
+    scope_free(old_scope);
+}
+
 static void
 add_symbol_with_struct(
     ir_generator_ctx_t * ctx,
@@ -594,23 +659,27 @@ add_symbol_with_struct(
     char const * struct_name
 )
 {
-    if (!ctx || !name || !ptr || !type)
+    if (!ctx || !name || !ptr || !type || !ctx->current_scope)
         return;
-    if (ctx->symbol_count >= ctx->symbol_capacity)
+
+    scope_t * scope = ctx->current_scope;
+
+    if (scope->count >= scope->capacity)
     {
-        size_t new_cap = ctx->symbol_capacity == 0 ? 16 : ctx->symbol_capacity * 2;
-        symbol_t * new_table = realloc(ctx->symbol_table, new_cap * sizeof(symbol_t));
-        if (!new_table)
+        size_t new_cap = scope->capacity == 0 ? 16 : scope->capacity * 2;
+        symbol_t * new_symbols = realloc(scope->symbols, new_cap * sizeof(*new_symbols));
+        if (!new_symbols)
             return;
-        ctx->symbol_table = new_table;
-        ctx->symbol_capacity = new_cap;
+        scope->symbols = new_symbols;
+        scope->capacity = new_cap;
     }
-    ctx->symbol_table[ctx->symbol_count].name = strdup(name);
-    ctx->symbol_table[ctx->symbol_count].ptr = ptr;
-    ctx->symbol_table[ctx->symbol_count].type = type;
-    ctx->symbol_table[ctx->symbol_count].pointee_type = pointee_type;
-    ctx->symbol_table[ctx->symbol_count].struct_name = struct_name ? strdup(struct_name) : NULL;
-    ctx->symbol_count++;
+
+    scope->symbols[scope->count].name = strdup(name);
+    scope->symbols[scope->count].ptr = ptr;
+    scope->symbols[scope->count].type = type;
+    scope->symbols[scope->count].pointee_type = pointee_type;
+    scope->symbols[scope->count].struct_name = struct_name ? strdup(struct_name) : NULL;
+    scope->count++;
 }
 
 static void
@@ -622,11 +691,18 @@ add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTy
 static char const *
 find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name)
 {
-    for (size_t i = 0; i < ctx->symbol_count; i++)
+    if (!ctx || !ctx->current_scope)
+        return NULL;
+
+    // Search from current scope outward through parent scopes
+    for (scope_t * scope = ctx->current_scope; scope; scope = scope->parent)
     {
-        if (ctx->symbol_table[i].name != NULL && strcmp(ctx->symbol_table[i].name, name) == 0)
+        for (size_t i = 0; i < scope->count; ++i)
         {
-            return ctx->symbol_table[i].struct_name;
+            if (scope->symbols[i].name != NULL && strcmp(scope->symbols[i].name, name) == 0)
+            {
+                return scope->symbols[i].struct_name;
+            }
         }
     }
     return NULL;
@@ -769,23 +845,27 @@ find_symbol(
     LLVMTypeRef * out_pointee_type
 )
 {
-    if (!ctx || !name || !ctx->symbol_table)
+    if (!ctx || !name || !ctx->current_scope)
     {
         return false;
     }
 
-    // Search for the symbol by name, starting from the most recent (inner scope)
-    for (size_t i = ctx->symbol_count; i > 0; --i)
+    // Search from current scope outward through parent scopes
+    for (scope_t * scope = ctx->current_scope; scope; scope = scope->parent)
     {
-        if (ctx->symbol_table[i - 1].name != NULL && strcmp(ctx->symbol_table[i - 1].name, name) == 0)
+        // Search backwards within this scope (most recent first)
+        for (size_t i = scope->count; i > 0; --i)
         {
-            if (out_ptr)
-                *out_ptr = ctx->symbol_table[i - 1].ptr;
-            if (out_type)
-                *out_type = ctx->symbol_table[i - 1].type;
-            if (out_pointee_type)
-                *out_pointee_type = ctx->symbol_table[i - 1].pointee_type;
-            return true;
+            if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
+            {
+                if (out_ptr)
+                    *out_ptr = scope->symbols[i - 1].ptr;
+                if (out_type)
+                    *out_type = scope->symbols[i - 1].type;
+                if (out_pointee_type)
+                    *out_pointee_type = scope->symbols[i - 1].pointee_type;
+                return true;
+            }
         }
     }
     return false;
@@ -1772,18 +1852,17 @@ ir_generator_init(void)
         return NULL;
     }
 
-    // Initialize symbol table
-    ctx->symbol_capacity = 16; // Initial capacity
-    ctx->symbol_table = malloc(ctx->symbol_capacity * sizeof(*ctx->symbol_table));
-    if (!ctx->symbol_table)
+    // Initialize with global scope
+    ctx->current_scope = scope_create(NULL);  // NULL parent = global scope
+    if (!ctx->current_scope)
     {
-        fprintf(stderr, "IRGen: Failed to allocate memory for symbol table.\n");
+        fprintf(stderr, "IRGen: Failed to create global scope.\n");
+        LLVMDisposeBuilder(ctx->builder);
         LLVMDisposeModule(ctx->module);
         LLVMContextDispose(ctx->context);
         free(ctx);
         return NULL;
     }
-    ctx->symbol_count = 0;
 
     // Initialize struct type registry
     ctx->struct_capacity = 16;
@@ -1799,22 +1878,19 @@ ir_generator_init(void)
 }
 
 /**
- * @brief Frees the symbol table memory.
+ * @brief Frees the symbol table memory (all scopes in the chain).
  */
 static void
 free_symbol_table(ir_generator_ctx_t * ctx)
 {
-    if (!ctx || !ctx->symbol_table)
+    if (!ctx)
         return;
 
-    for (size_t i = 0; i < ctx->symbol_count; ++i)
+    // Free all scopes in the chain
+    while (ctx->current_scope)
     {
-        free(ctx->symbol_table[i].name); // Free allocated name strings
+        scope_pop(ctx);
     }
-    free(ctx->symbol_table);
-    ctx->symbol_table = NULL;
-    ctx->symbol_count = 0;
-    ctx->symbol_capacity = 0;
 }
 
 static void
@@ -1931,6 +2007,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FUNCTION_DEFINITION:
     {
         clear_labels(ctx);
+
+        // Create function scope for parameters and body
+        scope_push(ctx);
+
         // --- Handle Function Definition ---
         if (node->data.list.count != 3)
         {
@@ -2046,12 +2126,16 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
 
+        // Pop function scope
+        scope_pop(ctx);
+
         break;
     }
     case AST_NODE_COMPOUND_STATEMENT:
     {
-        // Process statements within a block.
-        // TODO: Implement scope management for symbol table.
+        // Create new scope for this block
+        scope_push(ctx);
+
         if (node->data.list.children)
         {
             for (size_t i = 0; i < node->data.list.count; ++i)
@@ -2059,6 +2143,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 process_ast_node(ctx, node->data.list.children[i]);
             }
         }
+
+        // Pop block scope when exiting
+        scope_pop(ctx);
         break;
     }
     case AST_NODE_EXPRESSION_STATEMENT:
