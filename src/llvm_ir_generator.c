@@ -795,8 +795,7 @@ static void register_struct_definition_with_name(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
 );
 
-static void
-register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+static void register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static void
 register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
@@ -3019,6 +3018,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ENUM_SPECIFIER:
     case AST_NODE_ENUMERATOR:
     case AST_NODE_COMMA_EXPRESSION:
+    case AST_NODE_CONDITIONAL_EXPRESSION:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
