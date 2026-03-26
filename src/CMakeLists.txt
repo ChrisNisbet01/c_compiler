@@ -16,7 +16,7 @@ add_executable(${app}
   llvm_ir_generator.c
 )
 
-target_compile_options(${app} PRIVATE -Wall -Wextra -Wswitch-enum -pedantic)
+target_compile_options(${app} PRIVATE -O3 -std=gnu11 -flto=thin -Wall -Wextra -Wswitch-enum -pedantic)
 
 # Add LLVM support for linking
 # Map LLVM components to library names.
