@@ -4,7 +4,7 @@ This document lists C features that are not yet supported by the ncc compiler.
 
 ## Type System
 
-- **Function pointers** - e.g., `int (*fp)(int, int)`
+- **Function pointers (partial)** - Basic function pointer declaration, assignment, passing as parameters, and calling is now supported. Array of function pointers is NOT yet supported.
 - **Bit-fields in structs** - e.g., `int x : 3`
 - **Variable-length arrays (VLAs)** - e.g., `int arr[n];`
 - **Flexible array members** - e.g., `int data[];` as last struct member
@@ -24,7 +24,7 @@ This document lists C features that are not yet supported by the ncc compiler.
 ## Declarations
 
 - **Storage class specifiers** - static, extern, register, auto, inline
-- **Complex declarators** - function pointer declarations
+- **Complex declarators** - function pointer declarations (partially supported)
 - **Multiple declarators** - `int x, y, z;` may have limited support
 - **Static array parameters** - `void f(int arr[static 10])`
 

@@ -1335,7 +1335,6 @@ handle_postfix_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    fprintf(stderr, "%s count %u\n", __func__, count);
     if (count != 2) /* Expecting [PrimaryExpression][Postfix Parts placeholder] */
     {
         free_ast_node_children(children, count, user_data);

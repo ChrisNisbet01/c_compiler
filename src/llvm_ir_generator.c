@@ -1598,6 +1598,10 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     }
 
     // 2. Process Declarator (extract pointers and arrays)
+    bool is_function_pointer = false;
+    LLVMTypeRef func_ptr_param_types[16];
+    size_t func_ptr_num_params = 0;
+
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
     {
         for (size_t i = 0; i < declarator->data.list.count; ++i)
@@ -1607,31 +1611,86 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             {
                 pointer_level++;
             }
+            else if (child->type == AST_NODE_DIRECT_DECLARATOR)
+            {
+                // Check inside DirectDeclarator for pointers (e.g., *name in function pointers)
+                // The structure can be: DirectDeclarator -> Declarator -> Pointer
+                for (size_t j = 0; j < child->data.list.count; ++j)
+                {
+                    c_grammar_node_t * direct_child = child->data.list.children[j];
+                    if (direct_child->type == AST_NODE_POINTER)
+                    {
+                        pointer_level++;
+                    }
+                    else if (direct_child->type == AST_NODE_DECLARATOR)
+                    {
+                        // Nested declarator - check for pointers inside
+                        for (size_t k = 0; k < direct_child->data.list.count; ++k)
+                        {
+                            c_grammar_node_t * nested_child = direct_child->data.list.children[k];
+                            if (nested_child->type == AST_NODE_POINTER)
+                            {
+                                pointer_level++;
+                            }
+                        }
+                    }
+                }
+            }
             else if (child->type == AST_NODE_DECLARATOR_SUFFIX)
             {
-                // Check for array suffixes in declaration
-                // DeclaratorSuffix structure: contains LBracket, Expression, RBracket
-                // But the Expression is directly in the suffix for declarations
-                bool has_size = false;
+                // Check if this is a function suffix (contains DeclarationSpecifiers for params)
+                // vs array suffix (contains IntegerLiteral for size)
+                bool has_function_params = false;
+                bool has_array_size = false;
+
                 for (size_t j = 0; j < child->data.list.count; ++j)
                 {
                     c_grammar_node_t * suffix_child = child->data.list.children[j];
-                    // For array declarations like int arr[5], the suffix contains IntegerLiteral directly
-                    if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                    if (suffix_child->type == AST_NODE_DECL_SPECIFIERS)
                     {
+                        // This is a function parameter type
+                        has_function_params = true;
+                        if (func_ptr_num_params < 16)
+                        {
+                            func_ptr_param_types[func_ptr_num_params++]
+                                = map_type(ctx, suffix_child, NULL);
+                        }
+                    }
+                    else if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                    {
+                        // This is an array size
                         unsigned long long size_val = suffix_child->integer_literal.value;
                         if (array_depth < array_capacity)
                         {
                             array_sizes[array_depth] = (size_t)size_val;
                             array_depth++;
-                            has_size = true;
+                            has_array_size = true;
+                        }
+                    }
+                    else if (suffix_child->type == AST_NODE_DECLARATOR)
+                    {
+                        // Function parameter with declarator (e.g., int (*func)(int))
+                        // For now, just extract the type specifier
+                        has_function_params = true;
+                        if (func_ptr_num_params < 16)
+                        {
+                            func_ptr_param_types[func_ptr_num_params++]
+                                = map_type(ctx, child, NULL);
                         }
                     }
                 }
-                // Empty brackets [] - mark as unsized (will be inferred from initializer)
-                if (!has_size)
+
+                // If this is a function suffix and we have a pointer, it's a function pointer
+                if (has_function_params && pointer_level > 0)
                 {
-                    // Unsized array (empty brackets or no size specified)
+                    is_function_pointer = true;
+                    pointer_level--; // Already handled as function pointer
+                    break; // Skip remaining declarator processing
+                }
+
+                // Empty brackets [] - mark as unsized (for arrays)
+                if (!has_array_size && !has_function_params)
+                {
                     if (array_depth < array_capacity)
                     {
                         array_sizes[array_depth] = 0;
@@ -1645,6 +1704,13 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     if (!base_type)
     {
         base_type = LLVMInt32TypeInContext(ctx->context);
+    }
+
+    // Handle function pointer - return opaque pointer type
+    if (is_function_pointer)
+    {
+        free(array_sizes);
+        return LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
     }
 
     // Build array types from innermost to outermost
@@ -1917,10 +1983,24 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 param_types[i] = map_type(ctx, p_spec, p_decl);
 
                 c_grammar_node_t * p_direct = find_direct_declarator(p_decl);
-                if (p_direct && !p_direct->is_terminal_node && p_direct->data.list.count > 0
-                    && p_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                if (p_direct && !p_direct->is_terminal_node && p_direct->data.list.count > 0)
                 {
-                    param_names[i] = p_direct->data.list.children[0]->data.terminal.text;
+                    c_grammar_node_t * first_child = p_direct->data.list.children[0];
+                    if (first_child->type == AST_NODE_IDENTIFIER)
+                    {
+                        param_names[i] = first_child->data.terminal.text;
+                    }
+                    else if (first_child->type == AST_NODE_DECLARATOR)
+                    {
+                        // Nested declarator (e.g., for function pointers like *name)
+                        // Find the DirectDeclarator inside and get the Identifier
+                        c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
+                        if (nested_direct && nested_direct->data.list.count > 0
+                            && nested_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                        {
+                            param_names[i] = nested_direct->data.list.children[0]->data.terminal.text;
+                        }
+                    }
                 }
             }
         }
@@ -2012,10 +2092,26 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             c_grammar_node_t * declarator_node = init_decl_node->data.list.children[0];
             c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
 
-            if (direct_decl_node && direct_decl_node->data.list.count > 0
-                && direct_decl_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+            // For regular variables: DirectDeclarator -> Identifier
+            // For function pointers: DirectDeclarator -> Declarator -> DirectDeclarator -> Identifier
+            if (direct_decl_node && direct_decl_node->data.list.count > 0)
             {
-                var_name = direct_decl_node->data.list.children[0]->data.terminal.text;
+                c_grammar_node_t * first_child = direct_decl_node->data.list.children[0];
+                if (first_child->type == AST_NODE_IDENTIFIER)
+                {
+                    var_name = first_child->data.terminal.text;
+                }
+                else if (first_child->type == AST_NODE_DECLARATOR)
+                {
+                    // Nested declarator (e.g., for function pointers like *name)
+                    // Find the DirectDeclarator inside and get the Identifier
+                    c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
+                    if (nested_direct && nested_direct->data.list.count > 0
+                        && nested_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                    {
+                        var_name = nested_direct->data.list.children[0]->data.terminal.text;
+                    }
+                }
             }
 
             LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
@@ -3402,15 +3498,28 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 if (base_node->type == AST_NODE_IDENTIFIER)
                 {
                     char const * func_name = base_node->data.terminal.text;
-                    // First try to get existing function
-                    base_val = LLVMGetNamedFunction(ctx->module, func_name);
-                    if (!base_val)
+
+                    // First check if it's a variable (function pointer) in the symbol table
+                    LLVMValueRef var_ptr;
+                    LLVMTypeRef var_type;
+                    bool found = find_symbol(ctx, func_name, &var_ptr, &var_type, NULL);
+                    if (found && var_ptr)
                     {
-                        // For undeclared functions like printf, auto-declare as variadic returning i32
-                        // with no required arguments to support different call patterns
-                        LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
-                        LLVMTypeRef func_type = LLVMFunctionType(ret_type, NULL, 0, true);
-                        base_val = LLVMAddFunction(ctx->module, func_name, func_type);
+                        // It's a function pointer variable - load the pointer value
+                        base_val = aligned_load(ctx->builder, var_type, var_ptr, "func_ptr");
+                    }
+                    else
+                    {
+                        // Not a variable, try to get as a named function
+                        base_val = LLVMGetNamedFunction(ctx->module, func_name);
+                        if (!base_val)
+                        {
+                            // For undeclared functions like printf, auto-declare as variadic returning i32
+                            // with no required arguments to support different call patterns
+                            LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
+                            LLVMTypeRef func_type = LLVMFunctionType(ret_type, NULL, 0, true);
+                            base_val = LLVMAddFunction(ctx->module, func_name, func_type);
+                        }
                     }
                 }
                 else
@@ -3420,7 +3529,32 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     return NULL;
                 }
 
-                LLVMTypeRef func_type = LLVMGlobalGetValueType(base_val);
+                LLVMTypeRef func_type;
+
+                // Check if this is a global function or an indirect call (function pointer)
+                if (LLVMIsAGlobalValue(base_val))
+                {
+                    func_type = LLVMGlobalGetValueType(base_val);
+                }
+                else
+                {
+                    // Indirect call through function pointer - create function type from arguments
+                    // Default to returning i32 and infer parameter types from arguments
+                    LLVMTypeRef * param_types = NULL;
+                    if (num_args > 0)
+                    {
+                        param_types = malloc(num_args * sizeof(LLVMTypeRef));
+                        for (size_t j = 0; j < num_args; ++j)
+                        {
+                            param_types[j] = LLVMTypeOf(args[j]);
+                        }
+                    }
+                    LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
+                    func_type = LLVMFunctionType(ret_type, param_types, (unsigned)num_args, true);
+                    if (param_types)
+                        free(param_types);
+                }
+
                 char const * call_name = "";
                 if (LLVMGetReturnType(func_type) != LLVMVoidTypeInContext(ctx->context))
                 {
@@ -3911,11 +4045,13 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     else if (var_ptr == NULL)
     {
-        // Check if it's a function name before reporting error
-        if (LLVMGetNamedFunction(ctx->module, node->data.terminal.text) == NULL)
+        // Check if it's a function name - return the function pointer
+        LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->data.terminal.text);
+        if (func_val != NULL)
         {
-            fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
+            return func_val;
         }
+        fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
         return NULL;
     }
 
