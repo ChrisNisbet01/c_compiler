@@ -4380,6 +4380,28 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
     LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
     LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
+    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
+    LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
+
+    // Handle type promotion for integer operands - both sides must match
+    if (! (lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind) &&
+        lhs_type_kind == LLVMIntegerTypeKind && rhs_type_kind == LLVMIntegerTypeKind)
+    {
+        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
+        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
+        if (lhs_bits > rhs_bits)
+        {
+            rhs_val = LLVMBuildZExt(ctx->builder, rhs_val, lhs_type, "promote_rhs");
+            rhs_type = lhs_type;
+        }
+        else if (rhs_bits > lhs_bits)
+        {
+            lhs_val = LLVMBuildZExt(ctx->builder, lhs_val, rhs_type, "promote_lhs");
+            lhs_type = rhs_type;
+        }
+    }
 
     switch (node->op.bitwise.op)
     {
