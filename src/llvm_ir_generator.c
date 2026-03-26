@@ -1670,9 +1670,9 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
  * Creates LLVM context, module, and builder.
  */
 ir_generator_ctx_t *
-ir_generator_init()
+ir_generator_init(void)
 {
-    ir_generator_ctx_t * ctx = calloc(1, sizeof(ir_generator_ctx_t));
+    ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
     {
         fprintf(stderr, "IRGen: Failed to allocate memory for context.\n");
@@ -3239,7 +3239,7 @@ process_integer_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static LLVMValueRef
 process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    LLVMTypeRef float_type;
+    LLVMTypeRef float_type = NULL;
     long double value = node->float_literal.value;
     if (node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
     {

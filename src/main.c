@@ -45,14 +45,14 @@ typedef struct
 } symbol_table_t;
 
 symbol_table_t *
-symbol_table_create()
+symbol_table_create(void)
 {
-    symbol_table_t * st = calloc(1, sizeof(symbol_table_t));
+    symbol_table_t * st = calloc(1, sizeof(*st));
     if (st == NULL)
         return NULL;
 
     st->capacity = INITIAL_SYMBOL_CAPACITY;
-    st->names = malloc(sizeof(char *) * st->capacity);
+    st->names = malloc(sizeof(*st->names) * st->capacity);
     if (st->names == NULL)
     {
         free(st);
@@ -150,9 +150,9 @@ typedef struct
 } parse_session_ctx_t;
 
 parse_session_ctx_t *
-session_ctx_create()
+session_ctx_create(void)
 {
-    parse_session_ctx_t * ctx = calloc(1, sizeof(parse_session_ctx_t));
+    parse_session_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (ctx == NULL)
     {
         return NULL;

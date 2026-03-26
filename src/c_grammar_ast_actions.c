@@ -1874,9 +1874,7 @@ handle_comma_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx,
-            "%s expected at least 1 child, but got 0",
-            get_node_type_name_from_type(AST_NODE_COMMA_EXPRESSION)
+            ctx, "%s expected at least 1 child, but got 0", get_node_type_name_from_type(AST_NODE_COMMA_EXPRESSION)
         );
         return;
     }

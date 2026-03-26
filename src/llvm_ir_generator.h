@@ -85,7 +85,7 @@ typedef struct ir_generator_ctx
  * This involves creating an LLVM context, module, and builder.
  * @return A pointer to the initialized ir_generator_ctx_t, or NULL on failure.
  */
-ir_generator_ctx_t * ir_generator_init();
+ir_generator_ctx_t * ir_generator_init(void);
 
 /**
  * @brief Generates LLVM IR from the provided Abstract Syntax Tree (AST).
