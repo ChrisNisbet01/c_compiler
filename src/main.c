@@ -8,11 +8,18 @@
 #include "llvm_ir_generator.h"
 
 #include <easy_pc/easy_pc.h>
+#include <errno.h>   // For errno
 #include <getopt.h>  // For getopt_long
+#include <spawn.h>   // For posix_spawn
 #include <stdbool.h> // For bool type
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h> // For waitpid
+#include <unistd.h>   // For exec functions
+
+// Declare environ for posix_spawn
+extern char ** environ;
 
 // --- Global variables to store parsed command-line options ---
 static bool compile_only_flag = false;
@@ -386,8 +393,11 @@ derive_output_filename(char const * input_path, char const * ext)
 }
 
 static int
-link_to_executable(LLVMModuleRef llvm_module, char const * o_path, char const * exe_path)
+link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
 {
+    char o_path[1024];
+    snprintf(o_path, sizeof(o_path), "%s.tmp.o", exe_path);
+
     // 1. Emit object file
     if (emit_to_file(llvm_module, o_path, march_target, LLVMObjectFile) != 0)
     {
@@ -395,40 +405,95 @@ link_to_executable(LLVMModuleRef llvm_module, char const * o_path, char const * 
         return -1;
     }
 
-    // 2. Build linker command
-    char cmd[4096];
-    int pos = snprintf(cmd, sizeof(cmd), "cc -no-pie %s", o_path);
+    // 2. Build argv array for posix_spawn
+    // Maximum args: cc, -no-pie, obj, -o, exe, -L paths, -l libs, NULL terminator
+    int max_args = 5 + lib_paths_count + lib_names_count + 1;
+    char ** argv = calloc(max_args, sizeof(*argv));
+    int arg_idx = 0;
+
+    argv[arg_idx++] = strdup("cc");
+    argv[arg_idx++] = strdup("-no-pie");
+    argv[arg_idx++] = strdup(o_path);
 
     // Add library search paths
-    for (int i = 0; i < lib_paths_count && pos < (int)sizeof(cmd) - 50; i++)
+    for (int i = 0; i < lib_paths_count; i++)
     {
-        pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -L%s", lib_paths[i]);
+        // Allocate space for -L + path
+        char * lpath;
+        int asres = asprintf(&lpath, "-L%s", lib_paths[i]);
+        (void)asres;
+        argv[arg_idx++] = lpath;
     }
 
     // Add output filename
-    pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -o %s", exe_path);
+    argv[arg_idx++] = strdup("-o");
+    argv[arg_idx++] = strdup(exe_path);
 
     // Add libraries (must come after -o)
-    for (int i = 0; i < lib_names_count && pos < (int)sizeof(cmd) - 50; i++)
+    for (int i = 0; i < lib_names_count; i++)
     {
-        pos += snprintf(cmd + pos, sizeof(cmd) - (size_t)pos, " -l%s", lib_names[i]);
+        // Allocate space for -l + name
+        char * lname;
+        int asres = asprintf(&lname, "-l%s", lib_names[i]);
+        (void)asres;
+        argv[arg_idx++] = lname;
     }
 
-    printf("Linking: %s\n", cmd);
+    argv[arg_idx++] = NULL;
 
-    // 3. Invoke linker
-    int status = system(cmd);
+    // Print command for user feedback
+    printf("Linking: cc -no-pie %s", o_path);
+    for (int i = 0; i < lib_paths_count; i++)
+    {
+        printf(" -L%s", lib_paths[i]);
+    }
+    printf(" -o %s", exe_path);
+    for (int i = 0; i < lib_names_count; i++)
+    {
+        printf(" -l%s", lib_names[i]);
+    }
+    printf("\n");
+
+    // 3. Invoke linker using posix_spawn
+    pid_t pid;
+    int result = 0;
+    int status = posix_spawn(&pid, "/usr/bin/cc", NULL, NULL, argv, environ);
     if (status != 0)
     {
-        fprintf(stderr, "Linker failed with exit code %d\n", status);
-        return -1;
+        fprintf(stderr, "posix_spawn failed: %s\n", strerror(status));
+        result = -1;
+    }
+    else if (waitpid(pid, &status, 0) == -1) // Wait for child process to complete
+    {
+        fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+        result = -1;
+    }
+    else if (WIFEXITED(status) && WEXITSTATUS(status) != 0) // Check exit status
+    {
+        fprintf(stderr, "Linker failed with exit code %d\n", WEXITSTATUS(status));
+        result = -1;
+    }
+    else if (WIFSIGNALED(status))
+    {
+        fprintf(stderr, "Linker killed by signal %d\n", WTERMSIG(status));
+        result = -1;
     }
 
+    // Free allocated memory for -L and -l arguments
+    for (int i = 0; i < arg_idx - 1; i++)
+    {
+        free(argv[i]);
+    }
+    free(argv);
     // 4. Clean up temp object file
     remove(o_path);
 
-    printf("IRGen: Successfully produced executable %s\n", exe_path);
-    return 0;
+    if (result == 0)
+    {
+        printf("IRGen: Successfully produced executable %s\n", exe_path);
+    }
+
+    return result;
 }
 
 static void
@@ -451,10 +516,8 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
             {
                 // Default: link to executable
                 char const * exe_path = output_filename ? output_filename : "a.out";
-                char temp_o_path[1024];
-                snprintf(temp_o_path, sizeof(temp_o_path), "%s.tmp.o", exe_path);
 
-                if (link_to_executable(llvm_module, temp_o_path, exe_path) != 0)
+                if (link_to_executable(llvm_module, exe_path) != 0)
                 {
                     fprintf(stderr, "Failed to produce executable %s\n", exe_path);
                 }
