@@ -1693,8 +1693,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             }
             else if (child->type == AST_NODE_DIRECT_DECLARATOR)
             {
-                // Check inside DirectDeclarator for pointers (e.g., *name in function pointers)
-                // The structure can be: DirectDeclarator -> Declarator -> Pointer
+                // Check inside DirectDeclarator for pointers and arrays
+                // The structure can be: DirectDeclarator -> Declarator -> {Pointer, ..., DeclaratorSuffix}
                 for (size_t j = 0; j < child->data.list.count; ++j)
                 {
                     c_grammar_node_t * direct_child = child->data.list.children[j];
@@ -1704,13 +1704,47 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     }
                     else if (direct_child->type == AST_NODE_DECLARATOR)
                     {
-                        // Nested declarator - check for pointers inside
+                        // Nested declarator - check for pointers AND array suffixes inside
                         for (size_t k = 0; k < direct_child->data.list.count; ++k)
                         {
                             c_grammar_node_t * nested_child = direct_child->data.list.children[k];
                             if (nested_child->type == AST_NODE_POINTER)
                             {
                                 pointer_level++;
+                            }
+                            else if (nested_child->type == AST_NODE_DECLARATOR_SUFFIX)
+                            {
+                                // Look for array size in nested declarator suffix
+                                for (size_t m = 0; m < nested_child->data.list.count; ++m)
+                                {
+                                    c_grammar_node_t * nested_suffix = nested_child->data.list.children[m];
+                                    if (nested_suffix->type == AST_NODE_INTEGER_LITERAL)
+                                    {
+                                        unsigned long long size_val = nested_suffix->integer_literal.value;
+                                        if (array_depth < array_capacity)
+                                        {
+                                            array_sizes[array_depth] = (size_t)size_val;
+                                            array_depth++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (direct_child->type == AST_NODE_DECLARATOR_SUFFIX)
+                    {
+                        // Look for array size in DirectDeclarator's suffix (for array of function pointers)
+                        for (size_t m = 0; m < direct_child->data.list.count; ++m)
+                        {
+                            c_grammar_node_t * suffix_child = direct_child->data.list.children[m];
+                            if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                            {
+                                unsigned long long size_val = suffix_child->integer_literal.value;
+                                if (array_depth < array_capacity)
+                                {
+                                    array_sizes[array_depth] = (size_t)size_val;
+                                    array_depth++;
+                                }
                             }
                         }
                     }
@@ -1786,11 +1820,22 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         base_type = LLVMInt32TypeInContext(ctx->context);
     }
 
-    // Handle function pointer - return opaque pointer type
+    // Handle function pointer - return pointer type (possibly wrapped in array)
     if (is_function_pointer)
     {
+        LLVMTypeRef func_ptr_type = LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
+
+        // If there are array sizes, this is an array of function pointers
+        if (array_depth > 0)
+        {
+            for (int i = (int)array_depth - 1; i >= 0; --i)
+            {
+                func_ptr_type = LLVMArrayType(func_ptr_type, (unsigned)array_sizes[i]);
+            }
+        }
+
         free(array_sizes);
-        return LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
+        return func_ptr_type;
     }
 
     // Build array types from innermost to outermost
@@ -2297,8 +2342,43 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                              || LLVMGetTypeKind(var_type) == LLVMStructTypeKind)
                             && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                         {
-                            int current_index = 0;
-                            process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                            // Check if this is an array of pointers (like function pointers)
+                            if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind)
+                            {
+                                LLVMTypeRef elem_type = LLVMGetElementType(var_type);
+                                if (elem_type && LLVMGetTypeKind(elem_type) == LLVMPointerTypeKind)
+                                {
+                                    // Array of pointers - process each element individually
+                                    int current_index = 0;
+                                    for (size_t i = 0; i < initializer_expr_node->data.list.count; ++i)
+                                    {
+                                        c_grammar_node_t * child = initializer_expr_node->data.list.children[i];
+                                        LLVMValueRef value = process_expression(ctx, child);
+                                        if (value)
+                                        {
+                                            // Create GEP to element
+                                            LLVMValueRef indices[2];
+                                            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_index, false);
+                                            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(
+                                                ctx->builder, var_type, alloca_inst, indices, 2, "init_elem_ptr");
+                                            aligned_store(ctx->builder, value, elem_ptr);
+                                        }
+                                        current_index++;
+                                    }
+                                }
+                                else
+                                {
+                                    // Regular array or struct initializer
+                                    int current_index = 0;
+                                    process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                                }
+                            }
+                            else
+                            {
+                                int current_index = 0;
+                                process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                            }
                         }
                         else
                         {
@@ -3582,7 +3662,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             if (!base_val)
             {
-                if (base_node->type == AST_NODE_IDENTIFIER)
+                // Check if we have a current_ptr from array subscript or other suffix
+                // This handles cases like ops[0](...) where current_ptr points to the function pointer element
+                if (have_ptr && current_ptr && current_type
+                    && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                {
+                    // Load the function pointer from the element pointer
+                    base_val = aligned_load(ctx->builder, current_type, current_ptr, "func_ptr");
+                }
+                else if (base_node->type == AST_NODE_IDENTIFIER)
                 {
                     char const * func_name = base_node->data.terminal.text;
 

@@ -45,6 +45,17 @@ int main()
     if (result4 != 50)
         return 4;
 
+    /* Array of function pointers */
+    int (*ops[2])(int, int) = {add, subtract};
+    int result5 = ops[0](100, 50);
+    int result6 = ops[1](100, 50);
+    printf("ops[0](100, 50) = %d\n", result5);
+    printf("ops[1](100, 50) = %d\n", result6);
+    if (result5 != 150)
+        return 5;
+    if (result6 != 50)
+        return 6;
+
     printf("All function pointer tests passed!\n");
     return 0;
 }
