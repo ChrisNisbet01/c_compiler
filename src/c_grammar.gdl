@@ -29,6 +29,7 @@ KwDouble = lexeme("double" IdBoundary);
 KwSigned = lexeme("signed" IdBoundary);
 KwUnsigned = lexeme("unsigned" IdBoundary);
 KwBool = lexeme("_Bool" IdBoundary);
+KwBoolBuiltin = lexeme("bool" IdBoundary);
 KwComplex = lexeme("_Complex" IdBoundary);
 KwImaginary = lexeme("_Imaginary" IdBoundary);
 KwStruct = lexeme("struct" IdBoundary) @AST_ACTION_KEYWORD;
@@ -62,7 +63,7 @@ KwExtension = lexeme("__extension__" IdBoundary);
 StandardReservedWord = KwStatic | KwExtern | KwAuto | KwRegister 
              | KwConst | KwVolatile | KwRestrict
              | KwVoid | KwChar | KwShort | KwInt | KwLong | KwFloat | KwDouble | KwSigned | KwUnsigned
-             | KwBool | KwComplex | KwImaginary
+             | KwBool | KwBoolBuiltin | KwComplex | KwImaginary
              | KwStruct | KwUnion | KwEnum | KwTypedef
              | KwReturn | KwIf | KwElse | KwWhile | KwDo | KwFor | KwSwitch | KwCase | KwDefault | KwGoto | KwContinue 
              | KwBreak | KwSizeof | KwInline;
@@ -327,7 +328,7 @@ StructTypeRef = StructOrUnion Attribute* Identifier;
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned
-                         | KwBool | KwComplex | KwImaginary
+                         | KwBool | KwBoolBuiltin | KwComplex | KwImaginary
                          | StructDefinition
                          | StructTypeRef
                          | EnumDefinition

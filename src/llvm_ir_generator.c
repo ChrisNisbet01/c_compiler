@@ -1456,6 +1456,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 base_type = LLVMInt64TypeInContext(ctx->context);
             else if (strncmp(type_name, "short", 5) == 0)
                 base_type = LLVMInt16TypeInContext(ctx->context);
+            else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+                base_type = LLVMInt1TypeInContext(ctx->context);
         }
         // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
         else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
@@ -1490,6 +1492,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             base_type = LLVMInt64TypeInContext(ctx->context);
                         else if (strncmp(type_name, "short", 5) == 0)
                             base_type = LLVMInt16TypeInContext(ctx->context);
+                        else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+                            base_type = LLVMInt1TypeInContext(ctx->context);
                         if (base_type)
                             break;
                     }
@@ -1535,6 +1539,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     base_type = LLVMInt64TypeInContext(ctx->context);
                 else if (strncmp(type_name, "short", 5) == 0)
                     base_type = LLVMInt16TypeInContext(ctx->context);
+                else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+                    base_type = LLVMInt1TypeInContext(ctx->context);
                 else if (type_name && (strncmp(type_name, "struct ", 7) == 0 || strncmp(type_name, "union ", 6) == 0))
                 {
                     char const * name_start = strchr(type_name, ' ');
@@ -1607,6 +1613,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 base_type = LLVMInt64TypeInContext(ctx->context);
                             else if (strncmp(type_name, "short", 5) == 0)
                                 base_type = LLVMInt16TypeInContext(ctx->context);
+                            else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+                                base_type = LLVMInt1TypeInContext(ctx->context);
                         }
                         else if (child && child->type == AST_NODE_STRUCT_DEFINITION)
                         {
@@ -3237,8 +3245,37 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             // Process the return expression.
             LLVMValueRef return_value = process_expression(ctx, expr_node);
+
             if (return_value)
             {
+                LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+                LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
+
+                // Get the type of the expression you just processed
+                LLVMTypeRef expr_type = LLVMTypeOf(return_value);
+
+                // Logic to adjust bit width (assuming Integer types)
+                if (LLVMGetTypeKind(expr_type) == LLVMIntegerTypeKind
+                    && LLVMGetTypeKind(func_ret_type) == LLVMIntegerTypeKind)
+                {
+
+                    unsigned expr_width = LLVMGetIntTypeWidth(expr_type);
+                    unsigned func_width = LLVMGetIntTypeWidth(func_ret_type);
+
+                    if (expr_width < func_width)
+                    {
+                        // e.g., i1 -> i32 (Bool to Int)
+                        fprintf(stderr, "extending\n");
+                        return_value = LLVMBuildZExt(ctx->builder, return_value, func_ret_type, "zext_tmp");
+                    }
+                    else if (expr_width > func_width)
+                    {
+                        // e.g., i32 -> i1 (Int to Bool)
+                        fprintf(stderr, "truncating\n");
+                        return_value = LLVMBuildTrunc(ctx->builder, return_value, func_ret_type, "trunc_tmp");
+                    }
+                }
+
                 LLVMBuildRet(ctx->builder, return_value);
             }
             else
@@ -4289,6 +4326,19 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static LLVMValueRef
 process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
+    // Handle built-in boolean constants
+    if (node && node->data.terminal.text != NULL)
+    {
+        if (strcmp(node->data.terminal.text, "true") == 0)
+        {
+            return LLVMConstInt(LLVMInt1TypeInContext(ctx->context), 1, false);
+        }
+        if (strcmp(node->data.terminal.text, "false") == 0)
+        {
+            return LLVMConstInt(LLVMInt1TypeInContext(ctx->context), 0, false);
+        }
+    }
+
     LLVMValueRef var_ptr;
     LLVMTypeRef element_type;
 
@@ -4820,6 +4870,8 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                     target_type = LLVMInt64TypeInContext(ctx->context);
                 else if (strncmp(type_name, "short", 5) == 0)
                     target_type = LLVMInt16TypeInContext(ctx->context);
+                else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+                    target_type = LLVMInt1TypeInContext(ctx->context);
             }
             else
             {
@@ -4926,6 +4978,8 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         target_type = LLVMInt64TypeInContext(ctx->context);
                     else if (strncmp(type_name, "short", 5) == 0)
                         target_type = LLVMInt16TypeInContext(ctx->context);
+                    else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+                        target_type = LLVMInt1TypeInContext(ctx->context);
                 }
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
