@@ -9,8 +9,8 @@ This document lists C features that are not yet supported by the ncc compiler.
 - **Variable-length arrays (VLAs)** - e.g., `int arr[n];`
 - **Flexible array members** - e.g., `int data[];` as last struct member
 - **Type qualifiers on variables** - const, volatile, restrict, _Atomic
-- **`_Bool` / `bool` type** - from stdbool.h
-- **`long double`** - may map to double or be incomplete
+- **`_Bool` / `bool` type** - Supported
+- **`long double`** - Supported
 - **Complex number types** - `_Complex`
 
 ## Expressions

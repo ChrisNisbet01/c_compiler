@@ -1450,6 +1450,11 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 base_type = LLVMVoidTypeInContext(ctx->context);
             else if (strncmp(type_name, "float", 5) == 0)
                 base_type = LLVMFloatTypeInContext(ctx->context);
+            else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+            {
+                fprintf(stderr, "got long double\n");
+                base_type = LLVMX86FP80TypeInContext(ctx->context);
+            }
             else if (strncmp(type_name, "double", 6) == 0)
                 base_type = LLVMDoubleTypeInContext(ctx->context);
             else if (strncmp(type_name, "long", 4) == 0)
@@ -1486,6 +1491,11 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             base_type = LLVMVoidTypeInContext(ctx->context);
                         else if (strncmp(type_name, "float", 5) == 0)
                             base_type = LLVMFloatTypeInContext(ctx->context);
+                        else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                        {
+                            fprintf(stderr, "got long double\n");
+                            base_type = LLVMX86FP80TypeInContext(ctx->context);
+                        }
                         else if (strncmp(type_name, "double", 6) == 0)
                             base_type = LLVMDoubleTypeInContext(ctx->context);
                         else if (strncmp(type_name, "long", 4) == 0)
@@ -1533,6 +1543,11 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     base_type = LLVMVoidTypeInContext(ctx->context);
                 else if (strncmp(type_name, "float", 5) == 0)
                     base_type = LLVMFloatTypeInContext(ctx->context);
+                else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                {
+                    fprintf(stderr, "got long double\n");
+                    base_type = LLVMX86FP80TypeInContext(ctx->context);
+                }
                 else if (strncmp(type_name, "double", 6) == 0)
                     base_type = LLVMDoubleTypeInContext(ctx->context);
                 else if (strncmp(type_name, "long", 4) == 0)
@@ -1607,6 +1622,11 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 base_type = LLVMVoidTypeInContext(ctx->context);
                             else if (strncmp(type_name, "float", 5) == 0)
                                 base_type = LLVMFloatTypeInContext(ctx->context);
+                            else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                            {
+                                fprintf(stderr, "got long double\n");
+                                base_type = LLVMX86FP80TypeInContext(ctx->context);
+                            }
                             else if (strncmp(type_name, "double", 6) == 0)
                                 base_type = LLVMDoubleTypeInContext(ctx->context);
                             else if (strncmp(type_name, "long", 4) == 0)
@@ -3632,18 +3652,17 @@ process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     LLVMTypeRef float_type = NULL;
     long double value = node->float_literal.value;
-    if (node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
+    if (node->float_literal.type == FLOAT_LITERAL_TYPE_LONG_DOUBLE)
+    {
+        float_type = LLVMX86FP80TypeInContext(ctx->context);
+    }
+    else if (node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
     {
         float_type = LLVMDoubleTypeInContext(ctx->context);
     }
     else if (node->float_literal.type == FLOAT_LITERAL_TYPE_FLOAT)
     {
         float_type = LLVMFloatTypeInContext(ctx->context);
-        value = (double)value;
-    }
-    else if (node->float_literal.type == FLOAT_LITERAL_TYPE_LONG_DOUBLE)
-    {
-        float_type = LLVMX86FP80TypeInContext(ctx->context);
     }
 
     return LLVMConstReal(float_type, value);
@@ -4386,8 +4405,8 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
 
     // Handle type promotion for integer operands - both sides must match
-    if (! (lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind) &&
-        lhs_type_kind == LLVMIntegerTypeKind && rhs_type_kind == LLVMIntegerTypeKind)
+    if (!(lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind)
+        && lhs_type_kind == LLVMIntegerTypeKind && rhs_type_kind == LLVMIntegerTypeKind)
     {
         unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
         unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
@@ -4843,6 +4862,11 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         target_type = LLVMVoidTypeInContext(ctx->context);
                     else if (strncmp(type_name, "float", 5) == 0)
                         target_type = LLVMFloatTypeInContext(ctx->context);
+                    else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                    {
+                        fprintf(stderr, "got long double\n");
+                        target_type = LLVMX86FP80TypeInContext(ctx->context);
+                    }
                     else if (strncmp(type_name, "double", 6) == 0)
                         target_type = LLVMDoubleTypeInContext(ctx->context);
                     else if (strncmp(type_name, "long", 4) == 0)
@@ -4886,6 +4910,11 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                     target_type = LLVMVoidTypeInContext(ctx->context);
                 else if (strncmp(type_name, "float", 5) == 0)
                     target_type = LLVMFloatTypeInContext(ctx->context);
+                else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                {
+                    fprintf(stderr, "got long double\n");
+                    target_type = LLVMX86FP80TypeInContext(ctx->context);
+                }
                 else if (strncmp(type_name, "double", 6) == 0)
                     target_type = LLVMDoubleTypeInContext(ctx->context);
                 else if (strncmp(type_name, "long", 4) == 0)
@@ -4994,6 +5023,11 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         target_type = LLVMVoidTypeInContext(ctx->context);
                     else if (strncmp(type_name, "float", 5) == 0)
                         target_type = LLVMFloatTypeInContext(ctx->context);
+                    else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                    {
+                        fprintf(stderr, "got long double\n");
+                        target_type = LLVMX86FP80TypeInContext(ctx->context);
+                    }
                     else if (strncmp(type_name, "double", 6) == 0)
                         target_type = LLVMDoubleTypeInContext(ctx->context);
                     else if (strncmp(type_name, "long", 4) == 0)

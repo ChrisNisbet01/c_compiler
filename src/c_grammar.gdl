@@ -326,8 +326,8 @@ StructDefinition = StructOrUnion Attribute* Identifier? LBrace StructDeclaration
 // StructTypeRef: struct without body (reference) - treated as type specifier
 StructTypeRef = StructOrUnion Attribute* Identifier;
 
-NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | KwLong
-                         | KwFloat | KwDouble | KwSigned | KwUnsigned
+NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | (KwLong KwDouble) | KwLong
+                         | KwFloat | KwDouble | KwSigned | KwUnsigned                         
                          | KwBool | KwBoolBuiltin | KwComplex | KwImaginary
                          | StructDefinition
                          | StructTypeRef
