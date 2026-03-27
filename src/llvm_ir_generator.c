@@ -956,7 +956,9 @@ register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         }
                     }
                     if (struct_def_node || enum_def_node)
+                    {
                         break;
+                    }
                 }
 
                 if (struct_def_node && typedef_name)
@@ -1414,6 +1416,39 @@ find_direct_declarator(c_grammar_node_t * declarator)
 }
 
 static LLVMTypeRef
+get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
+{
+    LLVMTypeRef type_ref = NULL;
+
+    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+    if (struct_type)
+    {
+        type_ref = struct_type;
+    }
+    // Then check for basic types
+    else if (strncmp(type_name, "int", 3) == 0)
+        type_ref = LLVMInt32TypeInContext(ctx->context);
+    else if (strncmp(type_name, "char", 4) == 0)
+        type_ref = LLVMInt8TypeInContext(ctx->context);
+    else if (strncmp(type_name, "void", 4) == 0)
+        type_ref = LLVMVoidTypeInContext(ctx->context);
+    else if (strncmp(type_name, "float", 5) == 0)
+        type_ref = LLVMFloatTypeInContext(ctx->context);
+    else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+        type_ref = LLVMX86FP80TypeInContext(ctx->context);
+    else if (strncmp(type_name, "double", 6) == 0)
+        type_ref = LLVMDoubleTypeInContext(ctx->context);
+    else if (strncmp(type_name, "long", 4) == 0)
+        type_ref = LLVMInt64TypeInContext(ctx->context);
+    else if (strncmp(type_name, "short", 5) == 0)
+        type_ref = LLVMInt16TypeInContext(ctx->context);
+    else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
+        type_ref = LLVMInt1TypeInContext(ctx->context);
+
+    return type_ref;
+}
+
+static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
     LLVMTypeRef base_type = NULL;
@@ -1431,142 +1466,12 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     if (specifiers)
     {
         // Handle terminal TypeSpecifier (e.g., typedef name "IntFloat", or basic type "int", "float")
-        if (specifiers->type == AST_NODE_TYPE_SPECIFIER && specifiers->is_terminal_node
-            && specifiers->data.terminal.text)
-        {
-            char const * type_name = specifiers->data.terminal.text;
-            // First check if it's a struct/union type
-            LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-            if (struct_type)
-            {
-                base_type = struct_type;
-            }
-            // Then check for basic types
-            else if (strncmp(type_name, "int", 3) == 0)
-                base_type = LLVMInt32TypeInContext(ctx->context);
-            else if (strncmp(type_name, "char", 4) == 0)
-                base_type = LLVMInt8TypeInContext(ctx->context);
-            else if (strncmp(type_name, "void", 4) == 0)
-                base_type = LLVMVoidTypeInContext(ctx->context);
-            else if (strncmp(type_name, "float", 5) == 0)
-                base_type = LLVMFloatTypeInContext(ctx->context);
-            else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-            {
-                fprintf(stderr, "got long double\n");
-                base_type = LLVMX86FP80TypeInContext(ctx->context);
-            }
-            else if (strncmp(type_name, "double", 6) == 0)
-                base_type = LLVMDoubleTypeInContext(ctx->context);
-            else if (strncmp(type_name, "long", 4) == 0)
-                base_type = LLVMInt64TypeInContext(ctx->context);
-            else if (strncmp(type_name, "short", 5) == 0)
-                base_type = LLVMInt16TypeInContext(ctx->context);
-            else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-                base_type = LLVMInt1TypeInContext(ctx->context);
-        }
-        // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
-        else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
-        {
-            for (size_t i = 0; i < specifiers->data.list.count; ++i)
-            {
-                c_grammar_node_t * child = specifiers->data.list.children[i];
-                if (child && child->type == AST_NODE_TYPE_SPECIFIER)
-                {
-                    // Found TypeSpecifier, process it
-                    if (child->is_terminal_node && child->data.terminal.text)
-                    {
-                        char const * type_name = child->data.terminal.text;
-                        LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                        if (struct_type)
-                        {
-                            base_type = struct_type;
-                            break;
-                        }
-                        // Fallback: check for basic types
-                        if (strncmp(type_name, "int", 3) == 0)
-                            base_type = LLVMInt32TypeInContext(ctx->context);
-                        else if (strncmp(type_name, "char", 4) == 0)
-                            base_type = LLVMInt8TypeInContext(ctx->context);
-                        else if (strncmp(type_name, "void", 4) == 0)
-                            base_type = LLVMVoidTypeInContext(ctx->context);
-                        else if (strncmp(type_name, "float", 5) == 0)
-                            base_type = LLVMFloatTypeInContext(ctx->context);
-                        else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-                        {
-                            fprintf(stderr, "got long double\n");
-                            base_type = LLVMX86FP80TypeInContext(ctx->context);
-                        }
-                        else if (strncmp(type_name, "double", 6) == 0)
-                            base_type = LLVMDoubleTypeInContext(ctx->context);
-                        else if (strncmp(type_name, "long", 4) == 0)
-                            base_type = LLVMInt64TypeInContext(ctx->context);
-                        else if (strncmp(type_name, "short", 5) == 0)
-                            base_type = LLVMInt16TypeInContext(ctx->context);
-                        else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-                            base_type = LLVMInt1TypeInContext(ctx->context);
-                        if (base_type)
-                            break;
-                    }
-                    else if (!child->is_terminal_node && child->data.list.count > 0)
-                    {
-                        // Check children for typedef names or struct definitions
-                        for (size_t j = 0; j < child->data.list.count; ++j)
-                        {
-                            c_grammar_node_t * tchild = child->data.list.children[j];
-                            if (tchild && tchild->is_terminal_node && tchild->type == AST_NODE_IDENTIFIER)
-                            {
-                                char const * type_name = tchild->data.terminal.text;
-                                LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                                if (struct_type)
-                                {
-                                    base_type = struct_type;
-                                    break;
-                                }
-                            }
-                        }
-                        if (base_type)
-                            break;
-                    }
-                }
-            }
-        }
-        else if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
+        if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
         {
             if (specifiers->is_terminal_node)
             {
                 char const * type_name = specifiers->data.terminal.text;
-                if (strncmp(type_name, "int", 3) == 0)
-                    base_type = LLVMInt32TypeInContext(ctx->context);
-                else if (strncmp(type_name, "char", 4) == 0)
-                    base_type = LLVMInt8TypeInContext(ctx->context);
-                else if (strncmp(type_name, "void", 4) == 0)
-                    base_type = LLVMVoidTypeInContext(ctx->context);
-                else if (strncmp(type_name, "float", 5) == 0)
-                    base_type = LLVMFloatTypeInContext(ctx->context);
-                else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-                {
-                    fprintf(stderr, "got long double\n");
-                    base_type = LLVMX86FP80TypeInContext(ctx->context);
-                }
-                else if (strncmp(type_name, "double", 6) == 0)
-                    base_type = LLVMDoubleTypeInContext(ctx->context);
-                else if (strncmp(type_name, "long", 4) == 0)
-                    base_type = LLVMInt64TypeInContext(ctx->context);
-                else if (strncmp(type_name, "short", 5) == 0)
-                    base_type = LLVMInt16TypeInContext(ctx->context);
-                else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-                    base_type = LLVMInt1TypeInContext(ctx->context);
-                else if (type_name && (strncmp(type_name, "struct ", 7) == 0 || strncmp(type_name, "union ", 6) == 0))
-                {
-                    char const * name_start = strchr(type_name, ' ');
-                    if (name_start)
-                    {
-                        name_start++;
-                        LLVMTypeRef st = find_struct_type(ctx, name_start);
-                        if (st)
-                            base_type = st;
-                    }
-                }
+                base_type = get_type_from_name(ctx, type_name);
             }
             else
             {
@@ -1608,33 +1513,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 || child->type == AST_NODE_FLOAT_BASE))
                         {
                             char const * type_name = child->data.terminal.text;
-                            // Check if it's a registered struct type first
-                            LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                            if (struct_type)
-                            {
-                                base_type = struct_type;
-                            }
-                            else if (strncmp(type_name, "int", 3) == 0)
-                                base_type = LLVMInt32TypeInContext(ctx->context);
-                            else if (strncmp(type_name, "char", 4) == 0)
-                                base_type = LLVMInt8TypeInContext(ctx->context);
-                            else if (strncmp(type_name, "void", 4) == 0)
-                                base_type = LLVMVoidTypeInContext(ctx->context);
-                            else if (strncmp(type_name, "float", 5) == 0)
-                                base_type = LLVMFloatTypeInContext(ctx->context);
-                            else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-                            {
-                                fprintf(stderr, "got long double\n");
-                                base_type = LLVMX86FP80TypeInContext(ctx->context);
-                            }
-                            else if (strncmp(type_name, "double", 6) == 0)
-                                base_type = LLVMDoubleTypeInContext(ctx->context);
-                            else if (strncmp(type_name, "long", 4) == 0)
-                                base_type = LLVMInt64TypeInContext(ctx->context);
-                            else if (strncmp(type_name, "short", 5) == 0)
-                                base_type = LLVMInt16TypeInContext(ctx->context);
-                            else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-                                base_type = LLVMInt1TypeInContext(ctx->context);
+                            base_type = get_type_from_name(ctx, type_name);
                         }
                         else if (child && child->type == AST_NODE_STRUCT_DEFINITION)
                         {
@@ -1649,11 +1528,13 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                     break;
                                 }
                             }
-                            if (name)
+                            if (name != NULL)
                             {
                                 LLVMTypeRef st = find_struct_type(ctx, name);
                                 if (st)
+                                {
                                     base_type = st;
+                                }
                             }
                         }
                         else if (child && child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
@@ -1681,25 +1562,43 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 }
             }
         }
+        // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
         else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
         {
             for (size_t i = 0; i < specifiers->data.list.count; ++i)
             {
                 c_grammar_node_t * child = specifiers->data.list.children[i];
-                if (child->type == AST_NODE_TYPE_SPECIFIER)
+                if (child && child->type == AST_NODE_TYPE_SPECIFIER)
                 {
-                    base_type = map_type(ctx, child, NULL);
-                }
-                else if (child->type == AST_NODE_DECL_SPECIFIERS)
-                {
-                    // Nested decl specifiers - recurse to find the type
-                    LLVMTypeRef nested_type = map_type(ctx, child, NULL);
-                    if (nested_type)
-                        base_type = nested_type;
-                }
-                else if (child->type == AST_NODE_POINTER)
-                {
-                    pointer_level++;
+                    // Found TypeSpecifier, process it
+                    if (child->is_terminal_node)
+                    {
+                        char const * type_name = child->data.terminal.text;
+
+                        base_type = get_type_from_name(ctx, type_name);
+                    }
+                    else
+                    {
+                        // Check children for typedef names or struct definitions
+                        for (size_t j = 0; j < child->data.list.count; ++j)
+                        {
+                            c_grammar_node_t * tchild = child->data.list.children[j];
+                            if (tchild && tchild->is_terminal_node && tchild->type == AST_NODE_IDENTIFIER)
+                            {
+                                char const * type_name = tchild->data.terminal.text;
+                                LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                                if (struct_type)
+                                {
+                                    base_type = struct_type;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (base_type != NULL)
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -4838,41 +4737,19 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             {
                 c_grammar_node_t * child = operand_node->data.list.children[i];
 
-                // Skip struct/union keywords
-                if (child->type == AST_NODE_KEYWORD)
-                {
-                    continue;
-                }
-
                 // Handle terminal type specifier (e.g., "int", "char")
-                if (child->type == AST_NODE_TYPE_SPECIFIER && child->is_terminal_node && child->data.terminal.text)
+                if (child->type == AST_NODE_TYPE_SPECIFIER)
                 {
-                    char const * type_name = child->data.terminal.text;
-                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                    if (struct_type)
+                    if (child->is_terminal_node)
                     {
-                        target_type = struct_type;
-                        break;
+                        char const * type_name = child->data.terminal.text;
+
+                        target_type = get_type_from_name(ctx, type_name);
                     }
-                    else if (strncmp(type_name, "int", 3) == 0)
-                        target_type = LLVMInt32TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "char", 4) == 0)
-                        target_type = LLVMInt8TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "void", 4) == 0)
-                        target_type = LLVMVoidTypeInContext(ctx->context);
-                    else if (strncmp(type_name, "float", 5) == 0)
-                        target_type = LLVMFloatTypeInContext(ctx->context);
-                    else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                    else
                     {
-                        fprintf(stderr, "got long double\n");
-                        target_type = LLVMX86FP80TypeInContext(ctx->context);
+                        target_type = map_type(ctx, child, NULL);
                     }
-                    else if (strncmp(type_name, "double", 6) == 0)
-                        target_type = LLVMDoubleTypeInContext(ctx->context);
-                    else if (strncmp(type_name, "long", 4) == 0)
-                        target_type = LLVMInt64TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "short", 5) == 0)
-                        target_type = LLVMInt16TypeInContext(ctx->context);
                 }
                 // Handle Identifier (struct name like "Point" in sizeof(struct Point))
                 else if (child->type == AST_NODE_IDENTIFIER)
@@ -4884,45 +4761,15 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         target_type = struct_type;
                     }
                 }
-                // Handle nested TypeSpecifier (non-terminal)
-                else if (child->type == AST_NODE_TYPE_SPECIFIER)
-                {
-                    target_type = map_type(ctx, child, NULL);
-                }
             }
         }
         // Check if operand is a type specifier (e.g., sizeof(int))
         else if (operand_node->type == AST_NODE_TYPE_SPECIFIER)
         {
-            if (operand_node->is_terminal_node && operand_node->data.terminal.text)
+            if (operand_node->is_terminal_node)
             {
                 char const * type_name = operand_node->data.terminal.text;
-                LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                if (struct_type)
-                {
-                    target_type = struct_type;
-                }
-                else if (strncmp(type_name, "int", 3) == 0)
-                    target_type = LLVMInt32TypeInContext(ctx->context);
-                else if (strncmp(type_name, "char", 4) == 0)
-                    target_type = LLVMInt8TypeInContext(ctx->context);
-                else if (strncmp(type_name, "void", 4) == 0)
-                    target_type = LLVMVoidTypeInContext(ctx->context);
-                else if (strncmp(type_name, "float", 5) == 0)
-                    target_type = LLVMFloatTypeInContext(ctx->context);
-                else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-                {
-                    fprintf(stderr, "got long double\n");
-                    target_type = LLVMX86FP80TypeInContext(ctx->context);
-                }
-                else if (strncmp(type_name, "double", 6) == 0)
-                    target_type = LLVMDoubleTypeInContext(ctx->context);
-                else if (strncmp(type_name, "long", 4) == 0)
-                    target_type = LLVMInt64TypeInContext(ctx->context);
-                else if (strncmp(type_name, "short", 5) == 0)
-                    target_type = LLVMInt16TypeInContext(ctx->context);
-                else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-                    target_type = LLVMInt1TypeInContext(ctx->context);
+                target_type = get_type_from_name(ctx, type_name);
             }
             else
             {
@@ -5002,40 +4849,18 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             {
                 c_grammar_node_t * child = operand_node->data.list.children[i];
 
-                if (child->type == AST_NODE_KEYWORD)
+                if (child->type == AST_NODE_TYPE_SPECIFIER)
                 {
-                    continue;
-                }
+                    if (child->is_terminal_node)
+                    {
+                        char const * type_name = child->data.terminal.text;
 
-                if (child->type == AST_NODE_TYPE_SPECIFIER && child->is_terminal_node && child->data.terminal.text)
-                {
-                    char const * type_name = child->data.terminal.text;
-                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                    if (struct_type)
-                    {
-                        target_type = struct_type;
+                        target_type = get_type_from_name(ctx, type_name);
                     }
-                    else if (strncmp(type_name, "int", 3) == 0)
-                        target_type = LLVMInt32TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "char", 4) == 0)
-                        target_type = LLVMInt8TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "void", 4) == 0)
-                        target_type = LLVMVoidTypeInContext(ctx->context);
-                    else if (strncmp(type_name, "float", 5) == 0)
-                        target_type = LLVMFloatTypeInContext(ctx->context);
-                    else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
+                    else
                     {
-                        fprintf(stderr, "got long double\n");
-                        target_type = LLVMX86FP80TypeInContext(ctx->context);
+                        target_type = map_type(ctx, child, NULL);
                     }
-                    else if (strncmp(type_name, "double", 6) == 0)
-                        target_type = LLVMDoubleTypeInContext(ctx->context);
-                    else if (strncmp(type_name, "long", 4) == 0)
-                        target_type = LLVMInt64TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "short", 5) == 0)
-                        target_type = LLVMInt16TypeInContext(ctx->context);
-                    else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-                        target_type = LLVMInt1TypeInContext(ctx->context);
                 }
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
@@ -5045,10 +4870,6 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                     {
                         target_type = struct_type;
                     }
-                }
-                else if (child->type == AST_NODE_TYPE_SPECIFIER)
-                {
-                    target_type = map_type(ctx, child, NULL);
                 }
             }
         }
