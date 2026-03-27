@@ -72,6 +72,7 @@ run_test() {
         TEST_FAILED=true
         current_test_failed=true
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        echo "$c_file" >> "$FAILED_TESTS_FILE"
         return
     fi
     if [ -s "$err_file" ]; then
@@ -85,6 +86,7 @@ run_test() {
         TEST_FAILED=true
         current_test_failed=true
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        echo "$c_file" >> "$FAILED_TESTS_FILE"
         return
     fi
     if [ -s "$err_file" ]; then
@@ -148,6 +150,7 @@ run_test() {
         fi
     fi
 
+    echo "current_test_failed: $current_test_failed"
     if [ "$current_test_failed" = "true" ]; then
         FAILED_TESTS=$((FAILED_TESTS + 1))
         echo "$c_file" >> "$FAILED_TESTS_FILE"

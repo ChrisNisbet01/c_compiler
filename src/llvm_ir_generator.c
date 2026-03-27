@@ -48,6 +48,7 @@ static void add_struct_type(
 );
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
+static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
 
 // Helper function to get natural alignment for a type
@@ -748,6 +749,132 @@ process_initializer_list(
                 continue;
             }
 
+            // Handle Designation nodes (designated initializers like .x = value or .pos.x = value)
+            if (child->type == AST_NODE_DESIGNATION)
+            {
+                // Designation contains a list of field names (identifiers)
+                // The next child in the list is the actual value
+                if (i + 1 >= initializer_node->data.list.count)
+                {
+                    continue;
+                }
+
+                c_grammar_node_t const * designation = child;
+                c_grammar_node_t const * value_node = initializer_node->data.list.children[i + 1];
+
+                // Handle nested designations (e.g., .pos.x = value has 2 identifiers: pos, x)
+                LLVMValueRef current_ptr = base_ptr;
+                LLVMTypeRef current_type = element_type;
+                LLVMTypeKind current_kind = kind;
+                int field_indices[16]; // Max nesting depth
+                int field_count = 0;
+                int final_local_index = 0;
+                LLVMTypeRef final_type = element_type;
+
+                if (!designation->is_terminal_node && designation->data.list.count > 0)
+                {
+                    // Process each field in the designation path
+                    for (size_t d = 0; d < designation->data.list.count; d++)
+                    {
+                        c_grammar_node_t const * field_ident = designation->data.list.children[d];
+                        if (field_ident->type == AST_NODE_IDENTIFIER)
+                        {
+                            char const * field_name = field_ident->data.terminal.text;
+
+                            // For structs, find the field index by name
+                            if (current_kind == LLVMStructTypeKind)
+                            {
+                                int field_idx = find_struct_field_index(ctx, current_type, field_name);
+                                if (field_idx < 0)
+                                {
+                                    // Field not found
+                                    break;
+                                }
+                                field_indices[field_count++] = field_idx;
+
+                                // Get the type of this field
+                                LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(current_type, (unsigned)field_idx);
+
+                                // If there are more fields after this, navigate to the nested struct
+                                if (d + 1 < designation->data.list.count)
+                                {
+                                    // Get pointer to this field
+                                    LLVMValueRef indices[2];
+                                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field_idx, false);
+                                    current_ptr = LLVMBuildInBoundsGEP2(
+                                        ctx->builder, current_type, current_ptr, indices, 2, "nested_ptr"
+                                    );
+                                    current_type = field_type;
+                                    current_kind = LLVMGetTypeKind(current_type);
+                                }
+                                else
+                                {
+                                    // This is the final field
+                                    final_local_index = field_idx;
+                                    final_type = field_type;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Process the value and store it at the designated position
+                LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)value_node);
+                if (value && field_count > 0)
+                {
+                    LLVMValueRef elem_ptr;
+                    if (field_count > 1)
+                    {
+                        // Nested field - current_ptr already points to the parent struct's field
+                        // We need to get element 0 of that nested struct (since it's the final target)
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
+                        elem_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, current_type, current_ptr, indices, 2, "nested_init_ptr"
+                        );
+                    }
+                    else
+                    {
+                        // Single field
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
+                        elem_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, element_type, base_ptr, indices, 2, "init_ptr"
+                        );
+                    }
+
+                    // Cast the value to the final field type if needed
+                    LLVMTypeRef value_type = LLVMTypeOf(value);
+                    LLVMTypeKind final_kind = LLVMGetTypeKind(final_type);
+                    if (final_kind == LLVMIntegerTypeKind)
+                    {
+                        if (LLVMGetTypeKind(value_type) == LLVMIntegerTypeKind)
+                        {
+                            unsigned field_bits = LLVMGetIntTypeWidth(final_type);
+                            unsigned value_bits = LLVMGetIntTypeWidth(value_type);
+                            if (field_bits < value_bits)
+                                value = LLVMBuildTrunc(ctx->builder, value, final_type, "trunc_val");
+                            else if (field_bits > value_bits)
+                                value = LLVMBuildSExt(ctx->builder, value, final_type, "sext_val");
+                        }
+                    }
+
+                    aligned_store(ctx->builder, value, elem_ptr);
+                }
+
+                // Skip the value node since we already processed it
+                i++;
+                local_index++;
+                if (outer_index)
+                {
+                    (*outer_index)++;
+                }
+                continue;
+            }
+
             // If child is an INITIALIZER_LIST, create GEP to the row and recurse
             if (child->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
             {
@@ -1291,6 +1418,35 @@ find_struct_type(ir_generator_ctx_t * ctx, char const * name)
 {
     struct_info_t * info = find_struct_info(ctx, name);
     return info ? info->type : NULL;
+}
+
+static int
+find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name)
+{
+    if (!struct_type || !field_name)
+        return -1;
+
+    struct_info_t * info = NULL;
+    for (size_t i = 0; i < ctx->struct_count; ++i)
+    {
+        if (ctx->structs[i].type == struct_type)
+        {
+            info = &ctx->structs[i];
+            break;
+        }
+    }
+
+    if (!info)
+        return -1;
+
+    for (size_t i = 0; i < info->field_count; ++i)
+    {
+        if (info->fields[i].name && strcmp(info->fields[i].name, field_name) == 0)
+        {
+            return (int)i;
+        }
+    }
+    return -1;
 }
 
 static void

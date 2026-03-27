@@ -74,6 +74,7 @@ typedef enum
     AST_NODE_TERNARY_OPERATION,
     AST_NODE_CONDITIONAL_EXPRESSION,
     AST_NODE_COMMA_EXPRESSION,
+    AST_NODE_DESIGNATION,
 } c_grammar_node_type_t;
 
 typedef struct
