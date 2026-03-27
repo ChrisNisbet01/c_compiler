@@ -1611,6 +1611,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
     {
+
         for (size_t i = 0; i < declarator->data.list.count; ++i)
         {
             c_grammar_node_t * child = declarator->data.list.children[i];
@@ -1625,57 +1626,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 for (size_t j = 0; j < child->data.list.count; ++j)
                 {
                     c_grammar_node_t * direct_child = child->data.list.children[j];
-                    if (direct_child->type == AST_NODE_POINTER)
-                    {
-                        pointer_level++;
-                    }
-                    else if (direct_child->type == AST_NODE_DECLARATOR)
-                    {
-                        // Nested declarator - check for pointers AND array suffixes inside
-                        for (size_t k = 0; k < direct_child->data.list.count; ++k)
-                        {
-                            c_grammar_node_t * nested_child = direct_child->data.list.children[k];
-                            if (nested_child->type == AST_NODE_POINTER)
-                            {
-                                pointer_level++;
-                            }
-                            else if (nested_child->type == AST_NODE_DECLARATOR_SUFFIX)
-                            {
-                                // Look for array size in nested declarator suffix
-                                for (size_t m = 0; m < nested_child->data.list.count; ++m)
-                                {
-                                    c_grammar_node_t * nested_suffix = nested_child->data.list.children[m];
-                                    if (nested_suffix->type == AST_NODE_INTEGER_LITERAL)
-                                    {
-                                        unsigned long long size_val = nested_suffix->integer_literal.value;
-                                        if (array_depth < array_capacity)
-                                        {
-                                            array_sizes[array_depth] = (size_t)size_val;
-                                            array_depth++;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else if (direct_child->type == AST_NODE_DECLARATOR_SUFFIX)
-                    {
-                        // Look for array size in DirectDeclarator's suffix (for array of function pointers)
-                        for (size_t m = 0; m < direct_child->data.list.count; ++m)
-                        {
-                            c_grammar_node_t * suffix_child = direct_child->data.list.children[m];
-                            if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
-                            {
-                                unsigned long long size_val = suffix_child->integer_literal.value;
-                                if (array_depth < array_capacity)
-                                {
-                                    array_sizes[array_depth] = (size_t)size_val;
-                                    array_depth++;
-                                }
-                            }
-                        }
-                    }
-                    else if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                    if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                     {
                         // Function pointer parameter: int (*func)(int, int)
                         is_function_pointer = true;
@@ -1704,44 +1655,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 }
                             }
                         }
-                        // Continue processing to check for additional DeclaratorSuffix after FunctionPointerDeclarator
-                        // (which contains array size like (*ops[2]))
                     }
                 }
-            }
-            else if (child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
-            {
-                // FunctionPointerDeclarator contains: Pointer, Identifier, DeclaratorSuffix*
-                // This includes both the pointer AND any array suffix (e.g., (*ops[2]))
-                is_function_pointer = true;
-                for (size_t j = 0; j < child->data.list.count; ++j)
-                {
-                    c_grammar_node_t * fp_child = child->data.list.children[j];
-                    if (fp_child->type == AST_NODE_POINTER)
-                    {
-                        pointer_level++;
-                    }
-                    else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
-                    {
-                        // Check for array size (e.g., (*ops[2])(int, int))
-                        for (size_t k = 0; k < fp_child->data.list.count; ++k)
-                        {
-                            c_grammar_node_t * suffix_child = fp_child->data.list.children[k];
-                            if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
-                            {
-                                unsigned long long size_val = suffix_child->integer_literal.value;
-                                if (array_depth < array_capacity)
-                                {
-                                    array_sizes[array_depth] = (size_t)size_val;
-                                    array_depth++;
-                                }
-                            }
-                        }
-                    }
-                }
-                // We've handled the function pointer declarator, don't process outer DeclaratorSuffix
-                // which contains the function parameters - it's already accounted for
-                break;
             }
             else if (child->type == AST_NODE_DECLARATOR_SUFFIX)
             {
