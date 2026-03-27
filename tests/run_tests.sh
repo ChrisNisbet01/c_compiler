@@ -2,12 +2,24 @@
 
 # --- Configuration ---
 
-# Default compiler path
-DEFAULT_NCC_COMPILER="./build/src/ncc"
-
-# Usage: run_tests.sh [compiler] [test_file]
+# Usage: run_tests.sh [--no-preprocess] <compiler> [test_file]
 # If test_file is specified, only that test is run.
-NCC_COMPILER="${1:-$DEFAULT_NCC_COMPILER}"
+# The --no-preprocess flag is passed to the ncc compiler to disable preprocessing
+
+# Parse command line arguments
+NO_PREPROCESS=0
+if [ "$1" = "--no-preprocess" ]; then
+    NO_PREPROCESS=1
+    shift
+fi
+
+if [ $# -lt 1 ]; then
+    echo "Error: Missing compiler path"
+    echo "Usage: $0 [--no-preprocess] <compiler> [test_file]"
+    exit 1
+fi
+
+NCC_COMPILER="$1"
 SPECIFIC_TEST="$2"
 
 LLVM_COMPILER="clang"
@@ -44,9 +56,15 @@ run_test() {
     # Clean up previous output
     rm -f "$ll_file" "$o_file" "$exe_file" "$err_file"
 
+    # Build ncc command with optional --no-preprocess flag
+    NCC_CMD=("$NCC_COMPILER")
+    if [ "$NO_PREPROCESS" -eq 1 ]; then
+        NCC_CMD+=("--no-preprocess")
+    fi
+    
     # 1. Compile C file to LLVM IR using ncc (-S -emit-llvm)
     echo "  [NCC] Compiling $c_file -> $ll_file"
-    if ! "$NCC_COMPILER" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
+    if ! "${NCC_CMD[@]}" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
         echo "  ERROR: ncc compilation failed for $c_file. Check $err_file"
         TEST_FAILED=true
         current_test_failed=true
@@ -90,7 +108,7 @@ run_test() {
 
     # 4. Verify -c flag produces object file
     echo "  [NCC -c] Compiling $c_file -> $o_file"
-    if ! "$NCC_COMPILER" -c -o "$o_file" "$c_file" 1> /dev/null 2> "$err_file"; then
+    if ! "${NCC_CMD[@]}" -c -o "$o_file" "$c_file" 1> /dev/null 2> "$err_file"; then
         echo "  ERROR: ncc -c compilation failed for $c_file. Check $err_file"
         TEST_FAILED=true
         current_test_failed=true
@@ -105,7 +123,7 @@ run_test() {
     # 5. Verify default mode produces and links executable
     local link_exe="$OUTPUT_DIR/${base_name}_link"
     echo "  [NCC] Linking $c_file -> $link_exe"
-    if ! "$NCC_COMPILER" -o "$link_exe" "$c_file" 1> /dev/null 2> "$err_file"; then
+    if ! "${NCC_CMD[@]}" -o "$link_exe" "$c_file" 1> /dev/null 2> "$err_file"; then
         echo "  ERROR: ncc linking failed for $c_file. Check $err_file"
         TEST_FAILED=true
         current_test_failed=true
