@@ -42,6 +42,40 @@ The test script considers a test **passed** if:
 
 A test is **failed** if any of the above steps fail.
 
+## Preprocessing Features
+
+As of the latest update, the NCC compiler now includes preprocessing support by default, using clang's preprocessor. This means:
+
+- By default, all input files are preprocessed before compilation
+- The `-E` flag outputs preprocessed code to stdout and stops (clang-compatible)
+- The `--no-preprocess` flag disables preprocessing, preserving the original behavior
+- `-I` and `-D` flags are passed through to the clang preprocessor
+
+### Preprocessing-related Command Options
+
+| Option | Description |
+|--------|-------------|
+| `-E` | Preprocess only; output result to stdout |
+| `--no-preprocess` | Disable preprocessing (use original behavior) |
+| `-I <dir>` | Add directory to include search path (passed to preprocessor) |
+| `-D <macro>` | Define preprocessor macro (passed to preprocessor) |
+
+### Example Usage
+
+```bash
+# Default behavior: preprocess then compile
+build/src/ncc -o program program.c
+
+# Preprocess only (output to stdout)
+build/src/ncc -E program.c
+
+# Compile without preprocessing (original behavior)
+build/src/ncc --no-preprocess -o program program.c
+
+# With include paths and defines
+build/src/ncc -I./includes -DDEBUG -o program program.c
+```
+
 ## Useful Notes from Development
 
 ### Compiler Architecture

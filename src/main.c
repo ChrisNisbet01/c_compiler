@@ -32,6 +32,14 @@ static int lib_names_count = 0;
 static char * lib_paths[64]; // -L flags (e.g., "/usr/local/lib")
 static int lib_paths_count = 0;
 
+// Preprocessing options
+static bool preprocess_flag = true;       // Default: preprocess enabled
+static bool preprocess_only_flag = false; // -E flag: preprocess only
+static char * include_paths[64];          // -I flags
+static int include_paths_count = 0;
+static char * defines[64];                // -D flags
+static int defines_count = 0;
+
 // --- Symbol Table Implementation ---
 
 // Initial capacity for dynamically sized symbol tables
@@ -488,12 +496,120 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     // 4. Clean up temp object file
     remove(o_path);
 
-    if (result == 0)
-    {
-        printf("IRGen: Successfully produced executable %s\n", exe_path);
-    }
+     if (result == 0)
+     {
+         printf("IRGen: Successfully produced executable %s\n", exe_path);
+     }
 
-    return result;
+     return result;
+ }
+
+// Preprocess a file using clang -E
+static int
+preprocess_file(char const * input_path, char const * output_path, 
+                bool output_to_stdout)
+{
+    // Build command: clang -E [includes] [defines] input_file [-o output]
+    // Count arguments: clang, -E, [input], [-o, output], [for each -I: -I, path], [for each -D: -D, define], NULL
+    int num_args = 4; // clang, -E, input, -o (if not stdout)
+    if (!output_to_stdout && output_path) {
+        num_args += 2; // -o and output file
+    }
+    // Add space for -I and -D flags (2 args each)
+    num_args += (include_paths_count * 2) + (defines_count * 2);
+    num_args += 1; // NULL terminator
+    
+    char ** argv = calloc(num_args, sizeof(*argv));
+    if (!argv) {
+        fprintf(stderr, "Error: Failed to allocate memory for preprocessing command.\n");
+        return -1;
+    }
+    int arg_idx = 0;
+    
+    argv[arg_idx++] = strdup("clang");
+    argv[arg_idx++] = strdup("-E");
+    
+    // Add -I flags
+    for (int i = 0; i < include_paths_count; i++) {
+        char *path_arg;
+        if (asprintf(&path_arg, "-I%s", include_paths[i]) == -1) {
+            fprintf(stderr, "Error: Failed to create -I argument.\n");
+            // Clean up allocated args
+            for (int j = 0; j < arg_idx; j++) free(argv[j]);
+            free(argv);
+            return -1;
+        }
+        argv[arg_idx++] = path_arg;
+    }
+    
+    // Add -D flags
+    for (int i = 0; i < defines_count; i++) {
+        char *define_arg;
+        if (asprintf(&define_arg, "-D%s", defines[i]) == -1) {
+            fprintf(stderr, "Error: Failed to create -D argument.\n");
+            // Clean up allocated args
+            for (int j = 0; j < arg_idx; j++) free(argv[j]);
+            free(argv);
+            return -1;
+        }
+        argv[arg_idx++] = define_arg;
+    }
+    
+    argv[arg_idx++] = strdup(input_path);
+    
+    if (!output_to_stdout && output_path) {
+        argv[arg_idx++] = strdup("-o");
+        argv[arg_idx++] = strdup(output_path);
+    }
+    
+    argv[arg_idx++] = NULL;
+    
+    // Debug: print the command
+    fprintf(stderr, "DEBUG: Preprocessing command:");
+    for (int i = 0; i < arg_idx; i++) {
+        fprintf(stderr, " %s", argv[i]);
+    }
+    fprintf(stderr, "\n");
+    // Execute using posix_spawn
+    pid_t pid;
+    int status = posix_spawn(&pid, "/usr/bin/clang", NULL, NULL, argv, environ);
+    if (status != 0) {
+        fprintf(stderr, "posix_spawn failed: %s\n", strerror(status));
+        // Clean up
+        for (int i = 0; i < arg_idx; i++) free(argv[i]);
+        free(argv);
+        return -1;
+    }
+    
+    int wait_status;
+    if (waitpid(pid, &wait_status, 0) == -1) {
+        fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+        // Clean up
+        for (int i = 0; i < arg_idx; i++) free(argv[i]);
+        free(argv);
+        return -1;
+    }
+    
+    // Clean up allocated arguments
+    for (int i = 0; i < arg_idx; i++) free(argv[i]);
+    free(argv);
+    
+    if (WIFEXITED(wait_status)) {
+        int exit_code = WEXITSTATUS(wait_status);
+        if (exit_code != 0) {
+            fprintf(stderr, "Preprocessor failed with exit code %d\n", exit_code);
+            return -1;
+        }
+        if (!output_to_stdout) {
+            printf("Preprocessing: Successfully created %s\n", output_path);
+        }
+        return 0;
+    } else if (WIFSIGNALED(wait_status)) {
+        fprintf(stderr, "Preprocessor killed by signal %d\n", WTERMSIG(wait_status));
+        return -1;
+    }
+    
+    return -1; // Should not reach here
 }
 
 static void
@@ -613,9 +729,13 @@ print_usage(char const * prog_name)
     fprintf(stderr, "  -S              Compile to assembly (or LLVM IR with -emit-llvm)\n");
     fprintf(stderr, "  -c              Compile to object code\n");
     fprintf(stderr, "  --emit-llvm     Emit LLVM IR instead of native output\n");
+    fprintf(stderr, "  -E              Preprocess only, output to stdout\n");
+    fprintf(stderr, "  --no-preprocess Skip preprocessing (default behavior before this change)\n");
     fprintf(stderr, "  -o <file>       Specify output filename\n");
     fprintf(stderr, "  -l <lib>        Link library (e.g., -lm for libm)\n");
     fprintf(stderr, "  -L <path>       Add library search path\n");
+    fprintf(stderr, "  -I <dir>        Add include directory for preprocessing\n");
+    fprintf(stderr, "  -D <macro>      Define macro for preprocessing\n");
     fprintf(stderr, "  --march=<arch>  Specify target architecture (default: x86-64)\n");
     fprintf(stderr, "  -h, --help      Display this help message\n");
 }
@@ -627,62 +747,117 @@ main(int argc, char * argv[])
         = {{"march", required_argument, 0, 'm'},
            {"emit-llvm", no_argument, 0, 'e'},
            {"help", no_argument, 0, 'h'},
+           {"no-preprocess", no_argument, 0, 256},
            {0, 0, 0, 0}};
 
-    int opt;
-    int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "cSo:l:L:h", long_options, &option_index)) != -1)
-    {
-        switch (opt)
-        {
-        case 'c':
-            compile_only_flag = true;
-            break;
-        case 'S':
-            assembly_only_flag = true;
-            break;
-        case 'o':
-            output_filename = optarg;
-            break;
-        case 'l':
-            if (lib_names_count < (int)(sizeof(lib_names) / sizeof(lib_names[0])))
-                lib_names[lib_names_count++] = optarg;
-            break;
-        case 'L':
-            if (lib_paths_count < (int)(sizeof(lib_paths) / sizeof(lib_paths[0])))
-                lib_paths[lib_paths_count++] = optarg;
-            break;
-        case 'm':
-            march_target = optarg;
-            break;
-        case 'e':
-            emit_llvm_flag = true;
-            break;
-        case 'h':
-            print_usage(argv[0]);
-            return EXIT_SUCCESS;
-        default:
-            print_usage(argv[0]);
-            return EXIT_FAILURE;
-        }
-    }
+     int opt;
+     int option_index = 0;
+     while ((opt = getopt_long(argc, argv, "cSo:l:L:hEI:D:", long_options, &option_index)) != -1)
+     {
+         switch (opt)
+         {
+         case 'c':
+             compile_only_flag = true;
+             break;
+         case 'S':
+             assembly_only_flag = true;
+             break;
+         case 'o':
+             output_filename = optarg;
+             break;
+         case 'l':
+             if (lib_names_count < (int)(sizeof(lib_names) / sizeof(lib_names[0])))
+                 lib_names[lib_names_count++] = optarg;
+             break;
+         case 'L':
+             if (lib_paths_count < (int)(sizeof(lib_paths) / sizeof(lib_paths[0])))
+                 lib_paths[lib_paths_count++] = optarg;
+             break;
+         case 'm':
+             march_target = optarg;
+             break;
+         case 'e':
+             emit_llvm_flag = true;
+             break;
+         case 'E':
+             preprocess_only_flag = true;
+             preprocess_flag = true; // -E implies preprocessing
+             break;
+         case 'I':
+             if (include_paths_count < 64)
+                 include_paths[include_paths_count++] = optarg;
+             break;
+         case 'D':
+             if (defines_count < 64)
+                 defines[defines_count++] = optarg;
+             break;
+         case 256: // --no-preprocess
+             preprocess_flag = false;
+             break;
+         case 'h':
+             print_usage(argv[0]);
+             return EXIT_SUCCESS;
+         default:
+             print_usage(argv[0]);
+             return EXIT_FAILURE;
+         }
+     }
 
-    if (optind >= argc)
-    {
-        fprintf(stderr, "Error: Missing input filename.\n");
-        print_usage(argv[0]);
-        return EXIT_FAILURE;
-    }
+     if (optind >= argc)
+     {
+         fprintf(stderr, "Error: Missing input filename.\n");
+         print_usage(argv[0]);
+         return EXIT_FAILURE;
+     }
 
-    char const * filename = argv[optind];
-    printf("Attempting to parse C file: %s\n", filename);
+     char const * filename = argv[optind];
+     printf("Attempting to parse C file: %s\n", filename);
 
-    epc_parser_list * list = epc_parser_list_create();
-    if (list == NULL)
-    {
-        fprintf(stderr, "Failed to create parser list.\n");
-        return EXIT_FAILURE;
-    }
+     // Handle preprocessing
+     bool should_preprocess = preprocess_flag;
+     const char * actual_input_file = filename;
+     char * preprocessed_temp_file = NULL;
+
+     if (preprocess_only_flag) {
+         // -E flag: just preprocess and output to stdout, then exit
+         int result = preprocess_file(filename, NULL, true);
+         // Cleanup and exit
+         return (result == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+     }
+
+     if (should_preprocess) {
+         // Create temp file for preprocessed output
+         preprocessed_temp_file = strdup("/tmp/ncc_preproc_XXXXXX");
+         int fd = mkstemp(preprocessed_temp_file);
+         if (fd == -1) {
+             fprintf(stderr, "Error: Failed to create temp file for preprocessing.\n");
+             free(preprocessed_temp_file);
+             preprocessed_temp_file = NULL;
+         } else {
+             close(fd);
+         }
+         
+         if (preprocessed_temp_file != NULL) {
+             int prep_result = preprocess_file(filename, preprocessed_temp_file, false);
+             if (prep_result != 0) {
+                 fprintf(stderr, "Error: Preprocessing failed for %s\n", filename);
+                 free(preprocessed_temp_file);
+                 preprocessed_temp_file = NULL;
+             } else {
+                 actual_input_file = preprocessed_temp_file;
+             }
+         }
+     }
+
+     epc_parser_list * list = epc_parser_list_create();
+     if (list == NULL)
+     {
+         fprintf(stderr, "Failed to create parser list.\n");
+         if (preprocessed_temp_file) {
+             free(preprocessed_temp_file);
+         }
+         return EXIT_FAILURE;
+     }
 
     parse_session_ctx_t * session_ctx = session_ctx_create();
     if (session_ctx == NULL)
@@ -701,7 +876,7 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    epc_parse_session_t session = epc_parse_file(c_parser, filename, session_ctx);
+     epc_parse_session_t session = epc_parse_file(c_parser, actual_input_file, session_ctx);
 
     if (session.result.is_error)
     {
