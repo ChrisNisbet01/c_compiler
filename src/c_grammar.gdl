@@ -164,11 +164,12 @@ TypeQualifier = memoize(TypeQualifierRaw);
 FunctionSpecifier = KwInline;
 
 // --- Expression Hierarchy ---
+CompoundLiteral = LParen TypeName RParen LBrace InitializerList RBrace @AST_ACTION_COMPOUND_LITERAL;
 
 PrimaryExpression = NumberLiteral
                   | StringLiteral
                   | CharLiteral
-                  | (LParen TypeName RParen LBrace InitializerList RBrace)
+                  | CompoundLiteral
                   | Identifier
                   | (LParen Expression RParen);
 
