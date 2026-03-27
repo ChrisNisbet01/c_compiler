@@ -2213,7 +2213,45 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             aligned_store(ctx->builder, param_val, alloca_inst);
             if (param_names[i])
             {
-                add_symbol(ctx, param_names[i], alloca_inst, param_types[i], NULL);
+                // Extract struct name from parameter specifiers for pointer-to-struct types
+                char * param_struct_name = NULL;
+                c_grammar_node_t * p_spec = suffix_node && !suffix_node->is_terminal_node ? suffix_node->data.list.children[i * 2] : NULL;
+
+                // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
+                c_grammar_node_t * type_spec = NULL;
+                if (p_spec && !p_spec->is_terminal_node)
+                {
+                    if (p_spec->type == AST_NODE_TYPE_SPECIFIER)
+                    {
+                        type_spec = p_spec;
+                    }
+                    else if (p_spec->type == AST_NODE_DECL_SPECIFIERS && p_spec->data.list.count > 0)
+                    {
+                        // DeclarationSpecifiers has TypeSpecifier as child
+                        type_spec = p_spec->data.list.children[0];
+                    }
+                }
+
+                // Now search for struct keyword in TypeSpecifier
+                if (type_spec && type_spec->type == AST_NODE_TYPE_SPECIFIER && !type_spec->is_terminal_node)
+                {
+                    for (size_t m = 0; m + 1 < type_spec->data.list.count && !param_struct_name; ++m)
+                    {
+                        c_grammar_node_t * s_child = type_spec->data.list.children[m];
+                        if (s_child && s_child->type == AST_NODE_KEYWORD
+                            && s_child->data.terminal.text
+                            && strcmp(s_child->data.terminal.text, "struct") == 0)
+                        {
+                            c_grammar_node_t * name_child = type_spec->data.list.children[m + 1];
+                            if (name_child && name_child->type == AST_NODE_IDENTIFIER)
+                            {
+                                param_struct_name = name_child->data.terminal.text;
+                            }
+                        }
+                    }
+                }
+
+                add_symbol_with_struct(ctx, param_names[i], alloca_inst, param_types[i], NULL, param_struct_name);
             }
         }
 
@@ -4727,6 +4765,85 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 return var_ptr;
             }
         }
+
+        // For &compound_literal, we need to create a pointer to the temp
+        // The compound literal code returns a loaded value, but we need the pointer
+        if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
+        {
+            // Extract the type and initializer from the compound literal
+            if (operand_node->is_terminal_node || operand_node->data.list.count < 2)
+            {
+                break;
+            }
+
+            c_grammar_node_t const * type_name_node = operand_node->data.list.children[0];
+            c_grammar_node_t const * init_list_node = operand_node->data.list.children[1];
+
+            // Extract struct name
+            char const * struct_name = NULL;
+            if (type_name_node->type == AST_NODE_TYPE_NAME && !type_name_node->is_terminal_node)
+            {
+                for (size_t i = 0; i < type_name_node->data.list.count; ++i)
+                {
+                    c_grammar_node_t const * child = type_name_node->data.list.children[i];
+                    if (child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
+                    {
+                        for (size_t j = 0; j < child->data.list.count; ++j)
+                        {
+                            c_grammar_node_t const * spec_child = child->data.list.children[j];
+                            if (spec_child->type == AST_NODE_KEYWORD && spec_child->data.terminal.text
+                                && strcmp(spec_child->data.terminal.text, "struct") == 0)
+                            {
+                                if (j + 1 < child->data.list.count)
+                                {
+                                    c_grammar_node_t const * name_node = child->data.list.children[j + 1];
+                                    if (name_node->type == AST_NODE_IDENTIFIER)
+                                    {
+                                        struct_name = name_node->data.terminal.text;
+                                    }
+                                }
+                            }
+                            else if (spec_child->type == AST_NODE_IDENTIFIER)
+                            {
+                                struct_name = spec_child->data.terminal.text;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (struct_name == NULL)
+            {
+                fprintf(stderr, "IRGen Error: Could not extract struct name from compound literal in unary &\n");
+                break;
+            }
+
+            LLVMTypeRef struct_type = find_struct_type(ctx, struct_name);
+            if (struct_type == NULL)
+            {
+                fprintf(stderr, "IRGen Error: Unknown struct type '%s' in compound literal in unary &\n", struct_name);
+                break;
+            }
+
+            // Create a temporary local variable (alloca) for the compound literal
+            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, struct_type, "compound_literal_tmp");
+            if (alloca_inst == NULL)
+            {
+                fprintf(stderr, "IRGen Error: Failed to allocate compound literal for unary &\n");
+                break;
+            }
+
+            // Initialize using the initializer list
+            if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
+            {
+                int current_index = 0;
+                process_initializer_list(ctx, alloca_inst, struct_type, init_list_node, &current_index);
+            }
+
+            // Return the pointer to the alloca (not the loaded value)
+            return alloca_inst;
+        }
+
         // For &member or &array[i], process the expression which returns a pointer
         LLVMValueRef ptr_val = process_expression(ctx, operand_node);
         return ptr_val;
