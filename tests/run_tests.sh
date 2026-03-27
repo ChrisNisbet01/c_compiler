@@ -37,6 +37,9 @@ TEST_FAILED=false
 TOTAL_TESTS=0
 PASSED_TESTS=0
 FAILED_TESTS=0
+FAILED_TESTS_FILE="$OUTPUT_DIR/failed_tests.list"  # File to store names of failed tests
+# Clear the failed tests file at the start
+> "$FAILED_TESTS_FILE"
 
 run_test() {
     local c_file="$1"
@@ -147,6 +150,7 @@ run_test() {
 
     if [ "$current_test_failed" = "true" ]; then
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        echo "$c_file" >> "$FAILED_TESTS_FILE"
     else
         PASSED_TESTS=$((PASSED_TESTS + 1))
     fi
@@ -182,6 +186,8 @@ echo "Failed:      $FAILED_TESTS"
 
 if [ "$TEST_FAILED" = "true" ]; then
     echo "Result: SOME TESTS FAILED"
+    echo "Failed tests:"
+    sort "$FAILED_TESTS_FILE"
     exit 1
 else
     echo "Result: ALL TESTS PASSED"
