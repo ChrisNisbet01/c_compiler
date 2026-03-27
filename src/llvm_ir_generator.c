@@ -3899,20 +3899,54 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             c_grammar_node_t * child = suffix->data.list.children[0];
             char * member_name = child->data.terminal.text;
 
-            if (base_val)
+            LLVMValueRef struct_val = base_val;
+            LLVMTypeRef struct_type = NULL;
+            bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+
+            // Handle case where base_val is NULL but we have current_ptr from array subscript
+            if (!struct_val && have_ptr && current_ptr && current_type)
+            {
+                // current_ptr points to the element, current_type is its type
+                LLVMTypeKind type_kind = LLVMGetTypeKind(current_type);
+                if (type_kind == LLVMStructTypeKind)
+                {
+                    struct_val = current_ptr;
+                    struct_type = current_type;
+                }
+                else if (type_kind == LLVMPointerTypeKind)
+                {
+                    LLVMTypeRef elem_type = LLVMGetElementType(current_type);
+                    if (elem_type && LLVMGetTypeKind(elem_type) == LLVMStructTypeKind)
+                    {
+                        struct_val = current_ptr;
+                        struct_type = elem_type;
+                    }
+                }
+            }
+
+            if (struct_val)
             {
                 // Get the struct type
-                LLVMTypeRef base_type = LLVMTypeOf(base_val);
+                LLVMTypeRef base_type;
+                if (struct_type)
+                {
+                    base_type = struct_type;
+                }
+                else
+                {
+                    base_type = LLVMTypeOf(struct_val);
+                }
                 if (!base_type)
                 {
                     fprintf(stderr, "IRGen Error: NULL type for member access base.\n");
                     continue;
                 }
-                LLVMTypeRef struct_type;
-                bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+                if (!struct_type)
+                {
+                    struct_type = base_type;
+                }
 
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
-                struct_type = NULL;
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
                     char const * sname = find_symbol_struct_name(ctx, base_node->data.terminal.text);
@@ -3984,15 +4018,25 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
 
                     LLVMValueRef member_ptr;
-                    if (is_arrow || LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
+                    // Check if struct_val (which could be base_val or current_ptr) is a pointer
+                    LLVMTypeRef struct_val_type = NULL;
+                    if (struct_val)
                     {
-                        member_ptr = LLVMBuildInBoundsGEP2(ctx->builder, base_type, base_val, indices, 2, "memberptr");
+                        struct_val_type = LLVMTypeOf(struct_val);
+                    }
+                    bool struct_val_is_ptr = struct_val_type && LLVMGetTypeKind(struct_val_type) == LLVMPointerTypeKind;
+
+                    if (is_arrow || struct_val_is_ptr)
+                    {
+                        // struct_val is a pointer to the struct
+                        // Use struct_type for the GEP, not the pointer type
+                        member_ptr = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_val, indices, 2, "memberptr");
                     }
                     else
                     {
-                        // For value types, we need to get the pointer
+                        // For value types (struct passed by value), we need to get the pointer
                         LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
-                        aligned_store(ctx->builder, base_val, struct_ptr);
+                        aligned_store(ctx->builder, struct_val, struct_ptr);
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
                     }
