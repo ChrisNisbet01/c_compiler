@@ -5,13 +5,15 @@
 ### Full Test Suite
 To run all tests, execute the following command from the project root:
 ```bash
-tests/run_tests.sh build/src/ncc
+tests/run_tests.sh --no-preprocess build/src/ncc
 ```
+For the sake of time, unless specifically trying to check something relating to preprocssing, use the --no-preprocess 
+flag.
 
 ### Single Test
 To run a specific test file (e.g., `tests/test_bitwise.c`):
 ```bash
-tests/run_tests.sh build/src/ncc tests/test_bitwise.c
+tests/run_tests.sh --no-preprocess build/src/ncc tests/test_bitwise.c
 ```
 
 ## Test Output Files
