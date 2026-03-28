@@ -15,7 +15,7 @@ This document lists C features that are not yet supported by the ncc compiler.
 
 ## Expressions
 
-- **Compound literals** - e.g., `(struct Point){1, 2}` - Supported
+- **Compound literals** - e.g., `(struct Point){1, 2}` - Partially supported
 - **Designated initializers** - e.g., `.x = 1, .y = 2` - Supported
 - **Statement expressions** - GCC extension `({ int x = 5; x; })`
 - **Generic selection** - `_Generic` (C11)

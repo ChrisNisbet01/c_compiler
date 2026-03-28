@@ -51,6 +51,49 @@ static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * n
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
 
+// Helper function to extract struct/union name from a TypeSpecifier node
+// Returns the name if found (struct or union keyword followed by identifier), or NULL
+static char const *
+extract_compound_type_name(c_grammar_node_t const * type_spec_node)
+{
+    if (type_spec_node == NULL || type_spec_node->is_terminal_node)
+        return NULL;
+
+    if (type_spec_node->type != AST_NODE_TYPE_SPECIFIER)
+        return NULL;
+
+    // Look for struct or union keyword followed by identifier
+    for (size_t j = 0; j + 1 < type_spec_node->data.list.count; ++j)
+    {
+        c_grammar_node_t const * spec_child = type_spec_node->data.list.children[j];
+        if (spec_child && spec_child->type == AST_NODE_KEYWORD && spec_child->data.terminal.text)
+        {
+            if (strcmp(spec_child->data.terminal.text, "struct") == 0
+                || strcmp(spec_child->data.terminal.text, "union") == 0)
+            {
+                // Next child should be the type name identifier
+                c_grammar_node_t const * name_node = type_spec_node->data.list.children[j + 1];
+                if (name_node && name_node->type == AST_NODE_IDENTIFIER)
+                {
+                    return name_node->data.terminal.text;
+                }
+            }
+        }
+    }
+
+    // Check for plain identifier (typedef)
+    for (size_t j = 0; j < type_spec_node->data.list.count; ++j)
+    {
+        c_grammar_node_t const * spec_child = type_spec_node->data.list.children[j];
+        if (spec_child && spec_child->type == AST_NODE_IDENTIFIER)
+        {
+            return spec_child->data.terminal.text;
+        }
+    }
+
+    return NULL;
+}
+
 // Helper function to get natural alignment for a type
 static unsigned
 get_type_alignment(LLVMTypeRef type)
@@ -2213,8 +2256,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             aligned_store(ctx->builder, param_val, alloca_inst);
             if (param_names[i])
             {
-                // Extract struct name from parameter specifiers for pointer-to-struct types
-                char * param_struct_name = NULL;
+                // Extract struct/union name from parameter specifiers for pointer-to-compound types
+                char * param_compound_name = NULL;
                 c_grammar_node_t * p_spec = suffix_node && !suffix_node->is_terminal_node ? suffix_node->data.list.children[i * 2] : NULL;
 
                 // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
@@ -2232,26 +2275,13 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                 }
 
-                // Now search for struct keyword in TypeSpecifier
-                if (type_spec && type_spec->type == AST_NODE_TYPE_SPECIFIER && !type_spec->is_terminal_node)
+                // Use helper to extract type name (struct or union)
+                if (type_spec)
                 {
-                    for (size_t m = 0; m + 1 < type_spec->data.list.count && !param_struct_name; ++m)
-                    {
-                        c_grammar_node_t * s_child = type_spec->data.list.children[m];
-                        if (s_child && s_child->type == AST_NODE_KEYWORD
-                            && s_child->data.terminal.text
-                            && strcmp(s_child->data.terminal.text, "struct") == 0)
-                        {
-                            c_grammar_node_t * name_child = type_spec->data.list.children[m + 1];
-                            if (name_child && name_child->type == AST_NODE_IDENTIFIER)
-                            {
-                                param_struct_name = name_child->data.terminal.text;
-                            }
-                        }
-                    }
+                    param_compound_name = (char *)extract_compound_type_name(type_spec);
                 }
 
-                add_symbol_with_struct(ctx, param_names[i], alloca_inst, param_types[i], NULL, param_struct_name);
+                add_symbol_with_struct(ctx, param_names[i], alloca_inst, param_types[i], NULL, param_compound_name);
             }
         }
 
@@ -4779,54 +4809,32 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             c_grammar_node_t const * type_name_node = operand_node->data.list.children[0];
             c_grammar_node_t const * init_list_node = operand_node->data.list.children[1];
 
-            // Extract struct name
-            char const * struct_name = NULL;
+            // Extract type name (struct or union)
+            char const * type_name = NULL;
             if (type_name_node->type == AST_NODE_TYPE_NAME && !type_name_node->is_terminal_node)
             {
-                for (size_t i = 0; i < type_name_node->data.list.count; ++i)
+                for (size_t i = 0; i < type_name_node->data.list.count && !type_name; ++i)
                 {
                     c_grammar_node_t const * child = type_name_node->data.list.children[i];
-                    if (child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
-                    {
-                        for (size_t j = 0; j < child->data.list.count; ++j)
-                        {
-                            c_grammar_node_t const * spec_child = child->data.list.children[j];
-                            if (spec_child->type == AST_NODE_KEYWORD && spec_child->data.terminal.text
-                                && strcmp(spec_child->data.terminal.text, "struct") == 0)
-                            {
-                                if (j + 1 < child->data.list.count)
-                                {
-                                    c_grammar_node_t const * name_node = child->data.list.children[j + 1];
-                                    if (name_node->type == AST_NODE_IDENTIFIER)
-                                    {
-                                        struct_name = name_node->data.terminal.text;
-                                    }
-                                }
-                            }
-                            else if (spec_child->type == AST_NODE_IDENTIFIER)
-                            {
-                                struct_name = spec_child->data.terminal.text;
-                            }
-                        }
-                    }
+                    type_name = extract_compound_type_name(child);
                 }
             }
 
-            if (struct_name == NULL)
+            if (type_name == NULL)
             {
-                fprintf(stderr, "IRGen Error: Could not extract struct name from compound literal in unary &\n");
+                fprintf(stderr, "IRGen Error: Could not extract type name from compound literal in unary &\n");
                 break;
             }
 
-            LLVMTypeRef struct_type = find_struct_type(ctx, struct_name);
-            if (struct_type == NULL)
+            LLVMTypeRef compound_type = find_struct_type(ctx, type_name);
+            if (compound_type == NULL)
             {
-                fprintf(stderr, "IRGen Error: Unknown struct type '%s' in compound literal in unary &\n", struct_name);
+                fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal in unary &\n", type_name);
                 break;
             }
 
             // Create a temporary local variable (alloca) for the compound literal
-            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, struct_type, "compound_literal_tmp");
+            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
             if (alloca_inst == NULL)
             {
                 fprintf(stderr, "IRGen Error: Failed to allocate compound literal for unary &\n");
@@ -4837,7 +4845,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
             {
                 int current_index = 0;
-                process_initializer_list(ctx, alloca_inst, struct_type, init_list_node, &current_index);
+                process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
             }
 
             // Return the pointer to the alloca (not the loaded value)
@@ -5249,7 +5257,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_COMPOUND_LITERAL:
     {
         // CompoundLiteral: (type){initializer-list}
-        // e.g., (struct Pos){.x = 1, .y = 2}
+        // e.g., (struct Pos){.x = 1, .y = 2} or (union Data){.x = 1}
         // Structure: TypeName + InitializerList
         if (node->is_terminal_node || node->data.list.count < 2)
         {
@@ -5260,59 +5268,34 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * type_name_node = node->data.list.children[0];
         c_grammar_node_t const * init_list_node = node->data.list.children[1];
 
-        // Extract struct name from TypeName
-        // TypeName -> TypeSpecifier -> Identifier
-        char const * struct_name = NULL;
+        // Extract type name from TypeName
+        // TypeName -> TypeSpecifier -> Identifier (struct/union keyword + name)
+        char const * type_name = NULL;
         if (type_name_node->type == AST_NODE_TYPE_NAME && !type_name_node->is_terminal_node)
         {
-            for (size_t i = 0; i < type_name_node->data.list.count; ++i)
+            for (size_t i = 0; i < type_name_node->data.list.count && !type_name; ++i)
             {
                 c_grammar_node_t const * child = type_name_node->data.list.children[i];
-                if (child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
-                {
-                    // Look for struct keyword + identifier
-                    for (size_t j = 0; j < child->data.list.count; ++j)
-                    {
-                        c_grammar_node_t const * spec_child = child->data.list.children[j];
-                        if (spec_child->type == AST_NODE_KEYWORD && spec_child->data.terminal.text
-                            && strcmp(spec_child->data.terminal.text, "struct") == 0)
-                        {
-                            // Next child should be the struct name identifier
-                            if (j + 1 < child->data.list.count)
-                            {
-                                c_grammar_node_t const * name_node = child->data.list.children[j + 1];
-                                if (name_node->type == AST_NODE_IDENTIFIER)
-                                {
-                                    struct_name = name_node->data.terminal.text;
-                                }
-                            }
-                        }
-                        else if (spec_child->type == AST_NODE_IDENTIFIER)
-                        {
-                            // Plain identifier (could be a typedef)
-                            struct_name = spec_child->data.terminal.text;
-                        }
-                    }
-                }
+                type_name = extract_compound_type_name(child);
             }
         }
 
-        if (struct_name == NULL)
+        if (type_name == NULL)
         {
-            fprintf(stderr, "IRGen Error: Could not extract struct name from compound literal\n");
+            fprintf(stderr, "IRGen Error: Could not extract type name from compound literal\n");
             break;
         }
 
-        // Look up the struct type
-        LLVMTypeRef struct_type = find_struct_type(ctx, struct_name);
-        if (struct_type == NULL)
+        // Look up the type (struct or union)
+        LLVMTypeRef compound_type = find_struct_type(ctx, type_name);
+        if (compound_type == NULL)
         {
-            fprintf(stderr, "IRGen Error: Unknown struct type '%s' in compound literal\n", struct_name);
+            fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal\n", type_name);
             break;
         }
 
         // Create a temporary local variable (alloca) for the compound literal
-        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, struct_type, "compound_literal_tmp");
+        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
         if (alloca_inst == NULL)
         {
             fprintf(stderr, "IRGen Error: Failed to allocate compound literal\n");
@@ -5323,12 +5306,12 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
         {
             int current_index = 0;
-            process_initializer_list(ctx, alloca_inst, struct_type, init_list_node, &current_index);
+            process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
         }
 
-        // Load the struct value from the alloca and return it
-        // This allows passing compound literals to functions expecting struct by value
-        LLVMValueRef loaded = aligned_load(ctx->builder, struct_type, alloca_inst, "compound_literal_val");
+        // Load the value from the alloca and return it
+        // This allows passing compound literals to functions expecting struct/union by value
+        LLVMValueRef loaded = aligned_load(ctx->builder, compound_type, alloca_inst, "compound_literal_val");
         return loaded;
     }
     case AST_NODE_TRANSLATION_UNIT:
