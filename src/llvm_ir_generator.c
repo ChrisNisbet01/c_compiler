@@ -36,6 +36,9 @@ static bool find_symbol(
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 static char const * find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
+static void register_struct_definition_with_name(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
+);
 static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
 static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields);
@@ -477,7 +480,7 @@ process_postfix_suffixes(
                 if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
                 {
                     unsigned num_elements = LLVMCountStructElementTypes(struct_type);
-                    unsigned member_index = 0;
+                    unsigned storage_index = 0;
                     struct_info_t * info = NULL;
 
                     for (size_t si = 0; si < ctx->struct_count; si++)
@@ -495,7 +498,7 @@ process_postfix_suffixes(
                         {
                             if (info->fields[j].name && strcmp(info->fields[j].name, member_name) == 0)
                             {
-                                member_index = j;
+                                storage_index = info->fields[j].storage_index;
                                 break;
                             }
                         }
@@ -503,7 +506,7 @@ process_postfix_suffixes(
 
                     LLVMValueRef indices[2];
                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
+                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), storage_index, false);
 
                     if (is_arrow || (current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind))
                     {
@@ -524,7 +527,7 @@ process_postfix_suffixes(
 
                     if (current_ptr)
                     {
-                        current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
+                        current_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                         current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
                     }
                 }
@@ -1038,10 +1041,6 @@ find_symbol(
     return false;
 }
 
-static void register_struct_definition_with_name(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
-);
-
 static void register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static void
@@ -1247,36 +1246,6 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
 }
 
 static void
-register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
-{
-    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION
-        || type_child->is_terminal_node)
-    {
-        return;
-    }
-
-    char * struct_name = NULL;
-
-    for (size_t m = 0; m < type_child->data.list.count; ++m)
-    {
-        c_grammar_node_t * struct_child = type_child->data.list.children[m];
-
-        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->is_terminal_node)
-        {
-            struct_name = struct_child->data.terminal.text;
-            break;
-        }
-    }
-
-    if (struct_name == NULL)
-    {
-        return;
-    }
-
-    register_struct_definition_with_name(ctx, type_child, struct_name);
-}
-
-static void
 register_struct_definition_with_name(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
 )
@@ -1307,13 +1276,13 @@ register_struct_definition_with_name(
     }
 
     /* Calculate the maximum number of members we could have. */
-    size_t num_members = (type_child->data.list.count - start_idx) / 2;
-    struct_field_t * members = calloc(num_members, sizeof(*members));
+    size_t max_num_members = (type_child->data.list.count - start_idx) / 2;
+    struct_field_t * members = calloc(max_num_members, sizeof(*members));
     if (members == NULL)
     {
         return;
     }
-    unsigned member_index = 0;
+    unsigned num_members = 0;
 
     for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
     {
@@ -1374,9 +1343,9 @@ register_struct_definition_with_name(
 
                     unsigned type_bits;
                     struct_field_t * previous_member = NULL;
-                    if (member_index > 0)
+                    if (num_members > 0)
                     {
-                        previous_member = &members[member_index - 1];
+                        previous_member = &members[num_members - 1];
                         type_bits = LLVMGetIntTypeWidth(previous_member->type);
                     }
                     else
@@ -1397,8 +1366,8 @@ register_struct_definition_with_name(
                         new_member.storage_index = previous_member->storage_index;
                         new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
                     }
-                    members[member_index] = new_member;
-                    member_index++;
+                    members[num_members] = new_member;
+                    num_members++;
                 }
                 else if (decl->type == AST_NODE_DECLARATOR)
                 {
@@ -1422,26 +1391,56 @@ register_struct_definition_with_name(
                     }
 
                     struct_field_t * previous_member = NULL;
-                    if (member_index > 0)
+                    if (num_members > 0)
                     {
-                        previous_member = &members[member_index - 1];
+                        previous_member = &members[num_members - 1];
                     }
                     new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
-                    members[member_index] = new_member;
-                    member_index++;
+                    members[num_members] = new_member;
+                    num_members++;
                 }
             }
         }
     }
 
-    if (member_index > 0)
+    if (num_members > 0)
     {
-        add_struct_type(ctx, struct_name, members, member_index);
+        add_struct_type(ctx, struct_name, members, num_members);
     }
     else
     {
         free(members);
     }
+}
+
+static void
+register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+{
+    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION
+        || type_child->is_terminal_node)
+    {
+        return;
+    }
+
+    char * struct_name = NULL;
+
+    for (size_t m = 0; m < type_child->data.list.count; ++m)
+    {
+        c_grammar_node_t * struct_child = type_child->data.list.children[m];
+
+        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->is_terminal_node)
+        {
+            struct_name = struct_child->data.terminal.text;
+            break;
+        }
+    }
+
+    if (struct_name == NULL)
+    {
+        return;
+    }
+
+    register_struct_definition_with_name(ctx, type_child, struct_name);
 }
 
 static struct_info_t *
@@ -4049,9 +4048,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 if (struct_info && struct_info->fields)
                 {
-                    for (unsigned j = 0; j < num_elements && j < struct_info->field_count; ++j)
+                    for (unsigned j = 0; j < struct_info->field_count; ++j)
                     {
-                        if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0)
+                        if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0
+                            && struct_info->fields[j].storage_index < num_elements)
                         {
                             member_index = j;
                             storage_index = struct_info->fields[j].storage_index;
@@ -4320,11 +4320,21 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                                 if (info != NULL)
                                 {
-                                    for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
+                                    for (unsigned j = 0; j < info->field_count; j++)
                                     {
                                         if (info->fields[j].name != NULL
                                             && strcmp(info->fields[j].name, member_name) == 0)
                                         {
+                                            if (info->fields[j].storage_index >= num_elements)
+                                            {
+                                                fprintf(
+                                                    stderr,
+                                                    "IRGen Error: Storage index for member '%s' exceeds struct element "
+                                                    "count.\n",
+                                                    member_name
+                                                );
+                                                return NULL;
+                                            }
                                             member_index = j;
                                             storage_index = info->fields[j].storage_index;
                                             break;
@@ -4334,14 +4344,15 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                                 LLVMValueRef indices[2];
                                 indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
+                                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), storage_index, false);
                                 current_ptr = LLVMBuildInBoundsGEP2(
                                     ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr"
                                 );
-                                current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
+                                current_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
 
                                 // Check if this is a bitfield and save metadata for later
-                                if (info != NULL && storage_index < info->field_count)
+                                if (info != NULL && storage_index < info->field_count
+                                    && member_index < info->field_count)
                                 {
                                     struct_field_t const * field = &info->fields[member_index];
                                     if (field->bit_width > 0)
