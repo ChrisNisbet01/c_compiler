@@ -49,6 +49,8 @@ static void add_struct_type(
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
+static LLVMValueRef
+cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
 
 // Helper function to extract struct/union name from a TypeSpecifier node
@@ -880,7 +882,7 @@ process_initializer_list(
                         );
                         current_type = final_type;
                     }
-                    
+
                     if (field_count > 0 && current_ptr && current_type)
                     {
                         process_initializer_list(ctx, current_ptr, current_type, value_node, NULL);
@@ -910,24 +912,12 @@ process_initializer_list(
                             LLVMValueRef indices[2];
                             indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                             indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
-                            elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+                            elem_ptr
+                                = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
                         }
 
                         // Cast the value to the final field type if needed
-                        LLVMTypeRef value_type = LLVMTypeOf(value);
-                        LLVMTypeKind final_kind = LLVMGetTypeKind(final_type);
-                        if (final_kind == LLVMIntegerTypeKind)
-                        {
-                            if (LLVMGetTypeKind(value_type) == LLVMIntegerTypeKind)
-                            {
-                                unsigned field_bits = LLVMGetIntTypeWidth(final_type);
-                                unsigned value_bits = LLVMGetIntTypeWidth(value_type);
-                                if (field_bits < value_bits)
-                                    value = LLVMBuildTrunc(ctx->builder, value, final_type, "trunc_val");
-                                else if (field_bits > value_bits)
-                                    value = LLVMBuildSExt(ctx->builder, value, final_type, "sext_val");
-                            }
-                        }
+                        value = cast_value_to_type(ctx, value, final_type, false);
 
                         aligned_store(ctx->builder, value, elem_ptr);
                     }
@@ -991,23 +981,12 @@ process_initializer_list(
                         = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
 
                     // For structs, cast the value to the member type
-                    LLVMTypeRef value_type = LLVMTypeOf(value);
                     if (kind == LLVMStructTypeKind)
                     {
                         LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(element_type, (unsigned)local_index);
-                        if (member_type && member_type != value_type)
+                        if (member_type)
                         {
-                            LLVMTypeKind member_kind = LLVMGetTypeKind(member_type);
-                            LLVMTypeKind value_kind = LLVMGetTypeKind(value_type);
-                            if (member_kind == LLVMIntegerTypeKind && value_kind == LLVMIntegerTypeKind)
-                            {
-                                unsigned member_bits = LLVMGetIntTypeWidth(member_type);
-                                unsigned value_bits = LLVMGetIntTypeWidth(value_type);
-                                if (member_bits < value_bits)
-                                    value = LLVMBuildTrunc(ctx->builder, value, member_type, "trunc_val");
-                                else if (member_bits > value_bits)
-                                    value = LLVMBuildSExt(ctx->builder, value, member_type, "sext_val");
-                            }
+                            value = cast_value_to_type(ctx, value, member_type, false);
                         }
                     }
 
@@ -1515,6 +1494,37 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
         }
     }
     return -1;
+}
+
+static LLVMValueRef
+cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend)
+{
+    if (!value || !target_type)
+        return value;
+
+    LLVMTypeRef value_type = LLVMTypeOf(value);
+    LLVMTypeKind value_kind = LLVMGetTypeKind(value_type);
+    LLVMTypeKind target_kind = LLVMGetTypeKind(target_type);
+
+    // Only handle integer to integer conversions
+    if (value_kind == LLVMIntegerTypeKind && target_kind == LLVMIntegerTypeKind)
+    {
+        unsigned value_bits = LLVMGetIntTypeWidth(value_type);
+        unsigned target_bits = LLVMGetIntTypeWidth(target_type);
+
+        if (target_bits < value_bits)
+            return LLVMBuildTrunc(ctx->builder, value, target_type, "trunc_val");
+        else if (target_bits > value_bits)
+        {
+            if (zero_extend)
+            {
+                return LLVMBuildZExt(ctx->builder, value, target_type, "zext_val");
+            }
+            return LLVMBuildSExt(ctx->builder, value, target_type, "sext_val");
+        }
+    }
+
+    return value;
 }
 
 static void
@@ -2285,7 +2295,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 // Extract struct/union name from parameter specifiers for pointer-to-compound types
                 char * param_compound_name = NULL;
-                c_grammar_node_t * p_spec = suffix_node && !suffix_node->is_terminal_node ? suffix_node->data.list.children[i * 2] : NULL;
+                c_grammar_node_t * p_spec
+                    = suffix_node && !suffix_node->is_terminal_node ? suffix_node->data.list.children[i * 2] : NULL;
 
                 // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
                 c_grammar_node_t * type_spec = NULL;
@@ -2594,22 +2605,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 }
 
                                 // Handle integer type conversion (e.g., i32 literal to i8 char)
-                                if (LLVMGetTypeKind(init_type) == LLVMIntegerTypeKind
-                                    && LLVMGetTypeKind(var_type) == LLVMIntegerTypeKind)
-                                {
-                                    unsigned init_bits = LLVMGetIntTypeWidth(init_type);
-                                    unsigned var_bits = LLVMGetIntTypeWidth(var_type);
-                                    if (init_bits > var_bits)
-                                    {
-                                        initializer_value
-                                            = LLVMBuildTrunc(ctx->builder, initializer_value, var_type, "trunc_init");
-                                    }
-                                    else if (init_bits < var_bits)
-                                    {
-                                        initializer_value
-                                            = LLVMBuildSExt(ctx->builder, initializer_value, var_type, "sext_init");
-                                    }
-                                }
+                                initializer_value = cast_value_to_type(ctx, initializer_value, var_type, false);
 
                                 aligned_store(ctx->builder, initializer_value, alloca_inst);
                             }
@@ -2764,24 +2760,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // Convert RHS to LHS type if needed (e.g., i32 literal to i8 char)
-        if (lhs_type != NULL && rhs_value != NULL)
-        {
-            LLVMTypeRef rhs_type = LLVMTypeOf(rhs_value);
-            if (lhs_type != rhs_type && LLVMGetTypeKind(lhs_type) == LLVMIntegerTypeKind
-                && LLVMGetTypeKind(rhs_type) == LLVMIntegerTypeKind)
-            {
-                unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
-                unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
-                if (lhs_bits < rhs_bits)
-                {
-                    rhs_value = LLVMBuildTrunc(ctx->builder, rhs_value, lhs_type, "trunc_rhs");
-                }
-                else if (lhs_bits > rhs_bits)
-                {
-                    rhs_value = LLVMBuildSExt(ctx->builder, rhs_value, lhs_type, "sext_rhs");
-                }
-            }
-        }
+        rhs_value = cast_value_to_type(ctx, rhs_value, lhs_type, false);
 
         // Generate the store instruction.
         aligned_store(ctx->builder, rhs_value, lhs_ptr);
@@ -3334,30 +3313,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
                 LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
 
-                // Get the type of the expression you just processed
-                LLVMTypeRef expr_type = LLVMTypeOf(return_value);
-
-                // Logic to adjust bit width (assuming Integer types)
-                if (LLVMGetTypeKind(expr_type) == LLVMIntegerTypeKind
-                    && LLVMGetTypeKind(func_ret_type) == LLVMIntegerTypeKind)
-                {
-
-                    unsigned expr_width = LLVMGetIntTypeWidth(expr_type);
-                    unsigned func_width = LLVMGetIntTypeWidth(func_ret_type);
-
-                    if (expr_width < func_width)
-                    {
-                        // e.g., i1 -> i32 (Bool to Int)
-                        fprintf(stderr, "extending\n");
-                        return_value = LLVMBuildZExt(ctx->builder, return_value, func_ret_type, "zext_tmp");
-                    }
-                    else if (expr_width > func_width)
-                    {
-                        // e.g., i32 -> i1 (Int to Bool)
-                        fprintf(stderr, "truncating\n");
-                        return_value = LLVMBuildTrunc(ctx->builder, return_value, func_ret_type, "trunc_tmp");
-                    }
-                }
+                return_value = cast_value_to_type(ctx, return_value, func_ret_type, true);
 
                 LLVMBuildRet(ctx->builder, return_value);
             }
@@ -4125,7 +4081,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     {
                         // struct_val is a pointer to the struct
                         // Use struct_type for the GEP, not the pointer type
-                        member_ptr = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_val, indices, 2, "memberptr");
+                        member_ptr
+                            = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_val, indices, 2, "memberptr");
                     }
                     else
                     {
