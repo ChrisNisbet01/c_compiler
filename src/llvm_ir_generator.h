@@ -21,9 +21,9 @@ typedef struct struct_field
 {
     char * name;
     LLVMTypeRef type;
-    bool is_bitfield;
     unsigned bit_offset;
-    unsigned bit_width;
+    unsigned bit_width;     // bit_width == 0 indicates this is not a bitfield
+    unsigned storage_index; // -1 for regular fields, >=0 for bitfields = index of storage field
 } struct_field_t;
 
 typedef struct struct_info
@@ -51,7 +51,7 @@ typedef struct scope
     symbol_t * symbols;
     size_t count;
     size_t capacity;
-    struct scope * parent;  // Chain to outer scope (NULL for global)
+    struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
 
 // --- Label Management ---
@@ -70,7 +70,7 @@ typedef struct ir_generator_ctx
     LLVMBuilderRef builder;
 
     // --- Scope-based symbol table ---
-    scope_t * current_scope;  // Innermost active scope
+    scope_t * current_scope; // Innermost active scope
 
     // --- Struct type registry ---
     struct_info_t * structs;

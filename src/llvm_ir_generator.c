@@ -38,17 +38,7 @@ static char const * find_symbol_struct_name(ir_generator_ctx_t * ctx, char const
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
-static void add_struct_type(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMTypeRef struct_type,
-    char ** member_names,
-    LLVMTypeRef * member_types,
-    size_t num_members,
-    bool * is_bitfield,
-    unsigned * bit_offset,
-    unsigned * bit_width
-);
+static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
@@ -1259,15 +1249,13 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
 static void
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
-    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION)
+    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION
+        || type_child->is_terminal_node)
     {
         return;
     }
 
     char * struct_name = NULL;
-    LLVMTypeRef * member_types = NULL;
-    char ** member_names = NULL;
-    size_t num_members = 0;
 
     for (size_t m = 0; m < type_child->data.list.count; ++m)
     {
@@ -1285,215 +1273,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         return;
     }
 
-    if (find_struct_type(ctx, struct_name))
-    {
-        return;
-    }
-
-    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
-    // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
-    size_t start_idx = 2; // Skip Keyword and struct name
-    // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
-    if (type_child->data.list.count > 1 && type_child->data.list.children[1]
-        && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
-    {
-        start_idx = 2;
-    }
-    else
-    {
-        start_idx = 1;
-    }
-
-    // For bitfield packing
-    unsigned current_bitfield_storage_bits = 0;
-    LLVMTypeRef current_storage_type = NULL;
-    unsigned current_storage_bit_offset = 0;
-
-    // Parallel arrays for bitfield metadata
-    bool * member_is_bitfield = NULL;
-    unsigned * member_bit_offset = NULL;
-    unsigned * member_bit_width = NULL;
-
-    for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
-    {
-        c_grammar_node_t * type_spec = type_child->data.list.children[m];
-        c_grammar_node_t * struct_decl = type_child->data.list.children[m + 1];
-        if (type_spec && struct_decl && type_spec->type == AST_NODE_TYPE_SPECIFIER)
-        {
-            // Get the actual declarator from inside StructDeclarator
-            c_grammar_node_t * decl = NULL;
-            bool is_bitfield = false;
-            unsigned bit_width = 0;
-            char * bitfield_name = NULL;
-
-            if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && !struct_decl->is_terminal_node
-                && struct_decl->data.list.count > 0)
-            {
-                // First child is either Declarator or StructDeclaratorBitfield
-                decl = struct_decl->data.list.children[0];
-
-                // Handle bitfields
-                if (decl && decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
-                {
-                    is_bitfield = true;
-                    // Bitfield structure: [Declarator?, Colon, WidthExpression]
-                    // Get bitfield name from optional Declarator
-                    if (decl->data.list.count > 0 && decl->data.list.children[0] != NULL)
-                    {
-                        c_grammar_node_t * bf_decl = decl->data.list.children[0];
-                        if (bf_decl->type == AST_NODE_DECLARATOR)
-                        {
-                            c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
-                            if (direct_decl && direct_decl->data.list.count > 0)
-                            {
-                                c_grammar_node_t * ident = direct_decl->data.list.children[0];
-                                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
-                                {
-                                    bitfield_name = ident->data.terminal.text;
-                                }
-                            }
-                        }
-                    }
-                    // Get bitfield width from expression after colon
-                    if (decl->data.list.count > 2 && decl->data.list.children[2] != NULL)
-                    {
-                        c_grammar_node_t * width_node = decl->data.list.children[2];
-                        if (width_node->type == AST_NODE_INTEGER_LITERAL)
-                        {
-                            bit_width = (unsigned)width_node->integer_literal.value;
-                        }
-                    }
-                }
-            }
-
-            if (decl == NULL)
-                continue;
-
-            // Handle bitfields vs regular members
-            if (is_bitfield)
-            {
-                // Get the base type for the bitfield (e.g., int)
-                LLVMTypeRef base_type = map_type(ctx, type_spec, NULL);
-                if (base_type == NULL)
-                    continue;
-
-                unsigned type_bits = LLVMGetIntTypeWidth(base_type);
-                unsigned bit_offset = 0;
-                bool need_new_storage = false;
-
-                // Check if we need a new storage unit
-                if (current_storage_type == NULL || current_bitfield_storage_bits + bit_width > type_bits)
-                {
-                    // Start new storage unit
-                    need_new_storage = true;
-                    current_storage_type = base_type;
-                    bit_offset = 0;
-                    current_storage_bit_offset = 0;
-                    current_bitfield_storage_bits = bit_width;
-                }
-                else
-                {
-                    // Pack into current storage
-                    bit_offset = current_storage_bit_offset;
-                    current_storage_bit_offset += bit_width;
-                    current_bitfield_storage_bits += bit_width;
-                }
-
-                // For now, each bitfield gets its own field (not packed)
-                // This is simpler and works correctly, just uses more memory
-                // TODO: Implement proper bitfield packing
-                LLVMTypeRef * new_types = realloc(member_types, (num_members + 1) * sizeof(LLVMTypeRef));
-                char ** new_names = realloc(member_names, (num_members + 1) * sizeof(char *));
-                bool * new_is_bf = realloc(member_is_bitfield, (num_members + 1) * sizeof(bool));
-                unsigned * new_bf_offset = realloc(member_bit_offset, (num_members + 1) * sizeof(unsigned));
-                unsigned * new_bf_width = realloc(member_bit_width, (num_members + 1) * sizeof(unsigned));
-
-                if (new_types && new_names && new_is_bf && new_bf_offset && new_bf_width)
-                {
-                    member_types = new_types;
-                    member_names = new_names;
-                    member_is_bitfield = new_is_bf;
-                    member_bit_offset = new_bf_offset;
-                    member_bit_width = new_bf_width;
-
-                    member_types[num_members] = base_type;
-                    member_names[num_members] = bitfield_name ? strdup(bitfield_name) : NULL;
-                    member_is_bitfield[num_members] = true;
-                    member_bit_offset[num_members] = 0;
-                    member_bit_width[num_members] = bit_width;
-                    num_members++;
-                }
-
-                // Reset storage tracking for next bitfield
-                current_storage_type = NULL;
-                current_bitfield_storage_bits = 0;
-                continue;
-            }
-
-            if (decl->type != AST_NODE_DECLARATOR)
-                continue;
-
-            // Reset bitfield tracking for regular members
-            current_storage_type = NULL;
-            current_bitfield_storage_bits = 0;
-
-            // Get member type
-            LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
-
-            // Get member name from declarator
-            char * member_name = NULL;
-            c_grammar_node_t * direct_decl = find_direct_declarator(decl);
-            if (direct_decl && direct_decl->data.list.count > 0)
-            {
-                c_grammar_node_t * ident = direct_decl->data.list.children[0];
-                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
-                {
-                    member_name = ident->data.terminal.text;
-                }
-            }
-
-            LLVMTypeRef * new_types = realloc(member_types, (num_members + 1) * sizeof(LLVMTypeRef));
-            char ** new_names = realloc(member_names, (num_members + 1) * sizeof(char *));
-            bool * new_is_bf = realloc(member_is_bitfield, (num_members + 1) * sizeof(bool));
-            unsigned * new_bf_offset = realloc(member_bit_offset, (num_members + 1) * sizeof(unsigned));
-            unsigned * new_bf_width = realloc(member_bit_width, (num_members + 1) * sizeof(unsigned));
-            if (new_types && new_names && new_is_bf && new_bf_offset && new_bf_width)
-            {
-                member_types = new_types;
-                member_names = new_names;
-                member_is_bitfield = new_is_bf;
-                member_bit_offset = new_bf_offset;
-                member_bit_width = new_bf_width;
-                member_types[num_members] = member_type;
-                member_names[num_members] = member_name ? strdup(member_name) : NULL;
-                member_is_bitfield[num_members] = false;
-                member_bit_offset[num_members] = 0;
-                member_bit_width[num_members] = 0;
-                num_members++;
-            }
-        }
-    }
-
-    if (struct_name && num_members > 0 && member_types)
-    {
-        LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, struct_name);
-        LLVMStructSetBody(struct_type, member_types, (unsigned)num_members, false);
-        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members,
-            member_is_bitfield, member_bit_offset, member_bit_width);
-    }
-
-    free(member_types);
-    free(member_is_bitfield);
-    free(member_bit_offset);
-    free(member_bit_width);
-    if (member_names)
-    {
-        for (size_t i = 0; i < num_members; i++)
-        {
-            free(member_names[i]);
-        }
-        free(member_names);
-    }
+    register_struct_definition_with_name(ctx, type_child, struct_name);
 }
 
 static void
@@ -1508,26 +1288,13 @@ register_struct_definition_with_name(
 
     if (find_struct_type(ctx, struct_name))
     {
+        /* Already defined. Isn't this an error? */
         return;
     }
 
-    LLVMTypeRef * member_types = NULL;
-    char ** member_names = NULL;
-    size_t num_members = 0;
-
-    // For bitfield packing
-    unsigned current_bitfield_storage_bits = 0;
-    LLVMTypeRef current_storage_type = NULL;
-    unsigned current_storage_bit_offset = 0;
-
-    // Parallel arrays for bitfield metadata
-    bool * member_is_bitfield = NULL;
-    unsigned * member_bit_offset = NULL;
-    unsigned * member_bit_width = NULL;
-
-    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
+    // StructDefinition has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
     // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
-    size_t start_idx = 2; // Skip Keyword and struct name
+    size_t start_idx; // Skip Keyword and struct name
     // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
     if (type_child->data.list.count > 1 && type_child->data.list.children[1]
         && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
@@ -1538,184 +1305,142 @@ register_struct_definition_with_name(
     {
         start_idx = 1;
     }
+
+    /* Calculate the maximum number of members we could have. */
+    size_t num_members = (type_child->data.list.count - start_idx) / 2;
+    struct_field_t * members = calloc(num_members, sizeof(*members));
+    if (members == NULL)
+    {
+        return;
+    }
+    unsigned member_index = 0;
+
     for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
     {
         c_grammar_node_t * type_spec = type_child->data.list.children[m];
         c_grammar_node_t * struct_decl = type_child->data.list.children[m + 1];
-
         if (type_spec && struct_decl && type_spec->type == AST_NODE_TYPE_SPECIFIER)
         {
-            // Get the actual declarator from inside StructDeclarator
-            c_grammar_node_t * decl = NULL;
-            bool is_bitfield = false;
-            unsigned bit_width = 0;
-            char * bitfield_name = NULL;
+            struct_field_t new_member = {0};
 
             if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && !struct_decl->is_terminal_node
                 && struct_decl->data.list.count > 0)
             {
                 // First child is either Declarator or StructDeclaratorBitfield
-                decl = struct_decl->data.list.children[0];
-
-                // Handle bitfields
-                if (decl && decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+                c_grammar_node_t * decl = struct_decl->data.list.children[0];
+                if (decl == NULL)
                 {
-                    is_bitfield = true;
-                    // Bitfield structure: [Declarator?, Colon, WidthExpression]
+                    continue;
+                }
+                // Handle bitfields
+                if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+                {
+                    // Bitfield structure: [Declarator?, WidthExpression]
                     // Get bitfield name from optional Declarator
-                    if (decl->data.list.count > 0 && decl->data.list.children[0] != NULL)
+                    if (decl->is_terminal_node || decl->data.list.count != 2)
                     {
-                        c_grammar_node_t * bf_decl = decl->data.list.children[0];
-                        if (bf_decl->type == AST_NODE_DECLARATOR)
+                        continue;
+                    }
+                    c_grammar_node_t * bf_decl = decl->data.list.children[0];
+                    if (bf_decl->type == AST_NODE_DECLARATOR)
+                    {
+                        c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
+                        if (direct_decl && direct_decl->data.list.count > 0)
                         {
-                            c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
-                            if (direct_decl && direct_decl->data.list.count > 0)
+                            c_grammar_node_t * ident = direct_decl->data.list.children[0];
+                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
                             {
-                                c_grammar_node_t * ident = direct_decl->data.list.children[0];
-                                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
-                                {
-                                    bitfield_name = ident->data.terminal.text;
-                                }
+                                new_member.name = strdup(ident->data.terminal.text);
                             }
                         }
                     }
                     // Get bitfield width from expression after colon
-                    if (decl->data.list.count > 2 && decl->data.list.children[2] != NULL)
+                    c_grammar_node_t * width_node = decl->data.list.children[1];
+                    if (width_node->type == AST_NODE_INTEGER_LITERAL)
                     {
-                        c_grammar_node_t * width_node = decl->data.list.children[2];
-                        if (width_node->type == AST_NODE_INTEGER_LITERAL)
+                        new_member.bit_width = (unsigned)width_node->integer_literal.value;
+                    }
+                    else
+                    {
+                        /* What to do? This seems like an error. */
+                    }
+
+                    new_member.type = map_type(ctx, type_spec, NULL);
+                    if (new_member.type == NULL)
+                    {
+                        free(new_member.name);
+                        continue;
+                    }
+
+                    unsigned type_bits;
+                    struct_field_t * previous_member = NULL;
+                    if (member_index > 0)
+                    {
+                        previous_member = &members[member_index - 1];
+                        type_bits = LLVMGetIntTypeWidth(previous_member->type);
+                    }
+                    else
+                    {
+                        type_bits = LLVMGetIntTypeWidth(new_member.type);
+                    }
+                    // Check if we need a new storage unit
+                    if (previous_member == NULL || new_member.bit_width == 0 || previous_member->bit_width == 0
+                        || LLVMGetTypeKind(new_member.type) != LLVMGetTypeKind(previous_member->type)
+                        || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
+                    {
+                        // Start new storage unit
+                        new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                    }
+                    else
+                    {
+                        /* Can use the same storage unit as the previous field. */
+                        new_member.storage_index = previous_member->storage_index;
+                        new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
+                    }
+                    members[member_index] = new_member;
+                    member_index++;
+                }
+                else if (decl->type == AST_NODE_DECLARATOR)
+                {
+                    /* Not a bitfield type declarator. */
+                    // Get member type
+                    new_member.type = map_type(ctx, type_spec, decl);
+
+                    // Get member name from declarator
+                    c_grammar_node_t * direct_decl = find_direct_declarator(decl);
+                    if (direct_decl && direct_decl->data.list.count > 0)
+                    {
+                        c_grammar_node_t * ident = direct_decl->data.list.children[0];
+                        if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
                         {
-                            bit_width = (unsigned)width_node->integer_literal.value;
+                            new_member.name = strdup(ident->data.terminal.text);
                         }
                     }
+                    if (new_member.name == NULL)
+                    {
+                        continue;
+                    }
+
+                    struct_field_t * previous_member = NULL;
+                    if (member_index > 0)
+                    {
+                        previous_member = &members[member_index - 1];
+                    }
+                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                    members[member_index] = new_member;
+                    member_index++;
                 }
-            }
-
-            if (decl == NULL)
-                continue;
-
-            // Handle bitfields vs regular members
-            if (is_bitfield)
-            {
-                // Get the base type for the bitfield (e.g., int)
-                LLVMTypeRef base_type = map_type(ctx, type_spec, NULL);
-                if (base_type == NULL)
-                    continue;
-
-                unsigned type_bits = LLVMGetIntTypeWidth(base_type);
-                unsigned bit_offset = 0;
-                bool need_new_storage = false;
-
-                // Check if we need a new storage unit
-                if (current_storage_type == NULL || current_bitfield_storage_bits + bit_width > type_bits)
-                {
-                    // Start new storage unit
-                    need_new_storage = true;
-                    current_storage_type = base_type;
-                    bit_offset = 0;
-                    current_storage_bit_offset = 0;
-                    current_bitfield_storage_bits = bit_width;
-                }
-                else
-                {
-                    // Pack into current storage
-                    bit_offset = current_storage_bit_offset;
-                    current_storage_bit_offset += bit_width;
-                    current_bitfield_storage_bits += bit_width;
-                }
-
-                // For now, each bitfield gets its own field (not packed)
-                // This is simpler and works correctly, just uses more memory
-                // TODO: Implement proper bitfield packing
-                LLVMTypeRef * new_types = realloc(member_types, (num_members + 1) * sizeof(LLVMTypeRef));
-                char ** new_names = realloc(member_names, (num_members + 1) * sizeof(char *));
-                bool * new_is_bf = realloc(member_is_bitfield, (num_members + 1) * sizeof(bool));
-                unsigned * new_bf_offset = realloc(member_bit_offset, (num_members + 1) * sizeof(unsigned));
-                unsigned * new_bf_width = realloc(member_bit_width, (num_members + 1) * sizeof(unsigned));
-
-                if (new_types && new_names && new_is_bf && new_bf_offset && new_bf_width)
-                {
-                    member_types = new_types;
-                    member_names = new_names;
-                    member_is_bitfield = new_is_bf;
-                    member_bit_offset = new_bf_offset;
-                    member_bit_width = new_bf_width;
-
-                    member_types[num_members] = base_type;
-                    member_names[num_members] = bitfield_name ? strdup(bitfield_name) : NULL;
-                    member_is_bitfield[num_members] = true;
-                    member_bit_offset[num_members] = 0;
-                    member_bit_width[num_members] = bit_width;
-                    num_members++;
-                }
-
-                // Reset storage tracking for next bitfield
-                current_storage_type = NULL;
-                current_bitfield_storage_bits = 0;
-                continue;
-            }
-
-            if (decl->type != AST_NODE_DECLARATOR)
-                continue;
-
-            // Reset bitfield tracking for regular members
-            current_storage_type = NULL;
-            current_bitfield_storage_bits = 0;
-
-            LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
-
-            char * member_name = NULL;
-            c_grammar_node_t * direct_decl = find_direct_declarator(decl);
-            if (direct_decl && direct_decl->data.list.count > 0)
-            {
-                c_grammar_node_t * ident = direct_decl->data.list.children[0];
-                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
-                {
-                    member_name = ident->data.terminal.text;
-                }
-            }
-
-            LLVMTypeRef * new_types = realloc(member_types, (num_members + 1) * sizeof(LLVMTypeRef));
-            char ** new_names = realloc(member_names, (num_members + 1) * sizeof(char *));
-            bool * new_is_bf = realloc(member_is_bitfield, (num_members + 1) * sizeof(bool));
-            unsigned * new_bf_offset = realloc(member_bit_offset, (num_members + 1) * sizeof(unsigned));
-            unsigned * new_bf_width = realloc(member_bit_width, (num_members + 1) * sizeof(unsigned));
-            if (new_types && new_names && new_is_bf && new_bf_offset && new_bf_width)
-            {
-                member_types = new_types;
-                member_names = new_names;
-                member_is_bitfield = new_is_bf;
-                member_bit_offset = new_bf_offset;
-                member_bit_width = new_bf_width;
-                member_types[num_members] = member_type;
-                member_names[num_members] = member_name ? strdup(member_name) : NULL;
-                member_is_bitfield[num_members] = false;
-                member_bit_offset[num_members] = 0;
-                member_bit_width[num_members] = 0;
-                num_members++;
             }
         }
     }
 
-    if (struct_name && num_members > 0 && member_types)
+    if (member_index > 0)
     {
-        LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, struct_name);
-        LLVMStructSetBody(struct_type, member_types, (unsigned)num_members, false);
-        add_struct_type(ctx, struct_name, struct_type, member_names, member_types, num_members,
-            member_is_bitfield, member_bit_offset, member_bit_width);
+        add_struct_type(ctx, struct_name, members, member_index);
     }
-
-    free(member_types);
-    free(member_is_bitfield);
-    free(member_bit_offset);
-    free(member_bit_width);
-    if (member_names)
+    else
     {
-        for (size_t i = 0; i < num_members; i++)
-        {
-            free(member_names[i]);
-        }
-        free(member_names);
+        free(members);
     }
 }
 
@@ -1803,24 +1528,18 @@ cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef tar
 }
 
 static void
-add_struct_type(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMTypeRef struct_type,
-    char ** member_names,
-    LLVMTypeRef * member_types,
-    size_t num_members,
-    bool * is_bitfield,
-    unsigned * bit_offset,
-    unsigned * bit_width
-)
+add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields)
 {
-    if (!ctx || !name || !struct_type)
+    if (ctx == NULL || name == NULL || fields == NULL || num_fields == 0)
+    {
         return;
+    }
 
     // Check if already exists
     if (find_struct_type(ctx, name))
+    {
         return;
+    }
 
     // Resize if needed
     if (ctx->struct_count >= ctx->struct_capacity)
@@ -1833,34 +1552,34 @@ add_struct_type(
         ctx->struct_capacity = new_capacity;
     }
 
-    ctx->structs[ctx->struct_count].name = strdup(name);
-    ctx->structs[ctx->struct_count].type = struct_type;
-    ctx->structs[ctx->struct_count].field_count = num_members;
-    ctx->structs[ctx->struct_count].fields = NULL;
+    struct_info_t * new_struct = &ctx->structs[ctx->struct_count];
 
-    if (num_members > 0 && member_names && member_types)
+    new_struct->name = strdup(name);
+    new_struct->type = LLVMStructCreateNamed(ctx->context, new_struct->name);
+    new_struct->field_count = num_fields;
+    new_struct->fields = fields;
+    ctx->struct_count++;
+
+    /*
+        Note that the number of storage units may not be the same as the number of fields due to bitfields.
+     */
     {
-        ctx->structs[ctx->struct_count].fields = calloc(num_members, sizeof(struct_field_t));
-        for (size_t i = 0; i < num_members; i++)
+        struct_field_t * last_field = &new_struct->fields[new_struct->field_count - 1];
+        unsigned num_storage_units = last_field->storage_index + 1;
+        LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+        int current_storage_unit = -1;
+        for (size_t i = 0; i < new_struct->field_count; i++)
         {
-            ctx->structs[ctx->struct_count].fields[i].name = strdup(member_names[i]);
-            ctx->structs[ctx->struct_count].fields[i].type = member_types[i];
-            if (is_bitfield)
+            struct_field_t * field = &fields[i];
+            if (field->storage_index != (unsigned)current_storage_unit)
             {
-                ctx->structs[ctx->struct_count].fields[i].is_bitfield = is_bitfield[i];
-                ctx->structs[ctx->struct_count].fields[i].bit_offset = bit_offset ? bit_offset[i] : 0;
-                ctx->structs[ctx->struct_count].fields[i].bit_width = bit_width ? bit_width[i] : 0;
-            }
-            else
-            {
-                ctx->structs[ctx->struct_count].fields[i].is_bitfield = false;
-                ctx->structs[ctx->struct_count].fields[i].bit_offset = 0;
-                ctx->structs[ctx->struct_count].fields[i].bit_width = 0;
+                current_storage_unit = field->storage_index;
+                field_types[current_storage_unit] = field->type;
             }
         }
+        LLVMStructSetBody(new_struct->type, field_types, num_storage_units, false);
+        free(field_types);
     }
-
-    ctx->struct_count++;
 }
 
 static char *
@@ -3741,6 +3460,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FUNCTION_POINTER_DECLARATOR:
     case AST_NODE_DESIGNATION:
     case AST_NODE_COMPOUND_LITERAL:
+    case AST_NODE_STRUCT_DECLARATOR:
+    case AST_NODE_STRUCT_DECLARATOR_BITFIELD:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->is_terminal_node)
@@ -4312,6 +4033,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // Find the member index by name
                 unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                 unsigned member_index = 0;
+                unsigned storage_index = 0;
                 bool found = false;
 
                 // Look up the struct info to find the member by name
@@ -4332,6 +4054,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0)
                         {
                             member_index = j;
+                            storage_index = struct_info->fields[j].storage_index;
                             found = true;
                             break;
                         }
@@ -4339,16 +4062,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 else
                 {
-                    // Fallback: assume members are in order and match the field_count
-                    for (unsigned j = 0; j < num_elements; ++j)
-                    {
-                        if (j == 0)
-                        {
-                            member_index = j;
-                            found = true;
-                            break;
-                        }
-                    }
+                    /* Just use index 0 for member index and storage index. */
+                    found = true;
                 }
 
                 if (found || num_elements > 0)
@@ -4356,7 +4071,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     // Create GEP to access member
                     LLVMValueRef indices[2];
                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), member_index, false);
+                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), storage_index, false);
 
                     LLVMValueRef member_ptr;
                     // Check if struct_val (which could be base_val or current_ptr) is a pointer
@@ -4382,20 +4097,21 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
                     }
-                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
+                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                     base_val = aligned_load(ctx->builder, member_type, member_ptr, "member");
 
                     // Handle bitfield extraction
                     if (struct_info && struct_info->fields && member_index < struct_info->field_count)
                     {
                         struct_field_t const * field = &struct_info->fields[member_index];
-                        if (field->is_bitfield && field->bit_width > 0)
+                        if (field->bit_width > 0)
                         {
                             // Extract bitfield value: (storage >> bit_offset) & mask
-                            LLVMTypeRef int_type = LLVMTypeOf(base_val);
-                            LLVMValueRef bit_offset_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_offset, false);
-                            LLVMValueRef bit_width_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_width, false);
-                            LLVMValueRef mask_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), (1ULL << field->bit_width) - 1, false);
+                            LLVMValueRef bit_offset_val
+                                = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_offset, false);
+                            LLVMValueRef mask_val = LLVMConstInt(
+                                LLVMInt32TypeInContext(ctx->context), (1ULL << field->bit_width) - 1, false
+                            );
 
                             // Shift right by bit_offset
                             LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, base_val, bit_offset_val, "bf_shift");
@@ -4517,7 +4233,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     // Track bitfield assignment info
     bool is_bitfield_assign = false;
-    unsigned bitfield_field_idx = 0;
+    unsigned bitfield_storage_idx = 0;
     unsigned bitfield_bit_offset = 0;
     unsigned bitfield_bit_width = 0;
     LLVMValueRef bitfield_struct_ptr = NULL;
@@ -4590,6 +4306,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                                 unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                                 unsigned member_index = 0;
+                                unsigned storage_index = 0;
                                 struct_info_t * info = NULL;
 
                                 for (size_t si = 0; si < ctx->struct_count; si++)
@@ -4609,6 +4326,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             && strcmp(info->fields[j].name, member_name) == 0)
                                         {
                                             member_index = j;
+                                            storage_index = info->fields[j].storage_index;
                                             break;
                                         }
                                     }
@@ -4623,14 +4341,14 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 current_type = LLVMStructGetTypeAtIndex(struct_type, member_index);
 
                                 // Check if this is a bitfield and save metadata for later
-                                if (info != NULL && member_index < info->field_count)
+                                if (info != NULL && storage_index < info->field_count)
                                 {
                                     struct_field_t const * field = &info->fields[member_index];
-                                    if (field->is_bitfield && field->bit_width > 0)
+                                    if (field->bit_width > 0)
                                     {
                                         // For bitfield assignment, track the metadata
                                         is_bitfield_assign = true;
-                                        bitfield_field_idx = member_index;
+                                        bitfield_storage_idx = storage_index;
                                         bitfield_bit_offset = field->bit_offset;
                                         bitfield_bit_width = field->bit_width;
                                         bitfield_struct_ptr = struct_ptr;
@@ -4751,13 +4469,15 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // 5. Store back
 
         // Load current struct value
-        LLVMValueRef current_struct = aligned_load(ctx->builder, bitfield_struct_type, bitfield_struct_ptr, "bf_struct_load");
+        LLVMValueRef current_struct
+            = aligned_load(ctx->builder, bitfield_struct_type, bitfield_struct_ptr, "bf_struct_load");
 
         // Get the field type
-        LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(bitfield_struct_type, bitfield_field_idx);
+        LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(bitfield_struct_type, bitfield_storage_idx);
 
         // Extract current field value using LLVM 20 API (index as unsigned)
-        LLVMValueRef current_field = LLVMBuildExtractValue(ctx->builder, current_struct, bitfield_field_idx, "bf_extract");
+        LLVMValueRef current_field
+            = LLVMBuildExtractValue(ctx->builder, current_struct, bitfield_storage_idx, "bf_extract");
 
         // Clear the bits at bitfield position
         // Create mask: ~(((1 << width) - 1) << offset)
@@ -4788,7 +4508,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef new_field = LLVMBuildOr(ctx->builder, cleared, shifted, "bf_insert");
 
         // Insert back into struct using LLVM 20 API
-        LLVMValueRef new_struct = LLVMBuildInsertValue(ctx->builder, current_struct, new_field, bitfield_field_idx, "bf_insert_struct");
+        LLVMValueRef new_struct
+            = LLVMBuildInsertValue(ctx->builder, current_struct, new_field, bitfield_storage_idx, "bf_insert_struct");
 
         // Store back
         aligned_store(ctx->builder, new_struct, bitfield_struct_ptr);
@@ -5741,6 +5462,8 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ENUMERATOR:
     case AST_NODE_FUNCTION_POINTER_DECLARATOR:
     case AST_NODE_DESIGNATION:
+    case AST_NODE_STRUCT_DECLARATOR:
+    case AST_NODE_STRUCT_DECLARATOR_BITFIELD:
     default:
         // Attempt to recursively process if it might yield a value.
         if (!node->is_terminal_node)
