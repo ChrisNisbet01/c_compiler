@@ -21,6 +21,9 @@ typedef struct struct_field
 {
     char * name;
     LLVMTypeRef type;
+    bool is_bitfield;
+    unsigned bit_offset;
+    unsigned bit_width;
 } struct_field_t;
 
 typedef struct struct_info
