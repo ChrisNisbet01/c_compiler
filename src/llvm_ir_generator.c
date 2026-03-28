@@ -1287,8 +1287,8 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         return;
     }
 
-    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, Declarator, TypeSpec, Declarator, ...]
-    // Skip Keyword and optional Identifier to get to member pairs
+    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
+    // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
     size_t start_idx = 2; // Skip Keyword and struct name
     // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
     if (type_child->data.list.count > 1 && type_child->data.list.children[1]
@@ -1303,9 +1303,32 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
     {
         c_grammar_node_t * type_spec = type_child->data.list.children[m];
-        c_grammar_node_t * decl = type_child->data.list.children[m + 1];
-        if (type_spec && decl && type_spec->type == AST_NODE_TYPE_SPECIFIER && decl->type == AST_NODE_DECLARATOR)
+        c_grammar_node_t * struct_decl = type_child->data.list.children[m + 1];
+        if (type_spec && struct_decl && type_spec->type == AST_NODE_TYPE_SPECIFIER)
         {
+            // Get the actual declarator from inside StructDeclarator
+            c_grammar_node_t * decl = NULL;
+            if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && !struct_decl->is_terminal_node
+                && struct_decl->data.list.count > 0)
+            {
+                // First child is either Declarator or StructDeclaratorBitfield
+                decl = struct_decl->data.list.children[0];
+            }
+
+            if (decl == NULL)
+                continue;
+
+            // Handle bitfields vs regular members
+            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+            {
+                // For now, skip bitfields - they'll need special handling
+                // The bitfield width is in decl->data.list.children[1]
+                continue;
+            }
+
+            if (decl->type != AST_NODE_DECLARATOR)
+                continue;
+
             // Get member type
             LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
 
@@ -1371,8 +1394,8 @@ register_struct_definition_with_name(
     char ** member_names = NULL;
     size_t num_members = 0;
 
-    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, Declarator, TypeSpec, Declarator, ...]
-    // Skip Keyword and optional Identifier to get to member pairs
+    // StructDefinition now has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
+    // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
     size_t start_idx = 2; // Skip Keyword and struct name
     // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
     if (type_child->data.list.count > 1 && type_child->data.list.children[1]
@@ -1386,20 +1409,33 @@ register_struct_definition_with_name(
     }
     for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
     {
-        c_grammar_node_t * child0 = type_child->data.list.children[m];
-        c_grammar_node_t * child1 = type_child->data.list.children[m + 1];
+        c_grammar_node_t * type_spec = type_child->data.list.children[m];
+        c_grammar_node_t * struct_decl = type_child->data.list.children[m + 1];
 
-        // Look for TypeSpecifier followed by Declarator (in order)
-        c_grammar_node_t * type_spec = NULL;
-        c_grammar_node_t * decl = NULL;
-        if (child0 && child0->type == AST_NODE_TYPE_SPECIFIER && child1 && child1->type == AST_NODE_DECLARATOR)
+        if (type_spec && struct_decl && type_spec->type == AST_NODE_TYPE_SPECIFIER)
         {
-            type_spec = child0;
-            decl = child1;
-        }
+            // Get the actual declarator from inside StructDeclarator
+            c_grammar_node_t * decl = NULL;
+            if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && !struct_decl->is_terminal_node
+                && struct_decl->data.list.count > 0)
+            {
+                // First child is either Declarator or StructDeclaratorBitfield
+                decl = struct_decl->data.list.children[0];
+            }
 
-        if (type_spec && decl)
-        {
+            if (decl == NULL)
+                continue;
+
+            // Handle bitfields vs regular members
+            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+            {
+                // For now, skip bitfields - they'll need special handling
+                continue;
+            }
+
+            if (decl->type != AST_NODE_DECLARATOR)
+                continue;
+
             LLVMTypeRef member_type = map_type(ctx, type_spec, decl);
 
             char * member_name = NULL;
