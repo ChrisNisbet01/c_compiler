@@ -79,6 +79,8 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_FUNCTION_POINTER_DECLARATOR] = {.name = "FunctionPointerDeclarator"},
     [AST_NODE_DESIGNATION] = {.name = "Designation"},
     [AST_NODE_COMPOUND_LITERAL] = {.name = "CompoundLiteral"},
+    [AST_NODE_STRUCT_DECLARATOR] = {.name = "StructDeclarator"},
+    [AST_NODE_STRUCT_DECLARATOR_BITFIELD] = {.name = "StructDeclaratorBitfield"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

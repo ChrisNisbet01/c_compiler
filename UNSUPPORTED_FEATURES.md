@@ -15,7 +15,7 @@ This document lists C features that are not yet supported by the ncc compiler.
 
 ## Expressions
 
-- **Compound literals** - e.g., `(struct Point){1, 2}` - Partially supported
+- **Compound literals** - e.g., `(struct Point){1, 2}` - Supported
 - **Designated initializers** - e.g., `.x = 1, .y = 2` - Supported
 - **Statement expressions** - GCC extension `({ int x = 5; x; })`
 - **Generic selection** - `_Generic` (C11)
@@ -24,10 +24,10 @@ This document lists C features that are not yet supported by the ncc compiler.
 ## Declarations
 
 - **Storage class specifiers** - static, extern, register, auto, inline
-- **Multiple declarators** - `int x, y, z;` may have limited support
+- **Multiple declarators** - `int x, y, z;` - Supported
 - **Static array parameters** - `void f(int arr[static 10])`
 
-## Preprocessor
+## Preprocessor - Currently handled by clang -E call
 
 - **Macro definitions** - `#define`, `#undef`
 - **Conditional compilation** - `#if`, `#ifdef`, `#ifndef`, `#elif`, `#else`, `#endif`
@@ -55,8 +55,8 @@ This document lists C features that are not yet supported by the ncc compiler.
 - **`__attribute__`** - GCC extensions
 - **`#pragma`** - Pragma directives
 - **Inline assembly** - `asm()` / `__asm__()`
-- **Labels as values** - `&&label` GCC extension
-- **Computed gotos** - GCC extension
+- **Labels as values** - `&&label` GCC extension - Will not support
+- **Computed gotos** - GCC extension - Will not support
 - **Nested functions** - GCC extension
 - **Decimal floating point** - `_Decimal32`, `_Decimal64`
 - **Fixed-point types** - `_Fract`, `_Accum`

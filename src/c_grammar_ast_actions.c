@@ -1335,12 +1335,6 @@ handle_postfix_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    fprintf(stderr, "-----------\n");
-    for (size_t i = 0; i < count; ++i)
-    {
-        c_grammar_node_t const * child = children[i];
-        fprintf(stderr, "%s got child %s\n", __func__, get_node_type_name_from_node(child));
-    }
     if (0 && count != 2) /* Expecting [PrimaryExpression][Postfix Parts placeholder] */
     {
         free_ast_node_children(children, count, user_data);
@@ -1942,6 +1936,35 @@ handle_compound_literal(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_struct_declarator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DECLARATOR);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_struct_declarator_bitfield(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DECLARATOR_BITFIELD);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -2029,4 +2052,8 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     );
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DESIGNATION, handle_designation);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMPOUND_LITERAL, handle_compound_literal);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATOR, handle_struct_declarator);
+    epc_ast_hook_registry_set_action(
+        registry, AST_ACTION_STRUCT_DECLARATOR_BITFIELD, handle_struct_declarator_bitfield
+    );
 }

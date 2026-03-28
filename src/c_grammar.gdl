@@ -274,7 +274,9 @@ InitializerList = delimited_flex(Designation? Initializer, Comma) Comma? @AST_AC
 
 Initializer = (LBrace InitializerList RBrace) | AssignmentExpression;
 
-StructDeclarator = (Declarator? Colon ConditionalExpression) | Declarator;
+StructDeclaratorBitfield = (Declarator? Colon ConditionalExpression) @AST_ACTION_STRUCT_DECLARATOR_BITFIELD;
+
+StructDeclarator = StructDeclaratorBitfield | Declarator @AST_ACTION_STRUCT_DECLARATOR;
 
 StructDeclaratorList = delimited(StructDeclarator, Comma);
 
