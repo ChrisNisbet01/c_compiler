@@ -480,6 +480,7 @@ process_postfix_suffixes(
                 if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
                 {
                     unsigned num_elements = LLVMCountStructElementTypes(struct_type);
+                    unsigned member_index = 0;
                     unsigned storage_index = 0;
                     struct_info_t * info = NULL;
 
@@ -494,10 +495,21 @@ process_postfix_suffixes(
 
                     if (info)
                     {
-                        for (unsigned j = 0; j < num_elements && j < info->field_count; j++)
+                        for (unsigned j = 0; j < info->field_count; j++)
                         {
                             if (info->fields[j].name && strcmp(info->fields[j].name, member_name) == 0)
                             {
+                                if (info->fields[j].storage_index >= num_elements)
+                                {
+                                    fprintf(
+                                        stderr,
+                                        "IRGen Error: Storage index for field '%s' exceeds number of struct "
+                                        "elements.\n",
+                                        member_name
+                                    );
+                                    return NULL;
+                                }
+                                member_index = j;
                                 storage_index = info->fields[j].storage_index;
                                 break;
                             }
@@ -529,6 +541,23 @@ process_postfix_suffixes(
                     {
                         current_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                         current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
+
+                        if (info && info->fields && member_index < info->field_count)
+                        {
+                            struct_field_t const * field = &info->fields[member_index];
+                            if (field->bit_width > 0)
+                            {
+                                // Extract: (storage >> bit_offset) & mask
+                                LLVMValueRef bit_offset_val
+                                    = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_offset, false);
+                                LLVMValueRef mask_val = LLVMConstInt(
+                                    LLVMInt32TypeInContext(ctx->context), (1ULL << field->bit_width) - 1, false
+                                );
+                                LLVMValueRef shifted
+                                    = LLVMBuildLShr(ctx->builder, current_val, bit_offset_val, "bf_shift");
+                                current_val = LLVMBuildAnd(ctx->builder, shifted, mask_val, "bf_mask");
+                            }
+                        }
                     }
                 }
             }
@@ -4492,13 +4521,11 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Clear the bits at bitfield position
         // Create mask: ~(((1 << width) - 1) << offset)
-        unsigned long long mask = (~(1ULL << bitfield_bit_width)) & 0xFFFFFFFFFFFFFFFFULL;
-        if (bitfield_bit_offset > 0)
-        {
-            mask = mask << bitfield_bit_offset;
-        }
-        LLVMValueRef mask_val = LLVMConstInt(LLVMTypeOf(current_field), mask, false);
-        LLVMValueRef cleared = LLVMBuildAnd(ctx->builder, current_field, mask_val, "bf_clear");
+        unsigned long long mask = ((1ULL << bitfield_bit_width) - 1) << bitfield_bit_offset;
+        unsigned long long saved_bits_mask = ~mask;
+
+        LLVMValueRef saved_bits_mask_val = LLVMConstInt(LLVMTypeOf(current_field), saved_bits_mask, false);
+        LLVMValueRef cleared = LLVMBuildAnd(ctx->builder, current_field, saved_bits_mask_val, "bf_clear");
 
         // Extend rhs_value to field type if needed and shift to position
         LLVMValueRef shifted;
