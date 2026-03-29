@@ -675,7 +675,7 @@ scope_create(scope_t * parent)
         return NULL;
     }
     scope->symbol_count = 0;
-    
+
     scope->local_types.capacity = 4;
     scope->local_types.structs = calloc(scope->local_types.capacity, sizeof(*scope->local_types.structs));
     if (!scope->local_types.structs)
@@ -685,7 +685,7 @@ scope_create(scope_t * parent)
         return NULL;
     }
     scope->local_types.count = 0;
-    
+
     scope->parent = parent;
     return scope;
 }
@@ -703,7 +703,7 @@ scope_free(scope_t * scope)
         free(scope->symbols[i].struct_name);
     }
     free(scope->symbols);
-    
+
     // Free all local types (structs/unions) in this scope
     for (size_t i = 0; i < scope->local_types.count; ++i)
     {
@@ -715,7 +715,7 @@ scope_free(scope_t * scope)
         free(scope->local_types.structs[i].fields);
     }
     free(scope->local_types.structs);
-    
+
     free(scope);
 }
 
@@ -750,8 +750,7 @@ scope_find_struct(ir_generator_ctx_t * ctx, char const * name)
     {
         for (size_t i = 0; i < scope->local_types.count; ++i)
         {
-            if (scope->local_types.structs[i].name
-                && strcmp(scope->local_types.structs[i].name, name) == 0)
+            if (scope->local_types.structs[i].name && strcmp(scope->local_types.structs[i].name, name) == 0)
             {
                 return &scope->local_types.structs[i];
             }
@@ -2208,9 +2207,11 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
         return NULL;
     }
 
-    register_structs_in_node(ctx, ast_root);
-
+    // Struct registration now happens during IR generation (in the correct scope)
+    scope_push(ctx); // Push global scope for top-level declarations
+    // register_structs_in_node(ctx, ast_root);
     process_ast_node(ctx, ast_root);
+    scope_pop(ctx); // Pop global scope after processing
 
     return ctx->module;
 }
@@ -2235,6 +2236,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
     case AST_NODE_TRANSLATION_UNIT:
     {
+        scope_push(ctx);
         // Process top-level declarations and function definitions.
         if (node->data.list.children)
         {
@@ -2243,6 +2245,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 process_ast_node(ctx, node->data.list.children[i]);
             }
         }
+        scope_pop(ctx);
         break;
     }
     case AST_NODE_FUNCTION_DEFINITION:
@@ -2444,9 +2447,37 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         /* [ OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorList ] */
         // --- Handle Variable Declarations ---
 
-        // First, check if this is a struct definition - this is now handled in register_structs_in_node
-
+        // Register any struct/enum definitions in the declaration specifiers (in current scope)
         c_grammar_node_t * decl_specifiers = node->data.list.children[1];
+        if (decl_specifiers && !decl_specifiers->is_terminal_node)
+        {
+            for (size_t i = 0; i < decl_specifiers->data.list.count; ++i)
+            {
+                c_grammar_node_t * spec_child = decl_specifiers->data.list.children[i];
+                if (spec_child && !spec_child->is_terminal_node)
+                {
+                    if (spec_child->type == AST_NODE_TYPE_SPECIFIER)
+                    {
+                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                        {
+                            c_grammar_node_t * type_child = spec_child->data.list.children[j];
+                            if (type_child && !type_child->is_terminal_node)
+                            {
+                                if (type_child->type == AST_NODE_STRUCT_DEFINITION)
+                                {
+                                    register_struct_definition(ctx, type_child);
+                                }
+                                else if (type_child->type == AST_NODE_ENUM_SPECIFIER)
+                                {
+                                    register_enum_definition(ctx, type_child);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         c_grammar_node_t * init_decl_nodes = node->data.list.children[2];
 
         // Process InitDeclarators to create variables and initialize them.
@@ -2768,6 +2799,64 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             LLVMSetExternallyInitialized(global_var, true);
                         }
                     }
+                }
+            }
+        }
+        break;
+    }
+    case AST_NODE_TYPEDEF_DECLARATION:
+    {
+        // Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier]
+        // DeclarationSpecifiers contains the struct/union/enum definition
+        // Identifier is the typedef name
+        if (node->data.list.count >= 2)
+        {
+            c_grammar_node_t * decl_specs = node->data.list.children[0];
+            c_grammar_node_t * typedef_name_node = node->data.list.children[1];
+
+            if (decl_specs && typedef_name_node && decl_specs->type == AST_NODE_DECL_SPECIFIERS
+                && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->is_terminal_node)
+            {
+                char * typedef_name = typedef_name_node->data.terminal.text;
+                c_grammar_node_t const * struct_def_node = NULL;
+                c_grammar_node_t const * enum_def_node = NULL;
+
+                // Look for struct/union/enum definition inside DeclarationSpecifiers
+                for (size_t i = 0; i < decl_specs->data.list.count; ++i)
+                {
+                    c_grammar_node_t * spec_child = decl_specs->data.list.children[i];
+
+                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
+                    {
+                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                        {
+                            c_grammar_node_t const * type_child = spec_child->data.list.children[j];
+                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
+                            {
+                                struct_def_node = type_child;
+                                break;
+                            }
+                            else if (type_child && type_child->type == AST_NODE_ENUM_SPECIFIER)
+                            {
+                                enum_def_node = type_child;
+                                break;
+                            }
+                        }
+                    }
+                    if (struct_def_node || enum_def_node)
+                    {
+                        break;
+                    }
+                }
+
+                if (struct_def_node && typedef_name)
+                {
+                    register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
+                }
+                else if (enum_def_node)
+                {
+                    // Register the enum values as constants
+                    register_enum_definition(ctx, enum_def_node);
                 }
             }
         }
@@ -3505,7 +3594,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INIT_DECLARATOR:
     case AST_NODE_OPTIONAL_KW_EXTENSION:
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
-    case AST_NODE_TYPEDEF_DECLARATION:
     case AST_NODE_KEYWORD:
     case AST_NODE_TERNARY_OPERATION:
     case AST_NODE_ENUM_SPECIFIER:
