@@ -1,0 +1,65 @@
+is it legal for unions to have the same tags as structs?
+
+Gemini said
+In the C programming language, the answer is no. It is illegal for a union to share the same tag name as a struct (or an enum) within the same scope.
+
+This is because all tags—whether they belong to a struct, union, or enum—share a single, unified "Tag Name Space."
+
+1. The Single Tag Name Space
+C defines specific "name spaces" to prevent identifiers from colliding. While a variable can have the same name as a struct tag (because they live in different name spaces), all tags compete for the same slot.
+
+Why this fails:
+If you try to compile the following code, the compiler will throw a "redefinition" error:
+
+C
+struct Data
+{
+    int i;
+};
+
+union Data
+{ // ERROR: 'Data' redefined as a different kind of symbol
+    float f;
+};
+2. Implications for Your Compiler
+Since you are using LLVM to build your compiler, your symbol table must reflect this rule. Here is how you should structure your internal logic:
+
+The Tag Symbol Table
+When your parser encounters a tag (e.g., after the keyword struct, union, or enum), it should look in the Tag Name Space for that current scope.
+
+Conflict Check: If Data already exists in the Tag Name Space as a RecordType (struct), and you encounter union Data, your compiler must trigger a semantic error.
+
+LLVM Mapping: In LLVM IR, both struct and union are often represented by llvm::StructType. However, a C union is a "special" case where all members have an offset of 0. Even if the backend representation is similar, your frontend must enforce the C language restriction that their names cannot overlap.
+
+3. The "Typedef" Loophole
+While tags cannot overlap, a typedef alias can share a name with a tag because they live in different name spaces (Tags vs. Ordinary Identifiers).
+
+This is legal:
+
+C struct Data
+{
+    int i;
+};
+typedef union
+{
+    float f;
+} Data; // LEGAL: 'struct Data' (tag) and 'Data' (typedef) are separate.
+In this scenario:
+
+struct Data refers to the structure.
+
+Data refers to the union.
+
+4. Summary Table for Your Symbol Table Logic
+Identifier	Name Space	Can conflict with...
+struct T	Tags	union T, enum T
+union T	Tags	struct T, enum T
+typedef T	Ordinary	variables, functions, other typedefs
+Implementation Advice
+When implementing the lookup function in your compiler:
+
+Identify the kind of name being parsed (Is there a struct/union keyword before it?).
+
+Search only the Tag Name Space for those keywords.
+
+If no keyword is present, search the Ordinary Name Space (where your typedef aliases live).

@@ -923,14 +923,27 @@ scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const *
                 /* Look up by untagged index */
                 return scope_find_untagged_struct(scope, entry->untagged_index);
             }
+            case TYPE_KIND_UNION:
+            {
+                /* Look up the union by tag name (same storage as structs) */
+                tagged_type_info_t * info = scope_find_struct(scope, entry->tag);
+                if (info != NULL)
+                {
+                    return info->type;
+                }
+                return NULL;
+            }
+            case TYPE_KIND_UNTAGGED_UNION:
+            {
+                /* Look up by untagged index (same storage as untagged structs) */
+                return scope_find_untagged_struct(scope, entry->untagged_index);
+            }
             case TYPE_KIND_ENUM:
             case TYPE_KIND_UNTAGGED_ENUM:
             {
                 /* Enums are represented as integers */
                 return LLVMInt32TypeInContext(ctx->context);
             }
-            case TYPE_KIND_UNION:          /* Why isn't there special handling for these? */
-            case TYPE_KIND_UNTAGGED_UNION: /* Why isn't there special handling for these? */
             default:
                 /* For other kinds, return the type directly */
                 return entry->type;
