@@ -1,26 +1,15 @@
-typedef enum MyEnumTag
+
+typedef struct StructTag TagStruct;
+
+typedef struct
 {
-    ENUM_VALUE_1,
-    ENUM_VALUE_2,
-} MyEnum;
+    int i;
+} UntaggedTypedef;
 
-enum MyEnum2Tag
+typedef struct TaggedStruct
 {
-    ENUM2_VALUE_1,
-    ENUM2_VALUE_2,
-};
-
-typedef enum
-{
-    ANON_ENUM1_VALUE_1,
-    ANON_ENUM1_VALUE_2,
-} AnonEnum1;
-
-typedef struct MyStructTag MyStruct;
-
-typedef union MyUnionTag MyUnion;
-
-typedef int MyInt;
+    int i;
+} TaggedTypedef;
 
 int
 main()

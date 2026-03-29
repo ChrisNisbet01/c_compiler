@@ -4,6 +4,14 @@
 
 This plan implements proper scoping for struct/union/enum types and typedefs by using separate lists for each category.
 
+## Current Focus
+
+**Phase 1: Structs and Unions Only**
+- Enums have a different AST structure and will be handled in a future phase
+
+**Phase 2: Enums (Future)**
+- Handle enum-specific AST patterns
+
 ## Problem
 
 Currently, all types are stored in a single list and looked up by name only. This causes issues when:
@@ -114,12 +122,17 @@ typedef struct scope
 
 ## Lookup Logic
 
+### Phase 1: Structs and Unions
 | Syntax | How to Resolve |
 |--------|----------------|
 | `struct Point` | kind=STRUCT, look up "Point" in struct list |
 | `union Data` | kind=UNTAGGED_UNION, look up by tag "Data" in untagged union list |
+| `Point` (identifier, no keyword) | lookup in typedef list |
+
+### Phase 2: Enums (Future)
+| Syntax | How to Resolve |
+|--------|----------------|
 | `enum Color` | kind=ENUM, look up "Color" in enum list |
-| `Point` (identifier, no keyword) | kind=PRIMITIVE/UNTAGGED_STRUCT/etc., resolve accordingly |
 
 ## Forward Declaration Handling
 
@@ -131,6 +144,9 @@ For `struct Empty;` (forward) followed by `struct Empty { ... };` (definition):
    - If entry already has members → error or ignore (redefinition)
 
 ## Implementation Steps
+
+**Phase 1: Structs and Unions Only**
+- Enums to be implemented in Phase 2
 
 1. Add `type_kind_t` enum to `llvm_ir_generator.h`
 2. Add `scope_untagged_structs_t` typedef to `llvm_ir_generator.h`
