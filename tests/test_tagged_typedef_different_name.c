@@ -9,8 +9,13 @@ typedef struct TaggedStruct
 int
 main()
 {
+    struct TaggedStruct p1;
+
+    p1.x = 5;
+    p1.y = 10;
+
     Point p;
     p.x = 10;
     p.y = 20;
-    return p.x + p.y - 30;
+    return p.x + p.y + p1.x + p1.y - 45;
 }

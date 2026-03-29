@@ -43,8 +43,8 @@ static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_
 
 static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
-static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
-static struct_info_t * scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type);
+static tagged_type_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
+static tagged_type_info_t * scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
@@ -385,7 +385,7 @@ process_array_subscript(
 
 static LLVMValueRef
 handle_bitfield_extraction(
-    ir_generator_ctx_t * ctx, LLVMValueRef current_val, struct_info_t * info, size_t member_index
+    ir_generator_ctx_t * ctx, LLVMValueRef current_val, tagged_type_info_t * info, size_t member_index
 )
 {
     if (info && info->fields && member_index < info->field_count)
@@ -536,7 +536,7 @@ process_postfix_suffixes(
                     unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                     unsigned member_index = 0;
                     unsigned storage_index = 0;
-                    struct_info_t * info = NULL;
+                    tagged_type_info_t * info = NULL;
 
                     info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
@@ -808,7 +808,7 @@ scope_free(scope_t * scope)
 }
 
 static void
-scope_add_struct(scope_t * scope, struct_info_t info)
+scope_add_struct(scope_t * scope, tagged_type_info_t info)
 {
     if (scope == NULL)
     {
@@ -818,7 +818,7 @@ scope_add_struct(scope_t * scope, struct_info_t info)
     if (scope->local_types.count >= scope->local_types.capacity)
     {
         size_t new_cap = scope->local_types.capacity == 0 ? 4 : scope->local_types.capacity * 2;
-        struct_info_t * new_structs = realloc(scope->local_types.structs, new_cap * sizeof(*new_structs));
+        tagged_type_info_t * new_structs = realloc(scope->local_types.structs, new_cap * sizeof(*new_structs));
         if (new_structs == NULL)
         {
             return;
@@ -830,7 +830,7 @@ scope_add_struct(scope_t * scope, struct_info_t info)
     scope->local_types.structs[scope->local_types.count++] = info;
 }
 
-static struct_info_t *
+static tagged_type_info_t *
 scope_find_struct(scope_t const * scope, char const * name)
 {
     if (scope == NULL || name == NULL)
@@ -849,7 +849,7 @@ scope_find_struct(scope_t const * scope, char const * name)
     return scope_find_struct(scope->parent, name);
 }
 
-static struct_info_t *
+static tagged_type_info_t *
 scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type)
 {
     if (scope == NULL || type == NULL)
@@ -911,7 +911,7 @@ scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const *
             case TYPE_KIND_STRUCT:
             {
                 /* Look up the struct by tag name */
-                struct_info_t * info = scope_find_struct(scope, entry->tag);
+                tagged_type_info_t * info = scope_find_struct(scope, entry->tag);
                 if (info != NULL)
                 {
                     return info->type;
@@ -1671,7 +1671,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     register_struct_definition_with_name(ctx, type_child, struct_name);
 }
 
-static struct_info_t *
+static tagged_type_info_t *
 find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 {
     return scope_find_struct(ctx->current_scope, name);
@@ -1680,7 +1680,7 @@ find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 static LLVMTypeRef
 find_struct_type(ir_generator_ctx_t * ctx, char const * name)
 {
-    struct_info_t * info = find_struct_info(ctx, name);
+    tagged_type_info_t * info = find_struct_info(ctx, name);
     return info ? info->type : NULL;
 }
 
@@ -1697,7 +1697,7 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
     if (!struct_type || !field_name)
         return -1;
 
-    struct_info_t * info = scope_find_struct_by_type(ctx->current_scope, struct_type);
+    tagged_type_info_t * info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
     if (!info)
         return -1;
@@ -1756,7 +1756,7 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
         return;
     }
 
-    struct_info_t new_struct = {0};
+    tagged_type_info_t new_struct = {0};
     new_struct.name = strdup(name);
     new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.name);
     new_struct.field_count = num_fields;
@@ -2538,7 +2538,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 param_types[i] = typedef_type;
                                 // Get underlying struct name for member access
-                                struct_info_t * info = scope_find_struct_by_type(ctx->current_scope, typedef_type);
+                                tagged_type_info_t * info = scope_find_struct_by_type(ctx->current_scope, typedef_type);
                                 if (info != NULL)
                                 {
                                     param_compound_name = (char *)info->name;
@@ -2741,7 +2741,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         /* we'll need to find the actual underlying struct */
                                         /* This is a limitation - we'll fix by looking up the typedef entry directly */
                                         /* Actually, let's look up the struct by the type */
-                                        struct_info_t * info
+                                        tagged_type_info_t * info
                                             = scope_find_struct_by_type(ctx->current_scope, typedef_type);
                                         if (info != NULL)
                                         {
@@ -2776,7 +2776,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                                 LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
                                                 if (typedef_type != NULL)
                                                 {
-                                                    struct_info_t * info
+                                                    tagged_type_info_t * info
                                                         = scope_find_struct_by_type(ctx->current_scope, typedef_type);
                                                     if (info != NULL)
                                                     {
@@ -4490,7 +4490,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 bool found = false;
 
                 // Look up the struct info to find the member by name
-                struct_info_t * struct_info = NULL;
+                tagged_type_info_t * struct_info = NULL;
                 struct_info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
                 if (struct_info && struct_info->fields)
@@ -4735,7 +4735,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                                 unsigned member_index = 0;
                                 unsigned storage_index = 0;
-                                struct_info_t * info = NULL;
+                                tagged_type_info_t * info = NULL;
 
                                 info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 

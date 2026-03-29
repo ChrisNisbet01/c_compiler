@@ -26,13 +26,13 @@ typedef struct struct_field
     unsigned storage_index; // -1 for regular fields, >=0 for bitfields = index of storage field
 } struct_field_t;
 
-typedef struct struct_info
+typedef struct tagged_type_info
 {
     char * name;
     LLVMTypeRef type;
     struct_field_t * fields;
     size_t field_count;
-} struct_info_t;
+} tagged_type_info_t;
 
 // --- Type kind for typedef entries ---
 typedef enum
@@ -58,7 +58,7 @@ typedef struct scope_typedef_entry
 // --- Local types (structs/unions) in a scope ---
 typedef struct scope_local_types
 {
-    struct_info_t * structs;
+    tagged_type_info_t * structs;
     size_t count;
     size_t capacity;
 } scope_local_types_t;
@@ -66,7 +66,7 @@ typedef struct scope_local_types
 // --- Local enums in a scope ---
 typedef struct scope_enums
 {
-    struct_info_t * enums;
+    tagged_type_info_t * enums;
     size_t count;
     size_t capacity;
 } scope_enums_t;
