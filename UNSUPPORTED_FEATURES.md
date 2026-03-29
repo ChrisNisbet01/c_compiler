@@ -5,7 +5,7 @@ This document lists C features that are not yet supported by the ncc compiler.
 ## Type System
 
 - **Function pointers** - All supported: declaration, assignment, passing as parameters, indirect calls, and arrays of function pointers.
-- **Bit-fields in structs** - e.g., `int x : 3`
+- **Bit-fields in structs** - e.g., `int x : 3` - Supported
 - **Variable-length arrays (VLAs)** - e.g., `int arr[n];`
 - **Flexible array members** - e.g., `int data[];` as last struct member
 - **Type qualifiers on variables** - const, volatile, restrict, _Atomic

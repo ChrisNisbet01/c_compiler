@@ -350,6 +350,27 @@ process_array_subscript(
     return elem_ptr;
 }
 
+static LLVMValueRef
+handle_bitfield_extraction(
+    ir_generator_ctx_t * ctx, LLVMValueRef current_val, struct_info_t * info, size_t member_index
+)
+{
+    if (info && info->fields && member_index < info->field_count)
+    {
+        struct_field_t const * field = &info->fields[member_index];
+        if (field->bit_width > 0)
+        {
+            // Extract: (storage >> bit_offset) & mask
+            LLVMValueRef bit_offset_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_offset, false);
+            LLVMValueRef mask_val
+                = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), (1ULL << field->bit_width) - 1, false);
+            LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, current_val, bit_offset_val, "bf_shift");
+            current_val = LLVMBuildAnd(ctx->builder, shifted, mask_val, "bf_mask");
+        }
+    }
+
+    return current_val;
+}
 // Helper to process all postfix expression suffixes (array subscript, member access, function call, postfix ops)
 // Returns the final value, and optionally updates out_ptr/out_type for assignment targets
 static LLVMValueRef
@@ -541,23 +562,7 @@ process_postfix_suffixes(
                     {
                         current_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                         current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
-
-                        if (info && info->fields && member_index < info->field_count)
-                        {
-                            struct_field_t const * field = &info->fields[member_index];
-                            if (field->bit_width > 0)
-                            {
-                                // Extract: (storage >> bit_offset) & mask
-                                LLVMValueRef bit_offset_val
-                                    = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_offset, false);
-                                LLVMValueRef mask_val = LLVMConstInt(
-                                    LLVMInt32TypeInContext(ctx->context), (1ULL << field->bit_width) - 1, false
-                                );
-                                LLVMValueRef shifted
-                                    = LLVMBuildLShr(ctx->builder, current_val, bit_offset_val, "bf_shift");
-                                current_val = LLVMBuildAnd(ctx->builder, shifted, mask_val, "bf_mask");
-                            }
-                        }
+                        current_val = handle_bitfield_extraction(ctx, current_val, info, member_index);
                     }
                 }
             }
@@ -4128,26 +4133,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                     LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                     base_val = aligned_load(ctx->builder, member_type, member_ptr, "member");
-
-                    // Handle bitfield extraction
-                    if (struct_info && struct_info->fields && member_index < struct_info->field_count)
-                    {
-                        struct_field_t const * field = &struct_info->fields[member_index];
-                        if (field->bit_width > 0)
-                        {
-                            // Extract bitfield value: (storage >> bit_offset) & mask
-                            LLVMValueRef bit_offset_val
-                                = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field->bit_offset, false);
-                            LLVMValueRef mask_val = LLVMConstInt(
-                                LLVMInt32TypeInContext(ctx->context), (1ULL << field->bit_width) - 1, false
-                            );
-
-                            // Shift right by bit_offset
-                            LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, base_val, bit_offset_val, "bf_shift");
-                            // Mask to get only bit_width bits
-                            base_val = LLVMBuildAnd(ctx->builder, shifted, mask_val, "bf_mask");
-                        }
-                    }
+                    base_val = handle_bitfield_extraction(ctx, base_val, struct_info, member_index);
                 }
             }
         }
