@@ -316,7 +316,7 @@ StructOrUnionSpecifier = (StructOrUnion Attribute* Identifier? LBrace StructDecl
 
 Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
 
-EnumDefinition = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace Attribute*) @AST_ACTION_ENUM_SPECIFIER;
+EnumSpecifier = (KwEnum Attribute* Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace Attribute*) @AST_ACTION_ENUM_SPECIFIER;
 
 EnumTypeRef = KwEnum Attribute* Identifier;
 
@@ -327,14 +327,17 @@ TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_AC
 StructDefinition = StructOrUnion Attribute* Identifier? LBrace StructDeclarationList RBrace Attribute* @AST_ACTION_STRUCT_SPECIFIER;
 
 // StructTypeRef: struct without body (reference) - treated as type specifier
-StructTypeRef = StructOrUnion Attribute* Identifier;
+StructTypeRef = KwStruct Attribute* Identifier;
+
+UnionTypeRef = KwUnion Attribute* Identifier;
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | (KwLong KwDouble) | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned                         
                          | KwBool | KwBoolBuiltin | KwComplex | KwImaginary
                          | StructDefinition
                          | StructTypeRef
-                         | EnumDefinition
+                         | UnionTypeRef
+                         | EnumSpecifier
                          | EnumTypeRef 
                          @AST_ACTION_TYPE_SPECIFIER;
 TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;

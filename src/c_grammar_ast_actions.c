@@ -1788,23 +1788,6 @@ handle_keyword(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** child
         free_ast_node_children(children, count, user_data);
         return;
     }
-    /* TODO: make this work for all keywords. Grammar and possibly code gen will need to be updated as well. */
-    if (strcmp(ast_node->data.terminal.text, "struct") == 0)
-    {
-        ast_node->keyword = KEYWORD_STRUCT;
-    }
-    else if (strcmp(ast_node->data.terminal.text, "union") == 0)
-    {
-        ast_node->keyword = KEYWORD_UNION;
-    }
-    else
-    {
-        epc_ast_builder_set_error(
-            ctx, "%s: Unknown keyword: %s", get_node_type_name_from_type(AST_NODE_KEYWORD), ast_node->data.terminal.text
-        );
-        c_grammar_node_free(ast_node, user_data);
-        return;
-    }
 
     epc_ast_push(ctx, ast_node);
 }

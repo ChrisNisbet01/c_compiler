@@ -42,6 +42,23 @@ typedef struct scope_local_types
     size_t capacity;
 } scope_local_types_t;
 
+// --- Local enums in a scope ---
+typedef struct scope_enums
+{
+    struct_info_t * enums;
+    size_t count;
+    size_t capacity;
+} scope_enums_t;
+
+// --- Typedefs in a scope ---
+typedef struct scope_typedefs
+{
+    char ** names;
+    LLVMTypeRef * types;
+    size_t count;
+    size_t capacity;
+} scope_typedefs_t;
+
 // --- Symbol Table Management ---
 // Define symbol_t structure
 typedef struct symbol
@@ -61,6 +78,8 @@ typedef struct scope
     size_t symbol_capacity;
     
     scope_local_types_t local_types; // Structs/unions declared in this scope
+    scope_enums_t enums;             // Enums declared in this scope
+    scope_typedefs_t typedefs;       // Typedefs declared in this scope
     
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;

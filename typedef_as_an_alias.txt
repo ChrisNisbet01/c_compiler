@@ -1,0 +1,46 @@
+Since you are building a compiler with LLVM, the distinction between the type name and the type definition becomes a structural requirement for your symbol table.
+
+In the context of the LLVM IR (Intermediate Representation), a structure is typically represented by a llvm::StructType. The "alias" nature of a typedef means that, logically, the typedef and the underlying struct should point to the same underlying LLVM type object.
+
+The Symbol Table Strategy
+In your compiler's symbol table, you should treat them as two different entries that resolve to the same metadata.
+
+1. The Tagged Struct (struct NodeTag)
+This belongs in a Tags namespace. In C, struct Node and a variable named Node can coexist because they live in different look-up buckets.
+
+Key: NodeTag (prefixed or flagged as a tag)
+
+Value: A pointer to the llvm::StructType.
+
+2. The typedef (Node)
+This belongs in the Ordinary Identifiers namespace (alongside variables and functions).
+
+Key: Node
+
+Value: A pointer to the exact same llvm::StructType instance as the tag.
+
+Why You Should Use the Same Underlying Type
+If you create two distinct LLVM types for the tag and the alias, the LLVM optimizer and code generator will treat them as incompatible types.
+
+Type Checking: If a function expects a struct NodeTag* but you pass a Node* (the typedef), your compiler’s type-checker must recognize they are identical. If they point to the same LLVM object, this check is a simple pointer comparison: typeA == typeB.
+
+Pointer Casting: If they are different objects in LLVM, you would have to insert bitcast instructions every time the user switches between the tag and the alias, which adds unnecessary bloat to your IR.
+
+Handling Recursive Definitions (The LLVM Way)
+When writing a compiler, the "Anonymous Struct" problem I mentioned earlier becomes a Forward Declaration problem. LLVM handles this using Opaque Struct Types.
+
+If you encounter typedef struct NodeTag { ... } Node;, your compiler should:
+
+Create an Opaque StructType named NodeTag.
+
+Register both struct NodeTag and Node in your symbol table, pointing to this opaque type.
+
+"Identify" (fill in) the body of the StructType once you've parsed the members.
+
+Pro Tip: In your AST (Abstract Syntax Tree), keep a TypedefType node that wraps the underlying StructType. This allows you to preserve the user's original naming for better error messages (e.g., "Expected Node, got int") while ensuring the backend treats them as identical.
+
+Implementation Summary
+Component	Recommendation
+AST Representation	TypedefType wraps the RecordType.
+LLVM IR	Both share the same llvm::StructType*.
+Namespace	Keep a separate Tag scope and Ordinary scope.
