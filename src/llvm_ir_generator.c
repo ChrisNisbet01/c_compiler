@@ -44,6 +44,7 @@ static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_
 static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
+static struct_info_t * scope_find_struct_by_type(ir_generator_ctx_t * ctx, LLVMTypeRef type);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
@@ -505,14 +506,7 @@ process_postfix_suffixes(
                     unsigned storage_index = 0;
                     struct_info_t * info = NULL;
 
-                    for (size_t si = 0; si < ctx->struct_count; si++)
-                    {
-                        if (ctx->structs[si].type == struct_type)
-                        {
-                            info = &ctx->structs[si];
-                            break;
-                        }
-                    }
+                    info = scope_find_struct_by_type(ctx, struct_type);
 
                     if (info)
                     {
@@ -673,14 +667,25 @@ scope_create(scope_t * parent)
     if (!scope)
         return NULL;
 
-    scope->capacity = 16;
-    scope->symbols = calloc(scope->capacity, sizeof(*scope->symbols));
+    scope->symbol_capacity = 16;
+    scope->symbols = calloc(scope->symbol_capacity, sizeof(*scope->symbols));
     if (!scope->symbols)
     {
         free(scope);
         return NULL;
     }
-    scope->count = 0;
+    scope->symbol_count = 0;
+    
+    scope->local_types.capacity = 4;
+    scope->local_types.structs = calloc(scope->local_types.capacity, sizeof(*scope->local_types.structs));
+    if (!scope->local_types.structs)
+    {
+        free(scope->symbols);
+        free(scope);
+        return NULL;
+    }
+    scope->local_types.count = 0;
+    
     scope->parent = parent;
     return scope;
 }
@@ -692,13 +697,86 @@ scope_free(scope_t * scope)
         return;
 
     // Free all symbol names and struct names in this scope
-    for (size_t i = 0; i < scope->count; ++i)
+    for (size_t i = 0; i < scope->symbol_count; ++i)
     {
         free(scope->symbols[i].name);
         free(scope->symbols[i].struct_name);
     }
     free(scope->symbols);
+    
+    // Free all local types (structs/unions) in this scope
+    for (size_t i = 0; i < scope->local_types.count; ++i)
+    {
+        free(scope->local_types.structs[i].name);
+        for (size_t j = 0; j < scope->local_types.structs[i].field_count; ++j)
+        {
+            free(scope->local_types.structs[i].fields[j].name);
+        }
+        free(scope->local_types.structs[i].fields);
+    }
+    free(scope->local_types.structs);
+    
     free(scope);
+}
+
+static void
+scope_add_struct(ir_generator_ctx_t * ctx, struct_info_t info)
+{
+    if (!ctx || !ctx->current_scope)
+        return;
+
+    scope_t * scope = ctx->current_scope;
+
+    if (scope->local_types.count >= scope->local_types.capacity)
+    {
+        size_t new_cap = scope->local_types.capacity == 0 ? 4 : scope->local_types.capacity * 2;
+        struct_info_t * new_structs = realloc(scope->local_types.structs, new_cap * sizeof(*new_structs));
+        if (!new_structs)
+            return;
+        scope->local_types.structs = new_structs;
+        scope->local_types.capacity = new_cap;
+    }
+
+    scope->local_types.structs[scope->local_types.count++] = info;
+}
+
+static struct_info_t *
+scope_find_struct(ir_generator_ctx_t * ctx, char const * name)
+{
+    if (!ctx || !name)
+        return NULL;
+
+    for (scope_t * scope = ctx->current_scope; scope != NULL; scope = scope->parent)
+    {
+        for (size_t i = 0; i < scope->local_types.count; ++i)
+        {
+            if (scope->local_types.structs[i].name
+                && strcmp(scope->local_types.structs[i].name, name) == 0)
+            {
+                return &scope->local_types.structs[i];
+            }
+        }
+    }
+    return NULL;
+}
+
+static struct_info_t *
+scope_find_struct_by_type(ir_generator_ctx_t * ctx, LLVMTypeRef type)
+{
+    if (!ctx || !type)
+        return NULL;
+
+    for (scope_t * scope = ctx->current_scope; scope != NULL; scope = scope->parent)
+    {
+        for (size_t i = 0; i < scope->local_types.count; ++i)
+        {
+            if (scope->local_types.structs[i].type == type)
+            {
+                return &scope->local_types.structs[i];
+            }
+        }
+    }
+    return NULL;
 }
 
 static void
@@ -740,22 +818,22 @@ add_symbol_with_struct(
 
     scope_t * scope = ctx->current_scope;
 
-    if (scope->count >= scope->capacity)
+    if (scope->symbol_count >= scope->symbol_capacity)
     {
-        size_t new_cap = scope->capacity == 0 ? 16 : scope->capacity * 2;
+        size_t new_cap = scope->symbol_capacity == 0 ? 16 : scope->symbol_capacity * 2;
         symbol_t * new_symbols = realloc(scope->symbols, new_cap * sizeof(*new_symbols));
         if (!new_symbols)
             return;
         scope->symbols = new_symbols;
-        scope->capacity = new_cap;
+        scope->symbol_capacity = new_cap;
     }
 
-    scope->symbols[scope->count].name = strdup(name);
-    scope->symbols[scope->count].ptr = ptr;
-    scope->symbols[scope->count].type = type;
-    scope->symbols[scope->count].pointee_type = pointee_type;
-    scope->symbols[scope->count].struct_name = struct_name ? strdup(struct_name) : NULL;
-    scope->count++;
+    scope->symbols[scope->symbol_count].name = strdup(name);
+    scope->symbols[scope->symbol_count].ptr = ptr;
+    scope->symbols[scope->symbol_count].type = type;
+    scope->symbols[scope->symbol_count].pointee_type = pointee_type;
+    scope->symbols[scope->symbol_count].struct_name = struct_name ? strdup(struct_name) : NULL;
+    scope->symbol_count++;
 }
 
 static void
@@ -773,7 +851,7 @@ find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name)
     // Search from current scope outward through parent scopes
     for (scope_t * scope = ctx->current_scope; scope; scope = scope->parent)
     {
-        for (size_t i = 0; i < scope->count; ++i)
+        for (size_t i = 0; i < scope->symbol_count; ++i)
         {
             if (scope->symbols[i].name != NULL && strcmp(scope->symbols[i].name, name) == 0)
             {
@@ -1058,7 +1136,7 @@ find_symbol(
     for (scope_t * scope = ctx->current_scope; scope; scope = scope->parent)
     {
         // Search backwards within this scope (most recent first)
-        for (size_t i = scope->count; i > 0; --i)
+        for (size_t i = scope->symbol_count; i > 0; --i)
         {
             if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
             {
@@ -1480,17 +1558,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
 static struct_info_t *
 find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 {
-    if (!ctx || !name)
-        return NULL;
-
-    for (size_t i = 0; i < ctx->struct_count; ++i)
-    {
-        if (ctx->structs[i].name && strcmp(ctx->structs[i].name, name) == 0)
-        {
-            return &ctx->structs[i];
-        }
-    }
-    return NULL;
+    return scope_find_struct(ctx, name);
 }
 
 static LLVMTypeRef
@@ -1506,15 +1574,7 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
     if (!struct_type || !field_name)
         return -1;
 
-    struct_info_t * info = NULL;
-    for (size_t i = 0; i < ctx->struct_count; ++i)
-    {
-        if (ctx->structs[i].type == struct_type)
-        {
-            info = &ctx->structs[i];
-            break;
-        }
-    }
+    struct_info_t * info = scope_find_struct_by_type(ctx, struct_type);
 
     if (!info)
         return -1;
@@ -1568,40 +1628,23 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
         return;
     }
 
-    // Check if already exists
-    if (find_struct_type(ctx, name))
+    if (scope_find_struct(ctx, name))
     {
         return;
     }
 
-    // Resize if needed
-    if (ctx->struct_count >= ctx->struct_capacity)
+    struct_info_t new_struct = {0};
+    new_struct.name = strdup(name);
+    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.name);
+    new_struct.field_count = num_fields;
+    new_struct.fields = fields;
+
     {
-        size_t new_capacity = ctx->struct_capacity * 2;
-        struct_info_t * new_structs = realloc(ctx->structs, new_capacity * sizeof(struct_info_t));
-        if (!new_structs)
-            return;
-        ctx->structs = new_structs;
-        ctx->struct_capacity = new_capacity;
-    }
-
-    struct_info_t * new_struct = &ctx->structs[ctx->struct_count];
-
-    new_struct->name = strdup(name);
-    new_struct->type = LLVMStructCreateNamed(ctx->context, new_struct->name);
-    new_struct->field_count = num_fields;
-    new_struct->fields = fields;
-    ctx->struct_count++;
-
-    /*
-        Note that the number of storage units may not be the same as the number of fields due to bitfields.
-     */
-    {
-        struct_field_t * last_field = &new_struct->fields[new_struct->field_count - 1];
+        struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
         unsigned num_storage_units = last_field->storage_index + 1;
         LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
         int current_storage_unit = -1;
-        for (size_t i = 0; i < new_struct->field_count; i++)
+        for (size_t i = 0; i < new_struct.field_count; i++)
         {
             struct_field_t * field = &fields[i];
             if (field->storage_index != (unsigned)current_storage_unit)
@@ -1610,9 +1653,11 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
                 field_types[current_storage_unit] = field->type;
             }
         }
-        LLVMStructSetBody(new_struct->type, field_types, num_storage_units, false);
+        LLVMStructSetBody(new_struct.type, field_types, num_storage_units, false);
         free(field_types);
     }
+
+    scope_add_struct(ctx, new_struct);
 }
 
 static char *
@@ -2083,11 +2128,6 @@ ir_generator_init(void)
         return NULL;
     }
 
-    // Initialize struct type registry
-    ctx->struct_capacity = 16;
-    ctx->structs = calloc(ctx->struct_capacity, sizeof(struct_info_t));
-    ctx->struct_count = 0;
-
     // Initialize label management
     ctx->label_capacity = 16;
     ctx->labels = calloc(ctx->label_capacity, sizeof(label_t));
@@ -2137,26 +2177,8 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
     if (!ctx)
         return;
 
-    free_symbol_table(ctx); // Free symbol table first
+    free_symbol_table(ctx); // Free symbol table first (includes local types)
     free_labels(ctx);
-
-    // Free struct type registry
-    if (ctx->structs)
-    {
-        for (size_t i = 0; i < ctx->struct_count; ++i)
-        {
-            free(ctx->structs[i].name);
-            if (ctx->structs[i].fields)
-            {
-                for (size_t j = 0; j < ctx->structs[i].field_count; j++)
-                {
-                    free(ctx->structs[i].fields[j].name);
-                }
-                free(ctx->structs[i].fields);
-            }
-        }
-        free(ctx->structs);
-    }
 
     if (ctx->builder)
         LLVMDisposeBuilder(ctx->builder);
@@ -4071,14 +4093,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 // Look up the struct info to find the member by name
                 struct_info_t * struct_info = NULL;
-                for (size_t si = 0; si < ctx->struct_count; si++)
-                {
-                    if (ctx->structs[si].type == struct_type)
-                    {
-                        struct_info = &ctx->structs[si];
-                        break;
-                    }
-                }
+                struct_info = scope_find_struct_by_type(ctx, struct_type);
 
                 if (struct_info && struct_info->fields)
                 {
@@ -4324,14 +4339,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 unsigned storage_index = 0;
                                 struct_info_t * info = NULL;
 
-                                for (size_t si = 0; si < ctx->struct_count; si++)
-                                {
-                                    if (ctx->structs[si].type == struct_type)
-                                    {
-                                        info = &ctx->structs[si];
-                                        break;
-                                    }
-                                }
+                                info = scope_find_struct_by_type(ctx, struct_type);
 
                                 if (info != NULL)
                                 {

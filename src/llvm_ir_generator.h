@@ -34,6 +34,14 @@ typedef struct struct_info
     size_t field_count;
 } struct_info_t;
 
+// --- Local types (structs/unions) in a scope ---
+typedef struct scope_local_types
+{
+    struct_info_t * structs;
+    size_t count;
+    size_t capacity;
+} scope_local_types_t;
+
 // --- Symbol Table Management ---
 // Define symbol_t structure
 typedef struct symbol
@@ -49,8 +57,11 @@ typedef struct symbol
 typedef struct scope
 {
     symbol_t * symbols;
-    size_t count;
-    size_t capacity;
+    size_t symbol_count;
+    size_t symbol_capacity;
+    
+    scope_local_types_t local_types; // Structs/unions declared in this scope
+    
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
 
@@ -71,11 +82,6 @@ typedef struct ir_generator_ctx
 
     // --- Scope-based symbol table ---
     scope_t * current_scope; // Innermost active scope
-
-    // --- Struct type registry ---
-    struct_info_t * structs;
-    size_t struct_count;
-    size_t struct_capacity;
 
     // --- Label management for goto statements ---
     label_t * labels;
