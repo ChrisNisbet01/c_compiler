@@ -923,12 +923,12 @@ main(int argc, char * argv[])
 
     printf("Successfully parsed the C file!\n");
     // Print the CPT (commented out for cleaner output)
-    char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
-    if (cpt_str != NULL)
-    {
-        printf("Concrete Parse Tree:\n%s\n", cpt_str);
-        free(cpt_str);
-    }
+    // char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
+    // if (cpt_str != NULL)
+    //{
+    //    printf("Concrete Parse Tree:\n%s\n", cpt_str);
+    //    free(cpt_str);
+    //}
 
     // Build the AST
     epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
