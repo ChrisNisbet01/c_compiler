@@ -49,6 +49,7 @@ static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
+static LLVMTypeRef scope_find_untagged_struct(scope_t const * scope, int index);
 
 // Helper function to extract struct/union name from a TypeSpecifier node
 // Returns the name if found (struct or union keyword followed by identifier), or NULL
@@ -891,7 +892,7 @@ scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 }
 
 static LLVMTypeRef
-scope_find_typedef(scope_t const * scope, char const * name)
+scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const * name)
 {
     if (scope == NULL || name == NULL)
     {
@@ -907,34 +908,37 @@ scope_find_typedef(scope_t const * scope, char const * name)
 
             switch (entry->kind)
             {
-                case TYPE_KIND_STRUCT:
+            case TYPE_KIND_STRUCT:
+            {
+                /* Look up the struct by tag name */
+                struct_info_t * info = scope_find_struct(scope, entry->tag);
+                if (info != NULL)
                 {
-                    /* Look up the struct by tag name */
-                    struct_info_t * info = scope_find_struct(scope, entry->tag);
-                    if (info != NULL)
-                    {
-                        return info->type;
-                    }
-                    return NULL;
+                    return info->type;
                 }
-                case TYPE_KIND_UNTAGGED_STRUCT:
-                {
-                    /* Look up by untagged index */
-                    if (entry->untagged_index >= 0
-                        && (size_t)entry->untagged_index < scope->untagged_structs.count)
-                    {
-                        return scope->untagged_structs.types[entry->untagged_index];
-                    }
-                    return NULL;
-                }
-                default:
-                    /* For other kinds, return the type directly */
-                    return entry->type;
+                return NULL;
+            }
+            case TYPE_KIND_UNTAGGED_STRUCT:
+            {
+                /* Look up by untagged index */
+                return scope_find_untagged_struct(scope, entry->untagged_index);
+            }
+            case TYPE_KIND_ENUM:
+            case TYPE_KIND_UNTAGGED_ENUM:
+            {
+                /* Enums are represented as integers */
+                return LLVMInt32TypeInContext(ctx->context);
+            }
+            case TYPE_KIND_UNION:          /* Why isn't there special handling for these? */
+            case TYPE_KIND_UNTAGGED_UNION: /* Why isn't there special handling for these? */
+            default:
+                /* For other kinds, return the type directly */
+                return entry->type;
             }
         }
     }
 
-    return scope_find_typedef(scope->parent, name);
+    return scope_find_typedef(ctx, scope->parent, name);
 }
 
 static void
@@ -1383,13 +1387,21 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
         return;
     }
 
-    // EnumDefinition structure: [KwEnum, Identifier?, Enumerator, Enumerator, ...]
+    // EnumDefinition structure: [Identifier?, Enumerator, Enumerator, ...]
     // The enumerators contain the enum constant names and values
+
+    // Check if first child is an Identifier (tag name) or Enumerator
+    size_t start_idx = 1;  // Skip tag name by default
+    if (enum_node->data.list.count > 0
+        && enum_node->data.list.children[0]->type == AST_NODE_ENUMERATOR)
+    {
+        start_idx = 0;  // Untagged enum - first child is an Enumerator
+    }
 
     // Enumerate values and register them as global constants
     int current_value = 0;
 
-    for (size_t i = 1; i < enum_node->data.list.count; ++i)
+    for (size_t i = start_idx; i < enum_node->data.list.count; ++i)
     {
         c_grammar_node_t * child = enum_node->data.list.children[i];
 
@@ -1675,7 +1687,7 @@ find_struct_type(ir_generator_ctx_t * ctx, char const * name)
 static LLVMTypeRef
 find_typedef_type(ir_generator_ctx_t * ctx, char const * name)
 {
-    LLVMTypeRef result = scope_find_typedef(ctx->current_scope, name);
+    LLVMTypeRef result = scope_find_typedef(ctx, ctx->current_scope, name);
     return result;
 }
 
@@ -2729,7 +2741,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         /* we'll need to find the actual underlying struct */
                                         /* This is a limitation - we'll fix by looking up the typedef entry directly */
                                         /* Actually, let's look up the struct by the type */
-                                        struct_info_t * info = scope_find_struct_by_type(ctx->current_scope, typedef_type);
+                                        struct_info_t * info
+                                            = scope_find_struct_by_type(ctx->current_scope, typedef_type);
                                         if (info != NULL)
                                         {
                                             struct_name = info->name;
@@ -2763,7 +2776,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                                 LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
                                                 if (typedef_type != NULL)
                                                 {
-                                                    struct_info_t * info = scope_find_struct_by_type(ctx->current_scope, typedef_type);
+                                                    struct_info_t * info
+                                                        = scope_find_struct_by_type(ctx->current_scope, typedef_type);
                                                     if (info != NULL)
                                                     {
                                                         struct_name = info->name;
@@ -3016,7 +3030,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 char const * struct_tag = NULL;
 
                 /* Look for struct/union/enum definition inside DeclarationSpecifiers */
-                /* Could be: 
+                /* Could be:
                    - struct Point { ... } (has StructDefinition)
                    - struct Point; (just keyword + identifier, no body)
                 */
@@ -3049,7 +3063,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 }
                             }
                         }
-                        
+
                         /* Also check for StructDefinition (full definition) */
                         for (size_t j = 0; j < spec_child->data.list.count; ++j)
                         {
@@ -3058,8 +3072,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 struct_def_node = type_child;
                                 /* Extract the struct tag if present */
-                                if (type_child->data.list.count > 1 
-                                    && type_child->data.list.children[1]
+                                if (type_child->data.list.count > 1 && type_child->data.list.children[1]
                                     && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
                                 {
                                     struct_tag = type_child->data.list.children[1]->data.terminal.text;
@@ -3124,6 +3137,36 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     /* Register the enum values as constants */
                     register_enum_definition(ctx, enum_def_node);
+
+                    /* Also register the typedef */
+                    if (typedef_name)
+                    {
+                        scope_typedef_entry_t entry = {0};
+                        entry.name = strdup(typedef_name);
+
+                        /* Check if there's an enum tag */
+                        char const * enum_tag = NULL;
+                        if (enum_def_node->data.list.count > 1 && enum_def_node->data.list.children[1]
+                            && enum_def_node->data.list.children[1]->type == AST_NODE_IDENTIFIER)
+                        {
+                            enum_tag = enum_def_node->data.list.children[1]->data.terminal.text;
+                        }
+
+                        if (enum_tag != NULL)
+                        {
+                            /* Tagged enum typedef */
+                            entry.kind = TYPE_KIND_ENUM;
+                            entry.tag = strdup(enum_tag);
+                        }
+                        else
+                        {
+                            /* Untagged enum typedef - store the integer type directly */
+                            entry.kind = TYPE_KIND_UNTAGGED_ENUM;
+                            entry.type = LLVMInt32TypeInContext(ctx->context);
+                        }
+
+                        scope_add_typedef_entry(ctx->current_scope, entry);
+                    }
                 }
             }
         }
@@ -5321,7 +5364,8 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 break;
             }
 
-            LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_struct_type(ctx, type_name);
+            LLVMTypeRef compound_type
+                = is_typedef ? find_typedef_type(ctx, type_name) : find_struct_type(ctx, type_name);
             if (compound_type == NULL)
             {
                 fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal in unary &\n", type_name);
