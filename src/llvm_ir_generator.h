@@ -34,6 +34,25 @@ typedef struct struct_info
     size_t field_count;
 } struct_info_t;
 
+// --- Type kind for typedef entries ---
+typedef enum
+{
+    TYPE_KIND_STRUCT,          // Tagged struct
+    TYPE_KIND_UNION,           // Tagged union
+    TYPE_KIND_UNTAGGED_STRUCT, // Untagged struct (anonymous)
+    TYPE_KIND_UNTAGGED_UNION  // Untagged union (anonymous)
+} type_kind_t;
+
+// --- Typedef entry ---
+typedef struct scope_typedef_entry
+{
+    char * name;              // The typedef's own name
+    type_kind_t kind;         // Which category this refers to
+    LLVMTypeRef type;         // Only used for non-struct kinds (e.g., primitives)
+    char * tag;               // For tagged kinds - which entry in struct/union list
+    int untagged_index;       // For untagged kinds - index into untagged list, -1 otherwise
+} scope_typedef_entry_t;
+
 // --- Local types (structs/unions) in a scope ---
 typedef struct scope_local_types
 {
@@ -50,11 +69,18 @@ typedef struct scope_enums
     size_t capacity;
 } scope_enums_t;
 
+// --- Untagged structs/unions in a scope ---
+typedef struct scope_untagged_structs
+{
+    LLVMTypeRef * types;
+    size_t count;
+    size_t capacity;
+} scope_untagged_structs_t;
+
 // --- Typedefs in a scope ---
 typedef struct scope_typedefs
 {
-    char ** names;
-    LLVMTypeRef * types;
+    scope_typedef_entry_t * entries;
     size_t count;
     size_t capacity;
 } scope_typedefs_t;
@@ -77,9 +103,10 @@ typedef struct scope
     size_t symbol_count;
     size_t symbol_capacity;
     
-    scope_local_types_t local_types; // Structs/unions declared in this scope
-    scope_enums_t enums;             // Enums declared in this scope
-    scope_typedefs_t typedefs;       // Typedefs declared in this scope
+    scope_local_types_t local_types;      // Tagged struct/union tags
+    scope_enums_t enums;                  // Tagged enum tags
+    scope_untagged_structs_t untagged_structs; // Anonymous structs/unions
+    scope_typedefs_t typedefs;            // Typedef names
     
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
