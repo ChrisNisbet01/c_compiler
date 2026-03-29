@@ -26,15 +26,7 @@ typedef struct struct_field
     unsigned storage_index; // -1 for regular fields, >=0 for bitfields = index of storage field
 } struct_field_t;
 
-typedef struct tagged_type_info
-{
-    char * name;
-    LLVMTypeRef type;
-    struct_field_t * fields;
-    size_t field_count;
-} tagged_type_info_t;
-
-// --- Type kind for typedef entries ---
+// --- Type kind for tagged types and typedef entries ---
 typedef enum
 {
     TYPE_KIND_STRUCT,          // Tagged struct
@@ -44,6 +36,15 @@ typedef enum
     TYPE_KIND_ENUM,           // Tagged enum
     TYPE_KIND_UNTAGGED_ENUM  // Untagged enum (anonymous)
 } type_kind_t;
+
+typedef struct tagged_type_info
+{
+    char * name;
+    type_kind_t kind;           // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
+    LLVMTypeRef type;
+    struct_field_t * fields;
+    size_t field_count;
+} tagged_type_info_t;
 
 // --- Typedef entry ---
 typedef struct scope_typedef_entry
@@ -55,21 +56,13 @@ typedef struct scope_typedef_entry
     int untagged_index;       // For untagged kinds - index into untagged list, -1 otherwise
 } scope_typedef_entry_t;
 
-// --- Local types (structs/unions) in a scope ---
-typedef struct scope_local_types
+// --- Tagged types (structs/unions/enums) in a scope ---
+typedef struct scope_tagged_types
 {
-    tagged_type_info_t * structs;
+    tagged_type_info_t * entries;
     size_t count;
     size_t capacity;
-} scope_local_types_t;
-
-// --- Local enums in a scope ---
-typedef struct scope_enums
-{
-    tagged_type_info_t * enums;
-    size_t count;
-    size_t capacity;
-} scope_enums_t;
+} scope_tagged_types_t;
 
 // --- Untagged structs/unions in a scope ---
 typedef struct scope_untagged_structs
@@ -104,12 +97,11 @@ typedef struct scope
     symbol_t * symbols;
     size_t symbol_count;
     size_t symbol_capacity;
-    
-    scope_local_types_t local_types;      // Tagged struct/union tags
-    scope_enums_t enums;                  // Tagged enum tags
+
+    scope_tagged_types_t tagged_types;       // Tagged struct/union/enum types
     scope_untagged_structs_t untagged_structs; // Anonymous structs/unions
-    scope_typedefs_t typedefs;            // Typedef names
-    
+    scope_typedefs_t typedefs;               // Typedef names
+
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
 

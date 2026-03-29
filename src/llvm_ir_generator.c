@@ -708,33 +708,21 @@ scope_create(scope_t * parent)
     }
     scope->symbol_count = 0;
 
-    scope->local_types.capacity = 4;
-    scope->local_types.structs = calloc(scope->local_types.capacity, sizeof(*scope->local_types.structs));
-    if (!scope->local_types.structs)
+    scope->tagged_types.capacity = 4;
+    scope->tagged_types.entries = calloc(scope->tagged_types.capacity, sizeof(*scope->tagged_types.entries));
+    if (!scope->tagged_types.entries)
     {
         free(scope->symbols);
         free(scope);
         return NULL;
     }
-    scope->local_types.count = 0;
-
-    scope->enums.capacity = 4;
-    scope->enums.enums = calloc(scope->enums.capacity, sizeof(*scope->enums.enums));
-    if (!scope->enums.enums)
-    {
-        free(scope->local_types.structs);
-        free(scope->symbols);
-        free(scope);
-        return NULL;
-    }
-    scope->enums.count = 0;
+    scope->tagged_types.count = 0;
 
     scope->untagged_structs.capacity = 4;
     scope->untagged_structs.types = calloc(scope->untagged_structs.capacity, sizeof(*scope->untagged_structs.types));
     if (!scope->untagged_structs.types)
     {
-        free(scope->enums.enums);
-        free(scope->local_types.structs);
+        free(scope->tagged_types.entries);
         free(scope->symbols);
         free(scope);
         return NULL;
@@ -746,8 +734,7 @@ scope_create(scope_t * parent)
     if (!scope->typedefs.entries)
     {
         free(scope->untagged_structs.types);
-        free(scope->enums.enums);
-        free(scope->local_types.structs);
+        free(scope->tagged_types.entries);
         free(scope->symbols);
         free(scope);
         return NULL;
@@ -775,23 +762,16 @@ scope_free(scope_t * scope)
     free(scope->symbols);
 
     /* Free all local types (structs/unions) in this scope */
-    for (size_t i = 0; i < scope->local_types.count; ++i)
+    for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        free(scope->local_types.structs[i].name);
-        for (size_t j = 0; j < scope->local_types.structs[i].field_count; ++j)
+        free(scope->tagged_types.entries[i].name);
+        for (size_t j = 0; j < scope->tagged_types.entries[i].field_count; ++j)
         {
-            free(scope->local_types.structs[i].fields[j].name);
+            free(scope->tagged_types.entries[i].fields[j].name);
         }
-        free(scope->local_types.structs[i].fields);
+        free(scope->tagged_types.entries[i].fields);
     }
-    free(scope->local_types.structs);
-
-    /* Free all enums in this scope */
-    for (size_t i = 0; i < scope->enums.count; ++i)
-    {
-        free(scope->enums.enums[i].name);
-    }
-    free(scope->enums.enums);
+    free(scope->tagged_types.entries);
 
     /* Free all untagged structs in this scope */
     free(scope->untagged_structs.types);
@@ -808,45 +788,82 @@ scope_free(scope_t * scope)
 }
 
 static void
-scope_add_struct(scope_t * scope, tagged_type_info_t info)
+scope_add_tagged_type(scope_t * scope, tagged_type_info_t info)
 {
-    if (scope == NULL)
+    if (scope == NULL || info.name == NULL)
     {
         return;
     }
 
-    if (scope->local_types.count >= scope->local_types.capacity)
+    /* Check if tag already exists */
+    for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        size_t new_cap = scope->local_types.capacity == 0 ? 4 : scope->local_types.capacity * 2;
-        tagged_type_info_t * new_structs = realloc(scope->local_types.structs, new_cap * sizeof(*new_structs));
-        if (new_structs == NULL)
+        if (scope->tagged_types.entries[i].name && strcmp(scope->tagged_types.entries[i].name, info.name) == 0)
+        {
+            /* Same name exists - check if kind matches */
+            if (scope->tagged_types.entries[i].kind != info.kind)
+            {
+                /* Kind mismatch - silently fail (keep original) */
+                return;
+            }
+            /* Same kind - update the entry */
+            scope->tagged_types.entries[i] = info;
+            return;
+        }
+    }
+
+    /* New entry - add to array */
+    if (scope->tagged_types.count >= scope->tagged_types.capacity)
+    {
+        size_t new_cap = scope->tagged_types.capacity == 0 ? 4 : scope->tagged_types.capacity * 2;
+        tagged_type_info_t * new_entries = realloc(scope->tagged_types.entries, new_cap * sizeof(*new_entries));
+        if (new_entries == NULL)
         {
             return;
         }
-        scope->local_types.structs = new_structs;
-        scope->local_types.capacity = new_cap;
+        scope->tagged_types.entries = new_entries;
+        scope->tagged_types.capacity = new_cap;
     }
 
-    scope->local_types.structs[scope->local_types.count++] = info;
+    scope->tagged_types.entries[scope->tagged_types.count++] = info;
 }
 
 static tagged_type_info_t *
-scope_find_struct(scope_t const * scope, char const * name)
+scope_find_tagged_type(scope_t const * scope, char const * name, type_kind_t kind)
 {
     if (scope == NULL || name == NULL)
     {
         return NULL;
     }
 
-    for (size_t i = 0; i < scope->local_types.count; ++i)
+    for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        if (scope->local_types.structs[i].name && strcmp(scope->local_types.structs[i].name, name) == 0)
+        if (scope->tagged_types.entries[i].name && strcmp(scope->tagged_types.entries[i].name, name) == 0)
         {
-            return &scope->local_types.structs[i];
+            /* Found by name - verify kind matches */
+            if (scope->tagged_types.entries[i].kind == kind)
+            {
+                return &scope->tagged_types.entries[i];
+            }
+            /* Name matches but kind doesn't - return NULL */
+            return NULL;
         }
     }
 
-    return scope_find_struct(scope->parent, name);
+    return scope_find_tagged_type(scope->parent, name, kind);
+}
+
+static void
+scope_add_struct(scope_t * scope, tagged_type_info_t info)
+{
+    info.kind = TYPE_KIND_STRUCT;
+    scope_add_tagged_type(scope, info);
+}
+
+static tagged_type_info_t *
+scope_find_struct(scope_t const * scope, char const * name)
+{
+    return scope_find_tagged_type(scope, name, TYPE_KIND_STRUCT);
 }
 
 static tagged_type_info_t *
@@ -857,11 +874,11 @@ scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type)
         return NULL;
     }
 
-    for (size_t i = 0; i < scope->local_types.count; ++i)
+    for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        if (scope->local_types.structs[i].type == type)
+        if (scope->tagged_types.entries[i].type == type)
         {
-            return &scope->local_types.structs[i];
+            return &scope->tagged_types.entries[i];
         }
     }
 
@@ -925,8 +942,8 @@ scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const *
             }
             case TYPE_KIND_UNION:
             {
-                /* Look up the union by tag name (same storage as structs) */
-                tagged_type_info_t * info = scope_find_struct(scope, entry->tag);
+                /* Look up the union by tag name */
+                tagged_type_info_t * info = scope_find_tagged_type(scope, entry->tag, TYPE_KIND_UNION);
                 if (info != NULL)
                 {
                     return info->type;
@@ -939,6 +956,15 @@ scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const *
                 return scope_find_untagged_struct(scope, entry->untagged_index);
             }
             case TYPE_KIND_ENUM:
+            {
+                /* Look up the enum by tag name */
+                tagged_type_info_t * info = scope_find_tagged_type(scope, entry->tag, TYPE_KIND_ENUM);
+                if (info != NULL)
+                {
+                    return info->type;
+                }
+                return NULL;
+            }
             case TYPE_KIND_UNTAGGED_ENUM:
             {
                 /* Enums are represented as integers */
@@ -1405,10 +1431,30 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
 
     // Check if first child is an Identifier (tag name) or Enumerator
     size_t start_idx = 1;  // Skip tag name by default
+    char const * enum_tag = NULL;
+
     if (enum_node->data.list.count > 0
         && enum_node->data.list.children[0]->type == AST_NODE_ENUMERATOR)
     {
         start_idx = 0;  // Untagged enum - first child is an Enumerator
+    }
+    else if (enum_node->data.list.count > 0
+             && enum_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+    {
+        // Tagged enum - store the tag name
+        enum_tag = enum_node->data.list.children[0]->data.terminal.text;
+    }
+
+    // Store the enum tag in tagged_types if present
+    if (enum_tag != NULL)
+    {
+        tagged_type_info_t enum_info = {0};
+        enum_info.name = strdup(enum_tag);
+        enum_info.kind = TYPE_KIND_ENUM;
+        enum_info.type = LLVMInt32TypeInContext(ctx->context);
+        enum_info.fields = NULL;
+        enum_info.field_count = 0;
+        scope_add_tagged_type(ctx->current_scope, enum_info);
     }
 
     // Enumerate values and register them as global constants
@@ -1771,6 +1817,7 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
 
     tagged_type_info_t new_struct = {0};
     new_struct.name = strdup(name);
+    new_struct.kind = TYPE_KIND_STRUCT;
     new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.name);
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
