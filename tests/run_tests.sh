@@ -150,7 +150,6 @@ run_test() {
         fi
     fi
 
-    echo "current_test_failed: $current_test_failed"
     if [ "$current_test_failed" = "true" ]; then
         FAILED_TESTS=$((FAILED_TESTS + 1))
         echo "$c_file" >> "$FAILED_TESTS_FILE"
