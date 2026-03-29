@@ -44,7 +44,7 @@ static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_
 static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static struct_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
-static struct_info_t * scope_find_struct_by_type(ir_generator_ctx_t * ctx, LLVMTypeRef type);
+static struct_info_t * scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
@@ -506,7 +506,7 @@ process_postfix_suffixes(
                     unsigned storage_index = 0;
                     struct_info_t * info = NULL;
 
-                    info = scope_find_struct_by_type(ctx, struct_type);
+                    info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
                     if (info)
                     {
@@ -693,8 +693,10 @@ scope_create(scope_t * parent)
 static void
 scope_free(scope_t * scope)
 {
-    if (!scope)
+    if (scope == NULL)
+    {
         return;
+    }
 
     // Free all symbol names and struct names in this scope
     for (size_t i = 0; i < scope->symbol_count; ++i)
@@ -720,19 +722,21 @@ scope_free(scope_t * scope)
 }
 
 static void
-scope_add_struct(ir_generator_ctx_t * ctx, struct_info_t info)
+scope_add_struct(scope_t * scope, struct_info_t info)
 {
-    if (!ctx || !ctx->current_scope)
+    if (scope == NULL)
+    {
         return;
-
-    scope_t * scope = ctx->current_scope;
+    }
 
     if (scope->local_types.count >= scope->local_types.capacity)
     {
         size_t new_cap = scope->local_types.capacity == 0 ? 4 : scope->local_types.capacity * 2;
         struct_info_t * new_structs = realloc(scope->local_types.structs, new_cap * sizeof(*new_structs));
-        if (!new_structs)
+        if (new_structs == NULL)
+        {
             return;
+        }
         scope->local_types.structs = new_structs;
         scope->local_types.capacity = new_cap;
     }
@@ -741,41 +745,41 @@ scope_add_struct(ir_generator_ctx_t * ctx, struct_info_t info)
 }
 
 static struct_info_t *
-scope_find_struct(ir_generator_ctx_t * ctx, char const * name)
+scope_find_struct(scope_t const * scope, char const * name)
 {
-    if (!ctx || !name)
-        return NULL;
-
-    for (scope_t * scope = ctx->current_scope; scope != NULL; scope = scope->parent)
+    if (scope == NULL || name == NULL)
     {
-        for (size_t i = 0; i < scope->local_types.count; ++i)
+        return NULL;
+    }
+
+    for (size_t i = 0; i < scope->local_types.count; ++i)
+    {
+        if (scope->local_types.structs[i].name && strcmp(scope->local_types.structs[i].name, name) == 0)
         {
-            if (scope->local_types.structs[i].name && strcmp(scope->local_types.structs[i].name, name) == 0)
-            {
-                return &scope->local_types.structs[i];
-            }
+            return &scope->local_types.structs[i];
         }
     }
-    return NULL;
+
+    return scope_find_struct(scope->parent, name);
 }
 
 static struct_info_t *
-scope_find_struct_by_type(ir_generator_ctx_t * ctx, LLVMTypeRef type)
+scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type)
 {
-    if (!ctx || !type)
-        return NULL;
-
-    for (scope_t * scope = ctx->current_scope; scope != NULL; scope = scope->parent)
+    if (scope == NULL || type == NULL)
     {
-        for (size_t i = 0; i < scope->local_types.count; ++i)
+        return NULL;
+    }
+
+    for (size_t i = 0; i < scope->local_types.count; ++i)
+    {
+        if (scope->local_types.structs[i].type == type)
         {
-            if (scope->local_types.structs[i].type == type)
-            {
-                return &scope->local_types.structs[i];
-            }
+            return &scope->local_types.structs[i];
         }
     }
-    return NULL;
+
+    return scope_find_struct_by_type(scope->parent, type);
 }
 
 static void
@@ -794,11 +798,14 @@ scope_push(ir_generator_ctx_t * ctx)
 static void
 scope_pop(ir_generator_ctx_t * ctx)
 {
-    if (!ctx || !ctx->current_scope)
+    if (ctx == NULL || ctx->current_scope == NULL)
+    {
         return;
+    }
 
     scope_t * old_scope = ctx->current_scope;
     ctx->current_scope = old_scope->parent;
+    old_scope->parent = NULL; // Detach old scope from context before freeing
     scope_free(old_scope);
 }
 
@@ -842,23 +849,33 @@ add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTy
 }
 
 static char const *
-find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name)
+scope_find_symbol_struct_name(scope_t const * scope, char const * name)
 {
-    if (!ctx || !ctx->current_scope)
-        return NULL;
-
-    // Search from current scope outward through parent scopes
-    for (scope_t * scope = ctx->current_scope; scope; scope = scope->parent)
+    if (scope == NULL || name == NULL)
     {
-        for (size_t i = 0; i < scope->symbol_count; ++i)
+        return NULL;
+    }
+
+    for (size_t i = 0; i < scope->symbol_count; ++i)
+    {
+        if (scope->symbols[i].name != NULL && strcmp(scope->symbols[i].name, name) == 0)
         {
-            if (scope->symbols[i].name != NULL && strcmp(scope->symbols[i].name, name) == 0)
-            {
-                return scope->symbols[i].struct_name;
-            }
+            return scope->symbols[i].struct_name;
         }
     }
-    return NULL;
+
+    return scope_find_symbol_struct_name(scope->parent, name);
+}
+
+static char const *
+find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name)
+{
+    if (ctx == NULL)
+    {
+        return NULL;
+    }
+
+    return scope_find_symbol_struct_name(ctx->current_scope, name);
 }
 
 static void
@@ -1109,6 +1126,37 @@ process_initializer_list(
     }
 }
 
+static bool
+scope_find_symbol(
+    scope_t const * scope,
+    char const * name,
+    LLVMValueRef * out_ptr,
+    LLVMTypeRef * out_type,
+    LLVMTypeRef * out_pointee_type
+)
+{
+    if (scope == NULL || name == NULL)
+    {
+        return false;
+    }
+
+    for (size_t i = scope->symbol_count; i > 0; --i)
+    {
+        if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
+        {
+            if (out_ptr)
+                *out_ptr = scope->symbols[i - 1].ptr;
+            if (out_type)
+                *out_type = scope->symbols[i - 1].type;
+            if (out_pointee_type)
+                *out_pointee_type = scope->symbols[i - 1].pointee_type;
+            return true;
+        }
+    }
+
+    return scope_find_symbol(scope->parent, name, out_ptr, out_type, out_pointee_type);
+}
+
 /**
  * @brief Finds a symbol in the symbol table and returns its pointer and type.
  * @param ctx The IR generator context.
@@ -1126,148 +1174,11 @@ find_symbol(
     LLVMTypeRef * out_pointee_type
 )
 {
-    if (!ctx || !name || !ctx->current_scope)
+    if (ctx == NULL)
     {
         return false;
     }
-
-    // Search from current scope outward through parent scopes
-    for (scope_t * scope = ctx->current_scope; scope; scope = scope->parent)
-    {
-        // Search backwards within this scope (most recent first)
-        for (size_t i = scope->symbol_count; i > 0; --i)
-        {
-            if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
-            {
-                if (out_ptr)
-                    *out_ptr = scope->symbols[i - 1].ptr;
-                if (out_type)
-                    *out_type = scope->symbols[i - 1].type;
-                if (out_pointee_type)
-                    *out_pointee_type = scope->symbols[i - 1].pointee_type;
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-static void register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
-
-static void
-register_structs_in_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    if (ctx == NULL || node == NULL)
-    {
-        return;
-    }
-
-    bool is_struct_declaration = false;
-
-    if (node->type == AST_NODE_DECLARATION)
-    {
-        /* [ OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorList ] */
-        c_grammar_node_t const * decl_specs_node = node->data.list.children[1];
-
-        for (size_t i = 0; i < decl_specs_node->data.list.count; ++i)
-        {
-            c_grammar_node_t * spec_child = decl_specs_node->data.list.children[i];
-
-            if (spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
-            {
-                for (size_t j = 0; j < spec_child->data.list.count; ++j)
-                {
-                    c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-
-                    if (type_child->type == AST_NODE_STRUCT_DEFINITION)
-                    {
-                        register_struct_definition(ctx, type_child);
-                        is_struct_declaration = true;
-                    }
-                    else if (type_child->type == AST_NODE_ENUM_SPECIFIER)
-                    {
-                        register_enum_definition(ctx, type_child);
-                        is_struct_declaration = true;
-                    }
-                }
-            }
-        }
-    }
-    else if (node->type == AST_NODE_TYPEDEF_DECLARATION)
-    {
-        // Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier]
-        // DeclarationSpecifiers contains the struct/union/enum definition
-        // Identifier is the typedef name
-        if (node->data.list.count >= 2)
-        {
-            c_grammar_node_t * decl_specs = node->data.list.children[0];
-            c_grammar_node_t * typedef_name_node = node->data.list.children[1];
-
-            if (decl_specs && typedef_name_node && decl_specs->type == AST_NODE_DECL_SPECIFIERS
-                && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->is_terminal_node)
-            {
-                char * typedef_name = typedef_name_node->data.terminal.text;
-                c_grammar_node_t const * struct_def_node = NULL;
-                c_grammar_node_t const * enum_def_node = NULL;
-
-                // Look for struct/union/enum definition inside DeclarationSpecifiers
-                for (size_t i = 0; i < decl_specs->data.list.count; ++i)
-                {
-                    c_grammar_node_t * spec_child = decl_specs->data.list.children[i];
-
-                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
-                    {
-                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
-                        {
-                            c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
-                            {
-                                struct_def_node = type_child;
-                                break;
-                            }
-                            else if (type_child && type_child->type == AST_NODE_ENUM_SPECIFIER)
-                            {
-                                enum_def_node = type_child;
-                                break;
-                            }
-                        }
-                    }
-                    if (struct_def_node || enum_def_node)
-                    {
-                        break;
-                    }
-                }
-
-                if (struct_def_node && typedef_name)
-                {
-                    register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
-                    is_struct_declaration = true;
-                }
-                else if (enum_def_node)
-                {
-                    // Register the enum values as constants
-                    register_enum_definition(ctx, enum_def_node);
-                    is_struct_declaration = true;
-                }
-            }
-        }
-    }
-
-    if (!is_struct_declaration)
-    {
-        if (node->is_terminal_node)
-        {
-            register_structs_in_node(ctx, node->lhs);
-            register_structs_in_node(ctx, node->rhs);
-        }
-        else
-        {
-            for (size_t i = 0; i < node->data.list.count; ++i)
-            {
-                register_structs_in_node(ctx, node->data.list.children[i]);
-            }
-        }
-    }
+    return scope_find_symbol(ctx->current_scope, name, out_ptr, out_type, out_pointee_type);
 }
 
 static void
@@ -1557,7 +1468,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
 static struct_info_t *
 find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 {
-    return scope_find_struct(ctx, name);
+    return scope_find_struct(ctx->current_scope, name);
 }
 
 static LLVMTypeRef
@@ -1573,7 +1484,7 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
     if (!struct_type || !field_name)
         return -1;
 
-    struct_info_t * info = scope_find_struct_by_type(ctx, struct_type);
+    struct_info_t * info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
     if (!info)
         return -1;
@@ -1627,7 +1538,7 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
         return;
     }
 
-    if (scope_find_struct(ctx, name))
+    if (scope_find_struct(ctx->current_scope, name))
     {
         return;
     }
@@ -1656,7 +1567,7 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
         free(field_types);
     }
 
-    scope_add_struct(ctx, new_struct);
+    scope_add_struct(ctx->current_scope, new_struct);
 }
 
 static char *
@@ -2207,11 +2118,7 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
         return NULL;
     }
 
-    // Struct registration now happens during IR generation (in the correct scope)
-    scope_push(ctx); // Push global scope for top-level declarations
-    // register_structs_in_node(ctx, ast_root);
     process_ast_node(ctx, ast_root);
-    scope_pop(ctx); // Pop global scope after processing
 
     return ctx->module;
 }
@@ -4181,7 +4088,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 // Look up the struct info to find the member by name
                 struct_info_t * struct_info = NULL;
-                struct_info = scope_find_struct_by_type(ctx, struct_type);
+                struct_info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
                 if (struct_info && struct_info->fields)
                 {
@@ -4427,7 +4334,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 unsigned storage_index = 0;
                                 struct_info_t * info = NULL;
 
-                                info = scope_find_struct_by_type(ctx, struct_type);
+                                info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
                                 if (info != NULL)
                                 {
