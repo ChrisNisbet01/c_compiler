@@ -11,5 +11,5 @@ main()
 {
     Value v;
     v.i = 42;
-    return v.i;
+    return v.i - 42;
 }
