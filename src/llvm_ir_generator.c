@@ -2020,26 +2020,27 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     }
                     else
                     {
-                        // Check children for typedef names or struct definitions
-                        for (size_t j = 0; j < child->data.list.count; ++j)
+                        // Use helper to determine if this is a struct/union reference or a typedef
+                        // Check struct/union keyword first
+                        char const * struct_name = extract_struct_or_union_name(child);
+                        if (struct_name != NULL)
                         {
-                            c_grammar_node_t * tchild = child->data.list.children[j];
-                            if (tchild && tchild->is_terminal_node && tchild->type == AST_NODE_IDENTIFIER)
+                            LLVMTypeRef struct_type = find_struct_type(ctx, struct_name);
+                            if (struct_type != NULL)
                             {
-                                char const * type_name = tchild->data.terminal.text;
-                                // First check for typedef
-                                LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
-                                if (typedef_type)
+                                base_type = struct_type;
+                            }
+                        }
+                        else
+                        {
+                            // No struct/union keyword - check for typedef
+                            char const * typedef_name = extract_typedef_name(child);
+                            if (typedef_name != NULL)
+                            {
+                                LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
+                                if (typedef_type != NULL)
                                 {
                                     base_type = typedef_type;
-                                    break;
-                                }
-                                // Then check for struct
-                                LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
-                                if (struct_type)
-                                {
-                                    base_type = struct_type;
-                                    break;
                                 }
                             }
                         }
