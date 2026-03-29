@@ -898,36 +898,29 @@ scope_find_typedef(scope_t const * scope, char const * name)
         return NULL;
     }
 
-    fprintf(stderr, "DEBUG scope_find_typedef: searching in scope, looking for '%s', typedef count=%zu\n", name, scope->typedefs.count);
-    
     for (size_t i = 0; i < scope->typedefs.count; ++i)
     {
-        fprintf(stderr, "DEBUG: checking typedef entry %zu: '%s'\n", i, scope->typedefs.entries[i].name ? scope->typedefs.entries[i].name : "NULL");
         if (scope->typedefs.entries[i].name && strcmp(scope->typedefs.entries[i].name, name) == 0)
         {
             /* Found the typedef - now resolve it based on kind */
             scope_typedef_entry_t const * entry = &scope->typedefs.entries[i];
-            fprintf(stderr, "DEBUG: Found typedef '%s', kind=%d, tag='%s'\n", entry->name, entry->kind, entry->tag ? entry->tag : "NULL");
-            
+
             switch (entry->kind)
             {
                 case TYPE_KIND_STRUCT:
                 {
                     /* Look up the struct by tag name */
-                    fprintf(stderr, "DEBUG: Looking up struct '%s'\n", entry->tag);
                     struct_info_t * info = scope_find_struct(scope, entry->tag);
                     if (info != NULL)
                     {
-                        fprintf(stderr, "DEBUG: Found struct '%s'\n", info->name);
                         return info->type;
                     }
-                    fprintf(stderr, "DEBUG: Could not find struct '%s'\n", entry->tag);
                     return NULL;
                 }
                 case TYPE_KIND_UNTAGGED_STRUCT:
                 {
                     /* Look up by untagged index */
-                    if (entry->untagged_index >= 0 
+                    if (entry->untagged_index >= 0
                         && (size_t)entry->untagged_index < scope->untagged_structs.count)
                     {
                         return scope->untagged_structs.types[entry->untagged_index];
@@ -1682,9 +1675,7 @@ find_struct_type(ir_generator_ctx_t * ctx, char const * name)
 static LLVMTypeRef
 find_typedef_type(ir_generator_ctx_t * ctx, char const * name)
 {
-    fprintf(stderr, "DEBUG find_typedef_type: looking up '%s'\n", name);
     LLVMTypeRef result = scope_find_typedef(ctx->current_scope, name);
-    fprintf(stderr, "DEBUG find_typedef_type: result=%p\n", (void*)result);
     return result;
 }
 
@@ -2016,7 +2007,16 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     {
                         char const * type_name = child->data.terminal.text;
 
-                        base_type = get_type_from_name(ctx, type_name);
+                        // First check for typedef
+                        LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
+                        if (typedef_type)
+                        {
+                            base_type = typedef_type;
+                        }
+                        else
+                        {
+                            base_type = get_type_from_name(ctx, type_name);
+                        }
                     }
                     else
                     {
@@ -2027,6 +2027,14 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             if (tchild && tchild->is_terminal_node && tchild->type == AST_NODE_IDENTIFIER)
                             {
                                 char const * type_name = tchild->data.terminal.text;
+                                // First check for typedef
+                                LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
+                                if (typedef_type)
+                                {
+                                    base_type = typedef_type;
+                                    break;
+                                }
+                                // Then check for struct
                                 LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
                                 if (struct_type)
                                 {
@@ -3072,90 +3080,49 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 if ((struct_def_node || struct_tag) && typedef_name)
                 {
-                    /* First register the struct definition with its actual tag name */
+                    /* Register the struct definition if we have a tag and definition */
                     if (struct_tag != NULL && struct_def_node != NULL)
                     {
                         register_struct_definition_with_name(ctx, struct_def_node, struct_tag);
                     }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        /* Also check for StructDefinition (full definition) */
-                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
-                        {
-                            c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
-                            {
-                                struct_def_node = type_child;
-                                /* Extract the struct tag if present */
-                                if (type_child->data.list.count > 1 
-                                    && type_child->data.list.children[1]
-                                    && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
-                                {
-                                    struct_tag = type_child->data.list.children[1]->data.terminal.text;
-                                }
-                                break;
-                            }
-                            else if (type_child && type_child->type == AST_NODE_ENUM_SPECIFIER)
-                            {
-                                enum_def_node = type_child;
-                                break;
-                            }
-                        }
-                    }
-                    if (struct_def_node || enum_def_node || struct_tag)
-                    {
-                        break;
-                    }
-                }
 
-                fprintf(stderr, "DEBUG: struct_tag='%s', struct_def_node=%p\n", struct_tag ? struct_tag : "NULL", (void*)struct_def_node);
-
-                if ((struct_def_node || struct_tag) && typedef_name)
-                {
-                    /* First register the struct definition with its actual tag name */
-                    if (struct_tag != NULL)
-                    {
-                        /* Only register if we have a full definition */
-                        if (struct_def_node != NULL)
-                        {
-                            register_struct_definition_with_name(ctx, struct_def_node, struct_tag);
-                        }
-                    }
-                    
                     /* Then register the typedef */
-                    /* If there's a struct tag, use TYPE_KIND_STRUCT with the tag */
-                    /* If no struct tag (anonymous), use TYPE_KIND_UNTAGGED_STRUCT */
                     scope_typedef_entry_t entry = {0};
                     entry.name = strdup(typedef_name);
-                    
+
                     if (struct_tag != NULL)
                     {
-                        /* Tagged struct typedef */
+                        /* Tagged struct typedef - reference by tag name */
                         entry.kind = TYPE_KIND_STRUCT;
                         entry.tag = strdup(struct_tag);
                     }
                     else
                     {
-                        /* Anonymous/untagged struct - need to add to untagged list and reference it */
-                        /* For now, create an opaque type and add to untagged list */
-                        LLVMTypeRef anon_type = LLVMStructCreateNamed(ctx->context, typedef_name);
-                        scope_add_untagged_struct(ctx->current_scope, anon_type);
-                        entry.kind = TYPE_KIND_UNTAGGED_STRUCT;
-                        entry.untagged_index = (int)ctx->current_scope->untagged_structs.count - 1;
+                        /* Anonymous/untagged struct - create type from definition */
+                        /* For forward declarations (no body), create opaque type */
+                        if (struct_def_node == NULL)
+                        {
+                            LLVMTypeRef anon_type = LLVMStructCreateNamed(ctx->context, typedef_name);
+                            scope_add_untagged_struct(ctx->current_scope, anon_type);
+                            entry.kind = TYPE_KIND_UNTAGGED_STRUCT;
+                            entry.untagged_index = (int)ctx->current_scope->untagged_structs.count - 1;
+                        }
+                        else
+                        {
+                            /* We have a full definition - we need to get the type from the struct definition */
+                            /* For now, register with typedef name and look it up */
+                            register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
+                            entry.kind = TYPE_KIND_STRUCT;
+                            entry.tag = strdup(typedef_name);
+                        }
                     }
-                    
+
                     scope_add_typedef_entry(ctx->current_scope, entry);
                 }
                 else if (enum_def_node)
                 {
                     /* Register the enum values as constants */
                     register_enum_definition(ctx, enum_def_node);
-                    
-                    /* Also register as typedef if there's a name */
-                    /* TODO: Handle enum typedefs */
                 }
             }
         }
