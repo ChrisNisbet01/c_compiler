@@ -1434,7 +1434,7 @@ find_symbol(
 static void
 register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
 {
-    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_SPECIFIER)
+    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_DEFINITION)
     {
         return;
     }
@@ -2438,7 +2438,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return;
     }
 
-    //fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
+    // fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {
@@ -2693,7 +2693,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             register_struct_definition(ctx, type_child);
                         }
-                        else if (type_child->type == AST_NODE_ENUM_SPECIFIER)
+                        else if (type_child->type == AST_NODE_ENUM_DEFINITION)
                         {
                             register_enum_definition(ctx, type_child);
                         }
@@ -3177,7 +3177,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 }
                                 break;
                             }
-                            else if (type_child && type_child->type == AST_NODE_ENUM_SPECIFIER)
+                            else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
                             {
                                 enum_def_node = type_child;
                                 break;
@@ -4008,7 +4008,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     case AST_NODE_KEYWORD:
     case AST_NODE_TERNARY_OPERATION:
-    case AST_NODE_ENUM_SPECIFIER:
+    case AST_NODE_ENUM_DEFINITION:
     case AST_NODE_ENUMERATOR:
     case AST_NODE_COMMA_EXPRESSION:
     case AST_NODE_CONDITIONAL_EXPRESSION:
@@ -5787,7 +5787,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NULL;
     }
 
-    //fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
+    // fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {
@@ -5994,7 +5994,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:
     case AST_NODE_KEYWORD:
     case AST_NODE_TERNARY_OPERATION:
-    case AST_NODE_ENUM_SPECIFIER:
+    case AST_NODE_ENUM_DEFINITION:
     case AST_NODE_ENUMERATOR:
     case AST_NODE_FUNCTION_POINTER_DECLARATOR:
     case AST_NODE_DESIGNATION:

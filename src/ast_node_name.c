@@ -74,7 +74,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_TERNARY_OPERATION] = {.name = "TernaryOperation"},
     [AST_NODE_CONDITIONAL_EXPRESSION] = {.name = "ConditionalExpression"},
     [AST_NODE_COMMA_EXPRESSION] = {.name = "CommaExpression"},
-    [AST_NODE_ENUM_SPECIFIER] = {.name = "EnumSpecifier"},
+    [AST_NODE_ENUM_DEFINITION] = {.name = "EnumDefinition"},
     [AST_NODE_ENUMERATOR] = {.name = "Enumerator"},
     [AST_NODE_FUNCTION_POINTER_DECLARATOR] = {.name = "FunctionPointerDeclarator"},
     [AST_NODE_DESIGNATION] = {.name = "Designation"},
