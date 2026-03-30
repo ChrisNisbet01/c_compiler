@@ -29,18 +29,19 @@ typedef struct struct_field
 // --- Type kind for tagged types and typedef entries ---
 typedef enum
 {
+    TYPE_KIND_UNKNOWN,         // Unassigned/unknown type kind
     TYPE_KIND_STRUCT,          // Tagged struct
     TYPE_KIND_UNION,           // Tagged union
     TYPE_KIND_UNTAGGED_STRUCT, // Untagged struct (anonymous)
-    TYPE_KIND_UNTAGGED_UNION, // Untagged union (anonymous)
-    TYPE_KIND_ENUM,           // Tagged enum
-    TYPE_KIND_UNTAGGED_ENUM  // Untagged enum (anonymous)
+    TYPE_KIND_UNTAGGED_UNION,  // Untagged union (anonymous)
+    TYPE_KIND_ENUM,            // Tagged enum
+    TYPE_KIND_UNTAGGED_ENUM    // Untagged enum (anonymous)
 } type_kind_t;
 
 typedef struct tagged_type_info
 {
     char * name;
-    type_kind_t kind;           // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
+    type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
     LLVMTypeRef type;
     struct_field_t * fields;
     size_t field_count;
@@ -49,11 +50,11 @@ typedef struct tagged_type_info
 // --- Typedef entry ---
 typedef struct scope_typedef_entry
 {
-    char * name;              // The typedef's own name
-    type_kind_t kind;         // Which category this refers to
-    LLVMTypeRef type;         // Only used for non-struct kinds (e.g., primitives)
-    char * tag;               // For tagged kinds - which entry in struct/union list
-    int untagged_index;       // For untagged kinds - index into untagged list, -1 otherwise
+    char * name;        // The typedef's own name
+    type_kind_t kind;   // Which category this refers to
+    LLVMTypeRef type;   // Only used for non-struct kinds (e.g., primitives)
+    char * tag;         // For tagged kinds - which entry in struct/union list
+    int untagged_index; // For untagged kinds - index into untagged list, -1 otherwise
 } scope_typedef_entry_t;
 
 // --- Tagged types (structs/unions/enums) in a scope ---
@@ -98,9 +99,9 @@ typedef struct scope
     size_t symbol_count;
     size_t symbol_capacity;
 
-    scope_tagged_types_t tagged_types;       // Tagged struct/union/enum types
+    scope_tagged_types_t tagged_types;         // Tagged struct/union/enum types
     scope_untagged_structs_t untagged_structs; // Anonymous structs/unions
-    scope_typedefs_t typedefs;               // Typedef names
+    scope_typedefs_t typedefs;                 // Typedef names
 
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;

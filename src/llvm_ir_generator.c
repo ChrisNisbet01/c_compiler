@@ -37,11 +37,13 @@ static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_
 static char const * find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static void register_struct_definition_with_name(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name, type_kind_t kind
 );
 static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
-static void add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields);
+static void add_struct_type(
+    ir_generator_ctx_t * ctx, char const * name, type_kind_t kind, struct_field_t * fields, size_t num_fields
+);
 static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
 static tagged_type_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
 static tagged_type_info_t * scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type);
@@ -908,6 +910,16 @@ scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
     scope->typedefs.entries[scope->typedefs.count++] = entry;
 }
 
+static void
+scope_add_typedef_forward_decl(scope_t * scope, char const * typedef_name, char const * tag, type_kind_t kind)
+{
+    scope_typedef_entry_t entry = {0};
+    entry.name = strdup(typedef_name);
+    entry.tag = strdup(tag);
+    entry.kind = kind;
+    scope_add_typedef_entry(scope, entry);
+}
+
 static LLVMTypeRef
 scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const * name)
 {
@@ -1430,16 +1442,14 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     // The enumerators contain the enum constant names and values
 
     // Check if first child is an Identifier (tag name) or Enumerator
-    size_t start_idx = 1;  // Skip tag name by default
+    size_t start_idx = 1; // Skip tag name by default
     char const * enum_tag = NULL;
 
-    if (enum_node->data.list.count > 0
-        && enum_node->data.list.children[0]->type == AST_NODE_ENUMERATOR)
+    if (enum_node->data.list.count > 0 && enum_node->data.list.children[0]->type == AST_NODE_ENUMERATOR)
     {
-        start_idx = 0;  // Untagged enum - first child is an Enumerator
+        start_idx = 0; // Untagged enum - first child is an Enumerator
     }
-    else if (enum_node->data.list.count > 0
-             && enum_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+    else if (enum_node->data.list.count > 0 && enum_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
     {
         // Tagged enum - store the tag name
         enum_tag = enum_node->data.list.children[0]->data.terminal.text;
@@ -1534,7 +1544,7 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
 
 static void
 register_struct_definition_with_name(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name, type_kind_t kind
 )
 {
     if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION || struct_name == NULL)
@@ -1692,7 +1702,7 @@ register_struct_definition_with_name(
 
     if (num_members > 0)
     {
-        add_struct_type(ctx, struct_name, members, num_members);
+        add_struct_type(ctx, struct_name, kind, members, num_members);
     }
     else
     {
@@ -1727,7 +1737,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         return;
     }
 
-    register_struct_definition_with_name(ctx, type_child, struct_name);
+    register_struct_definition_with_name(ctx, type_child, struct_name, TYPE_KIND_STRUCT);
 }
 
 static tagged_type_info_t *
@@ -1803,7 +1813,9 @@ cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef tar
 }
 
 static void
-add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fields, size_t num_fields)
+add_struct_type(
+    ir_generator_ctx_t * ctx, char const * name, type_kind_t kind, struct_field_t * fields, size_t num_fields
+)
 {
     if (ctx == NULL || name == NULL || fields == NULL || num_fields == 0)
     {
@@ -1817,7 +1829,7 @@ add_struct_type(ir_generator_ctx_t * ctx, char const * name, struct_field_t * fi
 
     tagged_type_info_t new_struct = {0};
     new_struct.name = strdup(name);
-    new_struct.kind = TYPE_KIND_STRUCT;
+    new_struct.kind = kind;
     new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.name);
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
@@ -3088,6 +3100,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 c_grammar_node_t const * struct_def_node = NULL;
                 c_grammar_node_t const * enum_def_node = NULL;
                 char const * struct_tag = NULL;
+                type_kind_t kind = TYPE_KIND_UNKNOWN;
 
                 /* Look for struct/union/enum definition inside DeclarationSpecifiers */
                 /* Could be:
@@ -3100,14 +3113,24 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
                     {
+                        bool handled = false;
+
                         /* First check for struct/union keyword */
                         for (size_t j = 0; j < spec_child->data.list.count; ++j)
                         {
                             c_grammar_node_t const * type_child = spec_child->data.list.children[j];
                             if (type_child && type_child->type == AST_NODE_KEYWORD && type_child->data.terminal.text)
                             {
-                                if (strcmp(type_child->data.terminal.text, "struct") == 0
-                                    || strcmp(type_child->data.terminal.text, "union") == 0)
+                                kind = TYPE_KIND_UNKNOWN;
+                                if (strcmp(type_child->data.terminal.text, "struct") == 0)
+                                {
+                                    kind = TYPE_KIND_STRUCT;
+                                }
+                                else if (strcmp(type_child->data.terminal.text, "union") == 0)
+                                {
+                                    kind = TYPE_KIND_UNION;
+                                }
+                                if (kind != TYPE_KIND_UNKNOWN)
                                 {
                                     /* Check if there's an identifier after the keyword (forward declaration) */
                                     if (j + 1 < spec_child->data.list.count)
@@ -3117,20 +3140,45 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         {
                                             /* This is a forward declaration: struct Point; */
                                             struct_tag = name_node->data.terminal.text;
+                                            scope_add_typedef_forward_decl(
+                                                ctx->current_scope, typedef_name, struct_tag, kind
+                                            );
+                                            handled = true;
                                             break;
                                         }
                                     }
                                 }
                             }
                         }
+                        if (handled)
+                        {
+                            continue;
+                        }
 
                         /* Also check for StructDefinition (full definition) */
+                        kind = TYPE_KIND_UNKNOWN;
                         for (size_t j = 0; j < spec_child->data.list.count; ++j)
                         {
                             c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION)
+                            if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION
+                                && type_child->data.list.count > 1)
                             {
                                 struct_def_node = type_child;
+
+                                c_grammar_node_t const * type_kind_child = type_child->data.list.children[0];
+                                if (type_kind_child && type_kind_child->type == AST_NODE_KEYWORD
+                                    && type_kind_child->data.terminal.text)
+                                {
+                                    if (strcmp(type_kind_child->data.terminal.text, "struct") == 0)
+                                    {
+                                        kind = TYPE_KIND_STRUCT;
+                                    }
+                                    else if (strcmp(type_kind_child->data.terminal.text, "union") == 0)
+                                    {
+                                        kind = TYPE_KIND_UNION;
+                                    }
+                                }
+
                                 /* Extract the struct tag if present */
                                 if (type_child->data.list.count > 1 && type_child->data.list.children[1]
                                     && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
@@ -3146,18 +3194,18 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                         }
                     }
-                    if (struct_def_node || enum_def_node || struct_tag)
+                    if (struct_def_node || enum_def_node)
                     {
                         break;
                     }
                 }
 
-                if ((struct_def_node || struct_tag) && typedef_name)
+                if (struct_def_node)
                 {
                     /* Register the struct definition if we have a tag and definition */
                     if (struct_tag != NULL && struct_def_node != NULL)
                     {
-                        register_struct_definition_with_name(ctx, struct_def_node, struct_tag);
+                        register_struct_definition_with_name(ctx, struct_def_node, struct_tag, kind);
                     }
 
                     /* Then register the typedef */
@@ -3167,7 +3215,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (struct_tag != NULL)
                     {
                         /* Tagged struct typedef - reference by tag name */
-                        entry.kind = TYPE_KIND_STRUCT;
+                        entry.kind = kind;
                         entry.tag = strdup(struct_tag);
                     }
                     else
@@ -3178,15 +3226,23 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             LLVMTypeRef anon_type = LLVMStructCreateNamed(ctx->context, typedef_name);
                             scope_add_untagged_struct(ctx->current_scope, anon_type);
-                            entry.kind = TYPE_KIND_UNTAGGED_STRUCT;
-                            entry.untagged_index = (int)ctx->current_scope->untagged_structs.count - 1;
+                            if (kind == TYPE_KIND_STRUCT)
+                            {
+                                entry.kind = TYPE_KIND_UNTAGGED_STRUCT;
+                                entry.untagged_index = (int)ctx->current_scope->untagged_structs.count - 1;
+                            }
+                            else if (kind == TYPE_KIND_UNION)
+                            {
+                                entry.kind = TYPE_KIND_UNTAGGED_UNION;
+                                entry.untagged_index = (int)ctx->current_scope->untagged_structs.count - 1;
+                            }
                         }
                         else
                         {
                             /* We have a full definition - we need to get the type from the struct definition */
                             /* For now, register with typedef name and look it up */
-                            register_struct_definition_with_name(ctx, struct_def_node, typedef_name);
-                            entry.kind = TYPE_KIND_STRUCT;
+                            register_struct_definition_with_name(ctx, struct_def_node, typedef_name, kind);
+                            entry.kind = kind;
                             entry.tag = strdup(typedef_name);
                         }
                     }
