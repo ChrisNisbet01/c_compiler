@@ -234,16 +234,8 @@ struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
 
-    bool is_terminal_node;
-    /* terminal/non-terminal node specific. */
-    union
-    {
-        ast_node_list_t list; /* TODO: rename to children. */
-        struct
-        {
-            char * text;
-        } terminal;
-    } data;
+    ast_node_list_t list;
+    char * text;
 
     /* Expression specific. */
     c_grammar_node_t const * lhs;

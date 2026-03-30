@@ -9,15 +9,8 @@ static void print_ast_internal(c_grammar_node_t const * node, int indent);
 static void
 print_list_type_ast_node(c_grammar_node_t const * node, int indent)
 {
-    printf(
-        "%s (%u): (%zu child%s)\n",
-        get_node_type_name_from_node(node),
-        node->type,
-        node->data.list.count,
-        (node->data.list.count == 1) ? "" : "ren"
-    );
-    for (size_t i = 0; i < node->data.list.count; i++)
-        print_ast_internal(node->data.list.children[i], indent + 1);
+    for (size_t i = 0; i < node->list.count; i++)
+        print_ast_internal(node->list.children[i], indent + 1);
 }
 
 static void
@@ -34,39 +27,39 @@ print_ast_internal(c_grammar_node_t const * node, int indent)
         printf("NULL node\n");
         return;
     }
-    print_indent(indent);
 
-    if (node->is_terminal_node)
+    print_indent(indent);
+    printf("%s (%u):", get_node_type_name_from_node(node), node->type);
+    if (node->text != NULL)
     {
-        printf("%s (%u): %s\n", get_node_type_name_from_node(node), node->type, node->data.terminal.text);
-        if (node->lhs != NULL)
-        {
-            print_indent(indent + 1);
-            printf("LHS: \n");
-            print_ast_internal(node->lhs, indent + 2);
-        }
-        if (node->op.text != NULL)
-        {
-            print_indent(indent + 1);
-            printf("Operator: %s\n", node->op.text);
-        }
-        if (node->rhs != NULL)
-        {
-            print_indent(indent + 1);
-            printf("RHS: \n");
-            print_ast_internal(node->rhs, indent + 2);
-        }
-        if (node->false_expr != NULL)
-        {
-            print_indent(indent + 1);
-            printf("Ternary False Expression: \n");
-            print_ast_internal(node->false_expr, indent + 2);
-        }
+        printf(" `%s`", node->text);
     }
-    else
+    printf(" (%zu child%s)\n", node->list.count, (node->list.count == 1) ? "" : "ren");
+
+    if (node->lhs != NULL)
     {
-        print_list_type_ast_node(node, indent);
+        print_indent(indent + 1);
+        printf("LHS: \n");
+        print_ast_internal(node->lhs, indent + 2);
     }
+    if (node->op.text != NULL)
+    {
+        print_indent(indent + 1);
+        printf("Operator: %s\n", node->op.text);
+    }
+    if (node->rhs != NULL)
+    {
+        print_indent(indent + 1);
+        printf("RHS: \n");
+        print_ast_internal(node->rhs, indent + 2);
+    }
+    if (node->false_expr != NULL)
+    {
+        print_indent(indent + 1);
+        printf("Ternary False Expression: \n");
+        print_ast_internal(node->false_expr, indent + 2);
+    }
+    print_list_type_ast_node(node, indent);
 }
 
 void

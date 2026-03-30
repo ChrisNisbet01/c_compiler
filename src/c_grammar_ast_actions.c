@@ -31,15 +31,12 @@ c_grammar_node_free(void * node_ptr, void * user_data)
     {
         return;
     }
-    if (node->is_terminal_node)
-    {
-        free(node->data.terminal.text);
-    }
-    else
-    {
-        free_ast_node_children((void **)node->data.list.children, node->data.list.count, user_data);
-        free(node->data.list.children);
-    }
+
+    free(node->text);
+
+    free_ast_node_children((void **)node->list.children, node->list.count, user_data);
+    free(node->list.children);
+
     free((char *)node->op.text);
     c_grammar_node_free((c_grammar_node_t *)node->lhs, user_data);
     c_grammar_node_free((c_grammar_node_t *)node->rhs, user_data);
@@ -57,18 +54,18 @@ create_list_node(c_grammar_node_type_t type, void ** children, int count)
         return NULL;
     }
     node->type = type;
-    node->data.list.count = (size_t)count;
+    node->list.count = (size_t)count;
     if (count > 0)
     {
-        node->data.list.children = calloc((size_t)count, sizeof(*node->data.list.children));
-        if (node->data.list.children == NULL)
+        node->list.children = calloc((size_t)count, sizeof(*node->list.children));
+        if (node->list.children == NULL)
         {
             free(node);
             return NULL;
         }
         for (int i = 0; i < count; i++)
         {
-            node->data.list.children[i] = (c_grammar_node_t *)children[i];
+            node->list.children[i] = (c_grammar_node_t *)children[i];
         }
     }
 
@@ -76,31 +73,21 @@ create_list_node(c_grammar_node_type_t type, void ** children, int count)
 }
 
 static c_grammar_node_t *
-create_empty_terminal_node(c_grammar_node_type_t type)
-{
-    c_grammar_node_t * ast_node = calloc(1, sizeof(*ast_node));
-    if (ast_node == NULL)
-    {
-        return NULL;
-    }
-    ast_node->type = type;
-    ast_node->is_terminal_node = true;
-    return ast_node;
-}
-
-static c_grammar_node_t *
 create_terminal_node(epc_ast_builder_ctx_t * ctx, c_grammar_node_type_t type, epc_cpt_node_t * node)
 {
-    c_grammar_node_t * ast_node = create_empty_terminal_node(type);
+    c_grammar_node_t * ast_node = calloc(1, sizeof(*ast_node));
     if (ast_node == NULL)
     {
         epc_ast_builder_set_error(ctx, "%s: Memory allocation failed", get_node_type_name_from_type(type));
         return NULL;
     }
 
+    ast_node->type = type;
+
     char const * text = epc_cpt_node_get_semantic_content(node);
-    ast_node->data.terminal.text = strndup(text, epc_cpt_node_get_semantic_len(node));
-    if (ast_node->data.terminal.text == NULL)
+    size_t text_len = epc_cpt_node_get_semantic_len(node);
+    ast_node->text = strndup(text, text_len);
+    if (ast_node->text == NULL)
     {
         free(ast_node);
         ast_node = NULL;
@@ -130,6 +117,7 @@ handle_list_node(
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "%s: Memory allocation failed", get_node_type_name_from_type(type));
     }
+
     return ast_node;
 }
 
@@ -294,12 +282,12 @@ handle_integer_literal(
     }
 
     // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
-    ast_node->integer_literal.value = strtoull(ast_node->data.terminal.text, NULL, 0);
+    ast_node->integer_literal.value = strtoull(ast_node->text, NULL, 0);
 
     if (count == 2)
     {
         c_grammar_node_t * suffix_node = children[1];
-        char * suffix_text = suffix_node->is_terminal_node ? suffix_node->data.terminal.text : NULL;
+        char * suffix_text = suffix_node->text;
 
         if (suffix_text != NULL)
         {
@@ -339,21 +327,24 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
     }
 
     c_grammar_node_t * suffix_node = count == 2 ? children[1] : NULL;
-    char * full_text = ast_node->data.terminal.text;
+    char * full_text = ast_node->text;
 
     ast_node->float_literal.value = strtold(full_text, NULL);
     ast_node->float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
     if (suffix_node != NULL)
     {
-        char * suffix_text = suffix_node->is_terminal_node ? suffix_node->data.terminal.text : "";
+        char * suffix_text = suffix_node->text;
 
-        if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
+        if (suffix_text != NULL)
         {
-            ast_node->float_literal.type = FLOAT_LITERAL_TYPE_FLOAT;
-        }
-        else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
-        {
-            ast_node->float_literal.type = FLOAT_LITERAL_TYPE_LONG_DOUBLE;
+            if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
+            {
+                ast_node->float_literal.type = FLOAT_LITERAL_TYPE_FLOAT;
+            }
+            else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+            {
+                ast_node->float_literal.type = FLOAT_LITERAL_TYPE_LONG_DOUBLE;
+            }
         }
     }
 
@@ -485,7 +476,7 @@ handle_assignment_operator(
         return;
     }
 
-    char const * text = ast_node->data.terminal.text;
+    char const * text = ast_node->text;
 
     if (strcmp(text, "=") == 0)
         ast_node->op.assign.op = ASSIGN_OP_SIMPLE;
@@ -550,8 +541,8 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
     ast_node->lhs = children[0];
     ast_node->rhs = children[2];
     ast_node->op.assign.op = op_node->op.assign.op;
-    ast_node->op.text = op_node->data.terminal.text;
-    op_node->data.terminal.text = NULL;
+    ast_node->op.text = op_node->text;
+    op_node->text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -597,7 +588,7 @@ handle_unary_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
         return;
     }
 
-    char const * op_text = ast_node->data.terminal.text;
+    char const * op_text = ast_node->text;
 
     if (strcmp(op_text, "+") == 0)
         ast_node->op.unary.op = UNARY_OP_PLUS;
@@ -669,8 +660,8 @@ handle_unary_expression(
     /* The operand should be children[1]. Let's save it into node->lhs. */
     ast_node->lhs = children[1];
     ast_node->op.unary.op = op_node->op.unary.op;
-    ast_node->op.text = op_node->data.terminal.text;
-    op_node->data.terminal.text = NULL;
+    ast_node->op.text = op_node->text;
+    op_node->text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -760,7 +751,7 @@ handle_relational_operator(
         return;
     }
 
-    char const * op_text = ast_node->data.terminal.text;
+    char const * op_text = ast_node->text;
 
     if (strcmp(op_text, "<") == 0)
     {
@@ -830,8 +821,8 @@ handle_relational_expression(
     ast_node->lhs = children[0];
     ast_node->rhs = children[2];
     ast_node->op.rel.op = op_node->op.rel.op;
-    ast_node->op.text = op_node->data.terminal.text;
-    op_node->data.terminal.text = NULL;
+    ast_node->op.text = op_node->text;
+    op_node->text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -857,7 +848,7 @@ handle_equality_operator(
         return;
     }
 
-    char const * op_text = ast_node->data.terminal.text;
+    char const * op_text = ast_node->text;
 
     if (strcmp(op_text, "==") == 0)
     {
@@ -916,8 +907,8 @@ handle_equality_expression(
     ast_node->lhs = children[0];
     ast_node->rhs = children[2];
     ast_node->op.eq.op = op_node->op.eq.op;
-    ast_node->op.text = op_node->data.terminal.text;
-    op_node->data.terminal.text = NULL;
+    ast_node->op.text = op_node->text;
+    op_node->text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -1089,7 +1080,7 @@ handle_shift_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
         return;
     }
 
-    char const * op_text = ast_node->data.terminal.text;
+    char const * op_text = ast_node->text;
 
     if (strcmp(op_text, "<<") == 0)
     {
@@ -1151,8 +1142,8 @@ handle_shift_expression(
     ast_node->lhs = children[0];
     ast_node->rhs = children[2];
     ast_node->op.shift.op = op_node->op.shift.op;
-    ast_node->op.text = op_node->data.terminal.text;
-    op_node->data.terminal.text = NULL;
+    ast_node->op.text = op_node->text;
+    op_node->text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -1181,7 +1172,7 @@ handle_arithmetic_operator(
         return;
     }
 
-    char const * op_text = ast_node->data.terminal.text;
+    char const * op_text = ast_node->text;
     if (strcmp(op_text, "+") == 0)
     {
         ast_node->op.arith.op = ARITH_OP_ADD;
@@ -1257,8 +1248,8 @@ handle_arithmetic_expression(
     ast_node->lhs = children[0];
     ast_node->rhs = children[2];
     ast_node->op.arith.op = op_node->op.arith.op;
-    ast_node->op.text = op_node->data.terminal.text;
-    op_node->data.terminal.text = NULL;
+    ast_node->op.text = op_node->text;
+    op_node->text = NULL;
     c_grammar_node_free(op_node, user_data);
 
     epc_ast_push(ctx, ast_node);
@@ -1296,7 +1287,7 @@ handle_postfix_operator(
         return;
     }
 
-    char const * text = ast_node->data.terminal.text;
+    char const * text = ast_node->text;
 
     if (strcmp(text, "++") == 0)
     {
@@ -1364,7 +1355,7 @@ handle_postfix_expression(
        If the postfix parts list is empty then we just have a plain expression, so don't bother with a postfix
        expression node.
     */
-    if (postfix->data.list.count == 0)
+    if (postfix->list.count == 0)
     {
         c_grammar_node_free((c_grammar_node_t *)postfix, user_data);
         epc_ast_push(ctx, (c_grammar_node_t *)base);
@@ -1842,13 +1833,13 @@ handle_conditional_expression(
 
     // TernaryOperation children: [AssignmentExpression, ConditionalExpression]
     // children[0] = LogicalOrExpression (condition)
-    // ternary->data.list.children[0] = true expression (AssignmentExpression)
-    // ternary->data.list.children[1] = false expression (ConditionalExpression)
+    // ternary->list.children[0] = true expression (AssignmentExpression)
+    // ternary->list.children[1] = false expression (ConditionalExpression)
 
     c_grammar_node_t * condition = children[0];
-    c_grammar_node_t * true_expr = ternary->data.list.children[0];
-    c_grammar_node_t * false_expr = ternary->data.list.children[1];
-    ternary->data.list.count = 0;
+    c_grammar_node_t * true_expr = ternary->list.children[0];
+    c_grammar_node_t * false_expr = ternary->list.children[1];
+    ternary->list.count = 0;
 
     /* Ownership of the ternary child nodes has been transferred to the ConditionalExression node, so it can be freed
      * now. */

@@ -1,6 +1,7 @@
 #include "llvm_ir_generator.h"
 
 #include "ast_node_name.h"
+#include "ast_print.h"
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
 
 #include <stdint.h>
@@ -59,26 +60,29 @@ static LLVMTypeRef scope_find_untagged_struct(scope_t const * scope, int index);
 static char const *
 extract_struct_or_union_name(c_grammar_node_t const * type_spec_node)
 {
-    if (type_spec_node == NULL || type_spec_node->is_terminal_node)
+    if (type_spec_node == NULL || type_spec_node->list.count == 0)
+    {
         return NULL;
+    }
 
     if (type_spec_node->type != AST_NODE_TYPE_SPECIFIER)
+    {
         return NULL;
+    }
 
     /* Look for struct or union keyword followed by identifier */
-    for (size_t j = 0; j + 1 < type_spec_node->data.list.count; ++j)
+    for (size_t j = 0; j + 1 < type_spec_node->list.count; ++j)
     {
-        c_grammar_node_t const * spec_child = type_spec_node->data.list.children[j];
-        if (spec_child && spec_child->type == AST_NODE_KEYWORD && spec_child->data.terminal.text)
+        c_grammar_node_t const * spec_child = type_spec_node->list.children[j];
+        if (spec_child && spec_child->type == AST_NODE_KEYWORD && spec_child->text)
         {
-            if (strcmp(spec_child->data.terminal.text, "struct") == 0
-                || strcmp(spec_child->data.terminal.text, "union") == 0)
+            if (strcmp(spec_child->text, "struct") == 0 || strcmp(spec_child->text, "union") == 0)
             {
                 /* Next child should be the type name identifier */
-                c_grammar_node_t const * name_node = type_spec_node->data.list.children[j + 1];
-                if (name_node && name_node->type == AST_NODE_IDENTIFIER)
+                c_grammar_node_t const * name_node = type_spec_node->list.children[j + 1];
+                if (name_node && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
                 {
-                    return name_node->data.terminal.text;
+                    return name_node->text;
                 }
             }
         }
@@ -92,21 +96,24 @@ extract_struct_or_union_name(c_grammar_node_t const * type_spec_node)
 static char const *
 extract_typedef_name(c_grammar_node_t const * type_spec_node)
 {
-    if (type_spec_node == NULL || type_spec_node->is_terminal_node)
+    if (type_spec_node == NULL || type_spec_node->list.count == 0)
+    {
         return NULL;
+    }
 
     if (type_spec_node->type != AST_NODE_TYPE_SPECIFIER)
+    {
         return NULL;
+    }
 
     /* First check: if struct/union keyword is present, return NULL */
-    for (size_t j = 0; j < type_spec_node->data.list.count; ++j)
+    for (size_t j = 0; j < type_spec_node->list.count; ++j)
     {
-        c_grammar_node_t const * spec_child = type_spec_node->data.list.children[j];
-        if (spec_child && spec_child->type == AST_NODE_KEYWORD && spec_child->data.terminal.text)
+        c_grammar_node_t const * spec_child = type_spec_node->list.children[j];
+        if (spec_child && spec_child->type == AST_NODE_KEYWORD && spec_child->text)
         {
-            if (strcmp(spec_child->data.terminal.text, "struct") == 0
-                || strcmp(spec_child->data.terminal.text, "union") == 0
-                || strcmp(spec_child->data.terminal.text, "enum") == 0)
+            if (strcmp(spec_child->text, "struct") == 0 || strcmp(spec_child->text, "union") == 0
+                || strcmp(spec_child->text, "enum") == 0)
             {
                 /* Has struct/union/enum keyword - not a typedef */
                 return NULL;
@@ -115,12 +122,12 @@ extract_typedef_name(c_grammar_node_t const * type_spec_node)
     }
 
     /* No keyword - check for plain identifier (typedef) */
-    for (size_t j = 0; j < type_spec_node->data.list.count; ++j)
+    for (size_t j = 0; j < type_spec_node->list.count; ++j)
     {
-        c_grammar_node_t const * spec_child = type_spec_node->data.list.children[j];
-        if (spec_child && spec_child->type == AST_NODE_IDENTIFIER)
+        c_grammar_node_t const * spec_child = type_spec_node->list.children[j];
+        if (spec_child && spec_child->type == AST_NODE_IDENTIFIER && spec_child->text != NULL)
         {
-            return spec_child->data.terminal.text;
+            return spec_child->text;
         }
     }
 
@@ -335,9 +342,9 @@ process_array_subscript(
 
     // Extract index from first child of ArraySubscript node
     LLVMValueRef index_val = NULL;
-    if (subscript_node->data.list.count >= 1)
+    if (subscript_node->list.count >= 1)
     {
-        c_grammar_node_t * index_node = subscript_node->data.list.children[0];
+        c_grammar_node_t * index_node = subscript_node->list.children[0];
         index_val = process_expression(ctx, index_node);
     }
 
@@ -429,9 +436,9 @@ process_postfix_suffixes(
     LLVMTypeRef current_type = base_type;
     LLVMValueRef current_val = base_val;
 
-    for (size_t i = 0; i < postfix_node->data.list.count; ++i)
+    for (size_t i = 0; i < postfix_node->list.count; ++i)
     {
-        c_grammar_node_t * suffix = postfix_node->data.list.children[i];
+        c_grammar_node_t * suffix = postfix_node->list.children[i];
 
         // Handle ARRAY_SUBSCRIPT
         if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
@@ -456,21 +463,21 @@ process_postfix_suffixes(
             size_t num_args = 0;
             LLVMValueRef * args = NULL;
 
-            if (suffix->data.list.count > 0)
+            if (suffix->list.count > 0)
             {
-                num_args = suffix->data.list.count;
+                num_args = suffix->list.count;
                 args = malloc(num_args * sizeof(*args));
                 for (size_t j = 0; j < num_args; ++j)
                 {
-                    args[j] = process_expression(ctx, suffix->data.list.children[j]);
+                    args[j] = process_expression(ctx, suffix->list.children[j]);
                 }
             }
 
             if (!current_val)
             {
-                if (base_node && base_node->type == AST_NODE_IDENTIFIER)
+                if (base_node && base_node->type == AST_NODE_IDENTIFIER && base_node->text != NULL)
                 {
-                    char const * func_name = base_node->data.terminal.text;
+                    char const * func_name = base_node->text;
                     current_val = LLVMGetNamedFunction(ctx->module, func_name);
                     if (!current_val)
                     {
@@ -510,17 +517,17 @@ process_postfix_suffixes(
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
         {
             /* The one and only child is an IDENTIFIER node. */
-            c_grammar_node_t * child = suffix->data.list.children[0];
-            char * member_name = child->data.terminal.text;
+            c_grammar_node_t * child = suffix->list.children[0];
+            char * member_name = child->text;
 
             if (current_val || current_ptr)
             {
                 LLVMTypeRef struct_type = NULL;
                 bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
 
-                if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
+                if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER && base_node->text != NULL)
                 {
-                    char const * sname = find_symbol_struct_name(ctx, base_node->data.terminal.text);
+                    char const * sname = find_symbol_struct_name(ctx, base_node->text);
                     if (sname)
                         struct_type = find_struct_type(ctx, sname);
                 }
@@ -982,6 +989,7 @@ scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const *
                 /* Enums are represented as integers */
                 return LLVMInt32TypeInContext(ctx->context);
             }
+            case TYPE_KIND_UNKNOWN:
             default:
                 /* For other kinds, return the type directly */
                 return entry->type;
@@ -1153,222 +1161,215 @@ process_initializer_list(
         LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, get_type_alignment(element_type));
     }
 
-    if (!initializer_node->is_terminal_node)
+    // Use a local index for processing leaf elements at this level
+    int local_index = 0;
+
+    for (size_t i = 0; i < initializer_node->list.count; ++i)
     {
-        // Use a local index for processing leaf elements at this level
-        int local_index = 0;
+        c_grammar_node_t const * child = initializer_node->list.children[i];
 
-        for (size_t i = 0; i < initializer_node->data.list.count; ++i)
+        if (child->list.count == 0 && child->type != AST_NODE_INTEGER_LITERAL)
         {
-            c_grammar_node_t const * child = initializer_node->data.list.children[i];
+            continue;
+        }
 
-            if (child->is_terminal_node && child->type != AST_NODE_INTEGER_LITERAL)
+        // Handle Designation nodes (designated initializers like .x = value or .pos.x = value)
+        if (child->type == AST_NODE_DESIGNATION)
+        {
+            // Designation contains a list of field names (identifiers)
+            // The next child in the list is the actual value
+            if (i + 1 >= initializer_node->list.count)
             {
                 continue;
             }
 
-            // Handle Designation nodes (designated initializers like .x = value or .pos.x = value)
-            if (child->type == AST_NODE_DESIGNATION)
+            c_grammar_node_t const * designation = child;
+            c_grammar_node_t const * value_node = initializer_node->list.children[i + 1];
+
+            // Handle nested designations (e.g., .pos.x = value has 2 identifiers: pos, x)
+            LLVMValueRef current_ptr = base_ptr;
+            LLVMTypeRef current_type = element_type;
+            LLVMTypeKind current_kind = kind;
+            int field_indices[16]; // Max nesting depth
+            int field_count = 0;
+            int final_local_index = 0;
+            LLVMTypeRef final_type = element_type;
+
+            if (designation->list.count > 0)
             {
-                // Designation contains a list of field names (identifiers)
-                // The next child in the list is the actual value
-                if (i + 1 >= initializer_node->data.list.count)
+                // Process each field in the designation path
+                for (size_t d = 0; d < designation->list.count; d++)
                 {
-                    continue;
-                }
-
-                c_grammar_node_t const * designation = child;
-                c_grammar_node_t const * value_node = initializer_node->data.list.children[i + 1];
-
-                // Handle nested designations (e.g., .pos.x = value has 2 identifiers: pos, x)
-                LLVMValueRef current_ptr = base_ptr;
-                LLVMTypeRef current_type = element_type;
-                LLVMTypeKind current_kind = kind;
-                int field_indices[16]; // Max nesting depth
-                int field_count = 0;
-                int final_local_index = 0;
-                LLVMTypeRef final_type = element_type;
-
-                if (!designation->is_terminal_node && designation->data.list.count > 0)
-                {
-                    // Process each field in the designation path
-                    for (size_t d = 0; d < designation->data.list.count; d++)
+                    c_grammar_node_t const * field_ident = designation->list.children[d];
+                    if (field_ident->type == AST_NODE_IDENTIFIER && field_ident->text != NULL)
                     {
-                        c_grammar_node_t const * field_ident = designation->data.list.children[d];
-                        if (field_ident->type == AST_NODE_IDENTIFIER)
+                        char const * field_name = field_ident->text;
+
+                        // For structs, find the field index by name
+                        if (current_kind == LLVMStructTypeKind)
                         {
-                            char const * field_name = field_ident->data.terminal.text;
-
-                            // For structs, find the field index by name
-                            if (current_kind == LLVMStructTypeKind)
+                            int field_idx = find_struct_field_index(ctx, current_type, field_name);
+                            if (field_idx < 0)
                             {
-                                int field_idx = find_struct_field_index(ctx, current_type, field_name);
-                                if (field_idx < 0)
-                                {
-                                    // Field not found
-                                    break;
-                                }
-                                field_indices[field_count++] = field_idx;
+                                // Field not found
+                                break;
+                            }
+                            field_indices[field_count++] = field_idx;
 
-                                // Get the type of this field
-                                LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(current_type, (unsigned)field_idx);
+                            // Get the type of this field
+                            LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(current_type, (unsigned)field_idx);
 
-                                // If there are more fields after this, navigate to the nested struct
-                                // For the final field, only navigate if we're processing a nested InitializerList
-                                if (d + 1 < designation->data.list.count)
-                                {
-                                    // More fields coming - navigate to nested struct
-                                    LLVMValueRef indices[2];
-                                    indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field_idx, false);
-                                    current_ptr = LLVMBuildInBoundsGEP2(
-                                        ctx->builder, current_type, current_ptr, indices, 2, "nested_ptr"
-                                    );
-                                    current_type = field_type;
-                                    current_kind = LLVMGetTypeKind(current_type);
-                                }
-                                else
-                                {
-                                    // This is the final field - store info for simple value case
-                                    final_local_index = field_idx;
-                                    final_type = field_type;
-                                }
+                            // If there are more fields after this, navigate to the nested struct
+                            // For the final field, only navigate if we're processing a nested InitializerList
+                            if (d + 1 < designation->list.count)
+                            {
+                                // More fields coming - navigate to nested struct
+                                LLVMValueRef indices[2];
+                                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), field_idx, false);
+                                current_ptr = LLVMBuildInBoundsGEP2(
+                                    ctx->builder, current_type, current_ptr, indices, 2, "nested_ptr"
+                                );
+                                current_type = field_type;
+                                current_kind = LLVMGetTypeKind(current_type);
+                            }
+                            else
+                            {
+                                // This is the final field - store info for simple value case
+                                final_local_index = field_idx;
+                                final_type = field_type;
                             }
                         }
                     }
                 }
-
-                // Process the value and store it at the designated position
-                // Check if value is an InitializerList (nested initializer like .inner = {.x = 1, .y = 2})
-                if (value_node->type == AST_NODE_INITIALIZER_LIST)
-                {
-                    // Nested initializer - recursively process
-                    // For nested initializers, we need current_ptr to point to the final field
-                    // Navigate to the final field if not already done
-                    if (field_count > 0 && final_local_index >= 0)
-                    {
-                        LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
-                        current_ptr = LLVMBuildInBoundsGEP2(
-                            ctx->builder, element_type, current_ptr, indices, 2, "nested_init_field_ptr"
-                        );
-                        current_type = final_type;
-                    }
-
-                    if (field_count > 0 && current_ptr && current_type)
-                    {
-                        process_initializer_list(ctx, current_ptr, current_type, value_node, NULL);
-                    }
-                }
-                else
-                {
-                    // Simple value (not an InitializerList)
-                    LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)value_node);
-                    if (value && field_count > 0)
-                    {
-                        LLVMValueRef elem_ptr;
-                        if (field_count > 1)
-                        {
-                            // Nested field - current_ptr already points to the parent struct's field
-                            // We need to get element 0 of that nested struct (since it's the final target)
-                            LLVMValueRef indices[2];
-                            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
-                            elem_ptr = LLVMBuildInBoundsGEP2(
-                                ctx->builder, current_type, current_ptr, indices, 2, "nested_init_ptr"
-                            );
-                        }
-                        else
-                        {
-                            // Single field
-                            LLVMValueRef indices[2];
-                            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
-                            elem_ptr
-                                = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-                        }
-
-                        // Cast the value to the final field type if needed
-                        value = cast_value_to_type(ctx, value, final_type, false);
-
-                        aligned_store(ctx->builder, value, elem_ptr);
-                    }
-                }
-
-                // Skip the value node since we already processed it
-                i++;
-                local_index++;
-                if (outer_index)
-                {
-                    (*outer_index)++;
-                }
-                continue;
             }
 
-            // If child is an INITIALIZER_LIST, create GEP to the row and recurse
-            if (child->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
+            // Process the value and store it at the designated position
+            // Check if value is an InitializerList (nested initializer like .inner = {.x = 1, .y = 2})
+            if (value_node->type == AST_NODE_INITIALIZER_LIST)
             {
-                LLVMTypeRef nested_element = LLVMGetElementType(element_type);
-                LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
-                LLVMValueRef row_ptr
-                    = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "row_ptr");
-                process_initializer_list(ctx, row_ptr, nested_element, child, NULL);
-                local_index++;
-                if (outer_index)
-                    (*outer_index)++;
-                continue;
-            }
-
-            // If child is an ASSIGNMENT node, extract the inner expression
-            if (child->type == AST_NODE_ASSIGNMENT)
-            {
-                child = child->rhs;
-            }
-
-            // For array types, create a GEP to the element and recurse
-            if (kind == LLVMArrayTypeKind && child->type != AST_NODE_INTEGER_LITERAL && !child->is_terminal_node
-                && child->data.list.count > 0)
-            {
-                LLVMTypeRef nested_element = LLVMGetElementType(element_type);
-                LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
-                LLVMValueRef elem_ptr
-                    = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-                process_initializer_list(ctx, elem_ptr, nested_element, child, &local_index);
-            }
-            // Process leaf values - store to array or struct member
-            else
-            {
-                LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)child);
-                if (value)
+                // Nested initializer - recursively process
+                // For nested initializers, we need current_ptr to point to the final field
+                // Navigate to the final field if not already done
+                if (field_count > 0 && final_local_index >= 0)
                 {
                     LLVMValueRef indices[2];
                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+                    indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
+                    current_ptr = LLVMBuildInBoundsGEP2(
+                        ctx->builder, element_type, current_ptr, indices, 2, "nested_init_field_ptr"
+                    );
+                    current_type = final_type;
+                }
 
-                    LLVMValueRef elem_ptr
-                        = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-
-                    // For structs, cast the value to the member type
-                    if (kind == LLVMStructTypeKind)
+                if (field_count > 0 && current_ptr && current_type)
+                {
+                    process_initializer_list(ctx, current_ptr, current_type, value_node, NULL);
+                }
+            }
+            else
+            {
+                // Simple value (not an InitializerList)
+                LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)value_node);
+                if (value && field_count > 0)
+                {
+                    LLVMValueRef elem_ptr;
+                    if (field_count > 1)
                     {
-                        LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(element_type, (unsigned)local_index);
-                        if (member_type)
-                        {
-                            value = cast_value_to_type(ctx, value, member_type, false);
-                        }
+                        // Nested field - current_ptr already points to the parent struct's field
+                        // We need to get element 0 of that nested struct (since it's the final target)
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
+                        elem_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, current_type, current_ptr, indices, 2, "nested_init_ptr"
+                        );
                     }
+                    else
+                    {
+                        // Single field
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                        indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), final_local_index, false);
+                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+                    }
+
+                    // Cast the value to the final field type if needed
+                    value = cast_value_to_type(ctx, value, final_type, false);
 
                     aligned_store(ctx->builder, value, elem_ptr);
-                    local_index++;
-                    if (outer_index)
+                }
+            }
+
+            // Skip the value node since we already processed it
+            i++;
+            local_index++;
+            if (outer_index)
+            {
+                (*outer_index)++;
+            }
+            continue;
+        }
+
+        // If child is an INITIALIZER_LIST, create GEP to the row and recurse
+        if (child->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
+        {
+            LLVMTypeRef nested_element = LLVMGetElementType(element_type);
+            LLVMValueRef indices[2];
+            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+            LLVMValueRef row_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "row_ptr");
+            process_initializer_list(ctx, row_ptr, nested_element, child, NULL);
+            local_index++;
+            if (outer_index)
+                (*outer_index)++;
+            continue;
+        }
+
+        // If child is an ASSIGNMENT node, extract the inner expression
+        if (child->type == AST_NODE_ASSIGNMENT)
+        {
+            child = child->rhs;
+        }
+
+        // For array types, create a GEP to the element and recurse
+        if (kind == LLVMArrayTypeKind && child->type != AST_NODE_INTEGER_LITERAL && child->list.count > 0)
+        {
+            LLVMTypeRef nested_element = LLVMGetElementType(element_type);
+            LLVMValueRef indices[2];
+            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+            indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+            process_initializer_list(ctx, elem_ptr, nested_element, child, &local_index);
+        }
+        // Process leaf values - store to array or struct member
+        else
+        {
+            LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)child);
+            if (value)
+            {
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
+
+                LLVMValueRef elem_ptr
+                    = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
+
+                // For structs, cast the value to the member type
+                if (kind == LLVMStructTypeKind)
+                {
+                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(element_type, (unsigned)local_index);
+                    if (member_type)
                     {
-                        (*outer_index)++;
+                        value = cast_value_to_type(ctx, value, member_type, false);
                     }
+                }
+
+                aligned_store(ctx->builder, value, elem_ptr);
+                local_index++;
+                if (outer_index)
+                {
+                    (*outer_index)++;
                 }
             }
         }
@@ -1445,14 +1446,19 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     size_t start_idx = 1; // Skip tag name by default
     char const * enum_tag = NULL;
 
-    if (enum_node->data.list.count > 0 && enum_node->data.list.children[0]->type == AST_NODE_ENUMERATOR)
+    if (enum_node->list.count > 0)
     {
-        start_idx = 0; // Untagged enum - first child is an Enumerator
-    }
-    else if (enum_node->data.list.count > 0 && enum_node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
-    {
-        // Tagged enum - store the tag name
-        enum_tag = enum_node->data.list.children[0]->data.terminal.text;
+        c_grammar_node_t * first_child = enum_node->list.children[0];
+
+        if (first_child->type == AST_NODE_ENUMERATOR)
+        {
+            start_idx = 0; // Untagged enum - first child is an Enumerator
+        }
+        else if (first_child->type == AST_NODE_IDENTIFIER && first_child->text != NULL)
+        {
+            // Tagged enum - store the tag name
+            enum_tag = first_child->text;
+        }
     }
 
     // Store the enum tag in tagged_types if present
@@ -1470,32 +1476,32 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     // Enumerate values and register them as global constants
     int current_value = 0;
 
-    for (size_t i = start_idx; i < enum_node->data.list.count; ++i)
+    for (size_t i = start_idx; i < enum_node->list.count; ++i)
     {
-        c_grammar_node_t * child = enum_node->data.list.children[i];
+        c_grammar_node_t * child = enum_node->list.children[i];
 
-        if (child->type == AST_NODE_ENUMERATOR && child->data.list.count >= 1)
+        if (child->type == AST_NODE_ENUMERATOR && child->list.count >= 1)
         {
             // Enumerator = [Identifier] or [Identifier, Assign, IntegerLiteral]
-            c_grammar_node_t * name_node = child->data.list.children[0];
+            c_grammar_node_t * name_node = child->list.children[0];
 
-            if (name_node && name_node->type == AST_NODE_IDENTIFIER && name_node->is_terminal_node)
+            if (name_node && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
             {
-                char const * enum_name = name_node->data.terminal.text;
+                char const * enum_name = name_node->text;
 
                 // Check if there's an explicit value assignment
                 // The enumerator could be [Identifier, Value] or [Identifier, Assign, Value]
                 c_grammar_node_t * value_node = NULL;
 
-                if (child->data.list.count == 2)
+                if (child->list.count == 2)
                 {
                     // [Identifier, Value]
-                    value_node = child->data.list.children[1];
+                    value_node = child->list.children[1];
                 }
-                else if (child->data.list.count >= 3)
+                else if (child->list.count >= 3)
                 {
                     // [Identifier, Assign, Value]
-                    value_node = child->data.list.children[2];
+                    value_node = child->list.children[2];
                 }
 
                 if (value_node)
@@ -1534,11 +1540,6 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
                 current_value++;
             }
         }
-        else if (child->type == AST_NODE_IDENTIFIER && child->is_terminal_node)
-        {
-            // This might be the enum name, skip it
-            continue;
-        }
     }
 }
 
@@ -1562,8 +1563,8 @@ register_struct_definition_with_name(
     // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
     size_t start_idx; // Skip Keyword and struct name
     // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
-    if (type_child->data.list.count > 1 && type_child->data.list.children[1]
-        && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
+    if (type_child->list.count > 1 && type_child->list.children[1]
+        && type_child->list.children[1]->type == AST_NODE_IDENTIFIER)
     {
         start_idx = 2;
     }
@@ -1573,7 +1574,7 @@ register_struct_definition_with_name(
     }
 
     /* Calculate the maximum number of members we could have. */
-    size_t max_num_members = (type_child->data.list.count - start_idx) / 2;
+    size_t max_num_members = (type_child->list.count - start_idx) / 2;
     struct_field_t * members = calloc(max_num_members, sizeof(*members));
     if (members == NULL)
     {
@@ -1581,19 +1582,18 @@ register_struct_definition_with_name(
     }
     unsigned num_members = 0;
 
-    for (size_t m = start_idx; m + 1 < type_child->data.list.count; m += 2)
+    for (size_t m = start_idx; m + 1 < type_child->list.count; m += 2)
     {
-        c_grammar_node_t * type_spec = type_child->data.list.children[m];
-        c_grammar_node_t * struct_decl = type_child->data.list.children[m + 1];
+        c_grammar_node_t * type_spec = type_child->list.children[m];
+        c_grammar_node_t * struct_decl = type_child->list.children[m + 1];
         if (type_spec && struct_decl && type_spec->type == AST_NODE_TYPE_SPECIFIER)
         {
             struct_field_t new_member = {0};
 
-            if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && !struct_decl->is_terminal_node
-                && struct_decl->data.list.count > 0)
+            if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && struct_decl->list.count > 0)
             {
                 // First child is either Declarator or StructDeclaratorBitfield
-                c_grammar_node_t * decl = struct_decl->data.list.children[0];
+                c_grammar_node_t * decl = struct_decl->list.children[0];
                 if (decl == NULL)
                 {
                     continue;
@@ -1603,25 +1603,35 @@ register_struct_definition_with_name(
                 {
                     // Bitfield structure: [Declarator?, WidthExpression]
                     // Get bitfield name from optional Declarator
-                    if (decl->is_terminal_node || decl->data.list.count != 2)
+                    if (decl->list.count < 1 || decl->list.count > 2)
                     {
                         continue;
                     }
-                    c_grammar_node_t * bf_decl = decl->data.list.children[0];
-                    if (bf_decl->type == AST_NODE_DECLARATOR)
+                    size_t width_idx = 1;
+                    if (decl->list.count == 1)
                     {
-                        c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
-                        if (direct_decl && direct_decl->data.list.count > 0)
+                        /* Anonymous bitfield with just width - skip name extraction. */
+                        width_idx = 0;
+                        new_member.name = strdup(""); // Use empty string for anonymous bitfield
+                    }
+                    else
+                    {
+                        c_grammar_node_t * bf_decl = decl->list.children[0];
+                        if (bf_decl->type == AST_NODE_DECLARATOR)
                         {
-                            c_grammar_node_t * ident = direct_decl->data.list.children[0];
-                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
+                            c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
+                            if (direct_decl && direct_decl->list.count > 0)
                             {
-                                new_member.name = strdup(ident->data.terminal.text);
+                                c_grammar_node_t * ident = direct_decl->list.children[0];
+                                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                                {
+                                    new_member.name = strdup(ident->text);
+                                }
                             }
                         }
                     }
                     // Get bitfield width from expression after colon
-                    c_grammar_node_t * width_node = decl->data.list.children[1];
+                    c_grammar_node_t * width_node = decl->list.children[width_idx];
                     if (width_node->type == AST_NODE_INTEGER_LITERAL)
                     {
                         new_member.bit_width = (unsigned)width_node->integer_literal.value;
@@ -1650,7 +1660,8 @@ register_struct_definition_with_name(
                         type_bits = LLVMGetIntTypeWidth(new_member.type);
                     }
                     // Check if we need a new storage unit
-                    if (previous_member == NULL || new_member.bit_width == 0 || previous_member->bit_width == 0
+                    if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
+                        || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
                         || LLVMGetTypeKind(new_member.type) != LLVMGetTypeKind(previous_member->type)
                         || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
                     {
@@ -1674,12 +1685,12 @@ register_struct_definition_with_name(
 
                     // Get member name from declarator
                     c_grammar_node_t * direct_decl = find_direct_declarator(decl);
-                    if (direct_decl && direct_decl->data.list.count > 0)
+                    if (direct_decl && direct_decl->list.count > 0)
                     {
-                        c_grammar_node_t * ident = direct_decl->data.list.children[0];
-                        if (ident && ident->type == AST_NODE_IDENTIFIER && ident->is_terminal_node)
+                        c_grammar_node_t * ident = direct_decl->list.children[0];
+                        if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
                         {
-                            new_member.name = strdup(ident->data.terminal.text);
+                            new_member.name = strdup(ident->text);
                         }
                     }
                     if (new_member.name == NULL)
@@ -1713,21 +1724,20 @@ register_struct_definition_with_name(
 static void
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
-    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION
-        || type_child->is_terminal_node)
+    if (ctx == NULL || type_child == NULL || type_child->type != AST_NODE_STRUCT_DEFINITION)
     {
         return;
     }
 
     char * struct_name = NULL;
 
-    for (size_t m = 0; m < type_child->data.list.count; ++m)
+    for (size_t m = 0; m < type_child->list.count; ++m)
     {
-        c_grammar_node_t * struct_child = type_child->data.list.children[m];
+        c_grammar_node_t * struct_child = type_child->list.children[m];
 
-        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->is_terminal_node)
+        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->text != NULL)
         {
-            struct_name = struct_child->data.terminal.text;
+            struct_name = struct_child->text;
             break;
         }
     }
@@ -1921,11 +1931,11 @@ find_direct_declarator(c_grammar_node_t * declarator)
     if (!declarator || declarator->type != AST_NODE_DECLARATOR)
         return NULL;
 
-    for (size_t i = 0; i < declarator->data.list.count; ++i)
+    for (size_t i = 0; i < declarator->list.count; ++i)
     {
-        if (declarator->data.list.children[i]->type == AST_NODE_DIRECT_DECLARATOR)
+        if (declarator->list.children[i]->type == AST_NODE_DIRECT_DECLARATOR)
         {
-            return declarator->data.list.children[i];
+            return declarator->list.children[i];
         }
     }
     return NULL;
@@ -1984,63 +1994,52 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         // Handle terminal TypeSpecifier (e.g., typedef name "IntFloat", or basic type "int", "float")
         if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
         {
-            if (specifiers->is_terminal_node)
+            if (specifiers->text != NULL)
             {
-                char const * type_name = specifiers->data.terminal.text;
+                char const * type_name = specifiers->text;
                 base_type = get_type_from_name(ctx, type_name);
             }
             else
             {
                 c_grammar_node_t const * type_specifier_node = specifiers;
-                while (type_specifier_node && type_specifier_node->type == AST_NODE_TYPE_SPECIFIER
-                       && !type_specifier_node->is_terminal_node)
-                {
-                    if (type_specifier_node->data.list.count == 1
-                        && type_specifier_node->data.list.children[0]->type == AST_NODE_TYPE_SPECIFIER)
-                    {
-                        type_specifier_node = type_specifier_node->data.list.children[0];
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
+
                 // Handle terminal type specifiers (e.g., typedef names like "IntFloat")
-                if (type_specifier_node && type_specifier_node->is_terminal_node
-                    && type_specifier_node->type == AST_NODE_IDENTIFIER)
+                if (type_specifier_node->type == AST_NODE_IDENTIFIER && type_specifier_node->text != NULL)
                 {
-                    char const * type_name = type_specifier_node->data.terminal.text;
+                    char const * type_name = type_specifier_node->text;
                     LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
                     if (struct_type)
                     {
                         base_type = struct_type;
                     }
                 }
-                else if (
-                    type_specifier_node && !type_specifier_node->is_terminal_node
-                    && type_specifier_node->data.list.count > 0
-                )
+                else
                 {
-                    for (size_t i = 0; i < type_specifier_node->data.list.count; ++i)
+                    for (size_t i = 0; i < type_specifier_node->list.count; ++i)
                     {
-                        c_grammar_node_t * child = type_specifier_node->data.list.children[i];
-                        if (child && child->is_terminal_node
+                        c_grammar_node_t * child = type_specifier_node->list.children[i];
+
+                        if (child == NULL)
+                        {
+                            continue;
+                        }
+                        if (child->text != NULL
                             && (child->type == AST_NODE_IDENTIFIER || child->type == AST_NODE_INTEGER_BASE
                                 || child->type == AST_NODE_FLOAT_BASE))
                         {
-                            char const * type_name = child->data.terminal.text;
+                            char const * type_name = child->text;
                             base_type = get_type_from_name(ctx, type_name);
                         }
-                        else if (child && child->type == AST_NODE_STRUCT_DEFINITION)
+                        else if (child->type == AST_NODE_STRUCT_DEFINITION)
                         {
                             register_struct_definition(ctx, child);
                             char const * name = NULL;
-                            for (size_t si = 0; si < child->data.list.count; si++)
+                            for (size_t si = 0; si < child->list.count; si++)
                             {
-                                c_grammar_node_t * sc = child->data.list.children[si];
-                                if (sc && sc->type == AST_NODE_IDENTIFIER && sc->is_terminal_node)
+                                c_grammar_node_t * sc = child->list.children[si];
+                                if (sc && sc->type == AST_NODE_IDENTIFIER && sc->text != NULL)
                                 {
-                                    name = sc->data.terminal.text;
+                                    name = sc->text;
                                     break;
                                 }
                             }
@@ -2053,23 +2052,22 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 }
                             }
                         }
-                        else if (child && child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
+                        else if (child->type == AST_NODE_TYPE_SPECIFIER && child->list.count > 0)
                         {
                             // Nested TYPE_SPECIFIER - recurse to find the type
                             LLVMTypeRef nested = map_type(ctx, child, NULL);
                             if (nested)
                                 base_type = nested;
                         }
-                        else if (child && !child->is_terminal_node && child->data.list.children)
+                        else if (child->list.count >= 2)
                         {
                             // Check if this is a StructTypeRef: first child is KwStruct terminal, second is Identifier
-                            // Note: count may be 0 but children still exist in the array
-                            c_grammar_node_t * first = child->data.list.children[0];
-                            c_grammar_node_t * second = child->data.list.children[1];
-                            if (first && first->is_terminal_node && second && second->is_terminal_node
-                                && second->type == AST_NODE_IDENTIFIER)
+                            c_grammar_node_t * first = child->list.children[0];
+                            c_grammar_node_t * second = child->list.children[1];
+                            if (first && first->text != NULL && second->type == AST_NODE_IDENTIFIER
+                                && second->text != NULL)
                             {
-                                LLVMTypeRef st = find_struct_type(ctx, second->data.terminal.text);
+                                LLVMTypeRef st = find_struct_type(ctx, second->text);
                                 if (st)
                                     base_type = st;
                             }
@@ -2081,15 +2079,15 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
         else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
         {
-            for (size_t i = 0; i < specifiers->data.list.count; ++i)
+            for (size_t i = 0; i < specifiers->list.count; ++i)
             {
-                c_grammar_node_t * child = specifiers->data.list.children[i];
+                c_grammar_node_t * child = specifiers->list.children[i];
                 if (child && child->type == AST_NODE_TYPE_SPECIFIER)
                 {
                     // Found TypeSpecifier, process it
-                    if (child->is_terminal_node)
+                    if (child->text != NULL)
                     {
-                        char const * type_name = child->data.terminal.text;
+                        char const * type_name = child->text;
 
                         // First check for typedef
                         LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
@@ -2146,9 +2144,9 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
     {
 
-        for (size_t i = 0; i < declarator->data.list.count; ++i)
+        for (size_t i = 0; i < declarator->list.count; ++i)
         {
-            c_grammar_node_t * child = declarator->data.list.children[i];
+            c_grammar_node_t * child = declarator->list.children[i];
             if (child->type == AST_NODE_POINTER)
             {
                 pointer_level++;
@@ -2157,16 +2155,16 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             {
                 // Check inside DirectDeclarator for pointers and arrays
                 // The structure can be: DirectDeclarator -> Declarator -> {Pointer, ..., DeclaratorSuffix}
-                for (size_t j = 0; j < child->data.list.count; ++j)
+                for (size_t j = 0; j < child->list.count; ++j)
                 {
-                    c_grammar_node_t * direct_child = child->data.list.children[j];
+                    c_grammar_node_t * direct_child = child->list.children[j];
                     if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                     {
                         // Function pointer parameter: int (*func)(int, int)
                         is_function_pointer = true;
-                        for (size_t k = 0; k < direct_child->data.list.count; ++k)
+                        for (size_t k = 0; k < direct_child->list.count; ++k)
                         {
-                            c_grammar_node_t * fp_child = direct_child->data.list.children[k];
+                            c_grammar_node_t * fp_child = direct_child->list.children[k];
                             if (fp_child->type == AST_NODE_POINTER)
                             {
                                 pointer_level++;
@@ -2174,9 +2172,9 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
                             {
                                 // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
-                                for (size_t m = 0; m < fp_child->data.list.count; ++m)
+                                for (size_t m = 0; m < fp_child->list.count; ++m)
                                 {
-                                    c_grammar_node_t * suffix_child = fp_child->data.list.children[m];
+                                    c_grammar_node_t * suffix_child = fp_child->list.children[m];
                                     if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                                     {
                                         unsigned long long size_val = suffix_child->integer_literal.value;
@@ -2199,9 +2197,9 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 bool has_function_params = false;
                 bool has_array_size = false;
 
-                for (size_t j = 0; j < child->data.list.count; ++j)
+                for (size_t j = 0; j < child->list.count; ++j)
                 {
-                    c_grammar_node_t * suffix_child = child->data.list.children[j];
+                    c_grammar_node_t * suffix_child = child->list.children[j];
                     if (suffix_child->type == AST_NODE_DECL_SPECIFIERS)
                     {
                         // This is a function parameter type
@@ -2440,7 +2438,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return;
     }
 
-    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
+    //fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {
@@ -2448,11 +2446,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         scope_push(ctx);
         // Process top-level declarations and function definitions.
-        if (node->data.list.children)
+        if (node->list.children)
         {
-            for (size_t i = 0; i < node->data.list.count; ++i)
+            for (size_t i = 0; i < node->list.count; ++i)
             {
-                process_ast_node(ctx, node->data.list.children[i]);
+                process_ast_node(ctx, node->list.children[i]);
             }
         }
         scope_pop(ctx);
@@ -2466,32 +2464,31 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         scope_push(ctx);
 
         // --- Handle Function Definition ---
-        if (node->data.list.count != 3)
+        if (node->list.count != 3)
         {
             fprintf(stderr, "IRGen Error: Invalid function definition.\n");
             return;
         }
-        c_grammar_node_t * decl_specifiers_node = node->data.list.children[0];
-        c_grammar_node_t * declarator_node = node->data.list.children[1];
-        c_grammar_node_t * compound_stmt_node = node->data.list.children[2];
+        c_grammar_node_t * decl_specifiers_node = node->list.children[0];
+        c_grammar_node_t * declarator_node = node->list.children[1];
+        c_grammar_node_t * compound_stmt_node = node->list.children[2];
 
         // --- Extract Function Name ---
         char * func_name = "unknown_function";
         c_grammar_node_t * suffix_node = NULL;
 
         c_grammar_node_t * direct_decl = find_direct_declarator(declarator_node);
-        if (direct_decl && !direct_decl->is_terminal_node && direct_decl->data.list.count > 0
-            && direct_decl->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+        if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
         {
-            func_name = direct_decl->data.list.children[0]->data.terminal.text;
+            func_name = direct_decl->list.children[0]->text;
         }
 
         // Find parameter suffix
-        for (size_t i = 0; i < declarator_node->data.list.count; ++i)
+        for (size_t i = 0; i < declarator_node->list.count; ++i)
         {
-            if (declarator_node->data.list.children[i]->type == AST_NODE_DECLARATOR_SUFFIX)
+            if (declarator_node->list.children[i]->type == AST_NODE_DECLARATOR_SUFFIX)
             {
-                suffix_node = declarator_node->data.list.children[i];
+                suffix_node = declarator_node->list.children[i];
                 break;
             }
         }
@@ -2502,48 +2499,48 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         char ** param_names = NULL;
         LLVMTypeRef empty_params[1];
 
-        if (suffix_node && !suffix_node->is_terminal_node && suffix_node->data.list.count > 0)
+        if (suffix_node && suffix_node->list.count > 0)
         {
             // Each parameter typically has [TypeSpecifier, Declarator]
-            num_params = suffix_node->data.list.count / 2;
+            num_params = suffix_node->list.count / 2;
             param_types = calloc(num_params, sizeof(LLVMTypeRef));
             param_names = calloc(num_params, sizeof(char *));
 
             for (size_t i = 0; i < num_params; ++i)
             {
-                c_grammar_node_t * p_spec = suffix_node->data.list.children[i * 2];
-                c_grammar_node_t * p_decl = suffix_node->data.list.children[i * 2 + 1];
+                c_grammar_node_t * p_spec = suffix_node->list.children[i * 2];
+                c_grammar_node_t * p_decl = suffix_node->list.children[i * 2 + 1];
 
                 param_types[i] = map_type(ctx, p_spec, p_decl);
 
                 c_grammar_node_t * p_direct = find_direct_declarator(p_decl);
-                if (p_direct && !p_direct->is_terminal_node && p_direct->data.list.count > 0)
+                if (p_direct && p_direct->list.count > 0)
                 {
-                    c_grammar_node_t * first_child = p_direct->data.list.children[0];
+                    c_grammar_node_t * first_child = p_direct->list.children[0];
                     if (first_child->type == AST_NODE_IDENTIFIER)
                     {
-                        param_names[i] = first_child->data.terminal.text;
+                        param_names[i] = first_child->text;
                     }
                     else if (first_child->type == AST_NODE_DECLARATOR)
                     {
                         // Nested declarator (e.g., for function pointers like *name)
                         // Find the DirectDeclarator inside and get the Identifier
                         c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
-                        if (nested_direct && nested_direct->data.list.count > 0
-                            && nested_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                        if (nested_direct && nested_direct->list.count > 0
+                            && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
                         {
-                            param_names[i] = nested_direct->data.list.children[0]->data.terminal.text;
+                            param_names[i] = nested_direct->list.children[0]->text;
                         }
                     }
                     else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                     {
                         // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
-                        for (size_t k = 0; k < first_child->data.list.count; ++k)
+                        for (size_t k = 0; k < first_child->list.count; ++k)
                         {
-                            c_grammar_node_t * fp_child = first_child->data.list.children[k];
+                            c_grammar_node_t * fp_child = first_child->list.children[k];
                             if (fp_child->type == AST_NODE_IDENTIFIER)
                             {
-                                param_names[i] = fp_child->data.terminal.text;
+                                param_names[i] = fp_child->text;
                                 break;
                             }
                         }
@@ -2572,21 +2569,20 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 // Extract struct/union name from parameter specifiers for pointer-to-compound types
                 char * param_compound_name = NULL;
-                c_grammar_node_t * p_spec
-                    = suffix_node && !suffix_node->is_terminal_node ? suffix_node->data.list.children[i * 2] : NULL;
+                c_grammar_node_t * p_spec = suffix_node->list.children[i * 2];
 
                 // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
                 c_grammar_node_t * type_spec = NULL;
-                if (p_spec && !p_spec->is_terminal_node)
+                if (p_spec && p_spec->list.count > 0)
                 {
                     if (p_spec->type == AST_NODE_TYPE_SPECIFIER)
                     {
                         type_spec = p_spec;
                     }
-                    else if (p_spec->type == AST_NODE_DECL_SPECIFIERS && p_spec->data.list.count > 0)
+                    else if (p_spec->type == AST_NODE_DECL_SPECIFIERS)
                     {
                         // DeclarationSpecifiers has TypeSpecifier as child
-                        type_spec = p_spec->data.list.children[0];
+                        type_spec = p_spec->list.children[0];
                     }
                 }
 
@@ -2653,11 +2649,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Create new scope for this block
         scope_push(ctx);
 
-        if (node->data.list.children)
+        if (node->list.children)
         {
-            for (size_t i = 0; i < node->data.list.count; ++i)
+            for (size_t i = 0; i < node->list.count; ++i)
             {
-                process_ast_node(ctx, node->data.list.children[i]);
+                process_ast_node(ctx, node->list.children[i]);
             }
         }
 
@@ -2667,11 +2663,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_EXPRESSION_STATEMENT:
     {
-        if (node->data.list.children)
+        if (node->list.children)
         {
-            for (size_t i = 0; i < node->data.list.count; ++i)
+            for (size_t i = 0; i < node->list.count; ++i)
             {
-                process_expression(ctx, node->data.list.children[i]);
+                process_expression(ctx, node->list.children[i]);
             }
         }
         break;
@@ -2682,78 +2678,72 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Handle Variable Declarations ---
 
         // Register any struct/enum definitions in the declaration specifiers (in current scope)
-        c_grammar_node_t * decl_specifiers = node->data.list.children[1];
-        if (decl_specifiers && !decl_specifiers->is_terminal_node)
+        c_grammar_node_t * decl_specifiers = node->list.children[1];
+        for (size_t i = 0; i < decl_specifiers->list.count; ++i)
         {
-            for (size_t i = 0; i < decl_specifiers->data.list.count; ++i)
+            c_grammar_node_t * spec_child = decl_specifiers->list.children[i];
+            if (spec_child->type == AST_NODE_TYPE_SPECIFIER)
             {
-                c_grammar_node_t * spec_child = decl_specifiers->data.list.children[i];
-                if (spec_child && !spec_child->is_terminal_node)
+                for (size_t j = 0; j < spec_child->list.count; ++j)
                 {
-                    if (spec_child->type == AST_NODE_TYPE_SPECIFIER)
+                    c_grammar_node_t * type_child = spec_child->list.children[j];
+                    if (type_child != NULL)
                     {
-                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                        if (type_child->type == AST_NODE_STRUCT_DEFINITION)
                         {
-                            c_grammar_node_t * type_child = spec_child->data.list.children[j];
-                            if (type_child && !type_child->is_terminal_node)
-                            {
-                                if (type_child->type == AST_NODE_STRUCT_DEFINITION)
-                                {
-                                    register_struct_definition(ctx, type_child);
-                                }
-                                else if (type_child->type == AST_NODE_ENUM_SPECIFIER)
-                                {
-                                    register_enum_definition(ctx, type_child);
-                                }
-                            }
+                            register_struct_definition(ctx, type_child);
+                        }
+                        else if (type_child->type == AST_NODE_ENUM_SPECIFIER)
+                        {
+                            register_enum_definition(ctx, type_child);
                         }
                     }
                 }
             }
         }
 
-        c_grammar_node_t * init_decl_nodes = node->data.list.children[2];
+        c_grammar_node_t * init_decl_nodes = node->list.children[2];
 
         // Process InitDeclarators to create variables and initialize them.
-        for (size_t i = 0; i < init_decl_nodes->data.list.count; ++i)
+        for (size_t i = 0; i < init_decl_nodes->list.count; ++i)
         {
-            c_grammar_node_t * init_decl_node = init_decl_nodes->data.list.children[i];
+            c_grammar_node_t * init_decl_node = init_decl_nodes->list.children[i];
 
             char * var_name = NULL;
             c_grammar_node_t * initializer_expr_node = NULL; // Node representing the initializer expression.
-            c_grammar_node_t * declarator_node = init_decl_node->data.list.children[0];
+            c_grammar_node_t * declarator_node = init_decl_node->list.children[0];
             c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
 
             // For regular variables: DirectDeclarator -> Identifier
             // For function pointers: DirectDeclarator -> FunctionPointerDeclarator -> {Pointer, Identifier,
             // DeclaratorSuffix*}
-            if (direct_decl_node && direct_decl_node->data.list.count > 0)
+            if (direct_decl_node && direct_decl_node->list.count > 0)
             {
-                c_grammar_node_t * first_child = direct_decl_node->data.list.children[0];
+                c_grammar_node_t * first_child = direct_decl_node->list.children[0];
                 if (first_child->type == AST_NODE_IDENTIFIER)
                 {
-                    var_name = first_child->data.terminal.text;
+                    var_name = first_child->text;
                 }
                 else if (first_child->type == AST_NODE_DECLARATOR)
                 {
                     // Nested declarator (e.g., for function pointers like *name)
                     // Find the DirectDeclarator inside and get the Identifier
                     c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
-                    if (nested_direct && nested_direct->data.list.count > 0
-                        && nested_direct->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+                    if (nested_direct && nested_direct->list.count > 0
+                        && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
                     {
-                        var_name = nested_direct->data.list.children[0]->data.terminal.text;
+                        var_name = nested_direct->list.children[0]->text;
                     }
                 }
                 else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                 {
                     // FunctionPointerDeclarator contains Pointer, Identifier, DeclaratorSuffix*
-                    for (size_t k = 0; k < first_child->data.list.count; ++k)
+                    for (size_t k = 0; k < first_child->list.count; ++k)
                     {
-                        c_grammar_node_t * fp_child = first_child->data.list.children[k];
+                        c_grammar_node_t * fp_child = first_child->list.children[k];
                         if (fp_child->type == AST_NODE_IDENTIFIER)
                         {
-                            var_name = fp_child->data.terminal.text;
+                            var_name = fp_child->text;
                             break;
                         }
                     }
@@ -2763,9 +2753,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
 
             // Find initializer - child[0] is the declarator, rest are initializers
-            for (size_t ci = 1; ci < init_decl_node->data.list.count; ci++)
+            for (size_t ci = 1; ci < init_decl_node->list.count; ci++)
             {
-                c_grammar_node_t * child = init_decl_node->data.list.children[ci];
+                c_grammar_node_t * child = init_decl_node->list.children[ci];
 
                 // Skip declarator nodes - anything else is an initializer
                 if (child && child->type != AST_NODE_DECLARATOR)
@@ -2789,23 +2779,22 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (decl_specifiers)
                     {
                         /* Iterate through DeclarationSpecifiers children */
-                        for (size_t si = 0; si < decl_specifiers->data.list.count && !struct_name; si++)
+                        for (size_t si = 0; si < decl_specifiers->list.count && !struct_name; si++)
                         {
-                            c_grammar_node_t * child = decl_specifiers->data.list.children[si];
+                            c_grammar_node_t * child = decl_specifiers->list.children[si];
 
                             /* Handle terminal TypeSpecifier (typedef name like "FloatMember") */
-                            if (child && child->type == AST_NODE_TYPE_SPECIFIER && child->is_terminal_node
-                                && child->data.terminal.text)
+                            if (child && child->type == AST_NODE_TYPE_SPECIFIER && child->text != NULL)
                             {
                                 /* First try struct list */
-                                if (find_struct_type(ctx, child->data.terminal.text))
+                                if (find_struct_type(ctx, child->text))
                                 {
-                                    struct_name = child->data.terminal.text;
+                                    struct_name = child->text;
                                 }
                                 else
                                 {
                                     /* Try typedef - get underlying struct name */
-                                    LLVMTypeRef typedef_type = find_typedef_type(ctx, child->data.terminal.text);
+                                    LLVMTypeRef typedef_type = find_typedef_type(ctx, child->text);
                                     if (typedef_type != NULL)
                                     {
                                         /* Need to find the struct name from the typedef entry */
@@ -2823,12 +2812,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 }
                             }
                             /* Handle non-terminal TypeSpecifier */
-                            else if (child && child->type == AST_NODE_TYPE_SPECIFIER && !child->is_terminal_node)
+                            else if (child && child->type == AST_NODE_TYPE_SPECIFIER)
                             {
-                                for (size_t ssi = 0; ssi < child->data.list.count && !struct_name; ssi++)
+                                for (size_t ssi = 0; ssi < child->list.count && !struct_name; ssi++)
                                 {
-                                    c_grammar_node_t * ssc = child->data.list.children[ssi];
-                                    if (ssc && ssc->is_terminal_node && ssc->type == AST_NODE_IDENTIFIER)
+                                    c_grammar_node_t * ssc = child->list.children[ssi];
+                                    if (ssc && ssc->type == AST_NODE_IDENTIFIER && ssc->text != NULL)
                                     {
                                         /* First try struct/union keyword path */
                                         char const * name_from_struct = extract_struct_or_union_name(child);
@@ -2876,9 +2865,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             // Check if there are pointers in the declarator
                             bool has_pointer = false;
-                            for (size_t di = 0; di < declarator_node->data.list.count; di++)
+                            for (size_t di = 0; di < declarator_node->list.count; di++)
                             {
-                                c_grammar_node_t * dc = declarator_node->data.list.children[di];
+                                c_grammar_node_t * dc = declarator_node->list.children[di];
                                 if (dc && dc->type == AST_NODE_POINTER)
                                 {
                                     has_pointer = true;
@@ -2909,9 +2898,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 {
                                     // Array of pointers - process each element individually
                                     int current_index = 0;
-                                    for (size_t i = 0; i < initializer_expr_node->data.list.count; ++i)
+                                    for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
                                     {
-                                        c_grammar_node_t * child = initializer_expr_node->data.list.children[i];
+                                        c_grammar_node_t * child = initializer_expr_node->list.children[i];
                                         LLVMValueRef value = process_expression(ctx, child);
                                         if (value)
                                         {
@@ -2998,10 +2987,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (declarator_node)
                     {
                         bool is_function = false;
-                        for (size_t si = 0; si < declarator_node->data.list.count; si++)
+                        for (size_t si = 0; si < declarator_node->list.count; si++)
                         {
-                            c_grammar_node_t * suf = declarator_node->data.list.children[si];
-                            if (suf && suf->type == AST_NODE_DECLARATOR_SUFFIX && suf->data.list.count > 0)
+                            c_grammar_node_t * suf = declarator_node->list.children[si];
+                            if (suf && suf->type == AST_NODE_DECLARATOR_SUFFIX && suf->list.count > 0)
                             {
                                 is_function = true;
                                 break;
@@ -3023,7 +3012,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
                     {
                         // Infer array size from string literal
-                        char * raw_text = initializer_expr_node->data.terminal.text;
+                        char * raw_text = initializer_expr_node->text;
                         char * decoded = decode_string(raw_text);
                         char * str = decoded ? decoded : raw_text;
 
@@ -3088,15 +3077,15 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         /* Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier] */
         /* DeclarationSpecifiers contains the struct/union/enum definition */
         /* Identifier is the typedef name */
-        if (node->data.list.count >= 2)
+        if (node->list.count >= 2)
         {
-            c_grammar_node_t * decl_specs = node->data.list.children[0];
-            c_grammar_node_t * typedef_name_node = node->data.list.children[1];
+            c_grammar_node_t * decl_specs = node->list.children[0];
+            c_grammar_node_t * typedef_name_node = node->list.children[1];
 
             if (decl_specs && typedef_name_node && decl_specs->type == AST_NODE_DECL_SPECIFIERS
-                && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->is_terminal_node)
+                && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->text != NULL)
             {
-                char * typedef_name = typedef_name_node->data.terminal.text;
+                char * typedef_name = typedef_name_node->text;
                 c_grammar_node_t const * struct_def_node = NULL;
                 c_grammar_node_t const * enum_def_node = NULL;
                 char const * struct_tag = NULL;
@@ -3107,39 +3096,39 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                    - struct Point { ... } (has StructDefinition)
                    - struct Point; (just keyword + identifier, no body)
                 */
-                for (size_t i = 0; i < decl_specs->data.list.count; ++i)
+                for (size_t i = 0; i < decl_specs->list.count; ++i)
                 {
-                    c_grammar_node_t * spec_child = decl_specs->data.list.children[i];
+                    c_grammar_node_t * spec_child = decl_specs->list.children[i];
 
-                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && !spec_child->is_terminal_node)
+                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER && spec_child->list.count > 0)
                     {
                         bool handled = false;
 
                         /* First check for struct/union keyword */
-                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                        for (size_t j = 0; j < spec_child->list.count; ++j)
                         {
-                            c_grammar_node_t const * type_child = spec_child->data.list.children[j];
-                            if (type_child && type_child->type == AST_NODE_KEYWORD && type_child->data.terminal.text)
+                            c_grammar_node_t const * type_child = spec_child->list.children[j];
+                            if (type_child && type_child->type == AST_NODE_KEYWORD && type_child->text)
                             {
                                 kind = TYPE_KIND_UNKNOWN;
-                                if (strcmp(type_child->data.terminal.text, "struct") == 0)
+                                if (strcmp(type_child->text, "struct") == 0)
                                 {
                                     kind = TYPE_KIND_STRUCT;
                                 }
-                                else if (strcmp(type_child->data.terminal.text, "union") == 0)
+                                else if (strcmp(type_child->text, "union") == 0)
                                 {
                                     kind = TYPE_KIND_UNION;
                                 }
                                 if (kind != TYPE_KIND_UNKNOWN)
                                 {
                                     /* Check if there's an identifier after the keyword (forward declaration) */
-                                    if (j + 1 < spec_child->data.list.count)
+                                    if (j + 1 < spec_child->list.count)
                                     {
-                                        c_grammar_node_t const * name_node = spec_child->data.list.children[j + 1];
+                                        c_grammar_node_t const * name_node = spec_child->list.children[j + 1];
                                         if (name_node && name_node->type == AST_NODE_IDENTIFIER)
                                         {
                                             /* This is a forward declaration: struct Point; */
-                                            struct_tag = name_node->data.terminal.text;
+                                            struct_tag = name_node->text;
                                             scope_add_typedef_forward_decl(
                                                 ctx->current_scope, typedef_name, struct_tag, kind
                                             );
@@ -3150,6 +3139,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 }
                             }
                         }
+
                         if (handled)
                         {
                             continue;
@@ -3157,33 +3147,33 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                         /* Also check for StructDefinition (full definition) */
                         kind = TYPE_KIND_UNKNOWN;
-                        for (size_t j = 0; j < spec_child->data.list.count; ++j)
+                        for (size_t j = 0; j < spec_child->list.count; ++j)
                         {
-                            c_grammar_node_t const * type_child = spec_child->data.list.children[j];
+                            c_grammar_node_t const * type_child = spec_child->list.children[j];
                             if (type_child && type_child->type == AST_NODE_STRUCT_DEFINITION
-                                && type_child->data.list.count > 1)
+                                && type_child->list.count > 1)
                             {
                                 struct_def_node = type_child;
 
-                                c_grammar_node_t const * type_kind_child = type_child->data.list.children[0];
+                                c_grammar_node_t const * type_kind_child = type_child->list.children[0];
                                 if (type_kind_child && type_kind_child->type == AST_NODE_KEYWORD
-                                    && type_kind_child->data.terminal.text)
+                                    && type_kind_child->text)
                                 {
-                                    if (strcmp(type_kind_child->data.terminal.text, "struct") == 0)
+                                    if (strcmp(type_kind_child->text, "struct") == 0)
                                     {
                                         kind = TYPE_KIND_STRUCT;
                                     }
-                                    else if (strcmp(type_kind_child->data.terminal.text, "union") == 0)
+                                    else if (strcmp(type_kind_child->text, "union") == 0)
                                     {
                                         kind = TYPE_KIND_UNION;
                                     }
                                 }
 
                                 /* Extract the struct tag if present */
-                                if (type_child->data.list.count > 1 && type_child->data.list.children[1]
-                                    && type_child->data.list.children[1]->type == AST_NODE_IDENTIFIER)
+                                if (type_child->list.count > 1 && type_child->list.children[1]
+                                    && type_child->list.children[1]->type == AST_NODE_IDENTIFIER)
                                 {
-                                    struct_tag = type_child->data.list.children[1]->data.terminal.text;
+                                    struct_tag = type_child->list.children[1]->text;
                                 }
                                 break;
                             }
@@ -3194,6 +3184,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                         }
                     }
+
                     if (struct_def_node || enum_def_node)
                     {
                         break;
@@ -3262,10 +3253,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                         /* Check if there's an enum tag */
                         char const * enum_tag = NULL;
-                        if (enum_def_node->data.list.count > 1 && enum_def_node->data.list.children[1]
-                            && enum_def_node->data.list.children[1]->type == AST_NODE_IDENTIFIER)
+                        if (enum_def_node->list.count > 1 && enum_def_node->list.children[1]
+                            && enum_def_node->list.children[1]->type == AST_NODE_IDENTIFIER)
                         {
-                            enum_tag = enum_def_node->data.list.children[1]->data.terminal.text;
+                            enum_tag = enum_def_node->list.children[1]->text;
                         }
 
                         if (enum_tag != NULL)
@@ -3304,7 +3295,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             if (base_node->type == AST_NODE_IDENTIFIER)
             {
-                char const * base_name = base_node->data.terminal.text;
+                char const * base_name = base_node->text;
                 LLVMValueRef base_ptr;
                 LLVMTypeRef base_type;
                 if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
@@ -3348,16 +3339,16 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FOR_STATEMENT:
     {
         // AST structure for ForStatement: [InitExpr/Decl, CondExpr, PostExpr, BodyStatement]
-        if (node->data.list.count < 4)
+        if (node->list.count < 4)
         {
             fprintf(stderr, "IRGen Error: Invalid ForStatement AST node.\n");
             return;
         }
 
-        c_grammar_node_t * init_node = node->data.list.children[0];
-        c_grammar_node_t * cond_node = node->data.list.children[1];
-        c_grammar_node_t * post_node = node->data.list.children[2];
-        c_grammar_node_t * body_node = node->data.list.children[3];
+        c_grammar_node_t * init_node = node->list.children[0];
+        c_grammar_node_t * cond_node = node->list.children[1];
+        c_grammar_node_t * post_node = node->list.children[2];
+        c_grammar_node_t * body_node = node->list.children[3];
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -3421,14 +3412,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_WHILE_STATEMENT:
     {
         // AST structure for WhileStatement: [ConditionExpression, BodyStatement]
-        if (node->data.list.count < 2)
+        if (node->list.count < 2)
         {
             fprintf(stderr, "IRGen Error: Invalid WhileStatement AST node.\n");
             return;
         }
 
-        c_grammar_node_t * condition_node = node->data.list.children[0];
-        c_grammar_node_t * body_node = node->data.list.children[1];
+        c_grammar_node_t * condition_node = node->list.children[0];
+        c_grammar_node_t * body_node = node->list.children[1];
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -3484,14 +3475,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DO_WHILE_STATEMENT:
     {
         // AST structure for DoWhileStatement: [BodyStatement, ConditionExpression]
-        if (node->data.list.count < 2)
+        if (node->list.count < 2)
         {
             fprintf(stderr, "IRGen Error: Invalid DoWhileStatement AST node.\n");
             return;
         }
 
-        c_grammar_node_t * body_node = node->data.list.children[0];
-        c_grammar_node_t * condition_node = node->data.list.children[1];
+        c_grammar_node_t * body_node = node->list.children[0];
+        c_grammar_node_t * condition_node = node->list.children[1];
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -3548,9 +3539,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         // CaseLabel: [case_expr, (optional) statement]
         // If there's a statement, process it
-        if (node->data.list.count == 2)
+        if (node->list.count == 2)
         {
-            c_grammar_node_t * stmt = node->data.list.children[1];
+            c_grammar_node_t * stmt = node->list.children[1];
             process_ast_node(ctx, stmt);
         }
         break;
@@ -3588,14 +3579,14 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         //   - Case labels have type AST_NODE_CASE_LABEL
         //   - Statements are other statement types
         // DefaultStatement: [statement*]
-        if (node->data.list.count < 2)
+        if (node->list.count < 2)
         {
             fprintf(stderr, "IRGen Error: Invalid SwitchStatement AST node.\n");
             return;
         }
 
-        c_grammar_node_t * switch_expr = node->data.list.children[0];
-        c_grammar_node_t * body_stmt = node->data.list.children[1];
+        c_grammar_node_t * switch_expr = node->list.children[0];
+        c_grammar_node_t * body_stmt = node->list.children[1];
 
         LLVMValueRef switch_val = process_expression(ctx, switch_expr);
         if (!switch_val)
@@ -3629,9 +3620,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
         {
-            for (size_t i = 0; i < body_stmt->data.list.count; ++i)
+            for (size_t i = 0; i < body_stmt->list.count; ++i)
             {
-                c_grammar_node_t * child = body_stmt->data.list.children[i];
+                c_grammar_node_t * child = body_stmt->list.children[i];
 
                 if (child->type == AST_NODE_SWITCH_CASE)
                 {
@@ -3669,16 +3660,16 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             if (items[i].is_default)
             {
-                has_statements = (item_node->data.list.count > 0);
+                has_statements = (item_node->list.count > 0);
             }
             else
             {
                 // SwitchCase: children are [case_label*, statement*]
                 // Statements start after all case labels
                 has_statements = false;
-                for (size_t j = 0; j < item_node->data.list.count; j++)
+                for (size_t j = 0; j < item_node->list.count; j++)
                 {
-                    if (item_node->data.list.children[j]->type != AST_NODE_CASE_LABEL)
+                    if (item_node->list.children[j]->type != AST_NODE_CASE_LABEL)
                     {
                         has_statements = true;
                         break;
@@ -3717,9 +3708,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             if (!items[i].is_default)
             {
                 // Count case labels in this SwitchCase
-                for (size_t j = 0; j < items[i].node->data.list.count; j++)
+                for (size_t j = 0; j < items[i].node->list.count; j++)
                 {
-                    if (items[i].node->data.list.children[j]->type == AST_NODE_CASE_LABEL)
+                    if (items[i].node->list.children[j]->type == AST_NODE_CASE_LABEL)
                     {
                         num_case_values++;
                     }
@@ -3750,15 +3741,15 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             // Add each case value from this SwitchCase
             c_grammar_node_t * switch_case_node = items[i].node;
-            for (size_t j = 0; j < switch_case_node->data.list.count; j++)
+            for (size_t j = 0; j < switch_case_node->list.count; j++)
             {
-                c_grammar_node_t * child = switch_case_node->data.list.children[j];
+                c_grammar_node_t * child = switch_case_node->list.children[j];
                 if (child->type == AST_NODE_CASE_LABEL)
                 {
                     // CaseLabel contains the case expression
-                    if (child->data.list.count >= 1)
+                    if (child->list.count >= 1)
                     {
-                        LLVMValueRef case_val = process_expression(ctx, child->data.list.children[0]);
+                        LLVMValueRef case_val = process_expression(ctx, child->list.children[0]);
                         LLVMAddCase(
                             switch_inst, case_val, items[i].body_block ? items[i].body_block : fallthrough_target
                         );
@@ -3790,9 +3781,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             // Process all statement children (skip CaseLabel children in SwitchCase)
             c_grammar_node_t * item_node = items[i].node;
-            for (size_t j = 0; j < item_node->data.list.count; j++)
+            for (size_t j = 0; j < item_node->list.count; j++)
             {
-                c_grammar_node_t * child = item_node->data.list.children[j];
+                c_grammar_node_t * child = item_node->list.children[j];
                 if (child->type != AST_NODE_CASE_LABEL)
                 {
                     process_ast_node(ctx, child);
@@ -3822,15 +3813,15 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_IF_STATEMENT:
     {
         // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
-        if (node->data.list.count < 2)
+        if (node->list.count < 2)
         {
             fprintf(stderr, "IRGen Error: Invalid IfStatement AST node.\n");
             return;
         }
 
-        c_grammar_node_t * condition_node = node->data.list.children[0];
-        c_grammar_node_t * then_node = node->data.list.children[1];
-        c_grammar_node_t * else_node = (node->data.list.count > 2) ? node->data.list.children[2] : NULL;
+        c_grammar_node_t * condition_node = node->list.children[0];
+        c_grammar_node_t * then_node = node->list.children[1];
+        c_grammar_node_t * else_node = (node->list.count > 2) ? node->list.children[2] : NULL;
 
         LLVMValueRef condition_val = process_expression(ctx, condition_node);
         if (!condition_val)
@@ -3911,7 +3902,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_GOTO_STATEMENT:
     {
-        char const * label_name = node->data.list.children[0]->data.terminal.text;
+        char const * label_name = node->list.children[0]->text;
         LLVMBasicBlockRef target = get_or_create_label(ctx, label_name);
         LLVMBuildBr(ctx->builder, target);
 
@@ -3929,12 +3920,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // LabeledIdentifier children: [Identifier, Statement]
 
         c_grammar_node_t const * label_id_node = NULL;
-        if (node->data.list.count >= 1 && node->data.list.children[0]->type == AST_NODE_LABELED_IDENTIFIER)
+        if (node->list.count >= 1 && node->list.children[0]->type == AST_NODE_LABELED_IDENTIFIER)
         {
             // New format: children[0] is LabeledIdentifier
-            label_id_node = node->data.list.children[0];
+            label_id_node = node->list.children[0];
         }
-        else if (node->data.list.count >= 2 && node->data.list.children[0]->type == AST_NODE_IDENTIFIER)
+        else if (node->list.count >= 2 && node->list.children[0]->type == AST_NODE_IDENTIFIER)
         {
             // Legacy format: children[0] is Identifier, children[1] is Statement
             label_id_node = node;
@@ -3942,13 +3933,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (label_id_node != NULL)
         {
-            c_grammar_node_t * identifier_node = label_id_node->data.list.children[0];
-            c_grammar_node_t * statement_node
-                = label_id_node->data.list.count >= 2 ? label_id_node->data.list.children[1] : NULL;
+            c_grammar_node_t * identifier_node = label_id_node->list.children[0];
+            c_grammar_node_t * statement_node = label_id_node->list.count >= 2 ? label_id_node->list.children[1] : NULL;
 
             if (identifier_node->type == AST_NODE_IDENTIFIER && statement_node != NULL)
             {
-                char const * label_name = identifier_node->data.terminal.text;
+                char const * label_name = identifier_node->text;
                 LLVMBasicBlockRef label_block = get_or_create_label(ctx, label_name);
 
                 // If the current block doesn't have a terminator, branch to the label block
@@ -3973,10 +3963,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         fprintf(stderr, "Ignoring AST node type %s\n", get_node_type_name_from_type(node->type));
         break;
     }
-        // --- Add cases for other AST_NODE types ---
-        // Examples: AST_NODE_BINARY_OP, AST_NODE_UNARY_OP, AST_NODE_FUNCTION_CALL,
-        // AST_NODE_IF_STATEMENT, AST_NODE_WHILE_STATEMENT, AST_NODE_FOR_STATEMENT, etc.
-        // Each requires specific LLVM IR generation logic.
 
     case AST_NODE_FLOAT_BASE:
     case AST_NODE_INTEGER_LITERAL:
@@ -4033,19 +4019,19 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRUCT_DECLARATOR_BITFIELD:
     default:
         // Fallback: Recursively process children for unhandled node types.
-        if (node->is_terminal_node)
+        if (node->text != NULL && node->list.count == 0)
         {
             /*
                 Do nothing for terminal nodes unless handled above.
                 Shouldn't happen.
              */
-            fprintf(stderr, "Unhandled terminal node type: %d (%s)\n", node->type, node->data.terminal.text);
+            fprintf(stderr, "Unhandled terminal node type: %d (%s)\n", node->type, node->text);
         }
         else
         {
-            for (size_t i = 0; i < node->data.list.count; ++i)
+            for (size_t i = 0; i < node->list.count; ++i)
             {
-                process_ast_node(ctx, node->data.list.children[i]);
+                process_ast_node(ctx, node->list.children[i]);
             }
         }
         break;
@@ -4173,24 +4159,6 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
     return 0;
 }
 
-// --- Placeholder for Symbol Table Management ---
-// This is a crucial part of IR generation and needs to be robust.
-// For this example, it's conceptual. A real implementation would use a hash map.
-
-// Example of a conceptual symbol table entry
-// typedef struct symbol_table_entry {
-//     char* name;
-//     LLVMValueRef ptr; // Pointer to the allocated variable (or function reference)
-//     LLVMTypeRef type;
-//     // Potentially scope information
-// } symbol_table_entry_t;
-
-// Placeholder function to add a symbol to the symbol table.
-// static void add_symbol(ir_generator_ctx_t* ctx, const char* name, LLVMValueRef ptr, LLVMTypeRef type) {
-//     // TODO: Implement symbol table addition logic.
-//     fprintf(stderr, "IRGen: Conceptual add_symbol for '%s'\n", name);
-// }
-
 /**
  * @brief Gets the LLVM ValueRef representing the pointer to a variable.
  * Looks up the symbol in the symbol table.
@@ -4207,12 +4175,12 @@ get_variable_pointer(
     LLVMTypeRef * out_pointee_type
 )
 {
-    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->data.terminal.text)
+    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->text)
     {
         fprintf(stderr, "IRGen Error: Invalid identifier node for get_variable_pointer.\n");
         return NULL;
     }
-    char const * name = identifier_node->data.terminal.text;
+    char const * name = identifier_node->text;
 
     LLVMValueRef var_ptr;
     LLVMTypeRef retrieved_type;
@@ -4273,12 +4241,12 @@ static LLVMValueRef
 process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Handle string literals like "Hello".
-    if (node->data.terminal.text == NULL)
+    if (node->text == NULL)
     {
         return NULL;
     }
 
-    char * raw_text = node->data.terminal.text;
+    char * raw_text = node->text;
     char * decoded = decode_string(raw_text);
     LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
     free(decoded);
@@ -4289,12 +4257,12 @@ process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static LLVMValueRef
 process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    if (node->data.terminal.text == NULL)
+    if (node->text == NULL)
     {
         return NULL;
     }
 
-    char * raw_text = node->data.terminal.text;
+    char * raw_text = node->text;
     // Character literal content (no quotes), e.g., "a" or "\\n"
     char value = 0;
     if (raw_text[0] == '\\')
@@ -4350,7 +4318,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     // Do this before process_expression to avoid double GEP for arrays
     if (base_node->type == AST_NODE_IDENTIFIER)
     {
-        char const * var_name = base_node->data.terminal.text;
+        char const * var_name = base_node->text;
         LLVMValueRef var_ptr;
         LLVMTypeRef var_type;
         if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
@@ -4375,9 +4343,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         // The function call suffix handling will get the function pointer directly
         bool has_func_call_suffix = false;
 
-        for (size_t i = 0; i < postfix_node->data.list.count; ++i)
+        for (size_t i = 0; i < postfix_node->list.count; ++i)
         {
-            if (postfix_node->data.list.children[i]->type == AST_NODE_FUNCTION_CALL)
+            if (postfix_node->list.children[i]->type == AST_NODE_FUNCTION_CALL)
             {
                 has_func_call_suffix = true;
                 break;
@@ -4389,22 +4357,22 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
     }
 
-    for (size_t i = 0; i < postfix_node->data.list.count; ++i)
+    for (size_t i = 0; i < postfix_node->list.count; ++i)
     {
-        c_grammar_node_t * suffix = postfix_node->data.list.children[i];
+        c_grammar_node_t * suffix = postfix_node->list.children[i];
         if (suffix->type == AST_NODE_FUNCTION_CALL)
         {
             // Handle function call. Arguments might be children directly or in an ArgumentList
             size_t num_args = 0;
             LLVMValueRef * args = NULL;
 
-            if (suffix->data.list.count > 0)
+            if (suffix->list.count > 0)
             {
-                num_args = suffix->data.list.count;
+                num_args = suffix->list.count;
                 args = malloc(num_args * sizeof(*args));
                 for (size_t j = 0; j < num_args; ++j)
                 {
-                    args[j] = process_expression(ctx, suffix->data.list.children[j]);
+                    args[j] = process_expression(ctx, suffix->list.children[j]);
                 }
             }
 
@@ -4419,7 +4387,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 else if (base_node->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * func_name = base_node->data.terminal.text;
+                    char const * func_name = base_node->text;
 
                     // First check if it's a variable (function pointer) in the symbol table
                     LLVMValueRef var_ptr;
@@ -4527,8 +4495,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Struct member access: s.x or p->x
             // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
             /* The one and only child is an IDENTIFIER node. */
-            c_grammar_node_t * child = suffix->data.list.children[0];
-            char * member_name = child->data.terminal.text;
+            c_grammar_node_t * child = suffix->list.children[0];
+            char * member_name = child->text;
 
             LLVMValueRef struct_val = base_val;
             LLVMTypeRef struct_type = NULL;
@@ -4580,7 +4548,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * sname = find_symbol_struct_name(ctx, base_node->data.terminal.text);
+                    char const * sname = find_symbol_struct_name(ctx, base_node->text);
                     if (sname)
                         struct_type = find_struct_type(ctx, sname);
                 }
@@ -4723,13 +4691,13 @@ static LLVMValueRef
 process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for CastExpression: [TypeName, CastExpression]
-    if (node->data.list.count < 2)
+    if (node->list.count < 2)
     {
         return NULL;
     }
 
-    c_grammar_node_t const * type_name_node = node->data.list.children[0];
-    c_grammar_node_t const * inner_expr_node = node->data.list.children[1];
+    c_grammar_node_t const * type_name_node = node->list.children[0];
+    c_grammar_node_t const * inner_expr_node = node->list.children[1];
 
     if (type_name_node->type != AST_NODE_TYPE_NAME)
     {
@@ -4738,9 +4706,8 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // TypeName children are [SpecifierQualifierList, AbstractDeclarator?]
-    c_grammar_node_t * spec_qual = type_name_node->data.list.children[0];
-    c_grammar_node_t * abstract_decl
-        = (type_name_node->data.list.count > 1) ? type_name_node->data.list.children[1] : NULL;
+    c_grammar_node_t * spec_qual = type_name_node->list.children[0];
+    c_grammar_node_t * abstract_decl = (type_name_node->list.count > 1) ? type_name_node->list.children[1] : NULL;
 
     LLVMTypeRef target_type = map_type(ctx, spec_qual, abstract_decl);
     LLVMValueRef val_to_cast = process_expression(ctx, inner_expr_node);
@@ -4789,7 +4756,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * base_node = lhs_node->lhs;
         if (base_node->type == AST_NODE_IDENTIFIER)
         {
-            char const * base_name = base_node->data.terminal.text;
+            char const * base_name = base_node->text;
             LLVMValueRef base_ptr;
             LLVMTypeRef base_type;
             if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
@@ -4799,9 +4766,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 c_grammar_node_t const * postfix_node = lhs_node->rhs;
 
                 // Process suffixes to handle array subscripts and member access
-                for (size_t i = 0; i < postfix_node->data.list.count; ++i)
+                for (size_t i = 0; i < postfix_node->list.count; ++i)
                 {
-                    c_grammar_node_t * suffix = postfix_node->data.list.children[i];
+                    c_grammar_node_t * suffix = postfix_node->list.children[i];
 
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
@@ -4819,8 +4786,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
                     {
                         /* The one and only child is an IDENTIFIER node. */
-                        c_grammar_node_t * member_node = suffix->data.list.children[0];
-                        char * member_name = member_node->data.terminal.text;
+                        c_grammar_node_t * member_node = suffix->list.children[0];
+                        char * member_name = member_node->text;
 
                         if (current_ptr && current_type)
                         {
@@ -5071,13 +5038,13 @@ static LLVMValueRef
 process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Handle built-in boolean constants
-    if (node && node->data.terminal.text != NULL)
+    if (node && node->text != NULL)
     {
-        if (strcmp(node->data.terminal.text, "true") == 0)
+        if (strcmp(node->text, "true") == 0)
         {
             return LLVMConstInt(LLVMInt1TypeInContext(ctx->context), 1, false);
         }
-        if (strcmp(node->data.terminal.text, "false") == 0)
+        if (strcmp(node->text, "false") == 0)
         {
             return LLVMConstInt(LLVMInt1TypeInContext(ctx->context), 0, false);
         }
@@ -5105,16 +5072,16 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     else if (var_ptr == NULL)
     {
         // Check if it's a function name - return the function pointer
-        LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->data.terminal.text);
+        LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->text);
         if (func_val != NULL)
         {
             return func_val;
         }
-        fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->data.terminal.text);
+        fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->text);
         return NULL;
     }
 
-    fprintf(stderr, "IRGen Error: NULL element type for variable '%s'.\n", node->data.terminal.text);
+    fprintf(stderr, "IRGen Error: NULL element type for variable '%s'.\n", node->text);
     return NULL;
 }
 
@@ -5433,7 +5400,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         {
             LLVMValueRef var_ptr;
             LLVMTypeRef var_type;
-            if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type, NULL))
+            if (find_symbol(ctx, operand_node->text, &var_ptr, &var_type, NULL))
             {
                 return var_ptr;
             }
@@ -5444,22 +5411,22 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
         {
             // Extract the type and initializer from the compound literal
-            if (operand_node->is_terminal_node || operand_node->data.list.count < 2)
+            if (operand_node->list.count < 2)
             {
                 break;
             }
 
-            c_grammar_node_t const * type_name_node = operand_node->data.list.children[0];
-            c_grammar_node_t const * init_list_node = operand_node->data.list.children[1];
+            c_grammar_node_t const * type_name_node = operand_node->list.children[0];
+            c_grammar_node_t const * init_list_node = operand_node->list.children[1];
 
             /* Extract type name - check struct/union keyword first, then typedef */
             char const * type_name = NULL;
             bool is_typedef = false;
-            if (type_name_node->type == AST_NODE_TYPE_NAME && !type_name_node->is_terminal_node)
+            if (type_name_node->type == AST_NODE_TYPE_NAME)
             {
-                for (size_t i = 0; i < type_name_node->data.list.count && !type_name; ++i)
+                for (size_t i = 0; i < type_name_node->list.count && !type_name; ++i)
                 {
-                    c_grammar_node_t const * child = type_name_node->data.list.children[i];
+                    c_grammar_node_t const * child = type_name_node->list.children[i];
                     /* Try struct/union keyword first */
                     type_name = extract_struct_or_union_name(child);
                     if (type_name == NULL)
@@ -5526,7 +5493,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             LLVMValueRef var_ptr = NULL;
             LLVMTypeRef var_type = NULL;
             LLVMTypeRef pointee_type = NULL;
-            if (find_symbol(ctx, operand_node->data.terminal.text, &var_ptr, &var_type, &pointee_type))
+            if (find_symbol(ctx, operand_node->text, &var_ptr, &var_type, &pointee_type))
             {
                 elem_type = pointee_type;
             }
@@ -5628,16 +5595,16 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
             // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
-            for (size_t i = 0; i < operand_node->data.list.count && target_type == NULL; i++)
+            for (size_t i = 0; i < operand_node->list.count && target_type == NULL; i++)
             {
-                c_grammar_node_t * child = operand_node->data.list.children[i];
+                c_grammar_node_t * child = operand_node->list.children[i];
 
                 // Handle terminal type specifier (e.g., "int", "char")
                 if (child->type == AST_NODE_TYPE_SPECIFIER)
                 {
-                    if (child->is_terminal_node)
+                    if (child->text != NULL)
                     {
-                        char const * type_name = child->data.terminal.text;
+                        char const * type_name = child->text;
 
                         target_type = get_type_from_name(ctx, type_name);
                     }
@@ -5649,7 +5616,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 // Handle Identifier (struct name like "Point" in sizeof(struct Point))
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * type_name = child->data.terminal.text;
+                    char const * type_name = child->text;
                     LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
                     if (struct_type)
                     {
@@ -5661,9 +5628,9 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         // Check if operand is a type specifier (e.g., sizeof(int))
         else if (operand_node->type == AST_NODE_TYPE_SPECIFIER)
         {
-            if (operand_node->is_terminal_node)
+            if (operand_node->text != NULL)
             {
-                char const * type_name = operand_node->data.terminal.text;
+                char const * type_name = operand_node->text;
                 target_type = get_type_from_name(ctx, type_name);
             }
             else
@@ -5679,7 +5646,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         // Check if operand is an identifier (e.g., sizeof(x) or sizeof(arr))
         else if (operand_node->type == AST_NODE_IDENTIFIER)
         {
-            char const * var_name = operand_node->data.terminal.text;
+            char const * var_name = operand_node->text;
             LLVMValueRef var_ptr;
             LLVMTypeRef var_type;
             if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
@@ -5696,7 +5663,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 c_grammar_node_t const * deref_operand = operand_node->lhs;
                 if (deref_operand && deref_operand->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * var_name = deref_operand->data.terminal.text;
+                    char const * var_name = deref_operand->text;
                     LLVMValueRef var_ptr;
                     LLVMTypeRef var_type;
                     LLVMTypeRef pointee_type;
@@ -5740,15 +5707,15 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
-            for (size_t i = 0; i < operand_node->data.list.count && target_type == NULL; i++)
+            for (size_t i = 0; i < operand_node->list.count && target_type == NULL; i++)
             {
-                c_grammar_node_t * child = operand_node->data.list.children[i];
+                c_grammar_node_t * child = operand_node->list.children[i];
 
                 if (child->type == AST_NODE_TYPE_SPECIFIER)
                 {
-                    if (child->is_terminal_node)
+                    if (child->text != NULL)
                     {
-                        char const * type_name = child->data.terminal.text;
+                        char const * type_name = child->text;
 
                         target_type = get_type_from_name(ctx, type_name);
                     }
@@ -5759,7 +5726,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 }
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * type_name = child->data.terminal.text;
+                    char const * type_name = child->text;
                     LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
                     if (struct_type)
                     {
@@ -5774,7 +5741,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         }
         else if (operand_node->type == AST_NODE_IDENTIFIER)
         {
-            char const * var_name = operand_node->data.terminal.text;
+            char const * var_name = operand_node->text;
             LLVMValueRef var_ptr;
             LLVMTypeRef var_type;
             if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
@@ -5820,7 +5787,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NULL;
     }
 
-    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
+    //fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {
@@ -5888,9 +5855,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         /* Comma expression: evaluate all expressions, return the last value. */
         LLVMValueRef result = NULL;
-        for (size_t i = 0; i < node->data.list.count; ++i)
+        for (size_t i = 0; i < node->list.count; ++i)
         {
-            result = process_expression(ctx, node->data.list.children[i]);
+            result = process_expression(ctx, node->list.children[i]);
             if (!result)
             {
                 return NULL;
@@ -5905,7 +5872,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FUNCTION_CALL:
     case AST_NODE_POSTFIX_PARTS:
     {
-        fprintf(stderr, "BUG: got %s in %s", get_node_type_name_from_type(node->type), __func__);
+        fprintf(stderr, "IRGen Error: got %s in %s", get_node_type_name_from_type(node->type), __func__);
         /* Shouldn't happen. */
         break;
     }
@@ -5914,23 +5881,24 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // CompoundLiteral: (type){initializer-list}
         // e.g., (struct Pos){.x = 1, .y = 2} or (union Data){.x = 1}
         // Structure: TypeName + InitializerList
-        if (node->is_terminal_node || node->data.list.count < 2)
+        if (node->list.count < 2)
         {
             break;
         }
 
         // First child is TypeName, second is InitializerList
-        c_grammar_node_t const * type_name_node = node->data.list.children[0];
-        c_grammar_node_t const * init_list_node = node->data.list.children[1];
+        c_grammar_node_t const * type_name_node = node->list.children[0];
+        c_grammar_node_t const * init_list_node = node->list.children[1];
 
         /* Extract type name - check struct/union keyword first, then typedef */
         char const * type_name = NULL;
         bool is_typedef = false;
-        if (type_name_node->type == AST_NODE_TYPE_NAME && !type_name_node->is_terminal_node)
+
+        if (type_name_node->type == AST_NODE_TYPE_NAME)
         {
-            for (size_t i = 0; i < type_name_node->data.list.count && !type_name; ++i)
+            for (size_t i = 0; i < type_name_node->list.count && !type_name; ++i)
             {
-                c_grammar_node_t const * child = type_name_node->data.list.children[i];
+                c_grammar_node_t const * child = type_name_node->list.children[i];
                 /* Try struct/union keyword first */
                 type_name = extract_struct_or_union_name(child);
                 if (type_name == NULL)
@@ -6034,7 +6002,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRUCT_DECLARATOR_BITFIELD:
     default:
         // Attempt to recursively process if it might yield a value.
-        if (!node->is_terminal_node)
+        if (node->list.count > 0)
         {
             fprintf(
                 stderr,
@@ -6042,9 +6010,9 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 get_node_type_name_from_type(node->type),
                 node->type
             );
-            for (size_t i = 0; i < node->data.list.count; ++i)
+            for (size_t i = 0; i < node->list.count; ++i)
             {
-                LLVMValueRef res = process_expression(ctx, node->data.list.children[i]);
+                LLVMValueRef res = process_expression(ctx, node->list.children[i]);
                 if (res)
                     return res; // Return the first valid result found.
             }
@@ -6052,6 +6020,11 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         else
         {
             fprintf(stderr, "Ignoring terminal node %s (%u)\n", get_node_type_name_from_type(node->type), node->type);
+            if (node->text != NULL)
+            {
+                fprintf(stderr, ", `%s`\n", node->text);
+            }
+            fprintf(stderr, "\n");
         }
         break;
     }
