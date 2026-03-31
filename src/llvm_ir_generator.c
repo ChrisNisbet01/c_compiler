@@ -1243,6 +1243,15 @@ add_symbol_with_struct(
     scope->symbols[scope->symbol_count].pointee_type = pointee_type;
     scope->symbols[scope->symbol_count].tag_name = tag ? strdup(tag) : NULL;
     scope->symbol_count++;
+    fprintf(
+        stderr,
+        "Added symbol: name='%s', ptr=%p, type=%p, pointee_type=%p, tag='%s'\n",
+        name,
+        (void *)ptr,
+        (void *)type,
+        (void *)pointee_type,
+        tag ? tag : "(null)"
+    );
 }
 
 static void
@@ -1528,6 +1537,7 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
     fprintf(stderr, "Finding symbol entry: name='%s' in scope=%p\n", name, (void *)scope);
     if (scope == NULL || name == NULL)
     {
+        fprintf(stderr, "Invalid scope or name for finding symbol entry: name='%s', scope=%p\n", name, (void *)scope);
         return NULL;
     }
 
@@ -1535,6 +1545,13 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
     {
         if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
         {
+            fprintf(
+                stderr,
+                "Found symbol entry in current scope: name='%s', ptr=%p, type=%p\n",
+                name,
+                (void *)scope->symbols[i - 1].ptr,
+                (void *)scope->symbols[i - 1].type
+            );
             return &scope->symbols[i - 1];
         }
     }
@@ -4944,7 +4961,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // Look up the struct info to find the member by name
                 type_info_t const * struct_info
                     = scope_find_tagged_struct_by_llvm_type(ctx->current_scope, struct_type);
-
+                fprintf(
+                    stderr,
+                    "Debug: Looking up struct info for member access. Struct type: %p, found info: %s\n",
+                    (void *)struct_type,
+                    struct_info ? "yes" : "no"
+                );
                 if (struct_info && struct_info->fields)
                 {
                     for (unsigned j = 0; j < struct_info->field_count; ++j)
@@ -4964,7 +4986,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     /* Just use index 0 for member index and storage index. */
                     found = true;
                 }
-
+                fprintf(
+                    stderr,
+                    "Debug: Member '%s' access - found: %s, member_index: %u, storage_index: %u, num_elements: %u\n",
+                    member_name,
+                    found ? "yes" : "no",
+                    member_index,
+                    storage_index,
+                    num_elements
+                );
                 if (found || num_elements > 0)
                 {
                     // Create GEP to access member
