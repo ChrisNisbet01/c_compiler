@@ -42,7 +42,7 @@ static void register_tagged_struct_or_union_definition(
 );
 static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
-static void add_struct_type(
+static void add_tagged_struct_or_union_type(
     ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind, struct_field_t * fields, size_t num_fields
 );
 static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
@@ -794,69 +794,96 @@ scope_free(scope_t * scope)
 }
 
 static void
-scope_add_tagged_type(scope_t * scope, tagged_type_info_t info)
+scope_add_tagged_type(scope_t * scope, type_info_t info)
 {
-    if (scope == NULL || info.name == NULL)
+    if (scope == NULL || info.tag == NULL)
     {
         return;
     }
 
+    scope_types_t * tagged = &scope->tagged_types;
+
     /* Check if tag already exists */
-    for (size_t i = 0; i < scope->tagged_types.count; ++i)
+    for (size_t i = 0; i < tagged->count; ++i)
     {
-        if (scope->tagged_types.entries[i].name && strcmp(scope->tagged_types.entries[i].name, info.name) == 0)
+        if (tagged->entries[i].tag && strcmp(tagged->entries[i].tag, info.tag) == 0)
         {
-            /* Same name exists - check if kind matches */
-            if (scope->tagged_types.entries[i].kind != info.kind)
+            /* Same tag exists - check if kind matches */
+            if (tagged->entries[i].kind != info.kind)
             {
                 /* Kind mismatch - silently fail (keep original) */
                 return;
             }
             /* Same kind - update the entry */
-            scope->tagged_types.entries[i] = info;
+            tagged->entries[i] = info;
             return;
         }
     }
 
     /* New entry - add to array */
-    if (scope->tagged_types.count >= scope->tagged_types.capacity)
+    if (tagged->count >= tagged->capacity)
     {
-        size_t new_cap = scope->tagged_types.capacity == 0 ? 4 : scope->tagged_types.capacity * 2;
-        tagged_type_info_t * new_entries = realloc(scope->tagged_types.entries, new_cap * sizeof(*new_entries));
+        size_t new_cap = tagged->capacity == 0 ? 4 : tagged->capacity * 2;
+        type_info_t * new_entries = realloc(tagged->entries, new_cap * sizeof(*new_entries));
         if (new_entries == NULL)
         {
             return;
         }
-        scope->tagged_types.entries = new_entries;
-        scope->tagged_types.capacity = new_cap;
+        tagged->entries = new_entries;
+        tagged->capacity = new_cap;
     }
 
-    scope->tagged_types.entries[scope->tagged_types.count++] = info;
+    tagged->entries[tagged->count++] = info;
 }
 
-static tagged_type_info_t *
-scope_find_tagged_type(scope_t const * scope, char const * name, type_kind_t kind)
+static void
+scope_add_untagged_type(scope_t * scope, type_info_t info)
 {
-    if (scope == NULL || name == NULL)
+    if (scope == NULL)
+    {
+        return;
+    }
+
+    scope_types_t * untagged = &scope->untagged_types;
+    /* New entry - add to array */
+    if (untagged->count >= untagged->capacity)
+    {
+        size_t new_cap = untagged->capacity == 0 ? 4 : untagged->capacity * 2;
+        type_info_t * new_entries = realloc(untagged->entries, new_cap * sizeof(*new_entries));
+        if (new_entries == NULL)
+        {
+            return;
+        }
+        untagged->entries = new_entries;
+        untagged->capacity = new_cap;
+    }
+
+    untagged->entries[untagged->count++] = info;
+}
+
+static type_info_t *
+scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind)
+{
+    if (scope == NULL || tag == NULL)
     {
         return NULL;
     }
 
     for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        if (scope->tagged_types.entries[i].name && strcmp(scope->tagged_types.entries[i].name, name) == 0)
+        if (scope->tagged_types.entries[i].tag && strcmp(scope->tagged_types.entries[i].tag, tag) == 0)
         {
-            /* Found by name - verify kind matches */
+            /* Found by tag - verify kind matches */
             if (scope->tagged_types.entries[i].kind == kind)
             {
                 return &scope->tagged_types.entries[i];
             }
-            /* Name matches but kind doesn't - return NULL */
+            /* Tag matches but kind doesn't - return NULL */
             return NULL;
         }
     }
 
-    return scope_find_tagged_type(scope->parent, name, kind);
+    return scope_find_tagged_type(scope->parent, tag, kind);
 }
 
 static type_info_t *
@@ -871,7 +898,7 @@ scope_find_struct(scope_t const * scope, char const * name)
     return info;
 }
 
-static tagged_type_info_t *
+static type_info_t *
 scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type)
 {
     if (scope == NULL || type == NULL)
@@ -994,29 +1021,6 @@ scope_find_typedef(ir_generator_ctx_t * ctx, scope_t const * scope, char const *
     }
 
     return scope_find_typedef(ctx, scope->parent, name);
-}
-
-static void
-scope_add_untagged_struct(scope_t * scope, LLVMTypeRef type)
-{
-    if (scope == NULL || type == NULL)
-    {
-        return;
-    }
-
-    if (scope->untagged_structs.count >= scope->untagged_structs.capacity)
-    {
-        size_t new_cap = scope->untagged_structs.capacity == 0 ? 4 : scope->untagged_structs.capacity * 2;
-        LLVMTypeRef * new_types = realloc(scope->untagged_structs.types, new_cap * sizeof(*new_types));
-        if (new_types == NULL)
-        {
-            return;
-        }
-        scope->untagged_structs.types = new_types;
-        scope->untagged_structs.capacity = new_cap;
-    }
-
-    scope->untagged_structs.types[scope->untagged_structs.count++] = type;
 }
 
 static LLVMTypeRef
@@ -1460,12 +1464,14 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     // Store the enum tag in tagged_types if present
     if (enum_tag != NULL)
     {
-        tagged_type_info_t enum_info = {0};
-        enum_info.name = strdup(enum_tag);
+        type_info_t enum_info = {0};
+
+        enum_info.tag = strdup(enum_tag);
         enum_info.kind = TYPE_KIND_ENUM;
         enum_info.type = LLVMInt32TypeInContext(ctx->context);
         enum_info.fields = NULL;
         enum_info.field_count = 0;
+
         scope_add_tagged_type(ctx->current_scope, enum_info);
     }
 
@@ -1539,27 +1545,26 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     }
 }
 
-static void
-register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
-)
+typedef struct
 {
-    if (ctx == NULL || type_child == NULL
-        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION)
-        || tag == NULL)
-    {
-        return;
-    }
+    size_t num_members;
+    struct_field_t * members;
+} struct_or_union_members_st;
 
-    if (find_type_by_tag(ctx, tag) != NULL)
+static struct_or_union_members_st
+extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+{
+    struct_or_union_members_st object_members = {0};
+
+    if (type_child == NULL
+        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
     {
-        /* Already defined. Is this an error? */
-        return;
+        return object_members;
     }
 
     // StructDefinition has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
     // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
-    size_t start_idx = 0; // Skip Keyword and struct name
+    size_t start_idx; // Skip Keyword and struct name
     for (start_idx = 0; start_idx < type_child->list.count; start_idx++)
     {
         c_grammar_node_t * type_spec = type_child->list.children[start_idx];
@@ -1572,7 +1577,7 @@ register_tagged_struct_or_union_definition(
     if (start_idx >= type_child->list.count)
     {
         /* No TypeSpec found - invalid struct definition? */
-        return;
+        return object_members;
     }
 
     /* Calculate the maximum number of members we could have. */
@@ -1583,7 +1588,7 @@ register_tagged_struct_or_union_definition(
     struct_field_t * members = calloc(max_num_members, sizeof(*members));
     if (members == NULL || max_num_members == 0)
     {
-        return;
+        return object_members;
     }
 
     unsigned num_members = 0;
@@ -1718,13 +1723,54 @@ register_tagged_struct_or_union_definition(
         }
     }
 
-    if (num_members > 0)
+    object_members.members = members;
+    object_members.num_members = num_members;
+
+    return object_members;
+}
+
+static void
+register_tagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
+)
+{
+    if (ctx == NULL || tag == NULL)
     {
-        add_struct_type(ctx, tag, kind, members, num_members);
+        return;
+    }
+
+    if (find_type_by_tag(ctx, tag) != NULL)
+    {
+        /* Already defined. Is this an error? */
+        return;
+    }
+
+    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
+
+    if (members.num_members > 0)
+    {
+        add_tagged_struct_or_union_type(ctx, tag, kind, members.members, members.num_members);
     }
     else
     {
-        free(members);
+        free(members.members);
+    }
+}
+
+static void
+register_untagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind
+)
+{
+    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
+
+    if (members.num_members > 0)
+    {
+        add_untagged_struct__or_union_type(ctx, kind, members.members, members.num_members);
+    }
+    else
+    {
+        free(members.members);
     }
 }
 
@@ -1847,7 +1893,7 @@ cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef tar
 }
 
 static void
-add_struct_type(
+add_tagged_struct_or_union_type(
     ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind, struct_field_t * fields, size_t num_fields
 )
 {
@@ -1862,6 +1908,7 @@ add_struct_type(
     }
 
     type_info_t new_struct = {0};
+
     new_struct.tag = strdup(tag);
     new_struct.kind = kind;
     new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
@@ -1887,6 +1934,47 @@ add_struct_type(
     }
 
     scope_add_tagged_type(ctx->current_scope, new_struct);
+}
+
+static void
+add_untagged_struct_or_union_type(
+    ir_generator_ctx_t * ctx, type_kind_t kind, struct_field_t * fields, size_t num_fields
+)
+{
+    if (ctx == NULL || fields == NULL || num_fields == 0)
+    {
+        return;
+    }
+
+    struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
+    unsigned num_storage_units = last_field->storage_index + 1;
+    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+    int current_storage_unit = -1;
+    for (size_t i = 0; i < new_struct.field_count; i++)
+    {
+        struct_field_t * field = &fields[i];
+        if (field->storage_index != (unsigned)current_storage_unit)
+        {
+            current_storage_unit = field->storage_index;
+            field_types[current_storage_unit] = field->type;
+        }
+    }
+
+    type_info_t new_struct = {0};
+
+    new_struct.kind = kind;
+    new_struct.field_count = num_fields;
+    new_struct.fields = fields;
+
+    LLVMStructSetBody(new_struct.type, field_types, num_storage_units, false);
+    /*
+        XXX - Should really create a unique tag name and use LLVMStructCreateNamed() because if to untagged structs
+        have the same definition, LLVM will return the exact same LLVMTypeRef.
+     */
+    new_struct.type = LLVMStructType(field_types, num_storage_units, false);
+    free(field_types);
+
+    scope_add_untagged_type(ctx->current_scope, new_struct);
 }
 
 static char *
@@ -3113,8 +3201,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 char * typedef_name = typedef_name_node->text;
                 c_grammar_node_t const * struct_def_node = NULL;
                 c_grammar_node_t const * enum_def_node = NULL;
-                char const * struct_tag = NULL;
-                type_kind_t kind = TYPE_KIND_UNKNOWN;
 
                 /* Look for struct/union/enum definition inside DeclarationSpecifiers */
                 /* Could be:
@@ -3128,6 +3214,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER)
                     {
+                        char const * struct_tag = NULL;
+                        type_kind_t kind = TYPE_KIND_UNKNOWN;
                         bool handled = false;
 
                         for (size_t j = 0; j < spec_child->list.count; ++j)
@@ -3165,7 +3253,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                         /* Also check for StructDefinition (full definition) */
                         fprintf(stderr, "check for full definition\n");
-                        kind = TYPE_KIND_UNKNOWN;
                         for (size_t j = 0; j < spec_child->list.count; ++j)
                         {
                             c_grammar_node_t const * type_child = spec_child->list.children[j];
@@ -3175,16 +3262,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 fprintf(stderr, "is struct or union\n");
                                 struct_def_node = type_child;
-                                kind = type_child->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT
-                                                                                      : TYPE_KIND_UNION;
-
-                                /* Extract the struct tag if present */
-                                if (type_child->list.count > 0
-                                    && type_child->list.children[0]->type == AST_NODE_IDENTIFIER)
-                                {
-                                    fprintf(stderr, "has tag\n");
-                                    struct_tag = type_child->list.children[0]->text;
-                                }
                                 break;
                             }
                             else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
@@ -3203,27 +3280,32 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 if (struct_def_node)
                 {
+                    /* We have a full definition */
+                    char const * struct_tag = search_struct_or_union_tag(struct_def_node);
+                    type_kind_t kind;
+
                     fprintf(stderr, "got struct def node tag %s\n", struct_tag ? struct_tag : "NULL");
                     /* Register the struct definition if we have a tag and definition */
-                    scope_typedef_entry_t entry = {0};
-                    entry.name = strdup(typedef_name);
-                    entry.kind = kind;
+                    scope_typedef_entry_t typedef_entry = {0};
+                    typedef_entry.name = strdup(typedef_name);
 
                     if (struct_tag != NULL)
                     {
-                        register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
                         /* Tagged struct typedef - reference by tag name */
-                        entry.tag = strdup(struct_tag);
+                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
+                        register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
+                        typedef_entry.tag = strdup(struct_tag);
                     }
                     else
                     {
-                        /* We have a full definition - we need to get the type from the struct definition */
-                        /* For now, register with typedef name and look it up */
-                        register_tagged_struct_or_union_definition(ctx, struct_def_node, typedef_name, kind);
-                        entry.tag = strdup(typedef_name);
+                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
+                                                                                   : TYPE_KIND_UNTAGGED_UNION;
+                        register_untagged_struct_or_union_definition(ctx, struct_def_node, kind);
+                        // Index of the newly added untagged type
+                        typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
                     }
-
-                    scope_add_typedef_entry(ctx->current_scope, entry);
+                    typedef_entry.kind = kind;
+                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }
                 else if (enum_def_node)
                 {
@@ -3233,8 +3315,8 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     /* Also register the typedef */
                     if (typedef_name)
                     {
-                        scope_typedef_entry_t entry = {0};
-                        entry.name = strdup(typedef_name);
+                        scope_typedef_entry_t typedef_entry = {0};
+                        typedef_entry.name = strdup(typedef_name);
 
                         /* Check if there's an enum tag */
                         char const * enum_tag = NULL;
@@ -3247,17 +3329,17 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         if (enum_tag != NULL)
                         {
                             /* Tagged enum typedef */
-                            entry.kind = TYPE_KIND_ENUM;
-                            entry.tag = strdup(enum_tag);
+                            typedef_entry.kind = TYPE_KIND_ENUM;
+                            typedef_entry.tag = strdup(enum_tag);
                         }
                         else
                         {
                             /* Untagged enum typedef - store the integer type directly */
-                            entry.kind = TYPE_KIND_UNTAGGED_ENUM;
-                            entry.type = LLVMInt32TypeInContext(ctx->context);
+                            typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
+                            typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
                         }
 
-                        scope_add_typedef_entry(ctx->current_scope, entry);
+                        scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                     }
                 }
             }
