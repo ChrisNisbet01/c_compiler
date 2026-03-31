@@ -61,7 +61,7 @@ typedef struct scope_typedef_entry
     char * name;        // The typedef's own name
     type_kind_t kind;   // Which category this refers to
     LLVMTypeRef type;   // Only used for non-struct kinds (e.g., primitives)
-    char * tag;         // For tagged kinds - which entry in struct/union list
+    char * tag;         // For tagged kinds - which entry in struct/union/enum list
     int untagged_index; // For untagged kinds - index into untagged list, -1 otherwise
 } scope_typedef_entry_t;
 
@@ -91,9 +91,9 @@ typedef struct scope
     size_t symbol_count;
     size_t symbol_capacity;
 
-    scope_types_t tagged_types;     // Tagged struct/union/enum types
-    scope_types_t untagged_types;   // Anonymous structs/unions
-    scope_typedefs_t typedefs;      // Typedef names
+    scope_types_t tagged_types;   // Tagged struct/union/enum types
+    scope_types_t untagged_types; // Anonymous struct/union/enum types (Is enum supported yet?)
+    scope_typedefs_t typedefs;    // Typedef names
 
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
