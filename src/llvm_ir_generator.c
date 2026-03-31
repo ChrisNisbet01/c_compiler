@@ -1037,7 +1037,7 @@ scope_find_tagged_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 
     for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        if (scope->tagged_types.entries[i].llvm_type_kind == LLVMGetTypeKind(type))
+        if (scope->tagged_types.entries[i].type == type)
         {
             fprintf(
                 stderr,
@@ -3231,21 +3231,23 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             /* Handle non-terminal TypeSpecifier */
                             else if (child && child->type == AST_NODE_TYPE_SPECIFIER)
                             {
-                                for (size_t ssi = 0; ssi < child->list.count && !struct_name; ssi++)
+                                /* First try to extract struct/union/enum tag directly */
+                                char const * name_from_struct = extract_struct_or_union_or_enum_tag(child);
+                                if (name_from_struct != NULL)
                                 {
-                                    c_grammar_node_t * ssc = child->list.children[ssi];
-                                    if (ssc && ssc->type == AST_NODE_IDENTIFIER && ssc->text != NULL)
+                                    if (find_type_by_tag(ctx, name_from_struct))
                                     {
-                                        /* First try struct/union keyword path */
-                                        char const * name_from_struct = extract_struct_or_union_or_enum_tag(child);
-                                        if (name_from_struct != NULL)
-                                        {
-                                            if (find_type_by_tag(ctx, name_from_struct))
-                                            {
-                                                struct_name = name_from_struct;
-                                            }
-                                        }
-                                        else
+                                        struct_name = name_from_struct;
+                                    }
+                                }
+
+                                /* If no struct tag found, check for typedef names */
+                                if (!struct_name)
+                                {
+                                    for (size_t ssi = 0; ssi < child->list.count && !struct_name; ssi++)
+                                    {
+                                        c_grammar_node_t * ssc = child->list.children[ssi];
+                                        if (ssc && ssc->type == AST_NODE_IDENTIFIER && ssc->text != NULL)
                                         {
                                             /* Try typedef name */
                                             char const * typedef_name = extract_typedef_name(child);
