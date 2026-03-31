@@ -2544,7 +2544,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         )
                         {
                             // Handle struct/union type reference: should have a child Identifier with the tag name
-                            char const * tag = extract_struct_or_union_or_enum_tag(child);
+                            char const * tag = extract_struct_or_union_or_enum_tag(type_specifier_node);
                             if (tag != NULL)
                             {
                                 LLVMTypeRef tagged_type = find_type_by_tag(ctx, tag);
