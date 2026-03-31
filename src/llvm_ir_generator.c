@@ -48,6 +48,7 @@ static type_info_t const * add_tagged_struct_or_union_type(
 static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
 static type_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
 static type_info_t * scope_find_tagged_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type);
+static type_info_t * scope_find_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
@@ -551,7 +552,7 @@ process_postfix_suffixes(
                     unsigned storage_index = 0;
                     type_info_t * info = NULL;
 
-                    info = scope_find_tagged_struct_by_llvm_type(ctx->current_scope, struct_type);
+                    info = scope_find_struct_by_llvm_type(ctx->current_scope, struct_type);
 
                     if (info)
                     {
@@ -588,6 +589,11 @@ process_postfix_suffixes(
                             current_ptr = LLVMBuildInBoundsGEP2(
                                 ctx->builder, current_type, current_val, indices, 2, "memberptr"
                             );
+                        else if (current_ptr)
+                            /* For assignment targets: compute GEP from current_ptr (which is already a pointer to struct) */
+                            current_ptr = LLVMBuildInBoundsGEP2(
+                                ctx->builder, struct_type, current_ptr, indices, 2, "memberptr"
+                            );
                     }
                     else if (current_val)
                     {
@@ -595,6 +601,13 @@ process_postfix_suffixes(
                         aligned_store(ctx->builder, current_val, struct_ptr);
                         current_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
+                    }
+                    else if (current_ptr)
+                    {
+                        /* For assignment targets when current_type is not a pointer: compute GEP directly */
+                        current_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, struct_type, current_ptr, indices, 2, "memberptr"
+                        );
                     }
 
                     if (current_ptr)
@@ -1031,13 +1044,14 @@ scope_find_tagged_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
         or a union. The type_info_t struct has a 'kind' field that indicates whether it's a struct or union.
     */
     fprintf(
-        stderr, "Finding struct/union by type in scope: type=%p llvmtypekind: %d\n", (void *)type, LLVMGetTypeKind(type)
+        stderr, "Finding tagged struct/union by type in scope: type=%p llvmtypekind: %d\n", (void *)type, LLVMGetTypeKind(type)
     );
     if (scope == NULL || type == NULL)
     {
         return NULL;
     }
 
+    /* Search in tagged_types (named structs/unions) */
     for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
         if (scope->tagged_types.entries[i].type == type)
@@ -1053,6 +1067,51 @@ scope_find_tagged_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
     }
 
     return scope_find_tagged_struct_by_llvm_type(scope->parent, type);
+}
+
+static type_info_t *
+scope_find_untagged_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
+{
+    /*
+        Note that as LLVM stores structs and unions in the same type, we can't be sure that the type represents a struct
+        or a union. The type_info_t struct has a 'kind' field that indicates whether it's a struct or union.
+    */
+    fprintf(
+        stderr, "Finding untagged struct/union by type in scope: type=%p llvmtypekind: %d\n", (void *)type, LLVMGetTypeKind(type)
+    );
+    if (scope == NULL || type == NULL)
+    {
+        return NULL;
+    }
+
+    /* Search in untagged_types (anonymous structs/unions) */
+    for (size_t i = 0; i < scope->untagged_types.count; ++i)
+    {
+        if (scope->untagged_types.entries[i].type == type)
+        {
+            fprintf(
+                stderr,
+                "Found untagged struct/union by type in current scope: kind=%d\n",
+                scope->untagged_types.entries[i].kind
+            );
+            return &scope->untagged_types.entries[i];
+        }
+    }
+
+    return scope_find_untagged_struct_by_llvm_type(scope->parent, type);
+}
+
+static type_info_t *
+scope_find_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
+{
+    type_info_t * info = scope_find_tagged_struct_by_llvm_type(scope, type);
+    
+    if (info == NULL)
+    {
+        info = scope_find_untagged_struct_by_llvm_type(scope, type);
+    }
+
+    return info;
 }
 
 static void
@@ -2193,7 +2252,7 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
     if (!struct_type || !field_name)
         return -1;
 
-    type_info_t * info = scope_find_tagged_struct_by_llvm_type(ctx->current_scope, struct_type);
+    type_info_t * info = scope_find_struct_by_llvm_type(ctx->current_scope, struct_type);
 
     if (!info)
         return -1;
@@ -3030,7 +3089,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 param_types[i] = typedef_type;
                                 // Get underlying struct name for member access
                                 type_info_t * info
-                                    = scope_find_tagged_struct_by_llvm_type(ctx->current_scope, typedef_type);
+                                    = scope_find_struct_by_llvm_type(ctx->current_scope, typedef_type);
                                 if (info != NULL)
                                 {
                                     param_compound_name = (char *)info->tag;
@@ -4983,7 +5042,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 // Look up the struct info to find the member by name
                 type_info_t const * struct_info
-                    = scope_find_tagged_struct_by_llvm_type(ctx->current_scope, struct_type);
+                    = scope_find_struct_by_llvm_type(ctx->current_scope, struct_type);
                 fprintf(
                     stderr,
                     "Debug: Looking up struct info for member access. Struct type: %p, found info: %s\n",
@@ -5225,6 +5284,21 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 struct_type = get_pointer_element_type(ctx, current_type);
                             }
+                            // Fallback: try to find struct info by LLVM type directly (for untagged struct typedefs)
+                            if (struct_type == NULL)
+                            {
+                                LLVMTypeRef type_to_search = (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                                    ? get_pointer_element_type(ctx, current_type)
+                                    : current_type;
+                                if (type_to_search && LLVMGetTypeKind(type_to_search) == LLVMStructTypeKind)
+                                {
+                                    type_info_t * info = scope_find_struct_by_llvm_type(ctx->current_scope, type_to_search);
+                                    if (info != NULL)
+                                    {
+                                        struct_type = type_to_search;
+                                    }
+                                }
+                            }
 
                             if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
                             {
@@ -5241,7 +5315,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 unsigned storage_index = 0;
                                 type_info_t * info = NULL;
 
-                                info = scope_find_tagged_struct_by_llvm_type(ctx->current_scope, struct_type);
+                                info = scope_find_struct_by_llvm_type(ctx->current_scope, struct_type);
 
                                 if (info != NULL)
                                 {
