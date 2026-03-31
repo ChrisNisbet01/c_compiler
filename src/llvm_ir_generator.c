@@ -58,7 +58,7 @@ static type_info_t const * scope_find_untagged_struct(scope_t const * scope, int
 // Returns the tag if found (struct or union definition with identifier child), or NULL
 // Only returns non-NULL when struct/union definition node is present and it contains an Identifier.
 static char const *
-extract_struct_or_union_tag(c_grammar_node_t const * type_spec_node)
+extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
 {
     if (type_spec_node == NULL || type_spec_node->list.count == 0)
     {
@@ -71,7 +71,10 @@ extract_struct_or_union_tag(c_grammar_node_t const * type_spec_node)
     }
     c_grammar_node_t const * spec_child = type_spec_node->list.children[0];
 
-    if (spec_child->type != AST_NODE_STRUCT_DEFINITION && spec_child->type != AST_NODE_UNION_DEFINITION)
+    if (spec_child->type != AST_NODE_STRUCT_DEFINITION && spec_child->type != AST_NODE_UNION_DEFINITION
+        && spec_child->type != AST_NODE_ENUM_DEFINITION && spec_child->type != AST_NODE_STRUCT_TYPE_REF
+        && spec_child->type != AST_NODE_UNION_TYPE_REF && spec_child->type != AST_NODE_ENUM_TYPE_REF)
+
     {
         return NULL;
     }
@@ -2448,18 +2451,19 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 base_type = nested;
                             }
                         }
-                        else if (child->list.count >= 2)
+                        else if (
+                            child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
+                            || child->type == AST_NODE_ENUM_TYPE_REF
+                        )
                         {
-                            // Check if this is a StructTypeRef: first child is KwStruct terminal, second is Identifier
-                            c_grammar_node_t * first = child->list.children[0];
-                            c_grammar_node_t * second = child->list.children[1];
-                            if (first && first->text != NULL && second->type == AST_NODE_IDENTIFIER
-                                && second->text != NULL)
+                            // Handle struct/union type reference: should have a child Identifier with the tag name
+                            char const * tag = extract_struct_or_union_or_enum_tag(child);
+                            if (tag != NULL)
                             {
-                                LLVMTypeRef st = find_type_by_tag(ctx, second->text);
-                                if (st != NULL)
+                                LLVMTypeRef tagged_type = find_type_by_tag(ctx, tag);
+                                if (tagged_type != NULL)
                                 {
-                                    base_type = st;
+                                    base_type = tagged_type;
                                 }
                             }
                         }
@@ -2495,7 +2499,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     {
                         // Use helper to determine if this is a struct/union reference or a typedef
                         // Check struct/union keyword first
-                        char const * struct_name = extract_struct_or_union_tag(child);
+                        char const * struct_name = extract_struct_or_union_or_enum_tag(child);
                         if (struct_name != NULL)
                         {
                             LLVMTypeRef struct_type = find_type_by_tag(ctx, struct_name);
@@ -2980,7 +2984,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 // Use helper to extract type name - check struct/union keyword first, then typedef
                 if (type_spec)
                 {
-                    char const * tag = extract_struct_or_union_tag(type_spec);
+                    char const * tag = extract_struct_or_union_or_enum_tag(type_spec);
                     if (tag != NULL)
                     {
                         param_compound_name = (char *)tag;
@@ -3216,7 +3220,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     if (ssc && ssc->type == AST_NODE_IDENTIFIER && ssc->text != NULL)
                                     {
                                         /* First try struct/union keyword path */
-                                        char const * name_from_struct = extract_struct_or_union_tag(child);
+                                        char const * name_from_struct = extract_struct_or_union_or_enum_tag(child);
                                         if (name_from_struct != NULL)
                                         {
                                             if (find_type_by_tag(ctx, name_from_struct))
@@ -5792,7 +5796,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 {
                     c_grammar_node_t const * child = type_name_node->list.children[i];
                     /* Try struct/union keyword first */
-                    type_name = extract_struct_or_union_tag(child);
+                    type_name = extract_struct_or_union_or_enum_tag(child);
                     if (type_name == NULL)
                     {
                         /* Try typedef */
@@ -6264,7 +6268,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 c_grammar_node_t const * child = type_name_node->list.children[i];
                 /* Try struct/union keyword first */
-                type_name = extract_struct_or_union_tag(child);
+                type_name = extract_struct_or_union_or_enum_tag(child);
                 if (type_name == NULL)
                 {
                     /* Try typedef */
