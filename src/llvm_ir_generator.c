@@ -1964,6 +1964,9 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
                         previous_member = &members[num_members - 1];
                     }
                     new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                    fprintf(stderr, "Extracting field: name='%s', storage_index=%u, type_kind=%d\n",
+                            new_member.name, new_member.storage_index,
+                            new_member.type ? LLVMGetTypeKind(new_member.type) : -1);
                     members[num_members] = new_member;
                     num_members++;
                 }
@@ -2235,7 +2238,12 @@ find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 static LLVMTypeRef
 find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
 {
+    // Try to find as struct first, then union
     type_info_t * info = find_struct_info(ctx, name);
+    if (info == NULL)
+    {
+        info = scope_find_tagged_union(ctx->current_scope, name);
+    }
     return info ? info->type : NULL;
 }
 
@@ -2337,6 +2345,8 @@ add_tagged_struct_or_union_type(
     {
         struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
         unsigned num_storage_units = last_field->storage_index + 1;
+        fprintf(stderr, "Building struct '%s': num_fields=%zu, last_storage_index=%u, num_storage_units=%u\n",
+                new_struct.tag, new_struct.field_count, last_field->storage_index, num_storage_units);
         LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
         int current_storage_unit = -1;
         for (size_t i = 0; i < new_struct.field_count; i++)
@@ -5273,16 +5283,25 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             LLVMTypeRef struct_type = NULL;
 
-                            // For LLVM 18+ opaque pointers, use struct name from symbol table
-                            char const * tag = find_symbol_tag_name(ctx, base_name);
-                            if (tag != NULL)
+                            // For nested member access, use current_type directly if it's a struct
+                            // Otherwise, look up the struct type from the symbol table
+                            if (LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
                             {
-                                struct_type = find_type_by_tag(ctx, tag);
+                                struct_type = current_type;
                             }
-                            // Fallback for opaque pointers
-                            if (struct_type == NULL && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                            // For LLVM 18+ opaque pointers, use struct name from symbol table
+                            else if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                             {
                                 struct_type = get_pointer_element_type(ctx, current_type);
+                            }
+                            else
+                            {
+                                // Fallback: look up by tag name for the base variable
+                                char const * tag = find_symbol_tag_name(ctx, base_name);
+                                if (tag != NULL)
+                                {
+                                    struct_type = find_type_by_tag(ctx, tag);
+                                }
                             }
                             // Fallback: try to find struct info by LLVM type directly (for untagged struct typedefs)
                             if (struct_type == NULL)
