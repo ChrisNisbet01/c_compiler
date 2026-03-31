@@ -33,9 +33,7 @@ KwBoolBuiltin = lexeme("bool" IdBoundary);
 KwComplex = lexeme("_Complex" IdBoundary);
 KwImaginary = lexeme("_Imaginary" IdBoundary);
 KwStruct = lexeme("struct" IdBoundary);
-KwStructAction = KwStruct @AST_ACTION_KEYWORD;
 KwUnion = lexeme("union" IdBoundary);
-KwUnionAction = KwUnion @AST_ACTION_KEYWORD;
 KwEnum = lexeme("enum" IdBoundary);
 KwTypedef = lexeme("typedef" IdBoundary);
 
@@ -314,16 +312,16 @@ StructDeclarationList = StructDeclaration+;
 Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
 
 // StructDefinition: struct with body (definition)
-StructDefinition = KwStructAction AttributeList Identifier? LBrace StructDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
-UnionDefinition = KwUnionAction AttributeList Identifier? LBrace StructDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
-EnumDefinition = (KwEnum AttributeList Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace AttributeList) @AST_ACTION_ENUM_DEFINITION;
+StructDefinition = KwStruct AttributeList Identifier? LBrace StructDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
+UnionDefinition = KwUnion AttributeList Identifier? LBrace StructDeclarationList RBrace AttributeList @AST_ACTION_UNION_DEFINITION;
+EnumDefinition = KwEnum AttributeList Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace AttributeList @AST_ACTION_ENUM_DEFINITION;
 
 // Typedef names are identifiers that have been registered
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
-StructTypeRef = KwStructAction AttributeList Identifier;
-UnionTypeRef = KwUnionAction AttributeList Identifier;
-EnumTypeRef = KwEnum AttributeList Identifier;
+StructTypeRef = KwStruct AttributeList Identifier @AST_ACTION_STRUCT_TYPE_REF;
+UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;
+EnumTypeRef = KwEnum AttributeList Identifier @AST_ACTION_ENUM_TYPE_REF;
 
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | (KwLong KwDouble) | KwLong

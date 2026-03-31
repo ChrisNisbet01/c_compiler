@@ -1718,6 +1718,58 @@ handle_struct_definition(
 }
 
 static void
+handle_union_definition(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNION_DEFINITION);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_struct_type_ref(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_TYPE_REF);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_union_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNION_TYPE_REF);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_enum_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUM_TYPE_REF);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_enumerator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUMERATOR);
@@ -1766,19 +1818,6 @@ handle_typedef_declaration(
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_DECLARATION);
     if (ast_node == NULL)
     {
-        return;
-    }
-
-    epc_ast_push(ctx, ast_node);
-}
-
-static void
-handle_keyword(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
-{
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_KEYWORD, node);
-    if (ast_node == NULL)
-    {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
@@ -2015,9 +2054,9 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_NAME, handle_type_name);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXPRESSION_STATEMENT, handle_expression_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DEFINITION, handle_struct_definition);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_DEFINITION, handle_union_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_DECLARATION, handle_typedef_declaration);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_KEYWORD, handle_keyword);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TERNARY_OPERATION, handle_ternary_operation);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CONDITIONAL_EXPRESSION, handle_conditional_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMMA_EXPRESSION, handle_comma_expression);
@@ -2032,4 +2071,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(
         registry, AST_ACTION_STRUCT_DECLARATOR_BITFIELD, handle_struct_declarator_bitfield
     );
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_TYPE_REF, handle_struct_type_ref);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_TYPE_REF, handle_union_type_ref);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUM_TYPE_REF, handle_enum_type_ref);
 }

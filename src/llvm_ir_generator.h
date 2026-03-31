@@ -38,6 +38,14 @@ typedef enum
     TYPE_KIND_UNTAGGED_ENUM    // Untagged enum (anonymous)
 } type_kind_t;
 
+typedef struct untagged_type_info
+{
+    type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
+    LLVMTypeRef type;
+    struct_field_t * fields;
+    size_t field_count;
+} untagged_type_info_t;
+
 typedef struct tagged_type_info
 {
     char * name;
@@ -66,12 +74,12 @@ typedef struct scope_tagged_types
 } scope_tagged_types_t;
 
 // --- Untagged structs/unions in a scope ---
-typedef struct scope_untagged_structs
+typedef struct scope_untagged_types
 {
-    LLVMTypeRef * types;
+    tagged_type_info_t * entries;
     size_t count;
     size_t capacity;
-} scope_untagged_structs_t;
+} scope_untagged_types_t;
 
 // --- Typedefs in a scope ---
 typedef struct scope_typedefs
@@ -99,9 +107,9 @@ typedef struct scope
     size_t symbol_count;
     size_t symbol_capacity;
 
-    scope_tagged_types_t tagged_types;         // Tagged struct/union/enum types
-    scope_untagged_structs_t untagged_structs; // Anonymous structs/unions
-    scope_typedefs_t typedefs;                 // Typedef names
+    scope_tagged_types_t tagged_types;       // Tagged struct/union/enum types
+    scope_untagged_types_t untagged_structs; // Anonymous structs/unions
+    scope_typedefs_t typedefs;               // Typedef names
 
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
