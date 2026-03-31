@@ -869,7 +869,7 @@ add_info_to_list(scope_types_t * list, type_info_t info)
         info.kind,
         list->count
     );
-    return &list->entries[list->count++];
+    return &list->entries[list->count - 1];
 }
 
 static type_info_t const *
@@ -988,14 +988,17 @@ scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
 static type_info_t const *
 scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
 {
+    fprintf(stderr, "Finding untagged type: index=%d, kind=%d\n", index, kind);
     type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, index);
     if (entry == NULL)
     {
+        fprintf(stderr, "Untagged type not found for index: %d\n", index);
         return NULL;
     }
 
     if (entry->kind != kind)
     {
+        fprintf(stderr, "Kind mismatch for untagged type: expected %d, found %d\n", kind, entry->kind);
         return NULL;
     }
 
@@ -1055,6 +1058,7 @@ scope_find_tagged_struct_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 static void
 scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 {
+    fprintf(stderr, "Adding typedef entry: name='%s', tag='%s', kind=%d\n", entry.name, entry.tag, entry.kind);
     if (scope == NULL)
     {
         return;
@@ -1101,7 +1105,7 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
         }
     }
 
-    return NULL;
+    return scope_lookup_typedef_entry_by_name(scope->parent, name);
 }
 
 static LLVMTypeRef
@@ -1114,7 +1118,14 @@ scope_find_typedef(scope_t const * scope, char const * name)
         fprintf(stderr, "Typedef not found for name: '%s'\n", name);
         return NULL;
     }
-    fprintf(stderr, "Found typedef entry: name='%s', tag='%s', kind=%d\n", entry->name, entry->tag, entry->kind);
+    fprintf(
+        stderr,
+        "Found typedef entry: name='%s', tag='%s', kind=%d index=%d\n",
+        entry->name,
+        entry->tag,
+        entry->kind,
+        entry->untagged_index
+    );
     switch (entry->kind)
     {
     case TYPE_KIND_STRUCT:
@@ -3610,6 +3621,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         register_untagged_struct_or_union_definition(ctx, struct_def_node, kind);
                         // Index of the newly added untagged type
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                        fprintf(
+                            stderr,
+                            "typedef got untagged struct/union def, assigned untagged index %d\n",
+                            typedef_entry.untagged_index
+                        );
                     }
                     typedef_entry.kind = kind;
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
@@ -3638,6 +3654,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
                         // Index of the newly added untagged type
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                        fprintf(
+                            stderr,
+                            "typedef got untagged enum def, assigned untagged index %d\n",
+                            typedef_entry.untagged_index
+                        );
                     }
 
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
