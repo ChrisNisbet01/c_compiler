@@ -35,7 +35,7 @@ static bool find_symbol(
 ); // Helper for get_variable_pointer
 
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-static char const * find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name);
+static char const * find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name);
 static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
 static type_info_t const * register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
@@ -54,11 +54,11 @@ cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef tar
 static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
 static type_info_t const * scope_find_untagged_struct(scope_t const * scope, int index);
 
-// Helper function to extract struct/union name from a TypeSpecifier node
-// Returns the name if found (struct or union keyword followed by identifier), or NULL
-// Only returns non-NULL when struct/union keyword is present
+// Helper function to extract struct/union tag from a TypeSpecifier node
+// Returns the tag if found (struct or union definition with identifier child), or NULL
+// Only returns non-NULL when struct/union definition node is present and it contains an Identifier.
 static char const *
-extract_struct_or_union_name(c_grammar_node_t const * type_spec_node)
+extract_struct_or_union_tag(c_grammar_node_t const * type_spec_node)
 {
     if (type_spec_node == NULL || type_spec_node->list.count == 0)
     {
@@ -524,9 +524,11 @@ process_postfix_suffixes(
 
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER && base_node->text != NULL)
                 {
-                    char const * sname = find_symbol_struct_name(ctx, base_node->text);
-                    if (sname)
-                        struct_type = find_type_by_tag(ctx, sname);
+                    char const * tag = find_symbol_tag_name(ctx, base_node->text);
+                    if (tag != NULL)
+                    {
+                        struct_type = find_type_by_tag(ctx, tag);
+                    }
                 }
 
                 if (!struct_type && current_type)
@@ -542,7 +544,7 @@ process_postfix_suffixes(
                     unsigned num_elements = LLVMCountStructElementTypes(struct_type);
                     unsigned member_index = 0;
                     unsigned storage_index = 0;
-                    tagged_type_info_t * info = NULL;
+                    type_info_t * info = NULL;
 
                     info = scope_find_struct_by_type(ctx->current_scope, struct_type);
 
@@ -702,8 +704,10 @@ static scope_t *
 scope_create(scope_t * parent)
 {
     scope_t * scope = calloc(1, sizeof(*scope));
-    if (!scope)
+    if (scope == NULL)
+    {
         return NULL;
+    }
 
     scope->symbol_capacity = 16;
     scope->symbols = calloc(scope->symbol_capacity, sizeof(*scope->symbols));
@@ -712,7 +716,6 @@ scope_create(scope_t * parent)
         free(scope);
         return NULL;
     }
-    scope->symbol_count = 0;
 
     scope->tagged_types.capacity = 4;
     scope->tagged_types.entries = calloc(scope->tagged_types.capacity, sizeof(*scope->tagged_types.entries));
@@ -722,30 +725,27 @@ scope_create(scope_t * parent)
         free(scope);
         return NULL;
     }
-    scope->tagged_types.count = 0;
 
-    scope->untagged_structs.capacity = 4;
-    scope->untagged_structs.types = calloc(scope->untagged_structs.capacity, sizeof(*scope->untagged_structs.types));
-    if (!scope->untagged_structs.types)
+    scope->untagged_types.capacity = 4;
+    scope->untagged_types.entries = calloc(scope->untagged_types.capacity, sizeof(*scope->untagged_types.entries));
+    if (!scope->untagged_types.entries)
     {
         free(scope->tagged_types.entries);
         free(scope->symbols);
         free(scope);
         return NULL;
     }
-    scope->untagged_structs.count = 0;
 
     scope->typedefs.capacity = 4;
     scope->typedefs.entries = calloc(scope->typedefs.capacity, sizeof(*scope->typedefs.entries));
     if (!scope->typedefs.entries)
     {
-        free(scope->untagged_structs.types);
+        free(scope->untagged_types.entries);
         free(scope->tagged_types.entries);
         free(scope->symbols);
         free(scope);
         return NULL;
     }
-    scope->typedefs.count = 0;
 
     scope->parent = parent;
     return scope;
@@ -780,7 +780,7 @@ scope_free(scope_t * scope)
     free(scope->tagged_types.entries);
 
     /* Free all untagged structs in this scope */
-    free(scope->untagged_structs.types);
+    free(scope->untagged_types.types);
 
     /* Free all typedefs in this scope */
     for (size_t i = 0; i < scope->typedefs.count; ++i)
@@ -949,6 +949,10 @@ scope_find_tagged_enum(scope_t const * scope, char const * tag)
 static type_info_t *
 scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type)
 {
+    /*
+        Note that as LLVM stores structs and unions in the same type, we can't be sure that the type represents a struct
+        or a union. The type_info_t struct has a 'kind' field that indicates whether it's a struct or union.
+    */
     if (scope == NULL || type == NULL)
     {
         return NULL;
@@ -1115,7 +1119,7 @@ add_symbol_with_struct(
     LLVMValueRef ptr,
     LLVMTypeRef type,
     LLVMTypeRef pointee_type,
-    char const * struct_name
+    char const * tag
 )
 {
     if (!ctx || !name || !ptr || !type || !ctx->current_scope)
@@ -1137,7 +1141,7 @@ add_symbol_with_struct(
     scope->symbols[scope->symbol_count].ptr = ptr;
     scope->symbols[scope->symbol_count].type = type;
     scope->symbols[scope->symbol_count].pointee_type = pointee_type;
-    scope->symbols[scope->symbol_count].struct_name = struct_name ? strdup(struct_name) : NULL;
+    scope->symbols[scope->symbol_count].tag_name = tag ? strdup(tag) : NULL;
     scope->symbol_count++;
 }
 
@@ -1148,7 +1152,7 @@ add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTy
 }
 
 static char const *
-scope_find_symbol_struct_name(scope_t const * scope, char const * name)
+scope_find_symbol_tag_name(scope_t const * scope, char const * name)
 {
     if (scope == NULL || name == NULL)
     {
@@ -1159,22 +1163,22 @@ scope_find_symbol_struct_name(scope_t const * scope, char const * name)
     {
         if (scope->symbols[i].name != NULL && strcmp(scope->symbols[i].name, name) == 0)
         {
-            return scope->symbols[i].struct_name;
+            return scope->symbols[i].tag_name;
         }
     }
 
-    return scope_find_symbol_struct_name(scope->parent, name);
+    return scope_find_symbol_tag_name(scope->parent, name);
 }
 
 static char const *
-find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name)
+find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name)
 {
     if (ctx == NULL)
     {
         return NULL;
     }
 
-    return scope_find_symbol_struct_name(ctx->current_scope, name);
+    return scope_find_symbol_tag_name(ctx->current_scope, name);
 }
 
 static void
@@ -1418,6 +1422,25 @@ process_initializer_list(
     }
 }
 
+static symbol_t *
+scope_find_symbol_entry(scope_t const * scope, char const * name)
+{
+    if (scope == NULL || name == NULL)
+    {
+        return NULL;
+    }
+
+    for (size_t i = scope->symbol_count; i > 0; --i)
+    {
+        if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
+        {
+            return &scope->symbols[i - 1];
+        }
+    }
+
+    return scope_find_symbol_entry(scope->parent, name);
+}
+
 static bool
 scope_find_symbol(
     scope_t const * scope,
@@ -1427,26 +1450,26 @@ scope_find_symbol(
     LLVMTypeRef * out_pointee_type
 )
 {
-    if (scope == NULL || name == NULL)
+    symbol_t * symbol = scope_find_symbol_entry(scope, name);
+    if (symbol == NULL)
     {
         return false;
     }
 
-    for (size_t i = scope->symbol_count; i > 0; --i)
+    if (out_ptr != NULL)
     {
-        if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
-        {
-            if (out_ptr)
-                *out_ptr = scope->symbols[i - 1].ptr;
-            if (out_type)
-                *out_type = scope->symbols[i - 1].type;
-            if (out_pointee_type)
-                *out_pointee_type = scope->symbols[i - 1].pointee_type;
-            return true;
-        }
+        *out_ptr = symbol->ptr;
+    }
+    if (out_type != NULL)
+    {
+        *out_type = symbol->type;
+    }
+    if (out_pointee_type != NULL)
+    {
+        *out_pointee_type = symbol->pointee_type;
     }
 
-    return scope_find_symbol(scope->parent, name, out_ptr, out_type, out_pointee_type);
+    return true;
 }
 
 /**
@@ -1474,9 +1497,9 @@ find_symbol(
 }
 
 static void
-register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
+register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, char const * tag)
 {
-    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_DEFINITION)
+    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_DEFINITION || tag == NULL)
     {
         return;
     }
@@ -1485,37 +1508,30 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     // The enumerators contain the enum constant names and values
 
     // Check if first child is an Identifier (tag name) or Enumerator
-    size_t start_idx = 1; // Skip tag name by default
-    char const * enum_tag = NULL;
-
-    if (enum_node->list.count > 0)
+    size_t start_idx;
+    for (start_idx = 0; start_idx < enum_node->list.count; start_idx++)
     {
-        c_grammar_node_t * first_child = enum_node->list.children[0];
-
-        if (first_child->type == AST_NODE_ENUMERATOR)
+        c_grammar_node_t * child = enum_node->list.children[start_idx];
+        if (child->type == AST_NODE_ENUMERATOR)
         {
-            start_idx = 0; // Untagged enum - first child is an Enumerator
+            break;
         }
-        else if (first_child->type == AST_NODE_IDENTIFIER && first_child->text != NULL)
-        {
-            // Tagged enum - store the tag name
-            enum_tag = first_child->text;
-        }
+    }
+    if (start_idx == enum_node->list.count)
+    {
+        return;
     }
 
     // Store the enum tag in tagged_types if present
-    if (enum_tag != NULL)
-    {
-        type_info_t enum_info = {0};
+    type_info_t enum_info = {0};
 
-        enum_info.tag = strdup(enum_tag);
-        enum_info.kind = TYPE_KIND_ENUM;
-        enum_info.type = LLVMInt32TypeInContext(ctx->context);
-        enum_info.fields = NULL;
-        enum_info.field_count = 0;
+    enum_info.tag = strdup(tag);
+    enum_info.kind = TYPE_KIND_ENUM;
+    enum_info.type = LLVMInt32TypeInContext(ctx->context);
+    enum_info.fields = NULL;
+    enum_info.field_count = 0;
 
-        scope_add_tagged_type(ctx->current_scope, enum_info);
-    }
+    scope_add_tagged_type(ctx->current_scope, enum_info);
 
     // Enumerate values and register them as global constants
     int current_value = 0;
@@ -1816,12 +1832,118 @@ register_untagged_struct_or_union_definition(
     return NULL;
 }
 
+static type_info_t const *
+register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
+{
+    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_DEFINITION)
+    {
+        return NULL;
+    }
+
+    // EnumDefinition structure: [Identifier?, Enumerator, Enumerator, ...]
+    // The enumerators contain the enum constant names and values
+
+    // Check if first child is an Identifier (tag name) or Enumerator
+    size_t start_idx;
+    for (start_idx = 0; start_idx < enum_node->list.count; start_idx++)
+    {
+        c_grammar_node_t * child = enum_node->list.children[start_idx];
+        if (child->type == AST_NODE_ENUMERATOR)
+        {
+            break;
+        }
+    }
+    if (start_idx == enum_node->list.count)
+    {
+        return NULL;
+    }
+
+    // Enumerate values and register them as global constants
+    int current_value = 0;
+
+    for (size_t i = start_idx; i < enum_node->list.count; ++i)
+    {
+        c_grammar_node_t * child = enum_node->list.children[i];
+
+        if (child->type == AST_NODE_ENUMERATOR && child->list.count >= 1)
+        {
+            // Enumerator = [Identifier] or [Identifier, Assign, IntegerLiteral]
+            c_grammar_node_t * name_node = child->list.children[0];
+
+            if (name_node && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
+            {
+                char const * enum_name = name_node->text;
+
+                // Check if there's an explicit value assignment
+                // The enumerator could be [Identifier, Value] or [Identifier, Assign, Value]
+                c_grammar_node_t * value_node = NULL;
+
+                if (child->list.count == 2)
+                {
+                    // [Identifier, Value]
+                    value_node = child->list.children[1];
+                }
+                else if (child->list.count >= 3)
+                {
+                    // [Identifier, Assign, Value]
+                    value_node = child->list.children[2];
+                }
+
+                if (value_node)
+                {
+                    // Walk down the expression tree to find the integer literal
+                    if (value_node->type == AST_NODE_INTEGER_LITERAL)
+                    {
+                        current_value = (int)value_node->integer_literal.value;
+                    }
+                    else if (value_node->lhs)
+                    {
+                        // Try lhs recursively for wrapped expressions
+                        c_grammar_node_t * node = (c_grammar_node_t *)value_node;
+                        while (node && node->lhs)
+                        {
+                            if (node->type == AST_NODE_INTEGER_LITERAL)
+                            {
+                                current_value = (int)node->integer_literal.value;
+                                break;
+                            }
+                            node = (c_grammar_node_t *)node->lhs;
+                        }
+                    }
+                }
+
+                // Create a global constant for this enum value
+                LLVMValueRef const_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_value, true);
+                LLVMValueRef global = LLVMAddGlobal(ctx->module, LLVMInt32TypeInContext(ctx->context), enum_name);
+                LLVMSetInitializer(global, const_val);
+                LLVMSetGlobalConstant(global, true);
+                LLVMSetLinkage(global, LLVMInternalLinkage);
+
+                // Also add to symbol table for immediate lookup
+                add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL);
+
+                current_value++;
+            }
+        }
+    }
+    // Store the enum tag in tagged_types if present
+    type_info_t enum_info = {0};
+
+    enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
+    enum_info.type = LLVMInt32TypeInContext(ctx->context);
+    enum_info.fields = NULL;
+    enum_info.field_count = 0;
+
+    return scope_add_untagged_type(ctx->current_scope, enum_info);
+}
+
 static char const *
-search_for_struct_or_union_tag(c_grammar_node_t const * definition_node)
+search_for_struct_or_union_or_enum_tag(c_grammar_node_t const * definition_node)
 
 {
     if (definition_node == NULL
-        || (definition_node->type != AST_NODE_STRUCT_DEFINITION && definition_node->type != AST_NODE_UNION_DEFINITION))
+        || (definition_node->type != AST_NODE_ENUM_DEFINITION && definition_node->type != AST_NODE_STRUCT_DEFINITION
+            && definition_node->type != AST_NODE_UNION_DEFINITION))
     {
         return NULL;
     }
@@ -1851,7 +1973,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         return NULL;
     }
 
-    char * struct_tag = search_for_struct_or_union_tag(type_child);
+    char * struct_tag = search_for_struct_or_union_or_enum_tag(type_child);
     if (struct_tag == NULL)
     {
         return NULL;
@@ -2245,7 +2367,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     {
                         // Use helper to determine if this is a struct/union reference or a typedef
                         // Check struct/union keyword first
-                        char const * struct_name = extract_struct_or_union_name(child);
+                        char const * struct_name = extract_struct_or_union_tag(child);
                         if (struct_name != NULL)
                         {
                             LLVMTypeRef struct_type = find_type_by_tag(ctx, struct_name);
@@ -2730,7 +2852,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 // Use helper to extract type name - check struct/union keyword first, then typedef
                 if (type_spec)
                 {
-                    char const * name = extract_struct_or_union_name(type_spec);
+                    char const * name = extract_struct_or_union_tag(type_spec);
                     if (name != NULL)
                     {
                         param_compound_name = (char *)name;
@@ -2837,7 +2959,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         }
                         else if (type_child->type == AST_NODE_ENUM_DEFINITION)
                         {
-                            register_enum_definition(ctx, type_child);
+                            register_tagged_enum_definition(ctx, type_child);
                         }
                     }
                 }
@@ -2962,7 +3084,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     if (ssc && ssc->type == AST_NODE_IDENTIFIER && ssc->text != NULL)
                                     {
                                         /* First try struct/union keyword path */
-                                        char const * name_from_struct = extract_struct_or_union_name(child);
+                                        char const * name_from_struct = extract_struct_or_union_tag(child);
                                         if (name_from_struct != NULL)
                                         {
                                             if (find_type_by_tag(ctx, name_from_struct))
@@ -3310,7 +3432,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 if (struct_def_node)
                 {
                     /* We have a full definition */
-                    char const * struct_tag = search_for_struct_or_union_tag(struct_def_node);
+                    char const * struct_tag = search_for_struct_or_union_or_enum_tag(struct_def_node);
                     type_kind_t kind;
 
                     fprintf(stderr, "got struct def node tag %s\n", struct_tag ? struct_tag : "NULL");
@@ -3339,37 +3461,30 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 else if (enum_def_node)
                 {
                     /* Register the enum values as constants */
-                    register_enum_definition(ctx, enum_def_node);
+                    char const * enum_tag = search_for_struct_or_union_or_enum_tag(enum_def_node);
 
                     /* Also register the typedef */
-                    if (typedef_name)
+                    scope_typedef_entry_t typedef_entry = {0};
+                    typedef_entry.name = strdup(typedef_name);
+
+                    if (enum_tag != NULL)
                     {
-                        scope_typedef_entry_t typedef_entry = {0};
-                        typedef_entry.name = strdup(typedef_name);
-
-                        /* Check if there's an enum tag */
-                        char const * enum_tag = NULL;
-                        if (enum_def_node->list.count > 1 && enum_def_node->list.children[1]
-                            && enum_def_node->list.children[1]->type == AST_NODE_IDENTIFIER)
-                        {
-                            enum_tag = enum_def_node->list.children[1]->text;
-                        }
-
-                        if (enum_tag != NULL)
-                        {
-                            /* Tagged enum typedef */
-                            typedef_entry.kind = TYPE_KIND_ENUM;
-                            typedef_entry.tag = strdup(enum_tag);
-                        }
-                        else
-                        {
-                            /* Untagged enum typedef - store the integer type directly */
-                            typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
-                            typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
-                        }
-
-                        scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                        /* Tagged enum typedef */
+                        typedef_entry.kind = TYPE_KIND_ENUM;
+                        register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
+                        typedef_entry.tag = strdup(enum_tag);
                     }
+                    else
+                    {
+                        /* Untagged enum typedef - store the integer type directly */
+                        typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
+                        register_untagged_enum_definition(ctx, enum_def_node);
+                        typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
+                        // Index of the newly added untagged type
+                        typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                    }
+
+                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }
             }
         }
@@ -4647,9 +4762,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * sname = find_symbol_struct_name(ctx, base_node->text);
-                    if (sname)
-                        struct_type = find_type_by_tag(ctx, sname);
+                    char const * tag = find_symbol_tag_name(ctx, base_node->text);
+                    if (tag != NULL)
+                    {
+                        struct_type = find_type_by_tag(ctx, tag);
+                    }
                 }
                 // Fallback for older LLVM / dot access
                 if (!struct_type)
@@ -4893,10 +5010,10 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             LLVMTypeRef struct_type = NULL;
 
                             // For LLVM 18+ opaque pointers, use struct name from symbol table
-                            char const * sname = find_symbol_struct_name(ctx, base_name);
-                            if (sname != NULL)
+                            char const * tag = find_symbol_tag_name(ctx, base_name);
+                            if (tag != NULL)
                             {
-                                struct_type = find_type_by_tag(ctx, sname);
+                                struct_type = find_type_by_tag(ctx, tag);
                             }
                             // Fallback for opaque pointers
                             if (struct_type == NULL && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
@@ -5527,7 +5644,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 {
                     c_grammar_node_t const * child = type_name_node->list.children[i];
                     /* Try struct/union keyword first */
-                    type_name = extract_struct_or_union_name(child);
+                    type_name = extract_struct_or_union_tag(child);
                     if (type_name == NULL)
                     {
                         /* Try typedef */
@@ -5999,7 +6116,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 c_grammar_node_t const * child = type_name_node->list.children[i];
                 /* Try struct/union keyword first */
-                type_name = extract_struct_or_union_name(child);
+                type_name = extract_struct_or_union_tag(child);
                 if (type_name == NULL)
                 {
                     /* Try typedef */

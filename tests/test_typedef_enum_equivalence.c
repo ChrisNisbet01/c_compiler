@@ -8,6 +8,10 @@ enum Color
 };
 
 typedef enum Color ColorType;
+typedef enum
+{
+    HOT = 1
+} HotEnum;
 
 int
 main()
