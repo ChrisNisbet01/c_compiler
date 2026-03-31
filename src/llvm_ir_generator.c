@@ -36,18 +36,18 @@ static bool find_symbol(
 
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 static char const * find_symbol_struct_name(ir_generator_ctx_t * ctx, char const * name);
-static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
-static void register_struct_definition_with_name(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name, type_kind_t kind
+static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
+static void register_tagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
 );
 static void register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
 static void add_struct_type(
-    ir_generator_ctx_t * ctx, char const * name, type_kind_t kind, struct_field_t * fields, size_t num_fields
+    ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind, struct_field_t * fields, size_t num_fields
 );
-static LLVMTypeRef find_struct_type(ir_generator_ctx_t * ctx, char const * name);
-static tagged_type_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
-static tagged_type_info_t * scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type);
+static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
+static type_info_t * find_struct_info(ir_generator_ctx_t * ctx, char const * name);
+static type_info_t * scope_find_struct_by_type(scope_t const * scope, LLVMTypeRef type);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
@@ -391,9 +391,7 @@ process_array_subscript(
 }
 
 static LLVMValueRef
-handle_bitfield_extraction(
-    ir_generator_ctx_t * ctx, LLVMValueRef current_val, tagged_type_info_t * info, size_t member_index
-)
+handle_bitfield_extraction(ir_generator_ctx_t * ctx, LLVMValueRef current_val, type_info_t * info, size_t member_index)
 {
     if (info && info->fields && member_index < info->field_count)
     {
@@ -411,6 +409,7 @@ handle_bitfield_extraction(
 
     return current_val;
 }
+
 // Helper to process all postfix expression suffixes (array subscript, member access, function call, postfix ops)
 // Returns the final value, and optionally updates out_ptr/out_type for assignment targets
 static LLVMValueRef
@@ -527,7 +526,7 @@ process_postfix_suffixes(
                 {
                     char const * sname = find_symbol_struct_name(ctx, base_node->text);
                     if (sname)
-                        struct_type = find_struct_type(ctx, sname);
+                        struct_type = find_type_by_tag(ctx, sname);
                 }
 
                 if (!struct_type && current_type)
@@ -860,17 +859,16 @@ scope_find_tagged_type(scope_t const * scope, char const * name, type_kind_t kin
     return scope_find_tagged_type(scope->parent, name, kind);
 }
 
-static void
-scope_add_struct(scope_t * scope, tagged_type_info_t info)
-{
-    info.kind = TYPE_KIND_STRUCT;
-    scope_add_tagged_type(scope, info);
-}
-
-static tagged_type_info_t *
+static type_info_t *
 scope_find_struct(scope_t const * scope, char const * name)
 {
-    return scope_find_tagged_type(scope, name, TYPE_KIND_STRUCT);
+    type_info_t * info = scope_find_tagged_type(scope, name, TYPE_KIND_UNION);
+
+    if (info == NULL)
+    {
+        info = scope_find_tagged_type(scope, name, TYPE_KIND_STRUCT);
+    }
+    return info;
 }
 
 static tagged_type_info_t *
@@ -1542,44 +1540,52 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
 }
 
 static void
-register_struct_definition_with_name(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * struct_name, type_kind_t kind
+register_tagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
 )
 {
     if (ctx == NULL || type_child == NULL
         || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION)
-        || struct_name == NULL)
+        || tag == NULL)
     {
         return;
     }
 
-    if (find_struct_type(ctx, struct_name))
+    if (find_type_by_tag(ctx, tag) != NULL)
     {
-        /* Already defined. Isn't this an error? */
+        /* Already defined. Is this an error? */
         return;
     }
 
     // StructDefinition has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
     // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
-    size_t start_idx; // Skip Keyword and struct name
-    // Check if child[1] is Identifier (struct name) - if so, start at 2, else 1
-    if (type_child->list.count > 1 && type_child->list.children[1]
-        && type_child->list.children[1]->type == AST_NODE_IDENTIFIER)
+    size_t start_idx = 0; // Skip Keyword and struct name
+    for (start_idx = 0; start_idx < type_child->list.count; start_idx++)
     {
-        start_idx = 2;
+        c_grammar_node_t * type_spec = type_child->list.children[start_idx];
+        if (type_spec->type == AST_NODE_TYPE_SPECIFIER)
+        {
+            break;
+        }
     }
-    else
+
+    if (start_idx >= type_child->list.count)
     {
-        start_idx = 1;
+        /* No TypeSpec found - invalid struct definition? */
+        return;
     }
 
     /* Calculate the maximum number of members we could have. */
     size_t max_num_members = (type_child->list.count - start_idx) / 2;
+    if (max_num_members == 0)
+    {
+    }
     struct_field_t * members = calloc(max_num_members, sizeof(*members));
-    if (members == NULL)
+    if (members == NULL || max_num_members == 0)
     {
         return;
     }
+
     unsigned num_members = 0;
 
     for (size_t m = start_idx; m + 1 < type_child->list.count; m += 2)
@@ -1607,7 +1613,7 @@ register_struct_definition_with_name(
                     {
                         continue;
                     }
-                    size_t width_idx = 1;
+                    size_t width_idx;
                     if (decl->list.count == 1)
                     {
                         /* Anonymous bitfield with just width - skip name extraction. */
@@ -1616,6 +1622,7 @@ register_struct_definition_with_name(
                     }
                     else
                     {
+                        width_idx = 1;
                         c_grammar_node_t * bf_decl = decl->list.children[0];
                         if (bf_decl->type == AST_NODE_DECLARATOR)
                         {
@@ -1713,7 +1720,7 @@ register_struct_definition_with_name(
 
     if (num_members > 0)
     {
-        add_struct_type(ctx, struct_name, kind, members, num_members);
+        add_struct_type(ctx, tag, kind, members, num_members);
     }
     else
     {
@@ -1721,46 +1728,62 @@ register_struct_definition_with_name(
     }
 }
 
+static char const *
+search_struct_or_union_tag(c_grammar_node_t const * definition_node)
+
+{
+    if (definition_node == NULL
+        || (definition_node->type != AST_NODE_STRUCT_DEFINITION && definition_node->type != AST_NODE_UNION_DEFINITION))
+    {
+        return NULL;
+    }
+
+    char const * struct_tag = NULL;
+
+    for (size_t m = 0; m < definition_node->list.count; ++m)
+    {
+        c_grammar_node_t * struct_child = definition_node->list.children[m];
+
+        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->text != NULL)
+        {
+            struct_tag = struct_child->text;
+            break;
+        }
+    }
+
+    return struct_tag;
+}
+
 static void
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
-    if (ctx == NULL || type_child == NULL
+    if (type_child == NULL
         || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
     {
         return;
     }
 
-    char * struct_name = NULL;
-
-    for (size_t m = 0; m < type_child->list.count; ++m)
-    {
-        c_grammar_node_t * struct_child = type_child->list.children[m];
-
-        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->text != NULL)
-        {
-            struct_name = struct_child->text;
-            break;
-        }
-    }
-
-    if (struct_name == NULL)
+    char * struct_tag = search_struct_or_union_tag(type_child);
+    if (struct_tag == NULL)
     {
         return;
     }
 
-    register_struct_definition_with_name(ctx, type_child, struct_name, TYPE_KIND_STRUCT);
+    type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
+
+    register_tagged_struct_or_union_definition(ctx, type_child, struct_tag, kind);
 }
 
-static tagged_type_info_t *
+static type_info_t *
 find_struct_info(ir_generator_ctx_t * ctx, char const * name)
 {
     return scope_find_struct(ctx->current_scope, name);
 }
 
 static LLVMTypeRef
-find_struct_type(ir_generator_ctx_t * ctx, char const * name)
+find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
 {
-    tagged_type_info_t * info = find_struct_info(ctx, name);
+    type_info_t * info = find_struct_info(ctx, name);
     return info ? info->type : NULL;
 }
 
@@ -1825,23 +1848,23 @@ cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef tar
 
 static void
 add_struct_type(
-    ir_generator_ctx_t * ctx, char const * name, type_kind_t kind, struct_field_t * fields, size_t num_fields
+    ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind, struct_field_t * fields, size_t num_fields
 )
 {
-    if (ctx == NULL || name == NULL || fields == NULL || num_fields == 0)
+    if (ctx == NULL || tag == NULL || fields == NULL || num_fields == 0)
     {
         return;
     }
 
-    if (scope_find_struct(ctx->current_scope, name))
+    if (scope_find_struct(ctx->current_scope, tag))
     {
         return;
     }
 
-    tagged_type_info_t new_struct = {0};
-    new_struct.name = strdup(name);
+    type_info_t new_struct = {0};
+    new_struct.tag = strdup(tag);
     new_struct.kind = kind;
-    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.name);
+    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
 
@@ -1863,7 +1886,7 @@ add_struct_type(
         free(field_types);
     }
 
-    scope_add_struct(ctx->current_scope, new_struct);
+    scope_add_tagged_type(ctx->current_scope, new_struct);
 }
 
 static char *
@@ -1947,7 +1970,7 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
 {
     LLVMTypeRef type_ref = NULL;
 
-    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
     if (struct_type)
     {
         type_ref = struct_type;
@@ -2008,7 +2031,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 if (type_specifier_node->type == AST_NODE_IDENTIFIER && type_specifier_node->text != NULL)
                 {
                     char const * type_name = type_specifier_node->text;
-                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
                     if (struct_type)
                     {
                         base_type = struct_type;
@@ -2046,7 +2069,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             }
                             if (name != NULL)
                             {
-                                LLVMTypeRef st = find_struct_type(ctx, name);
+                                LLVMTypeRef st = find_type_by_tag(ctx, name);
                                 if (st)
                                 {
                                     base_type = st;
@@ -2068,7 +2091,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             if (first && first->text != NULL && second->type == AST_NODE_IDENTIFIER
                                 && second->text != NULL)
                             {
-                                LLVMTypeRef st = find_struct_type(ctx, second->text);
+                                LLVMTypeRef st = find_type_by_tag(ctx, second->text);
                                 if (st)
                                     base_type = st;
                             }
@@ -2108,7 +2131,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         char const * struct_name = extract_struct_or_union_name(child);
                         if (struct_name != NULL)
                         {
-                            LLVMTypeRef struct_type = find_struct_type(ctx, struct_name);
+                            LLVMTypeRef struct_type = find_type_by_tag(ctx, struct_name);
                             if (struct_type != NULL)
                             {
                                 base_type = struct_type;
@@ -2789,7 +2812,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             if (child && child->type == AST_NODE_TYPE_SPECIFIER && child->text != NULL)
                             {
                                 /* First try struct list */
-                                if (find_struct_type(ctx, child->text))
+                                if (find_type_by_tag(ctx, child->text))
                                 {
                                     struct_name = child->text;
                                 }
@@ -2825,7 +2848,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         char const * name_from_struct = extract_struct_or_union_name(child);
                                         if (name_from_struct != NULL)
                                         {
-                                            if (find_struct_type(ctx, name_from_struct))
+                                            if (find_type_by_tag(ctx, name_from_struct))
                                             {
                                                 struct_name = name_from_struct;
                                             }
@@ -3188,7 +3211,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (struct_tag != NULL)
                     {
-                        register_struct_definition_with_name(ctx, struct_def_node, struct_tag, kind);
+                        register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
                         /* Tagged struct typedef - reference by tag name */
                         entry.tag = strdup(struct_tag);
                     }
@@ -3196,7 +3219,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         /* We have a full definition - we need to get the type from the struct definition */
                         /* For now, register with typedef name and look it up */
-                        register_struct_definition_with_name(ctx, struct_def_node, typedef_name, kind);
+                        register_tagged_struct_or_union_definition(ctx, struct_def_node, typedef_name, kind);
                         entry.tag = strdup(typedef_name);
                     }
 
@@ -4515,7 +4538,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 {
                     char const * sname = find_symbol_struct_name(ctx, base_node->text);
                     if (sname)
-                        struct_type = find_struct_type(ctx, sname);
+                        struct_type = find_type_by_tag(ctx, sname);
                 }
                 // Fallback for older LLVM / dot access
                 if (!struct_type)
@@ -4762,7 +4785,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             char const * sname = find_symbol_struct_name(ctx, base_name);
                             if (sname != NULL)
                             {
-                                struct_type = find_struct_type(ctx, sname);
+                                struct_type = find_type_by_tag(ctx, sname);
                             }
                             // Fallback for opaque pointers
                             if (struct_type == NULL && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
@@ -5413,7 +5436,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             }
 
             LLVMTypeRef compound_type
-                = is_typedef ? find_typedef_type(ctx, type_name) : find_struct_type(ctx, type_name);
+                = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
             if (compound_type == NULL)
             {
                 fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal in unary &\n", type_name);
@@ -5582,7 +5605,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
                     char const * type_name = child->text;
-                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
                     if (struct_type)
                     {
                         target_type = struct_type;
@@ -5692,7 +5715,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
                     char const * type_name = child->text;
-                    LLVMTypeRef struct_type = find_struct_type(ctx, type_name);
+                    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
                     if (struct_type)
                     {
                         target_type = struct_type;
@@ -5885,7 +5908,7 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         /* Look up the type - struct list or typedef list */
-        LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_struct_type(ctx, type_name);
+        LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
         if (compound_type == NULL)
         {
             fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal\n", type_name);

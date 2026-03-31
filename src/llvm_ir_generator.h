@@ -22,7 +22,7 @@ typedef struct struct_field
     char * name;
     LLVMTypeRef type;
     unsigned bit_offset;
-    unsigned bit_width;     // bit_width == 0 indicates this is not a bitfield
+    unsigned bit_width;     // bit_width == 0 indicates this is not a bitfield or an unnamed bitfield
     unsigned storage_index; // -1 for regular fields, >=0 for bitfields = index of storage field
 } struct_field_t;
 
@@ -38,22 +38,22 @@ typedef enum
     TYPE_KIND_UNTAGGED_ENUM    // Untagged enum (anonymous)
 } type_kind_t;
 
-typedef struct untagged_type_info
-{
-    type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
-    LLVMTypeRef type;
-    struct_field_t * fields;
-    size_t field_count;
-} untagged_type_info_t;
-
 typedef struct tagged_type_info
 {
-    char * name;
+    char * tag;       // The tag name (e.g., "MyStruct"), or "" for anonymous structs/unions
     type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
     LLVMTypeRef type;
     struct_field_t * fields;
     size_t field_count;
-} tagged_type_info_t;
+} type_info_t;
+
+// --- Types (structs/unions/enums) in a scope ---
+typedef struct scope_tagged_types
+{
+    type_info_t * entries;
+    size_t count;
+    size_t capacity;
+} scope_types_t;
 
 // --- Typedef entry ---
 typedef struct scope_typedef_entry
@@ -64,22 +64,6 @@ typedef struct scope_typedef_entry
     char * tag;         // For tagged kinds - which entry in struct/union list
     int untagged_index; // For untagged kinds - index into untagged list, -1 otherwise
 } scope_typedef_entry_t;
-
-// --- Tagged types (structs/unions/enums) in a scope ---
-typedef struct scope_tagged_types
-{
-    tagged_type_info_t * entries;
-    size_t count;
-    size_t capacity;
-} scope_tagged_types_t;
-
-// --- Untagged structs/unions in a scope ---
-typedef struct scope_untagged_types
-{
-    tagged_type_info_t * entries;
-    size_t count;
-    size_t capacity;
-} scope_untagged_types_t;
 
 // --- Typedefs in a scope ---
 typedef struct scope_typedefs
@@ -97,7 +81,7 @@ typedef struct symbol
     LLVMValueRef ptr;
     LLVMTypeRef type;
     LLVMTypeRef pointee_type; // For pointer types, stores the pointed-to type (e.g., for int* this would be i32)
-    char * struct_name;       // For pointer-to-struct types, stores the struct name for member access
+    char * tag_name;          // For pointer-to-struct types, stores the struct tag for member access
 } symbol_t;
 
 // --- Scope structure for hierarchical symbol tables ---
@@ -107,9 +91,9 @@ typedef struct scope
     size_t symbol_count;
     size_t symbol_capacity;
 
-    scope_tagged_types_t tagged_types;       // Tagged struct/union/enum types
-    scope_untagged_types_t untagged_structs; // Anonymous structs/unions
-    scope_typedefs_t typedefs;               // Typedef names
+    scope_types_t tagged_types;     // Tagged struct/union/enum types
+    scope_types_t untagged_types;   // Anonymous structs/unions
+    scope_typedefs_t typedefs;      // Typedef names
 
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
