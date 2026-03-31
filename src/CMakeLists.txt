@@ -8,12 +8,13 @@ epc_generate_grammar(
     BOOTSTRAP_AST
 )
 
-add_executable(${app} 
-  main.c 
+add_executable(${app}
+  main.c
   ast_node_name.c
   ast_print.c
   c_grammar_ast_actions.c
   llvm_ir_generator.c
+  scope.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -flto=thin -Wall -Wextra -Wswitch-enum -pedantic)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "c_grammar_ast.h"
+#include "scope.h"
 
 // Include necessary LLVM C API headers.
 // These require LLVM to be installed and its include paths configured in CMake.
@@ -13,91 +14,6 @@
 typedef LLVMContextRef LLVMContextRef;
 typedef LLVMModuleRef LLVMModuleRef;
 typedef LLVMBuilderRef LLVMBuilderRef;
-typedef LLVMValueRef LLVMValueRef;
-typedef LLVMTypeRef LLVMTypeRef;
-
-// --- Struct type info for member access ---
-typedef struct struct_field
-{
-    char * name;
-    LLVMTypeRef type;
-    unsigned bit_offset;
-    unsigned bit_width;     // bit_width == 0 indicates this is not a bitfield or an unnamed bitfield
-    unsigned storage_index; // -1 for regular fields, >=0 for bitfields = index of storage field
-} struct_field_t;
-
-// --- Type kind for tagged types and typedef entries ---
-typedef enum
-{
-    TYPE_KIND_UNKNOWN,         // Unassigned/unknown type kind
-    TYPE_KIND_STRUCT,          // Tagged struct
-    TYPE_KIND_UNION,           // Tagged union
-    TYPE_KIND_UNTAGGED_STRUCT, // Untagged struct (anonymous)
-    TYPE_KIND_UNTAGGED_UNION,  // Untagged union (anonymous)
-    TYPE_KIND_ENUM,            // Tagged enum
-    TYPE_KIND_UNTAGGED_ENUM    // Untagged enum (anonymous)
-} type_kind_t;
-
-typedef struct tagged_type_info
-{
-    char * tag;       // The tag name (e.g., "MyStruct"), or "" for anonymous structs/unions
-    type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
-    LLVMTypeRef type;
-    LLVMTypeKind llvm_type_kind; // Cache the LLVM type kind for quick checks during member access
-    struct_field_t * fields;
-    size_t field_count;
-} type_info_t;
-
-// --- Types (structs/unions/enums) in a scope ---
-typedef struct scope_tagged_types
-{
-    type_info_t * entries;
-    size_t count;
-    size_t capacity;
-} scope_types_t;
-
-// --- Typedef entry ---
-typedef struct scope_typedef_entry
-{
-    char * name;        // The typedef's own name
-    type_kind_t kind;   // Which category this refers to
-    LLVMTypeRef type;   // Only used for non-struct kinds (e.g., primitives)
-    char * tag;         // For tagged kinds - which entry in struct/union/enum list
-    int untagged_index; // For untagged kinds - index into untagged list, -1 otherwise
-} scope_typedef_entry_t;
-
-// --- Typedefs in a scope ---
-typedef struct scope_typedefs
-{
-    scope_typedef_entry_t * entries;
-    size_t count;
-    size_t capacity;
-} scope_typedefs_t;
-
-// --- Symbol Table Management ---
-// Define symbol_t structure
-typedef struct symbol
-{
-    char * name;
-    LLVMValueRef ptr;
-    LLVMTypeRef type;
-    LLVMTypeRef pointee_type; // For pointer types, stores the pointed-to type (e.g., for int* this would be i32)
-    char * tag_name;          // For pointer-to-struct types, stores the struct tag for member access
-} symbol_t;
-
-// --- Scope structure for hierarchical symbol tables ---
-typedef struct scope
-{
-    symbol_t * symbols;
-    size_t symbol_count;
-    size_t symbol_capacity;
-
-    scope_types_t tagged_types;   // Tagged struct/union/enum types
-    scope_types_t untagged_types; // Anonymous struct/union/enum types (Is enum supported yet?)
-    scope_typedefs_t typedefs;    // Typedef names
-
-    struct scope * parent; // Chain to outer scope (NULL for global)
-} scope_t;
 
 // --- Label Management ---
 typedef struct label
