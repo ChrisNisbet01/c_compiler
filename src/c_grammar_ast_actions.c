@@ -1652,25 +1652,10 @@ handle_return_statement(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count > 1)
-    {
-        free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(
-            ctx, "%s expected no more than 1 child", get_node_type_name_from_type(AST_NODE_RETURN_STATEMENT)
-        );
-        return;
-    }
-
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_RETURN_STATEMENT, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RETURN_STATEMENT);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
-    }
-
-    if (count == 1)
-    {
-        ast_node->lhs = children[0];
     }
 
     epc_ast_push(ctx, ast_node);
