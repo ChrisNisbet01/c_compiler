@@ -13,6 +13,12 @@
 // typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
 
 // Forward declarations for functions used before definition
+// Helper to map C types to LLVM types
+static LLVMTypeRef
+map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
+
+static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
+
 static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
 static type_info_t const * register_tagged_struct_or_union_definition(
@@ -32,6 +38,27 @@ static LLVMValueRef get_variable_pointer(
     LLVMTypeRef * out_type,
     LLVMTypeRef * out_pointee_type
 );
+
+static char const *
+search_for_identifier_in_ast_node(c_grammar_node_t const * node)
+{
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < node->list.count; i++)
+    {
+        c_grammar_node_t * child = node->list.children[i];
+
+        if (child->type == AST_NODE_IDENTIFIER && child->text != NULL)
+        {
+            return child->text;
+        }
+    }
+
+    return NULL;
+}
 
 // Helper function to extract struct/union tag from a TypeSpecifier node
 // Returns the tag if found (struct or union definition with identifier child), or NULL
@@ -59,17 +86,7 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
     }
 
     /* Look for identifier in the definition. */
-    for (size_t i = 0; i < spec_child->list.count; i++)
-    {
-        /* Next child should be the type name identifier */
-        c_grammar_node_t const * name_node = spec_child->list.children[i];
-        if (name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
-        {
-            return name_node->text;
-        }
-    }
-
-    return NULL;
+    return search_for_identifier_in_ast_node(spec_child);
 }
 
 // Returns the name if found (plain identifier, i.e., typedef name), or NULL
@@ -87,7 +104,7 @@ extract_typedef_name(c_grammar_node_t const * type_spec_node)
         return NULL;
     }
 
-    /* First check: if struct/union keyword is present, return NULL */
+    /* First check: if struct/union/enum definition or type reference is present, return NULL */
     for (size_t j = 0; j < type_spec_node->list.count; ++j)
     {
         c_grammar_node_t const * spec_child = type_spec_node->list.children[j];
@@ -102,16 +119,7 @@ extract_typedef_name(c_grammar_node_t const * type_spec_node)
     }
 
     /* No keyword - check for plain identifier (typedef) */
-    for (size_t j = 0; j < type_spec_node->list.count; ++j)
-    {
-        c_grammar_node_t const * spec_child = type_spec_node->list.children[j];
-        if (spec_child && spec_child->type == AST_NODE_IDENTIFIER && spec_child->text != NULL)
-        {
-            return spec_child->text;
-        }
-    }
-
-    return NULL;
+    return search_for_identifier_in_ast_node(type_spec_node);
 }
 
 // Helper function to get natural alignment for a type
@@ -497,10 +505,12 @@ process_postfix_suffixes(
         // Handle MEMBER_ACCESS_DOT / MEMBER_ACCESS_ARROW
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
         {
-            /* The one and only child is an IDENTIFIER node. */
-            c_grammar_node_t * child = suffix->list.children[0];
-            char * member_name = child->text;
-
+            char const * member_name = search_for_identifier_in_ast_node(suffix);
+            if (member_name == NULL)
+            {
+                fprintf(stderr, "IRGen Error: Could not find member name in member access AST node.\n");
+                continue;
+            }
             if (current_val || current_ptr)
             {
                 LLVMTypeRef struct_type = NULL;
@@ -685,16 +695,6 @@ clear_labels(ir_generator_ctx_t * ctx)
     }
     ctx->label_count = 0;
 }
-
-// Helper to map C types to LLVM types
-static LLVMTypeRef
-map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
-
-// --- Forward Declarations ---
-static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-
-/* Scope management functions are now in scope.c */
 
 static void
 process_initializer_list(
@@ -1438,20 +1438,7 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
         return NULL;
     }
 
-    char const * struct_tag = NULL;
-
-    for (size_t m = 0; m < definition_node->list.count; ++m)
-    {
-        c_grammar_node_t * struct_child = definition_node->list.children[m];
-
-        if (struct_child->type == AST_NODE_IDENTIFIER && struct_child->text != NULL)
-        {
-            struct_tag = struct_child->text;
-            break;
-        }
-    }
-
-    return struct_tag;
+    return search_for_identifier_in_ast_node(definition_node);
 }
 
 static type_info_t const *
@@ -2155,7 +2142,7 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
  * This function dispatches to specific handlers based on the node type.
  */
 static void
-process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+_process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (node == NULL)
     {
@@ -2259,14 +2246,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                     {
                         // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
-                        for (size_t k = 0; k < first_child->list.count; ++k)
+                        char const * id = search_for_identifier_in_ast_node(first_child);
+                        if (id != NULL)
                         {
-                            c_grammar_node_t * fp_child = first_child->list.children[k];
-                            if (fp_child->type == AST_NODE_IDENTIFIER)
-                            {
-                                param_names[i] = fp_child->text;
-                                break;
-                            }
+                            param_names[i] = (char *)id;
                         }
                     }
                 }
@@ -2349,6 +2332,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Process the compound statement (function body).
         process_ast_node(ctx, compound_stmt_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
 
         // --- Add a default return if the function doesn't end with one ---
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
@@ -2437,7 +2424,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             c_grammar_node_t * init_decl_node = init_decl_nodes->list.children[i];
 
-            char * var_name = NULL;
+            char const * var_name = NULL;
             c_grammar_node_t * initializer_expr_node = NULL; // Node representing the initializer expression.
             c_grammar_node_t * declarator_node = init_decl_node->list.children[0];
             c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
@@ -2457,23 +2444,22 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     // Nested declarator (e.g., for function pointers like *name)
                     // Find the DirectDeclarator inside and get the Identifier
                     c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
-                    if (nested_direct && nested_direct->list.count > 0
-                        && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
+                    if (nested_direct != NULL)
                     {
-                        var_name = nested_direct->list.children[0]->text;
+                        char const * id = search_for_identifier_in_ast_node(nested_direct);
+                        if (id != NULL)
+                        {
+                            var_name = id;
+                        }
                     }
                 }
                 else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                 {
                     // FunctionPointerDeclarator contains Pointer, Identifier, DeclaratorSuffix*
-                    for (size_t k = 0; k < first_child->list.count; ++k)
+                    char const * id = search_for_identifier_in_ast_node(first_child);
+                    if (id != NULL)
                     {
-                        c_grammar_node_t * fp_child = first_child->list.children[k];
-                        if (fp_child->type == AST_NODE_IDENTIFIER)
-                        {
-                            var_name = fp_child->text;
-                            break;
-                        }
+                        var_name = (char *)id;
                     }
                 }
             }
@@ -2553,28 +2539,19 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 }
 
                                 /* If no struct tag found, check for typedef names */
-                                if (!struct_name)
+                                if (struct_name == NULL)
                                 {
-                                    for (size_t ssi = 0; ssi < child->list.count && !struct_name; ssi++)
+                                    char const * typedef_name = extract_typedef_name(child);
+                                    if (typedef_name != NULL)
                                     {
-                                        c_grammar_node_t * ssc = child->list.children[ssi];
-                                        if (ssc && ssc->type == AST_NODE_IDENTIFIER && ssc->text != NULL)
+                                        LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
+                                        if (typedef_type != NULL)
                                         {
-                                            /* Try typedef name */
-                                            char const * typedef_name = extract_typedef_name(child);
-                                            if (typedef_name != NULL)
+                                            type_info_t * info
+                                                = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
+                                            if (info != NULL)
                                             {
-                                                LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                                                if (typedef_type != NULL)
-                                                {
-                                                    type_info_t * info = scope_find_type_by_llvm_type(
-                                                        ctx->current_scope, typedef_type
-                                                    );
-                                                    if (info != NULL)
-                                                    {
-                                                        struct_name = info->tag;
-                                                    }
-                                                }
+                                                struct_name = info->tag;
                                             }
                                         }
                                     }
@@ -3039,11 +3016,21 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // 1. Process Init
         process_ast_node(ctx, init_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+
         LLVMBuildBr(ctx->builder, cond_block);
 
         // 2. Emit Cond block
         LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
         LLVMValueRef cond_val = process_expression(ctx, cond_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+
         if (cond_val)
         {
             // Convert condition to bool (i1) if it's not already.
@@ -3064,6 +3051,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // 3. Emit Body block
         LLVMPositionBuilderAtEnd(ctx->builder, body_block);
         process_ast_node(ctx, body_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+
         // If body doesn't have terminator, jump to post
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
@@ -3132,6 +3124,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Emit body block ---
         LLVMPositionBuilderAtEnd(ctx->builder, body_block);
         process_ast_node(ctx, body_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+
         // If the body block doesn't already have a terminator, jump back to condition
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
@@ -3176,6 +3173,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Emit body block ---
         LLVMPositionBuilderAtEnd(ctx->builder, body_block);
         process_ast_node(ctx, body_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+
         // Jump to condition
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
@@ -3461,6 +3463,11 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 if (child->type != AST_NODE_CASE_LABEL)
                 {
                     process_ast_node(ctx, child);
+                    if (ctx->errors.fatal)
+                    {
+                        return;
+                    }
+
                     if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
                     {
                         break;
@@ -3523,6 +3530,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Emit 'then' block ---
         LLVMPositionBuilderAtEnd(ctx->builder, then_block);
         process_ast_node(ctx, then_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
             LLVMBuildBr(ctx->builder, merge_block);
@@ -3533,6 +3544,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             LLVMPositionBuilderAtEnd(ctx->builder, else_block);
             process_ast_node(ctx, else_node);
+            if (ctx->errors.fatal)
+            {
+                return;
+            }
             if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
             {
                 LLVMBuildBr(ctx->builder, merge_block);
@@ -3627,6 +3642,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 // Process the statement part of the labeled statement
                 process_ast_node(ctx, statement_node);
+                if (ctx->errors.fatal)
+                {
+                    return;
+                }
             }
         }
         break;
@@ -3712,10 +3731,24 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             for (size_t i = 0; i < node->list.count; ++i)
             {
                 process_ast_node(ctx, node->list.children[i]);
+                if (ctx->errors.fatal)
+                {
+                    return;
+                }
             }
         }
         break;
     }
+}
+
+static void
+process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (ctx->errors.fatal)
+    {
+        return; // Stop processing if a fatal error has occurred
+    }
+    _process_ast_node(ctx, node);
 }
 
 // --- LLVM IR Helper Functions ---
@@ -4174,9 +4207,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         {
             // Struct member access: s.x or p->x
             // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
-            /* The one and only child is an IDENTIFIER node. */
-            c_grammar_node_t * child = suffix->list.children[0];
-            char * member_name = child->text;
+            char const * member_name = search_for_identifier_in_ast_node(suffix);
+            if (member_name == NULL)
+            {
+                ir_gen_error(&ctx->errors, "Could not find member name in member access AST node.");
+                return NULL;
+            }
 
             LLVMValueRef struct_val = base_val;
             LLVMTypeRef struct_type = NULL;
@@ -5510,7 +5546,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
  * This function recursively handles various expression types.
  */
 static LLVMValueRef
-process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+_process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (node == NULL)
     {
@@ -5762,4 +5798,21 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         break;
     }
     return NULL; // Return NULL if expression processing failed or not implemented.
+}
+
+static LLVMValueRef
+process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (ctx->errors.fatal)
+    {
+        return NULL;
+    }
+    LLVMValueRef result = _process_expression(ctx, node);
+
+    if (ctx->errors.fatal)
+    {
+        return NULL;
+    }
+
+    return result;
 }
