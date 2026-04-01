@@ -154,4 +154,14 @@ The compiler uses enum-based node types (e.g., `AST_NODE_ASSIGNMENT`, `AST_NODE_
 
 1. Create C file in `tests/` directory
 2. Ensure main() returns 0 on success
-3. Run: `tests/run_tests.sh build/src/ncc tests/your_test.c`
+3. Run: `tests/run_tests.sh --no-preprocess build/src/ncc tests/your_test.c`
+
+### Runing the full test suite
+- To run all tests, execute the following command from the project root:
+tests/run_tests.sh --no-preprocess build/src/ncc
+- For the sake of time, unless specifically trying to check something relating to preprocssing, use the --no-preprocess flag.
+- Only omit the --no-preprocess flag if the intention is to check something that coud be affected by the preprocessing step.s
+
+### Running a single test
+- To run a specific test file (e.g., `tests/test_bitwise.c`):
+tests/run_tests.sh --no-preprocess build/src/ncc tests/test_bitwise.c
