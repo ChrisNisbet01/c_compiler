@@ -64,6 +64,7 @@ run_test() {
     if [ "$NO_PREPROCESS" -eq 1 ]; then
         NCC_CMD+=("--no-preprocess")
     fi
+    NCC_CMD+=("--debug=info")
     
     # 1. Compile C file to LLVM IR using ncc (-S -emit-llvm)
     echo "  [NCC] Compiling $c_file -> $ll_file"
@@ -181,6 +182,7 @@ run_expected_fail_test() {
     if [ "$NO_PREPROCESS" -eq 1 ]; then
         NCC_CMD+=("--no-preprocess")
     fi
+    NCC_CMD+=("--debug=info")
     
     # For expected-to-fail tests, we EXPECT ncc to fail
     echo "  [NCC] Compiling (expecting failure) $c_file -> $ll_file"

@@ -3,6 +3,7 @@
 #include "c_grammar_ast.h"
 #include "c_grammar_ast_actions.h"
 #include "callbacks.h"
+#include "debug.h"
 
 // Include for LLVM IR Generator
 #include "llvm_ir_generator.h"
@@ -774,6 +775,7 @@ main(int argc, char * argv[])
            {"emit-llvm", no_argument, 0, 'e'},
            {"help", no_argument, 0, 'h'},
            {"no-preprocess", no_argument, 0, 256},
+           {"debug", required_argument, 0, 257},
            {0, 0, 0, 0}};
 
     int opt;
@@ -819,6 +821,26 @@ main(int argc, char * argv[])
             break;
         case 256: // --no-preprocess
             preprocess_flag = false;
+            break;
+        case 257: // --debug
+            if (strcmp(optarg, "info") == 0)
+            {
+                debug_set_level(DEBUG_LEVEL_INFO);
+            }
+            else if (strcmp(optarg, "warning") == 0 || strcmp(optarg, "warn") == 0)
+            {
+                debug_set_level(DEBUG_LEVEL_WARNING);
+            }
+            else if (strcmp(optarg, "error") == 0)
+            {
+                debug_set_level(DEBUG_LEVEL_ERROR);
+            }
+            else
+            {
+                fprintf(stderr, "Invalid debug level: %s (valid: info, warn, error)\n", optarg);
+                print_usage(argv[0]);
+                return EXIT_FAILURE;
+            }
             break;
         case 'h':
             print_usage(argv[0]);

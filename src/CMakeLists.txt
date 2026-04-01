@@ -13,9 +13,10 @@ add_executable(${app}
   ast_node_name.c
   ast_print.c
   c_grammar_ast_actions.c
+  debug.c
+  ir_gen_error.c
   llvm_ir_generator.c
   scope.c
-  ir_gen_error.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -flto=thin -Wall -Wextra -Wswitch-enum -pedantic)
