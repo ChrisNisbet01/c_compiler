@@ -2044,7 +2044,7 @@ ir_generator_init(void)
     ctx->label_count = 0;
 
     // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1);
+    ir_gen_error_collection_init(&ctx->errors, 10);
 
     // Initialize function declarations tracking
     ctx->function_declarations.entries = NULL;
