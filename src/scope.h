@@ -6,6 +6,7 @@
  * - Type information (structs, unions, enums) with tagging
  * - Symbol tables with hierarchical scoping
  * - Typedef management
+ * - Error and warning reporting
  *
  * The scope system supports both tagged types (with names) and untagged/anonymous types,
  * as well as typedef forwarding to either.
@@ -13,6 +14,7 @@
 
 #pragma once
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -290,7 +292,8 @@ void add_symbol_with_struct(
  * @param type The LLVM type.
  * @param pointee_type The pointed-to type (for pointers).
  */
-void add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type);
+void
+add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type);
 
 /**
  * @brief Finds a symbol in a scope and returns its pointer and type.

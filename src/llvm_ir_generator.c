@@ -2079,6 +2079,9 @@ ir_generator_init(void)
     ctx->labels = calloc(ctx->label_capacity, sizeof(label_t));
     ctx->label_count = 0;
 
+    // Initialize error collection (max 10 errors before stopping)
+    ir_gen_error_collection_init(&ctx->errors, 10);
+
     return ctx;
 }
 
@@ -2126,6 +2129,9 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
     free_symbol_table(ctx); // Free symbol table first (includes local types)
     free_labels(ctx);
 
+    // Free error collection
+    ir_gen_error_collection_free(&ctx->errors);
+
     if (ctx->builder)
         LLVMDisposeBuilder(ctx->builder);
     // LLVMDisposeModule takes ownership of the module.
@@ -2155,6 +2161,12 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
     }
 
     process_ast_node(ctx, ast_root);
+
+    // Check if errors occurred during IR generation
+    if (ir_gen_has_errors(&ctx->errors))
+    {
+        return NULL;
+    }
 
     return ctx->module;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "c_grammar_ast.h"
+#include "ir_gen_error.h"
 #include "scope.h"
 
 // Include necessary LLVM C API headers.
@@ -42,6 +43,9 @@ typedef struct ir_generator_ctx
     LLVMBasicBlockRef break_target;
     // --- Continue target for loops ---
     LLVMBasicBlockRef continue_target;
+
+    // --- Error and warning collection ---
+    ir_gen_error_collection_t errors;
 } ir_generator_ctx_t;
 
 /**

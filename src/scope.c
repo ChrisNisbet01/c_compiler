@@ -5,34 +5,13 @@
 
 #include "scope.h"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declaration needed for scope_push/scope_pop
-typedef struct ir_generator_ctx
-{
-    LLVMContextRef context;
-    LLVMModuleRef module;
-    LLVMBuilderRef builder;
-
-    // --- Scope-based symbol table ---
-    scope_t * current_scope; // Innermost active scope
-
-    // --- Label management for goto statements ---
-    struct label
-    {
-        char * name;
-        LLVMBasicBlockRef block;
-    } * labels;
-    size_t label_count;
-    size_t label_capacity;
-
-    // --- Break target for switch and loops ---
-    LLVMBasicBlockRef break_target;
-    // --- Continue target for loops ---
-    LLVMBasicBlockRef continue_target;
-} ir_generator_ctx_t;
+// Include the full definition from the header to get ir_generator_ctx_t
+#include "llvm_ir_generator.h"
 
 // --- Scope lifecycle ---
 

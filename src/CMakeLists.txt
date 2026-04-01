@@ -15,6 +15,7 @@ add_executable(${app}
   c_grammar_ast_actions.c
   llvm_ir_generator.c
   scope.c
+  ir_gen_error.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -flto=thin -Wall -Wextra -Wswitch-enum -pedantic)
