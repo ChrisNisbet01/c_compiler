@@ -112,7 +112,7 @@ symbol_table_add(symbol_table_t * st, char const * name)
         char ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
         if (new_names == NULL)
         {
-            fprintf(stderr, "Error: Failed to resize symbol table names array.\n");
+            debug_error("Error: Failed to resize symbol table names array.");
             return;
         }
         st->names = new_names;
@@ -245,7 +245,7 @@ session_ctx_push_pending(parse_session_ctx_t * ctx, char const * name)
         char ** new_pending = realloc(ctx->pending, sizeof(*ctx->pending) * ctx->pending_capacity);
         if (new_pending == NULL)
         {
-            fprintf(stderr, "Error: Failed to resize pending names array.\n");
+            debug_error("Error: Failed to resize pending names array.");
             return;
         }
         ctx->pending = new_pending;
@@ -336,7 +336,7 @@ on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * pars
             = realloc(session->marker_stack, sizeof(*session->marker_stack) * session->marker_capacity);
         if (new_marker_stack == NULL)
         {
-            fprintf(stderr, "Error: Failed to resize marker stack.\n");
+            debug_error("Error: Failed to resize marker stack.");
             return;
         }
         session->marker_stack = new_marker_stack;
@@ -410,7 +410,7 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     // 1. Emit object file
     if (emit_to_file(llvm_module, o_path, march_target, LLVMObjectFile) != 0)
     {
-        fprintf(stderr, "Failed to emit object file %s\n", o_path);
+        debug_error("Failed to emit object file %s", o_path);
         return -1;
     }
 
@@ -469,22 +469,22 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     int status = posix_spawn(&pid, "/usr/bin/cc", NULL, NULL, argv, environ);
     if (status != 0)
     {
-        fprintf(stderr, "posix_spawn failed: %s\n", strerror(status));
+        debug_error("posix_spawn failed: %s", strerror(status));
         result = -1;
     }
     else if (waitpid(pid, &status, 0) == -1) // Wait for child process to complete
     {
-        fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+        debug_error("waitpid failed: %s", strerror(errno));
         result = -1;
     }
     else if (WIFEXITED(status) && WEXITSTATUS(status) != 0) // Check exit status
     {
-        fprintf(stderr, "Linker failed with exit code %d\n", WEXITSTATUS(status));
+        debug_error("Linker failed with exit code %d", WEXITSTATUS(status));
         result = -1;
     }
     else if (WIFSIGNALED(status))
     {
-        fprintf(stderr, "Linker killed by signal %d\n", WTERMSIG(status));
+        debug_error("Linker killed by signal %d", WTERMSIG(status));
         result = -1;
     }
 
@@ -499,7 +499,7 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
 
     if (result == 0)
     {
-        printf("IRGen: Successfully produced executable %s\n", exe_path);
+        debug_info("IRGen: Successfully produced executable %s", exe_path);
     }
 
     return result;
@@ -523,7 +523,7 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
     char ** argv = calloc(num_args, sizeof(*argv));
     if (!argv)
     {
-        fprintf(stderr, "Error: Failed to allocate memory for preprocessing command.\n");
+        debug_error("Error: Failed to allocate memory for preprocessing command.");
         return -1;
     }
     int arg_idx = 0;
@@ -537,7 +537,7 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
         char * path_arg;
         if (asprintf(&path_arg, "-I%s", include_paths[i]) == -1)
         {
-            fprintf(stderr, "Error: Failed to create -I argument.\n");
+            debug_error("Error: Failed to create -I argument.");
             // Clean up allocated args
             for (int j = 0; j < arg_idx; j++)
                 free(argv[j]);
@@ -553,7 +553,7 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
         char * define_arg;
         if (asprintf(&define_arg, "-D%s", defines[i]) == -1)
         {
-            fprintf(stderr, "Error: Failed to create -D argument.\n");
+            debug_error("Error: Failed to create -D argument.");
             // Clean up allocated args
             for (int j = 0; j < arg_idx; j++)
                 free(argv[j]);
@@ -574,21 +574,22 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
     argv[arg_idx] = NULL;
 
     // Debug: print the command
-    fprintf(stderr, "DEBUG: Preprocessing command:");
+    debug_info("DEBUG: Preprocessing command:");
     for (int i = 0; i < arg_idx; i++)
     {
-        fprintf(stderr, " %s", argv[i]);
+        debug_info(" %s", argv[i]);
     }
-    fprintf(stderr, "\n");
     // Execute using posix_spawn
     pid_t pid;
     int status = posix_spawn(&pid, "/usr/bin/clang", NULL, NULL, argv, environ);
     if (status != 0)
     {
-        fprintf(stderr, "posix_spawn failed: %s\n", strerror(status));
+        debug_error("posix_spawn failed: %s", strerror(status));
         // Clean up
         for (int i = 0; i < arg_idx; i++)
+        {
             free(argv[i]);
+        }
         free(argv);
         return -1;
     }
@@ -596,7 +597,7 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
     int wait_status;
     if (waitpid(pid, &wait_status, 0) == -1)
     {
-        fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+        debug_error("waitpid failed: %s", strerror(errno));
         // Clean up
         for (int i = 0; i < arg_idx; i++)
             free(argv[i]);
@@ -606,7 +607,9 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
 
     // Clean up allocated arguments
     for (int i = 0; i < arg_idx; i++)
+    {
         free(argv[i]);
+    }
     free(argv);
 
     if (WIFEXITED(wait_status))
@@ -614,18 +617,18 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
         int exit_code = WEXITSTATUS(wait_status);
         if (exit_code != 0)
         {
-            fprintf(stderr, "Preprocessor failed with exit code %d\n", exit_code);
+            debug_error("Preprocessor failed with exit code %d", exit_code);
             return -1;
         }
         if (!output_to_stdout)
         {
-            printf("Preprocessing: Successfully created %s\n", output_path);
+            debug_info("Preprocessing: Successfully created %s", output_path);
         }
         return 0;
     }
     else if (WIFSIGNALED(wait_status))
     {
-        fprintf(stderr, "Preprocessor killed by signal %d\n", WTERMSIG(wait_status));
+        debug_error("Preprocessor killed by signal %d", WTERMSIG(wait_status));
         return -1;
     }
 
@@ -636,11 +639,11 @@ static bool
 generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 {
     bool success = true;
-    printf("\nStarting LLVM IR Generation...\n");
+    debug_info("Starting LLVM IR Generation...");
     ir_generator_ctx_t * ir_ctx = ir_generator_init();
     if (ir_ctx == NULL)
     {
-        fprintf(stderr, "Failed to initialize LLVM IR generator.\n");
+        debug_error("Failed to initialize LLVM IR generator.");
         return false;
     }
 
@@ -656,7 +659,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 
                 if (link_to_executable(llvm_module, exe_path) != 0)
                 {
-                    fprintf(stderr, "Failed to produce executable %s\n", exe_path);
+                    debug_error("Failed to produce executable %s", exe_path);
                     success = false;
                 }
             }
@@ -682,7 +685,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     // -S -emit-llvm: emit LLVM IR text
                     if (write_llvm_ir_to_file(llvm_module, out_path) != 0)
                     {
-                        fprintf(stderr, "Failed to write LLVM IR to %s\n", out_path);
+                        debug_error("Failed to write LLVM IR to %s", out_path);
                         success = false;
                     }
                 }
@@ -691,7 +694,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     // -S: emit native assembly
                     if (emit_to_file(llvm_module, out_path, march_target, LLVMAssemblyFile) != 0)
                     {
-                        fprintf(stderr, "Failed to emit assembly to %s\n", out_path);
+                        debug_error("Failed to emit assembly to %s", out_path);
                         success = false;
                     }
                 }
@@ -718,7 +721,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     // -c -emit-llvm: emit LLVM IR text
                     if (write_llvm_ir_to_file(llvm_module, out_path) != 0)
                     {
-                        fprintf(stderr, "Failed to write LLVM IR to %s\n", out_path);
+                        debug_error("Failed to write LLVM IR to %s", out_path);
                         success = false;
                     }
                 }
@@ -727,7 +730,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     // -c: emit native object file
                     if (emit_to_file(llvm_module, out_path, march_target, LLVMObjectFile) != 0)
                     {
-                        fprintf(stderr, "Failed to emit object file %s\n", out_path);
+                        debug_error("Failed to emit object file %s", out_path);
                         success = false;
                     }
                 }
@@ -735,13 +738,19 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
         }
         else
         {
-            fprintf(stderr, "LLVM IR generation failed.\n");
+            debug_error("LLVM IR generation failed.");
             success = false;
         }
     }
     else
     {
-        fprintf(stderr, "AST root is NULL, cannot generate LLVM IR.\n");
+        debug_error("AST root is NULL, cannot generate LLVM IR.");
+        success = false;
+    }
+
+    if (!success)
+    {
+        debug_error("LLVM IR generation failed.");
     }
 
     ir_generator_dispose(ir_ctx);
@@ -881,7 +890,7 @@ main(int argc, char * argv[])
         int fd = mkstemp(preprocessed_temp_file);
         if (fd == -1)
         {
-            fprintf(stderr, "Error: Failed to create temp file for preprocessing.\n");
+            debug_error("Error: Failed to create temp file for preprocessing.");
             free(preprocessed_temp_file);
             preprocessed_temp_file = NULL;
         }
@@ -895,7 +904,7 @@ main(int argc, char * argv[])
             int prep_result = preprocess_file(filename, preprocessed_temp_file, false);
             if (prep_result != 0)
             {
-                fprintf(stderr, "Error: Preprocessing failed for %s\n", filename);
+                debug_error("Error: Preprocessing failed for %s", filename);
                 free(preprocessed_temp_file);
                 preprocessed_temp_file = NULL;
             }
@@ -909,7 +918,7 @@ main(int argc, char * argv[])
     epc_parser_list * list = epc_parser_list_create();
     if (list == NULL)
     {
-        fprintf(stderr, "Failed to create parser list.\n");
+        debug_error("Failed to create parser list.");
         if (preprocessed_temp_file)
         {
             free(preprocessed_temp_file);
@@ -920,7 +929,7 @@ main(int argc, char * argv[])
     parse_session_ctx_t * session_ctx = session_ctx_create();
     if (session_ctx == NULL)
     {
-        fprintf(stderr, "Failed to create session context.\n");
+        debug_error("Failed to create session context.");
         epc_parser_list_free(list);
         return EXIT_FAILURE;
     }
@@ -928,7 +937,7 @@ main(int argc, char * argv[])
     epc_parser_t * c_parser = create_c_grammar_parser(list);
     if (c_parser == NULL)
     {
-        fprintf(stderr, "Failed to create C parser.\n");
+        debug_error("Failed to create C parser.");
         session_ctx_free(session_ctx);
         epc_parser_list_free(list);
         return EXIT_FAILURE;
@@ -939,10 +948,10 @@ main(int argc, char * argv[])
     if (session.result.is_error)
     {
         epc_parser_error_t * err = session.result.data.error;
-        fprintf(stderr, "Parse Error: %s\n", err->message);
-        fprintf(stderr, "At line %zu, col %zu\n", err->position.line + 1, err->position.col + 1);
-        fprintf(stderr, "Expected: %s\n", err->expected);
-        fprintf(stderr, "Found: %s\n", err->found);
+        debug_error("Parse Error: %s", err->message);
+        debug_error("At line %zu, col %zu", err->position.line + 1, err->position.col + 1);
+        debug_error("Expected: %s", err->expected);
+        debug_error("Found: %s", err->found);
 
         epc_parse_session_destroy(&session);
         session_ctx_free(session_ctx);
@@ -950,7 +959,7 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    printf("Successfully parsed the C file!\n");
+    debug_info("Successfully parsed the C file!");
     // Print the CPT (commented out for cleaner output)
     // char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
     // if (cpt_str != NULL)
@@ -970,8 +979,10 @@ main(int argc, char * argv[])
         if (!ast_result.has_error)
         {
             c_grammar_node_t * ast_root = ast_result.ast_root;
-            fprintf(stderr, "Starting AST print...\n");
-            print_ast(ast_root);
+            if (debug_get_level() >= DEBUG_LEVEL_INFO)
+            {
+                print_ast(ast_root);
+            }
             if (!generate_output(ast_root, filename))
             {
                 exit_code = EXIT_FAILURE;
@@ -980,13 +991,14 @@ main(int argc, char * argv[])
         }
         else
         {
-            fprintf(stderr, "AST Build Error: %s\n", ast_result.error_message);
+            debug_error("AST Build Error: %s", ast_result.error_message);
         }
         epc_ast_hook_registry_free(registry);
     }
     else
     {
-        fprintf(stderr, "Failed to create AST registry.\n");
+        debug_error("Failed to create AST registry.");
+        exit_code = EXIT_FAILURE;
     }
 
     epc_parse_session_destroy(&session);

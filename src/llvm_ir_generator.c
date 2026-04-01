@@ -3,6 +3,7 @@
 #include "ast_node_name.h"
 #include "ast_print.h"
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
+#include "debug.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -373,7 +374,7 @@ process_array_subscript(
     }
     else
     {
-        fprintf(stderr, "IRGen Error: Invalid type for array subscript.\n");
+        debug_error("Invalid type for array subscript.");
         return NULL;
     }
 
@@ -508,7 +509,7 @@ process_postfix_suffixes(
             char const * member_name = search_for_identifier_in_ast_node(suffix);
             if (member_name == NULL)
             {
-                fprintf(stderr, "IRGen Error: Could not find member name in member access AST node.\n");
+                debug_error("Could not find member name in member access AST node.");
                 continue;
             }
             if (current_val || current_ptr)
@@ -550,10 +551,9 @@ process_postfix_suffixes(
                             {
                                 if (info->fields[j].storage_index >= num_elements)
                                 {
-                                    fprintf(
-                                        stderr,
-                                        "IRGen Error: Storage index for field '%s' exceeds number of struct "
-                                        "elements.\n",
+                                    debug_warning(
+                                        "Storage index for field '%s' exceeds number of struct "
+                                        "elements.",
                                         member_name
                                     );
                                     return NULL;
@@ -1539,9 +1539,8 @@ add_tagged_struct_or_union_type(
 {
     if (ctx == NULL || tag == NULL || fields == NULL || num_fields == 0)
     {
-        fprintf(
-            stderr,
-            "Error: Invalid arguments to add_tagged_struct_or_union_type. ctx=%p, tag=%s, fields=%p, num_fields=%zu\n",
+        debug_error(
+            "Invalid arguments to add_tagged_struct_or_union_type. ctx=%p, tag=%s, fields=%p, num_fields=%zu",
             (void *)ctx,
             tag ? tag : "NULL",
             (void *)fields,
@@ -1995,14 +1994,14 @@ ir_generator_init(void)
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
     {
-        fprintf(stderr, "IRGen: Failed to allocate memory for context.\n");
+        debug_error("Failed to allocate memory for context.");
         return NULL;
     }
 
     ctx->context = LLVMContextCreate();
     if (!ctx->context)
     {
-        fprintf(stderr, "IRGen: Failed to create LLVM context.\n");
+        debug_error("Failed to create LLVM context.");
         free(ctx);
         return NULL;
     }
@@ -2010,7 +2009,7 @@ ir_generator_init(void)
     ctx->module = LLVMModuleCreateWithName("c_compiler_module");
     if (!ctx->module)
     {
-        fprintf(stderr, "IRGen: Failed to create LLVM module.\n");
+        debug_error("Failed to create LLVM module.");
         LLVMContextDispose(ctx->context);
         free(ctx);
         return NULL;
@@ -2019,7 +2018,7 @@ ir_generator_init(void)
     ctx->builder = LLVMCreateBuilder();
     if (!ctx->builder)
     {
-        fprintf(stderr, "IRGen: Failed to create LLVM builder.\n");
+        debug_error("Failed to create LLVM builder.");
         LLVMDisposeModule(ctx->module);
         LLVMContextDispose(ctx->context);
         free(ctx);
@@ -2030,7 +2029,7 @@ ir_generator_init(void)
     ctx->current_scope = scope_create(NULL); // NULL parent = global scope
     if (!ctx->current_scope)
     {
-        fprintf(stderr, "IRGen: Failed to create global scope.\n");
+        debug_error("Failed to create global scope.");
         LLVMDisposeBuilder(ctx->builder);
         LLVMDisposeModule(ctx->module);
         LLVMContextDispose(ctx->context);
@@ -2132,7 +2131,7 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
 {
     if (!ctx || !ast_root)
     {
-        fprintf(stderr, "IRGen: Invalid context or AST root provided.\n");
+        debug_error("Invalid context or AST root provided.");
         return NULL;
     }
 
@@ -2195,7 +2194,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Handle Function Definition ---
         if (node->list.count != 3)
         {
-            fprintf(stderr, "IRGen Error: Invalid function definition.\n");
+            debug_error("Invalid function definition.");
             return;
         }
         c_grammar_node_t * decl_specifiers_node = node->list.children[0];
@@ -3023,7 +3022,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (!lhs_ptr)
         {
-            fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
+            debug_error("Could not get pointer for LHS in assignment.");
             return;
         }
 
@@ -3031,7 +3030,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef rhs_value = process_expression(ctx, rhs_node);
         if (!rhs_value)
         {
-            fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
+            debug_error("Failed to process RHS expression in assignment.");
             return;
         }
 
@@ -3047,7 +3046,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // AST structure for ForStatement: [InitExpr/Decl, CondExpr, PostExpr, BodyStatement]
         if (node->list.count < 4)
         {
-            fprintf(stderr, "IRGen Error: Invalid ForStatement AST node.\n");
+            debug_error("Invalid ForStatement AST node.");
             return;
         }
 
@@ -3135,7 +3134,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // AST structure for WhileStatement: [ConditionExpression, BodyStatement]
         if (node->list.count < 2)
         {
-            fprintf(stderr, "IRGen Error: Invalid WhileStatement AST node.\n");
+            debug_error("Invalid WhileStatement AST node.");
             return;
         }
 
@@ -3162,7 +3161,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef condition_val = process_expression(ctx, condition_node);
         if (!condition_val)
         {
-            fprintf(stderr, "IRGen Error: Failed to process condition for WhileStatement.\n");
+            debug_error("Failed to process condition for WhileStatement.");
             return;
         }
 
@@ -3203,7 +3202,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // AST structure for DoWhileStatement: [BodyStatement, ConditionExpression]
         if (node->list.count < 2)
         {
-            fprintf(stderr, "IRGen Error: Invalid DoWhileStatement AST node.\n");
+            debug_error("Invalid DoWhileStatement AST node.");
             return;
         }
 
@@ -3244,7 +3243,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef condition_val = process_expression(ctx, condition_node);
         if (!condition_val)
         {
-            fprintf(stderr, "IRGen Error: Failed to process condition for DoWhileStatement.\n");
+            debug_error("Failed to process condition for DoWhileStatement.");
             return;
         }
 
@@ -3286,7 +3285,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         else
         {
-            fprintf(stderr, "IRGen Error: break statement not within a loop or switch.\n");
+            debug_error("break statement not within a loop or switch.");
         }
         break;
     }
@@ -3299,7 +3298,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         else
         {
-            fprintf(stderr, "IRGen Error: continue statement not within a loop.\n");
+            debug_error("continue statement not within a loop.");
         }
         break;
     }
@@ -3312,7 +3311,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // DefaultStatement: [statement*]
         if (node->list.count < 2)
         {
-            fprintf(stderr, "IRGen Error: Invalid SwitchStatement AST node.\n");
+            debug_error("Invalid SwitchStatement AST node.");
             return;
         }
 
@@ -3322,7 +3321,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef switch_val = process_expression(ctx, switch_expr);
         if (!switch_val)
         {
-            fprintf(stderr, "IRGen Error: Failed to process switch expression.\n");
+            debug_error("Failed to process switch expression.");
             return;
         }
 
@@ -3551,7 +3550,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
         if (node->list.count < 2)
         {
-            fprintf(stderr, "IRGen Error: Invalid IfStatement AST node.\n");
+            debug_error("Invalid IfStatement AST node.");
             return;
         }
 
@@ -3562,7 +3561,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef condition_val = process_expression(ctx, condition_node);
         if (!condition_val)
         {
-            fprintf(stderr, "IRGen Error: Failed to process condition for IfStatement.\n");
+            debug_error("Failed to process condition for IfStatement.");
             return;
         }
 
@@ -3634,7 +3633,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
             else
             {
-                fprintf(stderr, "IRGen Error: Failed to process return expression.\n");
+                debug_error("Failed to process return expression.");
             }
         }
         else
@@ -3710,9 +3709,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_UNION_DEFINITION:
     {
         /* Probably a bug to see these nodes at this level. */
-        fprintf(
-            stderr, "IRGen Error: Received AST node type %s at top level\n", get_node_type_name_from_type(node->type)
-        );
+        debug_error("Received AST node type %s at top level", get_node_type_name_from_type(node->type));
         break;
     }
 
@@ -3779,7 +3776,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 Do nothing for terminal nodes unless handled above.
                 Shouldn't happen.
              */
-            fprintf(stderr, "IRGen Warning: Unhandled terminal node type: %d (%s)\n", node->type, node->text);
+            debug_warning("Unhandled terminal node type: %d (%s)", node->type, node->text);
         }
         else
         {
@@ -3819,7 +3816,7 @@ write_llvm_ir_to_file(LLVMModuleRef module, char const * file_path)
 {
     if (!module || !file_path)
     {
-        fprintf(stderr, "IRGen Error: Invalid module or file path for writing IR.\n");
+        debug_error("Invalid module or file path for writing IR.");
         return -1;
     }
 
@@ -3827,7 +3824,7 @@ write_llvm_ir_to_file(LLVMModuleRef module, char const * file_path)
     // LLVMPrintModuleToFile writes human-readable IR.
     if (LLVMPrintModuleToFile(module, file_path, &error_message))
     {
-        fprintf(stderr, "IRGen Error: Failed to write LLVM IR to file '%s': %s\n", file_path, error_message);
+        debug_error("Failed to write LLVM IR to file '%s': %s", file_path, error_message);
         LLVMDisposeMessage(error_message); // Dispose the error message string
         return -1;
     }
@@ -3850,7 +3847,7 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
 {
     if (!module || !file_path)
     {
-        fprintf(stderr, "IRGen Error: Invalid module or file path for emission.\n");
+        debug_error("Invalid module or file path for emission.");
         return -1;
     }
 
@@ -3877,7 +3874,7 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
     LLVMTargetRef target;
     if (LLVMGetTargetFromTriple(triple, &target, &error))
     {
-        fprintf(stderr, "IRGen Error: Failed to get target from triple '%s': %s\n", triple, error);
+        debug_error("Failed to get target from triple '%s': %s", triple, error);
         LLVMDisposeMessage(error);
         LLVMDisposeMessage(triple);
         return -1;
@@ -3891,7 +3888,7 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
 
     if (!target_machine)
     {
-        fprintf(stderr, "IRGen Error: Failed to create target machine.\n");
+        debug_error("Failed to create target machine.");
         LLVMDisposeMessage(triple);
         return -1;
     }
@@ -3905,7 +3902,7 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
     // Emit to file
     if (LLVMTargetMachineEmitToFile(target_machine, module, (char *)file_path, file_type, &error))
     {
-        fprintf(stderr, "IRGen Error: Failed to emit file '%s': %s\n", file_path, error);
+        debug_error("Failed to emit file '%s': %s", file_path, error);
         LLVMDisposeMessage(error);
         LLVMDisposeMessage(data_layout_str);
         LLVMDisposeTargetData(data_layout);
@@ -3945,7 +3942,7 @@ get_variable_pointer(
 {
     if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->text)
     {
-        fprintf(stderr, "IRGen Error: Invalid identifier node for get_variable_pointer.\n");
+        debug_error("Invalid identifier node for get_variable_pointer.");
         return NULL;
     }
     char const * name = identifier_node->text;
@@ -4182,7 +4179,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 else
                 {
-                    fprintf(stderr, "IRGen Error: Could not resolve function for call.\n");
+                    debug_error("Could not resolve function for call.");
                     free(args);
                     return NULL;
                 }
@@ -4253,7 +4250,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 else
                 {
-                    fprintf(stderr, "IRGen Error: Could not process array subscript.\n");
+                    debug_error("Could not process array subscript.");
                     return NULL;
                 }
             }
@@ -4294,7 +4291,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 else
                 {
-                    fprintf(stderr, "IRGen Error: Member access on unsupported type kind %d.\n", type_kind);
+                    debug_error("Member access on unsupported type kind %d.", type_kind);
                 }
             }
 
@@ -4312,7 +4309,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 if (!base_type)
                 {
-                    fprintf(stderr, "IRGen Error: NULL type for member access base.\n");
+                    debug_error("NULL type for member access base.");
                     continue;
                 }
                 if (!struct_type)
@@ -4324,9 +4321,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
                     char const * tag = find_symbol_tag_name(ctx, base_node->text);
-                    fprintf(
-                        stderr, "Debug: Looking up struct type by tag '%s' for opaque pointer.\n", tag ? tag : "NULL"
-                    );
+                    debug_info("Looking up struct type by tag '%s' for opaque pointer.", tag ? tag : "NULL");
                     if (tag != NULL)
                     {
                         struct_type = find_type_by_tag(ctx, tag);
@@ -4343,7 +4338,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 if (!struct_type || LLVMGetTypeKind(struct_type) != LLVMStructTypeKind)
                 {
-                    fprintf(stderr, "IRGen Error: Could not find struct type for member access.\n");
+                    debug_error("Could not find struct type for member access.");
                     continue;
                 }
 
@@ -4355,9 +4350,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 // Look up the struct info to find the member by name
                 type_info_t const * struct_info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
-                fprintf(
-                    stderr,
-                    "Debug: Looking up struct info for member access. Struct type: %p, found info: %s\n",
+                debug_info(
+                    "Looking up struct info for member access. Struct type: %p, found info: %s",
                     (void *)struct_type,
                     struct_info ? "yes" : "no"
                 );
@@ -4380,9 +4374,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     /* Just use index 0 for member index and storage index. */
                     found = true;
                 }
-                fprintf(
-                    stderr,
-                    "Debug: Member '%s' access - found: %s, member_index: %u, storage_index: %u, num_elements: %u\n",
+                debug_info(
+                    "Member '%s' access - found: %s, member_index: %u, storage_index: %u, num_elements: %u",
                     member_name,
                     found ? "yes" : "no",
                     member_index,
@@ -4465,7 +4458,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
         else
         {
-            fprintf(stderr, "IRGen Warning: Unhandled postfix suffix type %u\n", suffix->type);
+            debug_warning("Unhandled postfix suffix type %u", suffix->type);
         }
     }
 
@@ -4493,7 +4486,7 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (type_name_node->type != AST_NODE_TYPE_NAME)
     {
-        fprintf(stderr, "IRGen Error: Expected TypeName in cast expression, got %u\n", type_name_node->type);
+        debug_error("Expected TypeName in cast expression, got %u", type_name_node->type);
         return NULL;
     }
 
@@ -4608,10 +4601,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             // Fallback: try to find struct info by LLVM type directly (for untagged struct typedefs)
                             if (struct_type == NULL)
                             {
-                                fprintf(
-                                    stderr,
-                                    "Debug: No struct type found from pointer element, trying direct type lookup.\n"
-                                );
+                                debug_info("No struct type found from pointer element, trying direct type lookup.");
                                 LLVMTypeRef type_to_search = (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                                                                  ? get_pointer_element_type(ctx, current_type)
                                                                  : current_type;
@@ -4652,10 +4642,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         {
                                             if (info->fields[j].storage_index >= num_elements)
                                             {
-                                                fprintf(
-                                                    stderr,
-                                                    "IRGen Error: Storage index for member '%s' exceeds struct element "
-                                                    "count.\n",
+                                                debug_warning(
+                                                    "Storage index for member '%s' exceeds struct element "
+                                                    "count.",
                                                     member_name
                                                 );
                                                 return NULL;
@@ -4713,7 +4702,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (!lhs_ptr)
     {
-        fprintf(stderr, "IRGen Error: Could not get pointer for LHS in assignment.\n");
+        debug_error("Could not get pointer for LHS in assignment.");
         return NULL;
     }
 
@@ -4730,7 +4719,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         rhs_value = process_expression(ctx, rhs_node);
         if (!rhs_value)
         {
-            fprintf(stderr, "IRGen Error: Failed to process RHS expression in compound assignment.\n");
+            debug_error("Failed to process RHS expression in compound assignment.");
             return NULL;
         }
 
@@ -4779,7 +4768,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             rhs_value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_value, "lshr_tmp");
             break;
         default:
-            fprintf(stderr, "IRGen Error: Unknown compound assignment operator.\n");
+            debug_error("Unknown compound assignment operator.");
             return NULL;
         }
     }
@@ -4789,7 +4778,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         rhs_value = process_expression(ctx, rhs_node);
         if (!rhs_value)
         {
-            fprintf(stderr, "IRGen Error: Failed to process RHS expression in assignment.\n");
+            debug_error("Failed to process RHS expression in assignment.");
             return NULL;
         }
     }
@@ -4898,11 +4887,11 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             return func_val;
         }
-        fprintf(stderr, "IRGen Error: Undefined variable '%s' used.\n", node->text);
+        debug_error("Undefined variable '%s' used.", node->text);
         return NULL;
     }
 
-    fprintf(stderr, "IRGen Error: NULL element type for variable '%s'.\n", node->text);
+    debug_error("NULL element type for variable '%s'.", node->text);
     return NULL;
 }
 
@@ -5139,7 +5128,7 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     if (!condition_node || !true_expr_node || !false_expr_node)
     {
-        fprintf(stderr, "IRGen Error: Invalid conditional expression\n");
+        debug_error("Invalid conditional expression");
         return NULL;
     }
 
@@ -5264,7 +5253,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 
             if (type_name == NULL)
             {
-                fprintf(stderr, "IRGen Error: Could not extract type name from compound literal in unary &\n");
+                debug_error("Could not extract type name from compound literal in unary &");
                 break;
             }
 
@@ -5272,7 +5261,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                 = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
             if (compound_type == NULL)
             {
-                fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal in unary &\n", type_name);
+                debug_error("Unknown type '%s' in compound literal in unary &", type_name);
                 break;
             }
 
@@ -5280,7 +5269,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
             if (alloca_inst == NULL)
             {
-                fprintf(stderr, "IRGen Error: Failed to allocate compound literal for unary &\n");
+                debug_error("Failed to allocate compound literal for unary &");
                 break;
             }
 
@@ -5588,7 +5577,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
     default:
     {
-        fprintf(stderr, "IRGen Error: Unknown unary operator %u.\n", node->op.unary.op);
+        debug_error("Unknown unary operator %u.", node->op.unary.op);
         return NULL;
     }
     }
@@ -5693,7 +5682,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FUNCTION_CALL:
     case AST_NODE_POSTFIX_PARTS:
     {
-        fprintf(stderr, "IRGen Error: got %s in %s", get_node_type_name_from_type(node->type), __func__);
+        debug_error("got %s in %s", get_node_type_name_from_type(node->type), __func__);
         /* Shouldn't happen. */
         break;
     }
@@ -5736,7 +5725,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (type_name == NULL)
         {
-            fprintf(stderr, "IRGen Error: Could not extract type name from compound literal\n");
+            debug_error("Could not extract type name from compound literal");
             break;
         }
 
@@ -5744,7 +5733,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
         if (compound_type == NULL)
         {
-            fprintf(stderr, "IRGen Error: Unknown type '%s' in compound literal\n", type_name);
+            debug_error("Unknown type '%s' in compound literal", type_name);
             break;
         }
 
@@ -5752,7 +5741,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
         if (alloca_inst == NULL)
         {
-            fprintf(stderr, "IRGen Error: Failed to allocate compound literal\n");
+            debug_error("Failed to allocate compound literal");
             break;
         }
 
@@ -5828,9 +5817,8 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
         {
-            fprintf(
-                stderr,
-                "Default processing for list node: %s %u\n",
+            debug_info(
+                "Default processing for list node: %s %u",
                 get_node_type_name_from_type(node->type),
                 node->type
             );
@@ -5843,12 +5831,11 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         else
         {
-            fprintf(stderr, "Ignoring terminal node %s (%u)\n", get_node_type_name_from_type(node->type), node->type);
+            debug_info("Ignoring terminal node %s (%u)", get_node_type_name_from_type(node->type), node->type);
             if (node->text != NULL)
             {
-                fprintf(stderr, ", `%s`\n", node->text);
+                debug_info("text: `%s`", node->text);
             }
-            fprintf(stderr, "\n");
         }
         break;
     }

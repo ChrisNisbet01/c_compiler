@@ -5,6 +5,8 @@
 
 #include "scope.h"
 
+#include "debug.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -167,9 +169,8 @@ add_info_to_list(scope_types_t * list, type_info_t info)
     }
 
     list->entries[list->count++] = info;
-    fprintf(
-        stderr,
-        "Added type info: tag='%s', kind=%d, total count=%zu\n",
+    debug_info(
+        "Added type info: tag='%s', kind=%d, total count=%zu",
         info.tag ? info.tag : "(null)",
         info.kind,
         list->count
@@ -184,9 +185,8 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
     {
         return NULL;
     }
-    fprintf(
-        stderr,
-        "Adding tagged type: scope=%p, tag='%s', kind=%d\n",
+    debug_info(
+        "Adding tagged type: scope=%p, tag='%s', kind=%d",
         (void *)scope,
         info.tag,
         info.kind
@@ -273,7 +273,7 @@ scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
     {
         return NULL;
     }
-    fprintf(stderr, "Looking up untagged type by index: %d\n", index);
+    debug_info("Looking up untagged type by index: %d", index);
     if ((size_t)index < scope->untagged_types.count)
     {
         return &scope->untagged_types.entries[index];
@@ -285,11 +285,11 @@ scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
 type_info_t const *
 scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
 {
-    fprintf(stderr, "Finding untagged type: index=%d, kind=%d\n", index, kind);
+    debug_info("Finding untagged type: index=%d, kind=%d", index, kind);
     type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, index);
     if (entry == NULL)
     {
-        fprintf(stderr, "Untagged type not found for index: %d\n", index);
+    debug_info("Untagged type not found for index: %d", index);
         return NULL;
     }
 
@@ -355,7 +355,7 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 void
 scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 {
-    fprintf(stderr, "Adding typedef entry: name='%s', tag='%s', kind=%d\n", entry.name, entry.tag, entry.kind);
+    debug_info("Adding typedef entry: name='%s', tag='%s', kind=%d", entry.name, entry.tag, entry.kind);
     if (scope == NULL)
     {
         return;
@@ -408,16 +408,15 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
 LLVMTypeRef
 scope_find_typedef(scope_t const * scope, char const * name)
 {
-    fprintf(stderr, "Finding typedef by name: '%s'\n", name);
+    debug_info("Finding typedef by name: '%s'", name);
     scope_typedef_entry_t const * entry = scope_lookup_typedef_entry_by_name(scope, name);
     if (entry == NULL)
     {
-        fprintf(stderr, "Typedef not found for name: '%s'\n", name);
+        debug_info("Typedef not found for name: '%s'", name);
         return NULL;
     }
-    fprintf(
-        stderr,
-        "Found typedef entry: name='%s', tag='%s', kind=%d index=%d\n",
+    debug_info(
+        "Found typedef entry: name='%s', tag='%s', kind=%d index=%d",
         entry->name,
         entry->tag,
         entry->kind,
@@ -526,9 +525,8 @@ add_symbol_with_struct(
     scope->symbols[scope->symbol_count].pointee_type = pointee_type;
     scope->symbols[scope->symbol_count].tag_name = tag ? strdup(tag) : NULL;
     scope->symbol_count++;
-    fprintf(
-        stderr,
-        "Added symbol: name='%s', ptr=%p, type=%p, pointee_type=%p, tag='%s'\n",
+    debug_info(
+        "Added symbol: name='%s', ptr=%p, type=%p, pointee_type=%p, tag='%s'",
         name,
         (void *)ptr,
         (void *)type,
@@ -576,10 +574,10 @@ find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name)
 static symbol_t *
 scope_find_symbol_entry(scope_t const * scope, char const * name)
 {
-    fprintf(stderr, "Finding symbol entry: name='%s' in scope=%p\n", name, (void *)scope);
+    debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
     if (scope == NULL || name == NULL)
     {
-        fprintf(stderr, "Invalid scope or name for finding symbol entry: name='%s', scope=%p\n", name, (void *)scope);
+        debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
         return NULL;
     }
 
@@ -587,9 +585,8 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
     {
         if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
         {
-            fprintf(
-                stderr,
-                "Found symbol entry in current scope: name='%s', ptr=%p, type=%p\n",
+            debug_info(
+                "Found symbol entry in current scope: name='%s', ptr=%p, type=%p",
                 name,
                 (void *)scope->symbols[i - 1].ptr,
                 (void *)scope->symbols[i - 1].type
@@ -613,7 +610,7 @@ scope_find_symbol(
     symbol_t * symbol = scope_find_symbol_entry(scope, name);
     if (symbol == NULL)
     {
-        fprintf(stderr, "Symbol not found for name: '%s'\n", name);
+        debug_info("Symbol not found for name: '%s'", name);
         return false;
     }
 
