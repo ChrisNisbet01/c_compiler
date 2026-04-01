@@ -2043,8 +2043,13 @@ ir_generator_init(void)
     ctx->labels = calloc(ctx->label_capacity, sizeof(label_t));
     ctx->label_count = 0;
 
-    // Initialize error collection (max 10 errors before stopping)
-    ir_gen_error_collection_init(&ctx->errors, 10);
+    // Initialize error collection (any error will be fatal since max_errors=1)
+    ir_gen_error_collection_init(&ctx->errors, 1);
+
+    // Initialize function declarations tracking
+    ctx->function_declarations.entries = NULL;
+    ctx->function_declarations.count = 0;
+    ctx->function_declarations.capacity = 0;
 
     return ctx;
 }
@@ -2095,6 +2100,13 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
 
     // Free error collection
     ir_gen_error_collection_free(&ctx->errors);
+
+    // Free function declarations
+    for (size_t i = 0; i < ctx->function_declarations.count; ++i)
+    {
+        free(ctx->function_declarations.entries[i].name);
+    }
+    free(ctx->function_declarations.entries);
 
     if (ctx->builder)
         LLVMDisposeBuilder(ctx->builder);
@@ -2169,6 +2181,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_FUNCTION_DEFINITION:
     {
+        // Check if we've already encountered a fatal error
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+
         clear_labels(ctx);
 
         // Create function scope for parameters and body
@@ -2259,6 +2277,43 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMTypeRef return_type = map_type(ctx, decl_specifiers_node, NULL);
         LLVMTypeRef func_type
             = LLVMFunctionType(return_type, num_params > 0 ? param_types : empty_params, (unsigned)num_params, false);
+
+        // Check for function redeclaration or signature mismatch
+        LLVMValueRef existing = LLVMGetNamedFunction(ctx->module, func_name);
+        if (existing != NULL)
+        {
+            LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
+            if (!function_signatures_match(existing_type, func_type))
+            {
+                ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
+                free(param_types);
+                free(param_names);
+                scope_pop(ctx);
+                return;
+            }
+
+            struct function_decl_entry * decl = find_function_declaration(ctx, func_name);
+            if (decl != NULL && decl->has_definition)
+            {
+                ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
+                free(param_types);
+                free(param_names);
+                scope_pop(ctx);
+                return;
+            }
+
+            // Update existing declaration to mark it as having a definition
+            if (decl != NULL)
+            {
+                decl->has_definition = true;
+            }
+        }
+        else
+        {
+            // New function - add to tracking
+            add_function_declaration(ctx, func_name, func_type, true);
+        }
+
         LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
 
         // Create a basic block for the function's entry point.

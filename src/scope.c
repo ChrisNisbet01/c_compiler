@@ -677,3 +677,132 @@ scope_pop(ir_generator_ctx_t * ctx)
     old_scope->parent = NULL; // Detach old scope from context before freeing
     scope_free(old_scope);
 }
+
+// --- Function declaration tracking ---
+
+bool
+function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2)
+{
+    if (type1 == NULL || type2 == NULL)
+    {
+        return false;
+    }
+
+    // Check return type
+    LLVMTypeRef return1 = LLVMGetReturnType(type1);
+    LLVMTypeRef return2 = LLVMGetReturnType(type2);
+    if (LLVMGetTypeKind(return1) != LLVMGetTypeKind(return2))
+    {
+        return false;
+    }
+
+    // Check parameter count
+    unsigned param_count1 = LLVMCountParamTypes(type1);
+    unsigned param_count2 = LLVMCountParamTypes(type2);
+    if (param_count1 != param_count2)
+    {
+        return false;
+    }
+
+    // Check parameter types
+    if (param_count1 > 0)
+    {
+        LLVMTypeRef * params1 = malloc(param_count1 * sizeof(LLVMTypeRef));
+        LLVMTypeRef * params2 = malloc(param_count2 * sizeof(LLVMTypeRef));
+        if (params1 != NULL && params2 != NULL)
+        {
+            LLVMGetParamTypes(type1, params1);
+            LLVMGetParamTypes(type2, params2);
+            for (unsigned i = 0; i < param_count1; ++i)
+            {
+                if (LLVMGetTypeKind(params1[i]) != LLVMGetTypeKind(params2[i]))
+                {
+                    free(params1);
+                    free(params2);
+                    return false;
+                }
+            }
+        }
+        free(params1);
+        free(params2);
+    }
+
+    return true;
+}
+
+struct function_decl_entry *
+find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
+{
+    if (ctx == NULL || name == NULL)
+    {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < ctx->function_declarations.count; ++i)
+    {
+        if (ctx->function_declarations.entries[i].name != NULL
+            && strcmp(ctx->function_declarations.entries[i].name, name) == 0)
+        {
+            return &ctx->function_declarations.entries[i];
+        }
+    }
+
+    return NULL;
+}
+
+bool
+add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef type, bool has_definition)
+{
+    if (ctx == NULL || name == NULL || type == NULL)
+    {
+        return false;
+    }
+
+    // Check if function already exists
+    struct function_decl_entry * existing = find_function_declaration(ctx, name);
+
+    if (existing != NULL)
+    {
+        // Function already declared - check for signature mismatch
+        if (!function_signatures_match(existing->type, type))
+        {
+            return true; // Conflict detected
+        }
+
+        // Check for redefinition
+        if (existing->has_definition && has_definition)
+        {
+            return true; // Redefinition detected
+        }
+
+        // Update definition status
+        if (has_definition && !existing->has_definition)
+        {
+            existing->has_definition = true;
+        }
+
+        return false; // No conflict
+    }
+
+    // Add new function declaration
+    if (ctx->function_declarations.count >= ctx->function_declarations.capacity)
+    {
+        size_t new_cap = ctx->function_declarations.capacity == 0 ? 4 : ctx->function_declarations.capacity * 2;
+        struct function_decl_entry * new_entries = realloc(
+            ctx->function_declarations.entries, new_cap * sizeof(*new_entries)
+        );
+        if (new_entries == NULL)
+        {
+            return false;
+        }
+        ctx->function_declarations.entries = new_entries;
+        ctx->function_declarations.capacity = new_cap;
+    }
+
+    ctx->function_declarations.entries[ctx->function_declarations.count].name = strdup(name);
+    ctx->function_declarations.entries[ctx->function_declarations.count].type = type;
+    ctx->function_declarations.entries[ctx->function_declarations.count].has_definition = has_definition;
+    ctx->function_declarations.count++;
+
+    return false;
+}

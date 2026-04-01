@@ -570,7 +570,7 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
         argv[arg_idx++] = strdup(output_path);
     }
 
-    argv[arg_idx++] = NULL;
+    argv[arg_idx] = NULL;
 
     // Debug: print the command
     fprintf(stderr, "DEBUG: Preprocessing command:");
@@ -631,15 +631,16 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
     return -1; // Should not reach here
 }
 
-static void
+static bool
 generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 {
+    bool success = true;
     printf("\nStarting LLVM IR Generation...\n");
     ir_generator_ctx_t * ir_ctx = ir_generator_init();
     if (ir_ctx == NULL)
     {
         fprintf(stderr, "Failed to initialize LLVM IR generator.\n");
-        return;
+        return false;
     }
 
     if (ast_root != NULL)
@@ -655,6 +656,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                 if (link_to_executable(llvm_module, exe_path) != 0)
                 {
                     fprintf(stderr, "Failed to produce executable %s\n", exe_path);
+                    success = false;
                 }
             }
             else if (assembly_only_flag)
@@ -680,6 +682,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     if (write_llvm_ir_to_file(llvm_module, out_path) != 0)
                     {
                         fprintf(stderr, "Failed to write LLVM IR to %s\n", out_path);
+                        success = false;
                     }
                 }
                 else
@@ -688,6 +691,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     if (emit_to_file(llvm_module, out_path, march_target, LLVMAssemblyFile) != 0)
                     {
                         fprintf(stderr, "Failed to emit assembly to %s\n", out_path);
+                        success = false;
                     }
                 }
             }
@@ -714,6 +718,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     if (write_llvm_ir_to_file(llvm_module, out_path) != 0)
                     {
                         fprintf(stderr, "Failed to write LLVM IR to %s\n", out_path);
+                        success = false;
                     }
                 }
                 else
@@ -722,6 +727,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                     if (emit_to_file(llvm_module, out_path, march_target, LLVMObjectFile) != 0)
                     {
                         fprintf(stderr, "Failed to emit object file %s\n", out_path);
+                        success = false;
                     }
                 }
             }
@@ -729,6 +735,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
         else
         {
             fprintf(stderr, "LLVM IR generation failed.\n");
+            success = false;
         }
     }
     else
@@ -737,7 +744,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
     }
 
     ir_generator_dispose(ir_ctx);
-    return;
+    return success;
 }
 
 static void
@@ -931,6 +938,7 @@ main(int argc, char * argv[])
     //}
 
     // Build the AST
+    int exit_code = EXIT_SUCCESS;
     epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
     if (registry != NULL)
     {
@@ -942,7 +950,10 @@ main(int argc, char * argv[])
             c_grammar_node_t * ast_root = ast_result.ast_root;
             fprintf(stderr, "Starting AST print...\n");
             print_ast(ast_root);
-            generate_output(ast_root, filename);
+            if (!generate_output(ast_root, filename))
+            {
+                exit_code = EXIT_FAILURE;
+            }
             c_grammar_node_free(ast_root, NULL);
         }
         else
@@ -959,5 +970,5 @@ main(int argc, char * argv[])
     epc_parse_session_destroy(&session);
     session_ctx_free(session_ctx);
     epc_parser_list_free(list);
-    return EXIT_SUCCESS;
+    return exit_code;
 }

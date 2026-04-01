@@ -23,6 +23,20 @@ typedef struct label
     LLVMBasicBlockRef block;
 } label_t;
 
+struct function_decl_entry
+{
+    char * name;
+    LLVMTypeRef type;
+    bool has_definition; // true if we've seen a function body
+};
+
+struct function_decls
+{
+    struct function_decl_entry * entries;
+    size_t count;
+    size_t capacity;
+};
+
 // Structure to hold the context for LLVM IR generation.
 // This includes LLVM's core objects and potentially symbol table management.
 typedef struct ir_generator_ctx
@@ -46,6 +60,9 @@ typedef struct ir_generator_ctx
 
     // --- Error and warning collection ---
     ir_gen_error_collection_t errors;
+
+    // --- Function declaration tracking ---
+    struct function_decls function_declarations;
 
     // Pseudo-code for your Compiler State
     int anon_counter;

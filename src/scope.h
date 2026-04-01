@@ -358,3 +358,31 @@ type_info_t * scope_lookup_untagged_entry_by_index(scope_t const * scope, int in
  * @return Pointer to the typedef entry, or NULL if not found.
  */
 scope_typedef_entry_t * scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name);
+
+// --- Function declaration tracking ---
+
+/**
+ * @brief Adds or updates a function declaration in the context.
+ * @param ctx The IR generator context.
+ * @param name The function name.
+ * @param type The function type.
+ * @param has_definition True if this includes a function body.
+ * @return true if a conflict was detected, false otherwise.
+ */
+bool add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef type, bool has_definition);
+
+/**
+ * @brief Finds a function declaration by name.
+ * @param ctx The IR generator context.
+ * @param name The function name.
+ * @return Pointer to the function declaration entry, or NULL if not found.
+ */
+struct function_decl_entry * find_function_declaration(ir_generator_ctx_t * ctx, char const * name);
+
+/**
+ * @brief Checks if two function types have matching signatures.
+ * @param type1 First function type.
+ * @param type2 Second function type.
+ * @return true if signatures match, false otherwise.
+ */
+bool function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2);
