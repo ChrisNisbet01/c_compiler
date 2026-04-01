@@ -53,7 +53,6 @@ typedef struct type_info
     char * tag;       // The tag name (e.g., "MyStruct"), or "" for anonymous structs/unions
     type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
     LLVMTypeRef type;
-    LLVMTypeKind llvm_type_kind; // Cache the LLVM type kind for quick checks during member access
     struct_field_t * fields;
     size_t field_count;
 } type_info_t;

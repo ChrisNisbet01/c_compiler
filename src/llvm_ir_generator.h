@@ -46,6 +46,10 @@ typedef struct ir_generator_ctx
 
     // --- Error and warning collection ---
     ir_gen_error_collection_t errors;
+
+    // Pseudo-code for your Compiler State
+    int anon_counter;
+
 } ir_generator_ctx_t;
 
 /**

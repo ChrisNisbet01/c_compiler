@@ -143,13 +143,6 @@ add_info_to_list(scope_types_t * list, type_info_t info)
                 if (list->entries[i].kind != info.kind)
                 {
                     /* Kind mismatch - silently fail (keep original) */
-                    fprintf(
-                        stderr,
-                        "Kind mismatch for tagged type '%s': existing kind=%d, new kind=%d\n",
-                        info.tag,
-                        list->entries[i].kind,
-                        info.kind
-                    );
                     return NULL;
                 }
                 /* Same kind - update the entry */
@@ -193,11 +186,10 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
     }
     fprintf(
         stderr,
-        "Adding tagged type: scope=%p, tag='%s', kind=%d llvm_type_kind=%d\n",
+        "Adding tagged type: scope=%p, tag='%s', kind=%d\n",
         (void *)scope,
         info.tag,
-        info.kind,
-        info.llvm_type_kind
+        info.kind
     );
     scope_types_t * tagged = &scope->tagged_types;
 
@@ -211,7 +203,6 @@ scope_add_untagged_type(scope_t * scope, type_info_t info)
     {
         return NULL;
     }
-    fprintf(stderr, "Adding untagged type: kind=%d, llvm_type_kind=%d\n", info.kind, info.llvm_type_kind);
 
     scope_types_t * untagged = &scope->untagged_types;
     return add_info_to_list(untagged, info);
@@ -226,17 +217,10 @@ scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
     {
         return NULL;
     }
-    fprintf(stderr, "Looking up tagged type by tag: '%s'\n", tag);
     for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
         if (scope->tagged_types.entries[i].tag && strcmp(scope->tagged_types.entries[i].tag, tag) == 0)
         {
-            fprintf(
-                stderr,
-                "Found tagged type in current scope: tag='%s', kind=%d\n",
-                scope->tagged_types.entries[i].tag,
-                scope->tagged_types.entries[i].kind
-            );
             return &scope->tagged_types.entries[i];
         }
     }
@@ -247,18 +231,15 @@ scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
 type_info_t *
 scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind)
 {
-    fprintf(stderr, "Finding tagged type: tag='%s', kind=%d\n", tag, kind);
     type_info_t * info = scope_lookup_tagged_entry_by_tag(scope, tag);
     if (info == NULL)
     {
-        fprintf(stderr, "Tagged type not found for tag: '%s'\n", tag);
         return NULL;
     }
 
     /* Found by tag - verify kind matches */
     if (info->kind != kind)
     {
-        fprintf(stderr, "Kind mismatch for tagged type: expected %d, found %d\n", kind, info->kind);
         return NULL;
     }
 
@@ -314,7 +295,6 @@ scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
 
     if (entry->kind != kind)
     {
-        fprintf(stderr, "Kind mismatch for untagged type: expected %d, found %d\n", kind, entry->kind);
         return NULL;
     }
 

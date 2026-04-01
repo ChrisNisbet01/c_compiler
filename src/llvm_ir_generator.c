@@ -568,7 +568,8 @@ process_postfix_suffixes(
                                 ctx->builder, current_type, current_val, indices, 2, "memberptr"
                             );
                         else if (current_ptr)
-                            /* For assignment targets: compute GEP from current_ptr (which is already a pointer to struct) */
+                            /* For assignment targets: compute GEP from current_ptr (which is already a pointer to
+                             * struct) */
                             current_ptr = LLVMBuildInBoundsGEP2(
                                 ctx->builder, struct_type, current_ptr, indices, 2, "memberptr"
                             );
@@ -583,9 +584,8 @@ process_postfix_suffixes(
                     else if (current_ptr)
                     {
                         /* For assignment targets when current_type is not a pointer: compute GEP directly */
-                        current_ptr = LLVMBuildInBoundsGEP2(
-                            ctx->builder, struct_type, current_ptr, indices, 2, "memberptr"
-                        );
+                        current_ptr
+                            = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, current_ptr, indices, 2, "memberptr");
                     }
 
                     if (current_ptr)
@@ -1040,7 +1040,6 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     enum_info.tag = strdup(tag);
     enum_info.kind = TYPE_KIND_ENUM;
     enum_info.type = LLVMInt32TypeInContext(ctx->context);
-    enum_info.llvm_type_kind = LLVMGetTypeKind(enum_info.type);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1236,7 +1235,6 @@ register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
 )
 {
-    fprintf(stderr, "Registering tagged struct/union definition: tag='%s', kind=%d\n", tag, kind);
     if (ctx == NULL || tag == NULL)
     {
         return NULL;
@@ -1245,7 +1243,6 @@ register_tagged_struct_or_union_definition(
     if (find_type_by_tag(ctx, tag) != NULL)
     {
         /* Already defined. Is this an error? */
-        fprintf(stderr, "Error: Type with tag '%s' is already defined.\n", tag);
         return NULL;
     }
 
@@ -1255,14 +1252,19 @@ register_tagged_struct_or_union_definition(
     {
         return add_tagged_struct_or_union_type(ctx, tag, kind, members.members, members.num_members);
     }
-    else
-    {
-        fprintf(stderr, "Error: No members found for struct/union with tag '%s'.\n", tag);
-    }
 
     free(members.members);
 
     return NULL;
+}
+
+char *
+generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix)
+{
+    char * name = malloc(64);
+    // Format: .anon.struct.0, .anon.struct.1, etc.
+    sprintf(name, ".anon.%s.%d", prefix, ctx->anon_counter++);
+    return name;
 }
 
 static type_info_t const *
@@ -1277,9 +1279,11 @@ add_untagged_struct_or_union_type(
 
     type_info_t new_struct = {0};
 
+    new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
     new_struct.kind = kind;
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
+    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
 
     struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
     unsigned num_storage_units = last_field->storage_index + 1;
@@ -1295,13 +1299,7 @@ add_untagged_struct_or_union_type(
         }
     }
 
-    /*
-        XXX - Should really create a unique tag name and use LLVMStructCreateNamed() because if to untagged structs
-        have the same definition, LLVM will return the exact same LLVMTypeRef.
-     */
-    new_struct.type = LLVMStructType(field_types, num_storage_units, false);
-    new_struct.llvm_type_kind = LLVMGetTypeKind(new_struct.type);
-
+    LLVMStructSetBody(new_struct.type, field_types, (unsigned)num_storage_units, false);
     free(field_types);
 
     return scope_add_untagged_type(ctx->current_scope, new_struct);
@@ -1423,7 +1421,6 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
 
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
     enum_info.type = LLVMInt32TypeInContext(ctx->context);
-    enum_info.llvm_type_kind = LLVMGetTypeKind(enum_info.type);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1460,18 +1457,15 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
 static type_info_t const *
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
-    fprintf(stderr, "Registering struct definition\n");
     if (type_child == NULL
         || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
     {
-        fprintf(stderr, "Error: Invalid struct/union definition node.\n");
         return NULL;
     }
 
     char const * struct_tag = search_ast_for_type_tag(type_child);
     if (struct_tag == NULL)
     {
-        fprintf(stderr, "Error: No tag found for struct/union definition.\n");
         return NULL;
     }
 
@@ -1571,7 +1565,6 @@ add_tagged_struct_or_union_type(
 
     if (scope_find_tagged_struct(ctx->current_scope, tag))
     {
-        fprintf(stderr, "Error: Type with tag '%s' already exists in the current scope.\n", tag);
         return NULL;
     }
 
@@ -1579,31 +1572,25 @@ add_tagged_struct_or_union_type(
 
     new_struct.tag = strdup(tag);
     new_struct.kind = kind;
-    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
-    new_struct.llvm_type_kind = LLVMGetTypeKind(new_struct.type);
-    fprintf(
-        stderr, "Created LLVM struct type for tag '%s': llvm_type_kind=%d\n", new_struct.tag, new_struct.llvm_type_kind
-    );
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
+    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
 
+    struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
+    unsigned num_storage_units = last_field->storage_index + 1;
+    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+    int current_storage_unit = -1;
+    for (size_t i = 0; i < new_struct.field_count; i++)
     {
-        struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
-        unsigned num_storage_units = last_field->storage_index + 1;
-        LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-        int current_storage_unit = -1;
-        for (size_t i = 0; i < new_struct.field_count; i++)
+        struct_field_t * field = &fields[i];
+        if (field->storage_index != (unsigned)current_storage_unit)
         {
-            struct_field_t * field = &fields[i];
-            if (field->storage_index != (unsigned)current_storage_unit)
-            {
-                current_storage_unit = field->storage_index;
-                field_types[current_storage_unit] = field->type;
-            }
+            current_storage_unit = field->storage_index;
+            field_types[current_storage_unit] = field->type;
         }
-        LLVMStructSetBody(new_struct.type, field_types, num_storage_units, false);
-        free(field_types);
     }
+    LLVMStructSetBody(new_struct.type, field_types, num_storage_units, false);
+    free(field_types);
 
     return scope_add_tagged_type(ctx->current_scope, new_struct);
 }
@@ -1779,16 +1766,6 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                             if (info != NULL)
                             {
                                 base_type = info->type;
-                            }
-                        }
-                        else if (child->type == AST_NODE_TYPE_SPECIFIER && child->list.count > 0)
-                        {
-                            fprintf(stderr, "Found nested TYPE_SPECIFIER, recursing to find type...\n");
-                            // Nested TYPE_SPECIFIER - recurse to find the type
-                            LLVMTypeRef nested = map_type(ctx, child, NULL);
-                            if (nested != NULL)
-                            {
-                                base_type = nested;
                             }
                         }
                         else if (
@@ -2353,8 +2330,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 param_types[i] = typedef_type;
                                 // Get underlying struct name for member access
-                                type_info_t * info
-                                    = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
+                                type_info_t * info = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
                                 if (info != NULL)
                                 {
                                     param_compound_name = (char *)info->tag;
@@ -2889,12 +2865,10 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                         if (handled)
                         {
-                            fprintf(stderr, "was handled\n");
                             continue;
                         }
 
                         /* Also check for StructDefinition (full definition) */
-                        fprintf(stderr, "check for full definition\n");
                         for (size_t j = 0; j < spec_child->list.count; ++j)
                         {
                             c_grammar_node_t const * type_child = spec_child->list.children[j];
@@ -2902,7 +2876,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 && (type_child->type == AST_NODE_STRUCT_DEFINITION
                                     || type_child->type == AST_NODE_UNION_DEFINITION))
                             {
-                                fprintf(stderr, "is struct or union\n");
                                 struct_def_node = type_child;
                                 break;
                             }
@@ -2926,7 +2899,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     char const * struct_tag = search_ast_for_type_tag(struct_def_node);
                     type_kind_t kind;
 
-                    fprintf(stderr, "typedef got struct def node tag %s\n", struct_tag ? struct_tag : "NULL");
                     /* Register the struct definition if we have a tag and definition */
                     scope_typedef_entry_t typedef_entry = {0};
                     typedef_entry.name = strdup(typedef_name);
@@ -2945,11 +2917,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         register_untagged_struct_or_union_definition(ctx, struct_def_node, kind);
                         // Index of the newly added untagged type
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
-                        fprintf(
-                            stderr,
-                            "typedef got untagged struct/union def, assigned untagged index %d\n",
-                            typedef_entry.untagged_index
-                        );
                     }
                     typedef_entry.kind = kind;
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
@@ -2978,11 +2945,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
                         // Index of the newly added untagged type
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
-                        fprintf(
-                            stderr,
-                            "typedef got untagged enum def, assigned untagged index %d\n",
-                            typedef_entry.untagged_index
-                        );
                     }
 
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
@@ -3674,7 +3636,9 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_UNION_DEFINITION:
     {
         /* Probably a bug to see these nodes at this level. */
-        fprintf(stderr, "Ignoring AST node type %s\n", get_node_type_name_from_type(node->type));
+        fprintf(
+            stderr, "IRGen Error: Received AST node type %s at top level\n", get_node_type_name_from_type(node->type)
+        );
         break;
     }
 
@@ -3741,7 +3705,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 Do nothing for terminal nodes unless handled above.
                 Shouldn't happen.
              */
-            fprintf(stderr, "Unhandled terminal node type: %d (%s)\n", node->type, node->text);
+            fprintf(stderr, "IRGen Warning: Unhandled terminal node type: %d (%s)\n", node->type, node->text);
         }
         else
         {
@@ -4208,7 +4172,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
         {
-            fprintf(stderr, "Debug: Processing member access suffix type: %u.\n", suffix->type);
             // Struct member access: s.x or p->x
             // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
             /* The one and only child is an IDENTIFIER node. */
@@ -4226,13 +4189,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 LLVMTypeKind type_kind = LLVMGetTypeKind(current_type);
                 if (type_kind == LLVMStructTypeKind)
                 {
-                    fprintf(stderr, "Debug: Member access on struct value through pointer.\n");
                     struct_val = current_ptr;
                     struct_type = current_type;
                 }
                 else if (type_kind == LLVMPointerTypeKind)
                 {
-                    fprintf(stderr, "Debug: Member access on pointer to struct value.\n");
                     LLVMTypeRef elem_type = LLVMGetElementType(current_type);
                     if (elem_type && LLVMGetTypeKind(elem_type) == LLVMStructTypeKind)
                     {
@@ -4252,12 +4213,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 LLVMTypeRef base_type;
                 if (struct_type)
                 {
-                    fprintf(stderr, "Debug: Using struct type from previous suffix processing.\n");
                     base_type = struct_type;
                 }
                 else
                 {
-                    fprintf(stderr, "Debug: Getting struct type from base value.\n");
                     base_type = LLVMTypeOf(struct_val);
                 }
                 if (!base_type)
@@ -4267,9 +4226,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 if (!struct_type)
                 {
-                    fprintf(stderr, "Debug: No struct type found, using base type.\n");
                     struct_type = base_type;
-                    fprintf(stderr, "Debug: Base type kind for member access: %d.\n", LLVMGetTypeKind(base_type));
                 }
 
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
@@ -4306,8 +4263,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 bool found = false;
 
                 // Look up the struct info to find the member by name
-                type_info_t const * struct_info
-                    = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
+                type_info_t const * struct_info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
                 fprintf(
                     stderr,
                     "Debug: Looking up struct info for member access. Struct type: %p, found info: %s\n",
@@ -4561,13 +4517,17 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             // Fallback: try to find struct info by LLVM type directly (for untagged struct typedefs)
                             if (struct_type == NULL)
                             {
-                                fprintf(stderr, "Debug: No struct type found from pointer element, trying direct type lookup.\n");
+                                fprintf(
+                                    stderr,
+                                    "Debug: No struct type found from pointer element, trying direct type lookup.\n"
+                                );
                                 LLVMTypeRef type_to_search = (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                                    ? get_pointer_element_type(ctx, current_type)
-                                    : current_type;
+                                                                 ? get_pointer_element_type(ctx, current_type)
+                                                                 : current_type;
                                 if (type_to_search && LLVMGetTypeKind(type_to_search) == LLVMStructTypeKind)
                                 {
-                                    type_info_t * info = scope_find_type_by_llvm_type(ctx->current_scope, type_to_search);
+                                    type_info_t * info
+                                        = scope_find_type_by_llvm_type(ctx->current_scope, type_to_search);
                                     if (info != NULL)
                                     {
                                         struct_type = type_to_search;
