@@ -158,6 +158,52 @@ run_test() {
     fi
 }
 
+# Run a test that is expected to fail (e.g., parsing error, code gen error)
+# Success means ncc failed to compile (as expected)
+run_expected_fail_test() {
+    local c_file="$1"
+    local base_name=$(basename "$c_file" .c)
+    local ll_file="$OUTPUT_DIR/${base_name}.ll"
+    local err_file="$OUTPUT_DIR/${base_name}.err"
+    local out_file="$OUTPUT_DIR/${base_name}.out"
+    local current_test_failed=false
+
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+    echo ""
+    echo "--- Testing (expected to fail): $c_file ---"
+
+    # Clean up previous output
+    rm -f "$ll_file" "$err_file"
+
+    # Build ncc command with optional --no-preprocess flag
+    NCC_CMD=("$NCC_COMPILER")
+    if [ "$NO_PREPROCESS" -eq 1 ]; then
+        NCC_CMD+=("--no-preprocess")
+    fi
+    
+    # For expected-to-fail tests, we EXPECT ncc to fail
+    echo "  [NCC] Compiling (expecting failure) $c_file -> $ll_file"
+    if "${NCC_CMD[@]}" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
+        # ncc succeeded - this is BAD (test failed)
+        echo "  UNEXPECTED SUCCESS: ncc compiled successfully but was expected to fail."
+        TEST_FAILED=true
+        current_test_failed=true
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        echo "$c_file" >> "$FAILED_TESTS_FILE"
+    else
+        # ncc failed - this is GOOD (test passed)
+        echo "  EXPECTED FAILURE: ncc failed to compile as expected."
+    fi
+
+    if [ "$current_test_failed" = "true" ]; then
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        echo "$c_file" >> "$FAILED_TESTS_FILE"
+    else
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+    fi
+}
+
 echo "--- Starting Compiler Test Suite ---"
 echo "Compiler: $NCC_COMPILER"
 echo "Test directory: $TEST_DIR"
@@ -174,10 +220,19 @@ if [ -n "$SPECIFIC_TEST" ]; then
     fi
     run_test "$SPECIFIC_TEST"
 else
-    # Run all tests
+    # Run all regular tests
     while IFS= read -r -d $'\0' c_file; do
         run_test "$c_file"
     done < <(find "$TEST_DIR" -maxdepth 1 -name "*.c" -print0)
+
+    # Run all expected-to-fail tests
+    if [ -d "$TEST_DIR/expected_to_fail" ]; then
+        echo ""
+        echo "=== Running Expected-to-Fail Tests ==="
+        while IFS= read -r -d $'\0' c_file; do
+            run_expected_fail_test "$c_file"
+        done < <(find "$TEST_DIR/expected_to_fail" -maxdepth 1 -name "*.c" -print0)
+    fi
 fi
 
 echo ""
