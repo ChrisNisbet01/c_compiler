@@ -3784,6 +3784,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRUCT_TYPE_REF:
     case AST_NODE_UNION_TYPE_REF:
     case AST_NODE_ENUM_TYPE_REF:
+    case AST_NODE_STRUCT_DECLARATION:
+    case AST_NODE_STRUCT_DECLARATION_LIST:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5829,15 +5831,13 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DESIGNATION:
     case AST_NODE_STRUCT_DECLARATOR:
     case AST_NODE_STRUCT_DECLARATOR_BITFIELD:
+    case AST_NODE_STRUCT_DECLARATION:
+    case AST_NODE_STRUCT_DECLARATION_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
         {
-            debug_info(
-                "Default processing for list node: %s %u",
-                get_node_type_name_from_type(node->type),
-                node->type
-            );
+            debug_info("Default processing for list node: %s %u", get_node_type_name_from_type(node->type), node->type);
             for (size_t i = 0; i < node->list.count; ++i)
             {
                 LLVMValueRef res = process_expression(ctx, node->list.children[i]);

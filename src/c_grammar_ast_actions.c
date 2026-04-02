@@ -1689,6 +1689,35 @@ handle_expression_statement(
 }
 
 static void
+handle_struct_declaration(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DECLARATION);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_struct_declaration_list(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DECLARATION_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_struct_definition(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -2038,6 +2067,8 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_INITIALIZER_LIST, handle_initializer_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_NAME, handle_type_name);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXPRESSION_STATEMENT, handle_expression_statement);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATION, handle_struct_declaration);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATION_LIST, handle_struct_declaration_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DEFINITION, handle_struct_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_DEFINITION, handle_union_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);

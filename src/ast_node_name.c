@@ -58,6 +58,8 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_RETURN_STATEMENT] = {.name = "ReturnStatement"},
     [AST_NODE_TYPE_NAME] = {.name = "TypeName"},
     [AST_NODE_EXPRESSION_STATEMENT] = {.name = "ExpressionStatement"},
+    [AST_NODE_STRUCT_DECLARATION] = {.name = "StructDeclaration"},
+    [AST_NODE_STRUCT_DECLARATION_LIST] = {.name = "StructDeclarationList"},
     [AST_NODE_STRUCT_DEFINITION] = {.name = "StructDefinition"},
     [AST_NODE_UNION_DEFINITION] = {.name = "UnionDefinition"},
     [AST_NODE_ENUM_DEFINITION] = {.name = "EnumDefinition"},
