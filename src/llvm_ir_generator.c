@@ -1690,6 +1690,22 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
     return type_ref;
 }
 
+/*
+ * map_type()
+ *
+ * Converts C-style type information from AST nodes (specifiers and declarators)
+ * into a corresponding LLVMTypeRef. This handles base types, pointers,
+ * and arrays by recursively processing the AST nodes to build the full
+ * LLVM type representation.
+ *
+ * Parameters:
+ *   ctx: The IR generator context.
+ *   specifiers: The AST node for declaration specifiers (e.g., int, const).
+ *   declarator: The AST node for the declarator (e.g., *ptr[10]).
+ *
+ * Returns:
+ *   An LLVMTypeRef representing the equivalent C type.
+ */
 static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
