@@ -289,15 +289,16 @@ handle_integer_literal(
         );
         return;
     }
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_INTEGER_LITERAL, node);
-    if (ast_node == NULL)
+    c_grammar_node_t * _ast_node = create_terminal_node(ctx, AST_NODE_INTEGER_LITERAL, node);
+    if (_ast_node == NULL)
     {
         free_ast_node_children(children, count, user_data);
         return;
     }
+    ast_node_integer_literal_t * ast_node = &_ast_node->integer_lit;
 
     // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
-    ast_node->integer_literal.value = strtoull(ast_node->text, NULL, 0);
+    ast_node->integer_literal.value = strtoull(ast_node->base.text, NULL, 0);
 
     if (count == 2)
     {
@@ -334,15 +335,16 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         );
         return;
     }
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_FLOAT_LITERAL, node);
-    if (ast_node == NULL)
+    c_grammar_node_t * _ast_node = create_terminal_node(ctx, AST_NODE_FLOAT_LITERAL, node);
+    if (_ast_node == NULL)
     {
         free_ast_node_children(children, count, user_data);
         return;
     }
+    ast_node_float_literal_t * ast_node = &_ast_node->float_lit;
 
     c_grammar_node_t * suffix_node = count == 2 ? children[1] : NULL;
-    char * full_text = ast_node->text;
+    char * full_text = ast_node->base.text;
 
     ast_node->float_literal.value = strtold(full_text, NULL);
     ast_node->float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */

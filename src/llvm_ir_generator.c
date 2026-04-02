@@ -999,7 +999,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
                     // Walk down the expression tree to find the integer literal
                     if (value_node->type == AST_NODE_INTEGER_LITERAL)
                     {
-                        current_value = (int)value_node->integer_literal.value;
+                        current_value = (int)value_node->integer_lit.integer_literal.value;
                     }
                     else if (value_node->lhs)
                     {
@@ -1009,7 +1009,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
                         {
                             if (node->type == AST_NODE_INTEGER_LITERAL)
                             {
-                                current_value = (int)node->integer_literal.value;
+                                current_value = (int)node->integer_lit.integer_literal.value;
                                 break;
                             }
                             node = (c_grammar_node_t *)node->lhs;
@@ -1176,7 +1176,7 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 c_grammar_node_t * width_node = decl->list.children[width_idx];
                 if (width_node->type == AST_NODE_INTEGER_LITERAL)
                 {
-                    new_member.bit_width = (unsigned)width_node->integer_literal.value;
+                    new_member.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
                 }
 
                 new_member.type = map_type(ctx, type_spec, NULL);
@@ -1828,7 +1828,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                     c_grammar_node_t * suffix_child = fp_child->list.children[m];
                                     if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                                     {
-                                        unsigned long long size_val = suffix_child->integer_literal.value;
+                                        unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
                                         if (array_depth < array_capacity)
                                         {
                                             array_sizes[array_depth] = (size_t)size_val;
@@ -1863,7 +1863,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     else if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                     {
                         // This is an array size
-                        unsigned long long size_val = suffix_child->integer_literal.value;
+                        unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
                         if (array_depth < array_capacity)
                         {
                             array_sizes[array_depth] = (size_t)size_val;
@@ -3931,10 +3931,11 @@ get_variable_pointer(
 }
 
 static LLVMValueRef
-process_integer_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+process_integer_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * _node)
 {
+    ast_node_integer_literal_t const * int_node = &_node->integer_lit;
     LLVMTypeRef int_type;
-    if (node->integer_literal.is_long)
+    if (int_node->integer_literal.is_long)
     {
         int_type = LLVMInt64TypeInContext(ctx->context);
     }
@@ -3943,23 +3944,25 @@ process_integer_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         int_type = LLVMInt32TypeInContext(ctx->context);
     }
 
-    return LLVMConstInt(int_type, node->integer_literal.value, !node->integer_literal.is_unsigned);
+    return LLVMConstInt(int_type, int_node->integer_literal.value, !int_node->integer_literal.is_unsigned);
 }
 
 static LLVMValueRef
-process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * _node)
 {
+    ast_node_float_literal_t const * float_node = &_node->float_lit;
+
     LLVMTypeRef float_type = NULL;
-    long double value = node->float_literal.value;
-    if (node->float_literal.type == FLOAT_LITERAL_TYPE_LONG_DOUBLE)
+    long double value = float_node->float_literal.value;
+    if (float_node->float_literal.type == FLOAT_LITERAL_TYPE_LONG_DOUBLE)
     {
         float_type = LLVMX86FP80TypeInContext(ctx->context);
     }
-    else if (node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
+    else if (float_node->float_literal.type == FLOAT_LITERAL_TYPE_DOUBLE)
     {
         float_type = LLVMDoubleTypeInContext(ctx->context);
     }
-    else if (node->float_literal.type == FLOAT_LITERAL_TYPE_FLOAT)
+    else if (float_node->float_literal.type == FLOAT_LITERAL_TYPE_FLOAT)
     {
         float_type = LLVMFloatTypeInContext(ctx->context);
     }

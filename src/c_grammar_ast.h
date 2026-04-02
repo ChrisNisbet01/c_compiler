@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+typedef union c_grammar_node_t c_grammar_node_t;
+
 typedef enum
 {
     AST_NODE_TRANSLATION_UNIT,
@@ -88,7 +90,7 @@ typedef enum
 
 typedef struct
 {
-    struct c_grammar_node_t ** children;
+    c_grammar_node_t ** children;
     size_t count;
 } ast_node_list_t;
 
@@ -234,9 +236,7 @@ typedef struct
     bool is_long;
 } integer_literal_data_t;
 
-typedef struct c_grammar_node_t c_grammar_node_t;
-
-struct c_grammar_node_t
+typedef struct c_grammar_base_node_t
 {
     c_grammar_node_type_t type;
 
@@ -266,12 +266,65 @@ struct c_grammar_node_t
             assignment_operator_data_t assign;
         };
     } op;
+} c_grammar_base_node_t;
 
-    union
+typedef struct ast_node_expression_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * lhs;
+    c_grammar_node_t const * rhs;
+    c_grammar_node_t const * false_expr; /* Used by ConditionalExpression. */
+} ast_node_expression_t;
+
+typedef struct ast_node_float_literal_t
+{
+    c_grammar_base_node_t base;
+    float_literal_data_t float_literal;
+} ast_node_float_literal_t;
+
+typedef struct ast_node_integer_literal_t
+{
+    c_grammar_base_node_t base;
+    integer_literal_data_t integer_literal;
+} ast_node_integer_literal_t;
+
+typedef union c_grammar_node_t
+{
+    struct
     {
-        float_literal_data_t float_literal;
-        integer_literal_data_t integer_literal;
+        c_grammar_node_type_t type;
+
+        ast_node_list_t list;
+        char * text;
+
+        /* Expression specific. */
+        c_grammar_node_t const * lhs;
+        c_grammar_node_t const * rhs;
+        c_grammar_node_t const * false_expr; /* Used by ConditionExpression. */
+
+        /* Operator specific. */
+        struct
+        {
+            char const * text;
+
+            union
+            {
+                bitwise_operator_data_t bitwise;
+                shift_operator_data_t shift;
+                arithmetic_operator_data_t arith;
+                relational_operator_data_t rel;
+                equality_operator_data_t eq;
+                logical_operator_data_t logical;
+                unary_operator_data_t unary;
+                postfix_operator_data_t postfix;
+                assignment_operator_data_t assign;
+            };
+        } op;
     };
-};
+    c_grammar_base_node_t base;
+    ast_node_expression_t expression;
+    ast_node_float_literal_t float_lit;
+    ast_node_integer_literal_t integer_lit;
+} c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
