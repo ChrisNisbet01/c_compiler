@@ -1063,163 +1063,167 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
         return object_members;
     }
 
-    // StructDefinition has: [Keyword, Identifier?, TypeSpec, StructDeclarator, TypeSpec, StructDeclarator, ...]
-    // Each StructDeclarator contains either Declarator (regular) or StructDeclaratorBitfield (bitfield)
-    size_t start_idx; // Skip Keyword and struct name
-    for (start_idx = 0; start_idx < type_child->list.count; start_idx++)
+    // Check if we have the new AST structure with StructDeclarationList
+    // StructDefinition has: [Identifier, StructDeclarationList] (new)
+    //                    or: [Keyword, Identifier?, TypeSpec, StructDeclarator, ...] (old)
+    c_grammar_node_t * members_node = NULL;
+
+    for (size_t i = 0; i < type_child->list.count; i++)
     {
-        c_grammar_node_t * type_spec = type_child->list.children[start_idx];
-        if (type_spec->type == AST_NODE_TYPE_SPECIFIER)
+        c_grammar_node_t * child = type_child->list.children[i];
+        if (child != NULL && child->type == AST_NODE_STRUCT_DECLARATION_LIST)
         {
+            members_node = child;
             break;
         }
     }
-
-    if (start_idx >= type_child->list.count)
+	if (members_node == NULL)
+	{
+	return object_members;
+	}
+	
+    // StructDeclarationList contains StructDeclaration nodes
+    size_t max_num_members = members_node->list.count;
+    if (max_num_members == 0)
     {
-        /* No TypeSpec found - invalid struct definition? */
         return object_members;
     }
 
-    /* Calculate the maximum number of members we could have. */
-    size_t max_num_members = (type_child->list.count - start_idx) / 2;
-    if (max_num_members == 0)
-    {
-    }
     struct_field_t * members = calloc(max_num_members, sizeof(*members));
-    if (members == NULL || max_num_members == 0)
+    if (members == NULL)
     {
         return object_members;
     }
 
     unsigned num_members = 0;
 
-    for (size_t m = start_idx; m + 1 < type_child->list.count; m += 2)
+    for (size_t i = 0; i < members_node->list.count; i++)
     {
-        c_grammar_node_t * type_spec = type_child->list.children[m];
-        c_grammar_node_t * struct_decl = type_child->list.children[m + 1];
-        if (type_spec && struct_decl && type_spec->type == AST_NODE_TYPE_SPECIFIER)
+        c_grammar_node_t * struct_decl = members_node->list.children[i];
+        if (struct_decl == NULL || struct_decl->type != AST_NODE_STRUCT_DECLARATION)
         {
-            struct_field_t new_member = {0};
+            continue;
+        }
 
-            if (struct_decl->type == AST_NODE_STRUCT_DECLARATOR && struct_decl->list.count > 0)
+        // StructDeclaration has: [TypeSpecifier, StructDeclarator]
+        if (struct_decl->list.count < 2)
+        {
+            continue;
+        }
+
+        c_grammar_node_t * type_spec = struct_decl->list.children[0];
+        c_grammar_node_t * struct_decl_node = struct_decl->list.children[1];
+
+        if (type_spec == NULL || struct_decl_node == NULL || type_spec->type != AST_NODE_TYPE_SPECIFIER)
+        {
+            continue;
+        }
+
+        struct_field_t new_member = {0};
+
+        if (struct_decl_node->type == AST_NODE_STRUCT_DECLARATOR && struct_decl_node->list.count > 0)
+        {
+            c_grammar_node_t * decl = struct_decl_node->list.children[0];
+            if (decl == NULL)
             {
-                // First child is either Declarator or StructDeclaratorBitfield
-                c_grammar_node_t * decl = struct_decl->list.children[0];
-                if (decl == NULL)
+                continue;
+            }
+
+            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+            {
+                // Bitfield handling
+                if (decl->list.count < 1 || decl->list.count > 2)
                 {
                     continue;
                 }
-                // Handle bitfields
-                if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+                size_t width_idx;
+                if (decl->list.count == 1)
                 {
-                    // Bitfield structure: [Declarator?, WidthExpression]
-                    // Get bitfield name from optional Declarator
-                    if (decl->list.count < 1 || decl->list.count > 2)
+                    width_idx = 0;
+                    new_member.name = strdup("");
+                }
+                else
+                {
+                    width_idx = 1;
+                    c_grammar_node_t * bf_decl = decl->list.children[0];
+                    if (bf_decl->type == AST_NODE_DECLARATOR)
                     {
-                        continue;
-                    }
-                    size_t width_idx;
-                    if (decl->list.count == 1)
-                    {
-                        /* Anonymous bitfield with just width - skip name extraction. */
-                        width_idx = 0;
-                        new_member.name = strdup(""); // Use empty string for anonymous bitfield
-                    }
-                    else
-                    {
-                        width_idx = 1;
-                        c_grammar_node_t * bf_decl = decl->list.children[0];
-                        if (bf_decl->type == AST_NODE_DECLARATOR)
+                        c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
+                        if (direct_decl && direct_decl->list.count > 0)
                         {
-                            c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
-                            if (direct_decl && direct_decl->list.count > 0)
+                            c_grammar_node_t * ident = direct_decl->list.children[0];
+                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
                             {
-                                c_grammar_node_t * ident = direct_decl->list.children[0];
-                                if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
-                                {
-                                    new_member.name = strdup(ident->text);
-                                }
+                                new_member.name = strdup(ident->text);
                             }
                         }
                     }
-                    // Get bitfield width from expression after colon
-                    c_grammar_node_t * width_node = decl->list.children[width_idx];
-                    if (width_node->type == AST_NODE_INTEGER_LITERAL)
-                    {
-                        new_member.bit_width = (unsigned)width_node->integer_literal.value;
-                    }
-                    else
-                    {
-                        /* What to do? This seems like an error. */
-                    }
-
-                    new_member.type = map_type(ctx, type_spec, NULL);
-                    if (new_member.type == NULL)
-                    {
-                        free(new_member.name);
-                        continue;
-                    }
-
-                    unsigned type_bits;
-                    struct_field_t * previous_member = NULL;
-                    if (num_members > 0)
-                    {
-                        previous_member = &members[num_members - 1];
-                        type_bits = LLVMGetIntTypeWidth(previous_member->type);
-                    }
-                    else
-                    {
-                        type_bits = LLVMGetIntTypeWidth(new_member.type);
-                    }
-                    // Check if we need a new storage unit
-                    if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
-                        || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
-                        || LLVMGetTypeKind(new_member.type) != LLVMGetTypeKind(previous_member->type)
-                        || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
-                    {
-                        // Start new storage unit
-                        new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
-                    }
-                    else
-                    {
-                        /* Can use the same storage unit as the previous field. */
-                        new_member.storage_index = previous_member->storage_index;
-                        new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
-                    }
-                    members[num_members] = new_member;
-                    num_members++;
                 }
-                else if (decl->type == AST_NODE_DECLARATOR)
+                c_grammar_node_t * width_node = decl->list.children[width_idx];
+                if (width_node->type == AST_NODE_INTEGER_LITERAL)
                 {
-                    /* Not a bitfield type declarator. */
-                    // Get member type
-                    new_member.type = map_type(ctx, type_spec, decl);
-
-                    // Get member name from declarator
-                    c_grammar_node_t * direct_decl = find_direct_declarator(decl);
-                    if (direct_decl && direct_decl->list.count > 0)
-                    {
-                        c_grammar_node_t * ident = direct_decl->list.children[0];
-                        if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
-                        {
-                            new_member.name = strdup(ident->text);
-                        }
-                    }
-                    if (new_member.name == NULL)
-                    {
-                        continue;
-                    }
-
-                    struct_field_t * previous_member = NULL;
-                    if (num_members > 0)
-                    {
-                        previous_member = &members[num_members - 1];
-                    }
-                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
-                    members[num_members] = new_member;
-                    num_members++;
+                    new_member.bit_width = (unsigned)width_node->integer_literal.value;
                 }
+
+                new_member.type = map_type(ctx, type_spec, NULL);
+                if (new_member.type == NULL)
+                {
+                    free(new_member.name);
+                    continue;
+                }
+
+                unsigned type_bits;
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                    type_bits = LLVMGetIntTypeWidth(previous_member->type);
+                }
+                else
+                {
+                    type_bits = LLVMGetIntTypeWidth(new_member.type);
+                }
+                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
+                    || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
+                    || LLVMGetTypeKind(new_member.type) != LLVMGetTypeKind(previous_member->type)
+                    || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
+                {
+                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                }
+                else
+                {
+                    new_member.storage_index = previous_member->storage_index;
+                    new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
+                }
+                members[num_members] = new_member;
+                num_members++;
+            }
+            else if (decl->type == AST_NODE_DECLARATOR)
+            {
+                new_member.type = map_type(ctx, type_spec, decl);
+
+                c_grammar_node_t * direct_decl = find_direct_declarator(decl);
+                if (direct_decl && direct_decl->list.count > 0)
+                {
+                    c_grammar_node_t * ident = direct_decl->list.children[0];
+                    if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                    {
+                        new_member.name = strdup(ident->text);
+                    }
+                }
+                if (new_member.name == NULL)
+                {
+                    continue;
+                }
+
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                }
+                new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                members[num_members] = new_member;
+                num_members++;
             }
         }
     }
