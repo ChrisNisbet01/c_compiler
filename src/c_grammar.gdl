@@ -450,7 +450,7 @@ JumpStatement = GotoStatement | ContinueStatement | BreakStatement | ReturnState
 CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
 // Rule to match a preprocessor directive, including support for line continuations
-PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*);
+PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*) @AST_ACTION_PREPROCESSOR_DIRECTIVE;
 
 Statement = LabeledStatement
           | CompoundStatement
@@ -473,7 +473,9 @@ ParameterList = LParen ParameterTypeList? RParen;
 
 FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 
-ExternalDeclaration = PreprocessorDirective | (KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration));
+TopLevelDeclaration = KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration) @AST_ACTION_TOP_LEVEL_DECLARATION;
+
+ExternalDeclaration = PreprocessorDirective | TopLevelDeclaration @AST_ACTION_EXTERNAL_DECLARATION;
 
 ExternalDeclarations = ExternalDeclaration+ @AST_ACTION_EXTERNAL_DECLARATIONS;
 

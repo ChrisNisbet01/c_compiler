@@ -2141,6 +2141,28 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         break;
     }
+    case AST_NODE_EXTERNAL_DECLARATION:
+    {
+        if (node->external_declaration.preprocessor_directive != NULL)
+        {
+            process_ast_node(ctx, node->external_declaration.preprocessor_directive);
+        }
+        else if (node->external_declaration.top_level_declaration != NULL)
+        {
+            process_ast_node(ctx, node->external_declaration.top_level_declaration);
+        }
+        break;
+    }
+    case AST_NODE_TOP_LEVEL_DECLARATION:
+    {
+        process_ast_node(ctx, node->list.children[0]);
+        break;
+    }
+    case AST_NODE_PREPROCESSOR_DIRECTIVE:
+    {
+        // For now, we can ignore preprocessor directives in IR generation
+        break;
+    }
     case AST_NODE_FUNCTION_DEFINITION:
     {
         // Check if we've already encountered a fatal error
@@ -5784,6 +5806,9 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRUCT_DECLARATION:
     case AST_NODE_STRUCT_DECLARATION_LIST:
     case AST_NODE_EXTERNAL_DECLARATIONS:
+    case AST_NODE_EXTERNAL_DECLARATION:
+    case AST_NODE_TOP_LEVEL_DECLARATION:
+    case AST_NODE_PREPROCESSOR_DIRECTIVE:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

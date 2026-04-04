@@ -9,6 +9,9 @@ typedef enum
 {
     AST_NODE_TRANSLATION_UNIT,
     AST_NODE_EXTERNAL_DECLARATIONS,
+    AST_NODE_EXTERNAL_DECLARATION,
+    AST_NODE_TOP_LEVEL_DECLARATION,
+    AST_NODE_PREPROCESSOR_DIRECTIVE,
     AST_NODE_FUNCTION_DEFINITION,
     AST_NODE_COMPOUND_STATEMENT,
     AST_NODE_OPTIONAL_KW_EXTENSION,
@@ -288,6 +291,14 @@ typedef struct ast_node_integer_literal_t
     integer_literal_data_t integer_literal;
 } ast_node_integer_literal_t;
 
+typedef struct ast_node_external_declaration_t
+{
+    c_grammar_base_node_t base;
+    /* One or other of the following. */
+    c_grammar_node_t const * top_level_declaration;
+    c_grammar_node_t const * preprocessor_directive;
+} ast_node_external_declaration_t;
+
 typedef struct ast_node_translation_unit_t
 {
     c_grammar_base_node_t base;
@@ -332,6 +343,7 @@ typedef union c_grammar_node_t
     ast_node_float_literal_t float_lit;
     ast_node_integer_literal_t integer_lit;
     ast_node_translation_unit_t translation_unit;
+    ast_node_external_declaration_t external_declaration;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
