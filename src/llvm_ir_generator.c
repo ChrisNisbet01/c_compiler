@@ -32,7 +32,7 @@ static type_info_t const * add_tagged_struct_or_union_type(
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
-static c_grammar_node_t * find_direct_declarator(c_grammar_node_t * declarator);
+static c_grammar_node_t const * find_direct_declarator(c_grammar_node_t const * declarator);
 static LLVMValueRef get_variable_pointer(
     ir_generator_ctx_t * ctx,
     c_grammar_node_t const * identifier_node,
@@ -1159,10 +1159,10 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 else
                 {
                     width_idx = 1;
-                    c_grammar_node_t * bf_decl = decl->list.children[0];
+                    c_grammar_node_t const * bf_decl = decl->list.children[0];
                     if (bf_decl->type == AST_NODE_DECLARATOR)
                     {
-                        c_grammar_node_t * direct_decl = find_direct_declarator(bf_decl);
+                        c_grammar_node_t const * direct_decl = find_direct_declarator(bf_decl);
                         if (direct_decl && direct_decl->list.count > 0)
                         {
                             c_grammar_node_t * ident = direct_decl->list.children[0];
@@ -1216,7 +1216,7 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
             {
                 new_member.type = map_type(ctx, type_spec, decl);
 
-                c_grammar_node_t * direct_decl = find_direct_declarator(decl);
+                c_grammar_node_t const * direct_decl = find_direct_declarator(decl);
                 if (direct_decl && direct_decl->list.count > 0)
                 {
                     c_grammar_node_t * ident = direct_decl->list.children[0];
@@ -1578,8 +1578,8 @@ decode_string(char const * const src)
 }
 
 // --- IR Generator Context Initialization and Disposal ---
-static c_grammar_node_t *
-find_direct_declarator(c_grammar_node_t * declarator)
+static c_grammar_node_t const *
+find_direct_declarator(c_grammar_node_t const * declarator)
 {
     if (!declarator || declarator->type != AST_NODE_DECLARATOR)
         return NULL;
@@ -2177,20 +2177,22 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         scope_push(ctx);
 
         // --- Handle Function Definition ---
-        if (node->list.count != 3)
+        c_grammar_node_t const * decl_specifiers_node = node->function_definition.declaration_specifiers;
+        c_grammar_node_t const * declarator_node = node->function_definition.declarator;
+        c_grammar_node_t const * compound_stmt_node = node->function_definition.body;
+
+        if (decl_specifiers_node == NULL || declarator_node == NULL || compound_stmt_node == NULL)
         {
-            debug_error("Invalid function definition.");
+            ir_gen_error(&ctx->errors, "Function definition is missing declaration specifiers, declarator, or body.");
+            scope_pop(ctx);
             return;
         }
-        c_grammar_node_t * decl_specifiers_node = node->list.children[0];
-        c_grammar_node_t * declarator_node = node->list.children[1];
-        c_grammar_node_t * compound_stmt_node = node->list.children[2];
 
         // --- Extract Function Name ---
         char * func_name = "unknown_function";
-        c_grammar_node_t * suffix_node = NULL;
+        c_grammar_node_t const * suffix_node = NULL;
 
-        c_grammar_node_t * direct_decl = find_direct_declarator(declarator_node);
+        c_grammar_node_t const * direct_decl = find_direct_declarator(declarator_node);
         if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
         {
             func_name = direct_decl->list.children[0]->text;
@@ -2221,15 +2223,15 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             for (size_t i = 0; i < num_params; ++i)
             {
-                c_grammar_node_t * p_spec = suffix_node->list.children[i * 2];
-                c_grammar_node_t * p_decl = suffix_node->list.children[i * 2 + 1];
+                c_grammar_node_t const * p_spec = suffix_node->list.children[i * 2];
+                c_grammar_node_t const * p_decl = suffix_node->list.children[i * 2 + 1];
 
                 param_types[i] = map_type(ctx, p_spec, p_decl);
 
-                c_grammar_node_t * p_direct = find_direct_declarator(p_decl);
+                c_grammar_node_t const * p_direct = find_direct_declarator(p_decl);
                 if (p_direct && p_direct->list.count > 0)
                 {
-                    c_grammar_node_t * first_child = p_direct->list.children[0];
+                    c_grammar_node_t const * first_child = p_direct->list.children[0];
                     if (first_child->type == AST_NODE_IDENTIFIER)
                     {
                         param_names[i] = first_child->text;
@@ -2238,7 +2240,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         // Nested declarator (e.g., for function pointers like *name)
                         // Find the DirectDeclarator inside and get the Identifier
-                        c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
+                        c_grammar_node_t const * nested_direct = find_direct_declarator(first_child);
                         if (nested_direct && nested_direct->list.count > 0
                             && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
                         {
@@ -2461,12 +2463,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Process InitDeclarators to create variables and initialize them.
         for (size_t i = 0; i < init_decl_nodes->list.count; ++i)
         {
-            c_grammar_node_t * init_decl_node = init_decl_nodes->list.children[i];
+            c_grammar_node_t const * init_decl_node = init_decl_nodes->list.children[i];
 
             char const * var_name = NULL;
-            c_grammar_node_t * initializer_expr_node = NULL; // Node representing the initializer expression.
-            c_grammar_node_t * declarator_node = init_decl_node->list.children[0];
-            c_grammar_node_t * direct_decl_node = find_direct_declarator(declarator_node);
+            c_grammar_node_t const * initializer_expr_node = NULL; // Node representing the initializer expression.
+            c_grammar_node_t const * declarator_node = init_decl_node->list.children[0];
+            c_grammar_node_t const * direct_decl_node = find_direct_declarator(declarator_node);
 
             // For regular variables: DirectDeclarator -> Identifier
             // For function pointers: DirectDeclarator -> FunctionPointerDeclarator -> {Pointer, Identifier,
@@ -2482,7 +2484,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     // Nested declarator (e.g., for function pointers like *name)
                     // Find the DirectDeclarator inside and get the Identifier
-                    c_grammar_node_t * nested_direct = find_direct_declarator(first_child);
+                    c_grammar_node_t const * nested_direct = find_direct_declarator(first_child);
                     if (nested_direct != NULL)
                     {
                         char const * id = search_for_identifier_in_ast_node(nested_direct);

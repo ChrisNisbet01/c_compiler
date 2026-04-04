@@ -346,9 +346,8 @@ DeclarationSpecifier = memoize(DeclarationSpecifierRaw);
 
 // We ensure that only one TypedefName can be present in a set of specifiers,
 // and it cannot be combined with other type specifiers (standard C rules).
-DeclarationSpecifiersRaw = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
-                      | (DeclarationSpecifier | NonTypedefTypeSpecifier)+;
-DeclarationSpecifiers = memoize(DeclarationSpecifiersRaw) @AST_ACTION_DECL_SPECIFIERS;
+DeclarationSpecifiers = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
+                      | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_DECL_SPECIFIERS;
 
 SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) | (TypeQualifier | NonTypedefTypeSpecifier)+;
 
@@ -369,8 +368,8 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket (TypeQualifier* Star) RBracket)
                  | (LBracket Expression? RBracket)
                  | (LParen ParameterTypeList? RParen) @AST_ACTION_DECLARATOR_SUFFIX;
-DeclaratorRaw = Pointer* DirectDeclarator DeclaratorSuffix* AttributeList;
-Declarator = memoize(DeclaratorRaw) @AST_ACTION_DECLARATOR;
+
+Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_DECLARATOR;
 
 InitDeclarator = Declarator AttributeList AsmName? AttributeList (Assign Initializer)? @AST_ACTION_INIT_DECLARATOR;
 
