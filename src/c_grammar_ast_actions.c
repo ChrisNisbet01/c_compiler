@@ -277,6 +277,18 @@ handle_compound_statement(
 }
 
 static void
+handle_asm_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASM_STATEMENT);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_optional_kw_extension(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -324,6 +336,10 @@ handle_declaration(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
     {
         return;
     }
+
+    ast_node->declaration.extension = ast_node->list.children[0];
+    ast_node->declaration.declaration_specifiers = ast_node->list.children[1];
+    ast_node->declaration.init_declarator_list = ast_node->list.children[2];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2176,6 +2192,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_BREAK_STATEMENT, handle_break_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RETURN_STATEMENT, handle_return_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMPOUND_STATEMENT, handle_compound_statement);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ASM_STATEMENT, handle_asm_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_DEFINITION, handle_function_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_PREPROCESSOR_DIRECTIVE, handle_preprocessor_directive);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXTERNAL_DECLARATIONS, handle_external_declarations);

@@ -2430,7 +2430,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Handle Variable Declarations ---
 
         // Register any struct/enum definitions in the declaration specifiers (in current scope)
-        c_grammar_node_t * decl_specifiers = node->list.children[1];
+        c_grammar_node_t const * decl_specifiers = node->declaration.declaration_specifiers;
         for (size_t i = 0; i < decl_specifiers->list.count; ++i)
         {
             c_grammar_node_t * spec_child = decl_specifiers->list.children[i];
@@ -2458,7 +2458,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
 
-        c_grammar_node_t * init_decl_nodes = node->list.children[2];
+        c_grammar_node_t const * init_decl_nodes = node->declaration.init_declarator_list;
 
         // Process InitDeclarators to create variables and initialize them.
         for (size_t i = 0; i < init_decl_nodes->list.count; ++i)
@@ -3757,6 +3757,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ENUM_TYPE_REF:
     case AST_NODE_STRUCT_DECLARATION:
     case AST_NODE_STRUCT_DECLARATION_LIST:
+    case AST_NODE_ASM_STATEMENT:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5811,6 +5812,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_EXTERNAL_DECLARATION:
     case AST_NODE_TOP_LEVEL_DECLARATION:
     case AST_NODE_PREPROCESSOR_DIRECTIVE:
+    case AST_NODE_ASM_STATEMENT:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

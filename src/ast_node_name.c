@@ -60,6 +60,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_CONTINUE_STATEMENT] = {.name = "ContinueStatement"},
     [AST_NODE_BREAK_STATEMENT] = {.name = "BreakStatement"},
     [AST_NODE_RETURN_STATEMENT] = {.name = "ReturnStatement"},
+    [AST_NODE_ASM_STATEMENT] = {.name = "AsmStatement"},
     [AST_NODE_TYPE_NAME] = {.name = "TypeName"},
     [AST_NODE_EXPRESSION_STATEMENT] = {.name = "ExpressionStatement"},
     [AST_NODE_STRUCT_DECLARATION] = {.name = "StructDeclaration"},

@@ -14,6 +14,7 @@ typedef enum
     AST_NODE_PREPROCESSOR_DIRECTIVE,
     AST_NODE_FUNCTION_DEFINITION,
     AST_NODE_COMPOUND_STATEMENT,
+    AST_NODE_ASM_STATEMENT,
     AST_NODE_OPTIONAL_KW_EXTENSION,
     AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST,
     AST_NODE_DECLARATION,
@@ -313,6 +314,14 @@ typedef struct ast_node_function_definition_t
     c_grammar_node_t const * body;
 } ast_node_function_definition_t;
 
+typedef struct ast_node_declaration_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * extension;
+    c_grammar_node_t const * declaration_specifiers;
+    c_grammar_node_t const * init_declarator_list;
+} ast_node_declaration_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -353,6 +362,7 @@ typedef union c_grammar_node_t
     ast_node_translation_unit_t translation_unit;
     ast_node_external_declaration_t external_declaration;
     ast_node_function_definition_t function_definition;
+    ast_node_declaration_t declaration;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

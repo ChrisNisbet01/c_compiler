@@ -361,13 +361,19 @@ DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeList) | (LParen Declar
 
 DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
+ParameterDeclaration = KwExtension? DeclarationSpecifiers (Declarator | AbstractDeclarator)?;
+
+ParameterTypeList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)?;
+
+ParameterList = LParen ParameterTypeList? RParen;
+
 // Declarator suffix: arrays or function parameters
 DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket (KwStatic TypeQualifier* Expression) RBracket)
                  | (LBracket (TypeQualifier+ Expression?) RBracket)
                  | (LBracket (TypeQualifier* Star) RBracket)
                  | (LBracket Expression? RBracket)
-                 | (LParen ParameterTypeList? RParen) @AST_ACTION_DECLARATOR_SUFFIX;
+                 | ParameterList @AST_ACTION_DECLARATOR_SUFFIX;
 
 Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_DECLARATOR;
 
@@ -399,18 +405,23 @@ TypedefDeclaration = wrap(KwExtension? KwTypedef DeclarationSpecifiers TypedefIn
 
 // --- Statements ---
 
-ExpressionStatementRaw = Expression? @AST_ACTION_EXPRESSION_STATEMENT;
-ExpressionStatement = ExpressionStatementRaw Semicolon;
+ExpressionStatement = Expression? Semicolon @AST_ACTION_EXPRESSION_STATEMENT;
 
 // SwitchBodyStatement is used for statements inside switch bodies
 // It explicitly lists what can appear, NOT including CaseLabel/DefaultStatement
 SwitchBodyStatement = CompoundStatement
-                    | SelectionStatement
-                    | IterationStatement
+                    | IfStatement 
+                    | SwitchStatement
+                    | WhileStatement 
+                    | DoWhileStatement 
+                    | ForStatement
                     | Declaration
-                    | JumpStatement
+                    | GotoStatement 
+                    | ContinueStatement 
+                    | BreakStatement 
+                    | ReturnStatement
                     | ExpressionStatement
-                    | (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon)
+                    | AsmStatement
                     | PreprocessorDirective
                     ;
 
@@ -431,20 +442,20 @@ LabeledStatement = LabeledIdentifier
                  | KwCase ConditionalExpression Colon Statement @AST_ACTION_LABELED_STATEMENT;
 
 IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
+
 SwitchStatement = (KwSwitch LParen Expression RParen SwitchCompoundStatement) @AST_ACTION_SWITCH_STATEMENT;
-SelectionStatement = IfStatement | SwitchStatement;
 
 WhileStatement = (KwWhile LParen Expression RParen Statement) @AST_ACTION_WHILE_STATEMENT;
+
 DoWhileStatement = (KwDo Statement KwWhile LParen Expression RParen Semicolon) @AST_ACTION_DO_WHILE_STATEMENT;
+
 ForStatement = (KwFor LParen (Declaration | ExpressionStatement) ExpressionStatement Expression? RParen Statement) @AST_ACTION_FOR_STATEMENT;
-IterationStatement = WhileStatement | DoWhileStatement | ForStatement;
 
 GotoStatement = KwGoto Identifier Semicolon @AST_ACTION_GOTO_STATEMENT;
 ContinueStatement = KwContinue Semicolon @AST_ACTION_CONTINUE_STATEMENT;
 BreakStatement = KwBreak Semicolon @AST_ACTION_BREAK_STATEMENT;
 ReturnStatement = (KwReturn Expression? Semicolon) @AST_ACTION_RETURN_STATEMENT;
-JumpStatement = GotoStatement | ContinueStatement | BreakStatement | ReturnStatement
-              | (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon);
+AsmStatement = (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
 
 CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
@@ -453,22 +464,20 @@ PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*) @AST_ACTION_PRE
 
 Statement = LabeledStatement
           | CompoundStatement
-          | SelectionStatement
-          | IterationStatement
+          | IfStatement 
+          | SwitchStatement
+          | WhileStatement 
+          | DoWhileStatement 
+          | ForStatement
           | Declaration
-          | JumpStatement
+          | GotoStatement 
+          | ContinueStatement 
+          | BreakStatement 
+          | ReturnStatement
           | ExpressionStatement
-          | (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon)
+          | AsmStatement
           | PreprocessorDirective
           ;
-
-// --- Top Level ---
-
-ParameterDeclaration = KwExtension? DeclarationSpecifiers (Declarator | AbstractDeclarator)?;
-
-ParameterTypeList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)?;
-
-ParameterList = LParen ParameterTypeList? RParen;
 
 FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 
