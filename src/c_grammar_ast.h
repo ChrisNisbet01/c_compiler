@@ -288,6 +288,12 @@ typedef struct ast_node_integer_literal_t
     integer_literal_data_t integer_literal;
 } ast_node_integer_literal_t;
 
+typedef struct ast_node_translation_unit_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * external_declarations;
+} ast_node_translation_unit_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -325,6 +331,7 @@ typedef union c_grammar_node_t
     ast_node_expression_t expression;
     ast_node_float_literal_t float_lit;
     ast_node_integer_literal_t integer_lit;
+    ast_node_translation_unit_t translation_unit;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

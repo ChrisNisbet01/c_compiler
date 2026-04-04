@@ -141,11 +141,21 @@ handle_translation_unit(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 1)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 child, but got %d", get_node_type_name_from_type(AST_NODE_TRANSLATION_UNIT), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TRANSLATION_UNIT);
     if (ast_node == NULL)
     {
         return;
     }
+    ast_node->translation_unit.external_declarations = ast_node->list.children[0];
 
     epc_ast_push(ctx, ast_node);
 }

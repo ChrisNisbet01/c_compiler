@@ -2119,13 +2119,13 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
     case AST_NODE_TRANSLATION_UNIT:
     {
-        if (node->list.count != 1)
+        if (node->translation_unit.external_declarations == NULL)
         {
-            debug_error("Translation unit must have at least one child.");
+            debug_error("Translation unit is missing external declarations.");
             return;
         }
         scope_push(ctx);
-        process_ast_node(ctx, node->list.children[0]);
+        process_ast_node(ctx, node->translation_unit.external_declarations);
         scope_pop(ctx);
         break;
     }
