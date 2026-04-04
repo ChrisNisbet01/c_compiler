@@ -475,7 +475,9 @@ FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACT
 
 ExternalDeclaration = PreprocessorDirective | (KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration));
 
-TranslationUnit = ExternalDeclaration+ @AST_ACTION_TRANSLATION_UNIT;
+ExternalDeclarations = ExternalDeclaration+ @AST_ACTION_EXTERNAL_DECLARATIONS;
+
+TranslationUnit = ExternalDeclarations @AST_ACTION_TRANSLATION_UNIT;
 
 // The top-level rule MUST be the last one in the file.
 Program = TranslationUnit eoi;

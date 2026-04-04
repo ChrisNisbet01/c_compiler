@@ -2119,8 +2119,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
     case AST_NODE_TRANSLATION_UNIT:
     {
+        if (node->list.count != 1)
+        {
+            debug_error("Translation unit must have at least one child.");
+            return;
+        }
         scope_push(ctx);
-        // Process top-level declarations and function definitions.
+        process_ast_node(ctx, node->list.children[0]);
+        scope_pop(ctx);
+        break;
+    }
+    case AST_NODE_EXTERNAL_DECLARATIONS:
+    {
+        // Process each external declaration (could be variable or function)
         if (node->list.children)
         {
             for (size_t i = 0; i < node->list.count; ++i)
@@ -2128,7 +2139,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 process_ast_node(ctx, node->list.children[i]);
             }
         }
-        scope_pop(ctx);
         break;
     }
     case AST_NODE_FUNCTION_DEFINITION:
@@ -5770,6 +5780,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRUCT_DECLARATOR_BITFIELD:
     case AST_NODE_STRUCT_DECLARATION:
     case AST_NODE_STRUCT_DECLARATION_LIST:
+    case AST_NODE_EXTERNAL_DECLARATIONS:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
