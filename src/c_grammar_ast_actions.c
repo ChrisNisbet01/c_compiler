@@ -141,12 +141,21 @@ handle_top_level_declaration(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "%s expected 2 children, but got %u\n", count);
+        return;
+    }
     c_grammar_node_t * ast_node
         = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TOP_LEVEL_DECLARATION);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->top_level_declaration.extension = ast_node->list.children[0];
+    ast_node->top_level_declaration.declaration = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }

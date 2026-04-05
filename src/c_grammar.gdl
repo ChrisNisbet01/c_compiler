@@ -59,6 +59,7 @@ KwAligned = lexeme("__aligned__" IdBoundary);
 KwAttribute = lexeme("__attribute__" IdBoundary);
 KwAsm = lexeme("asm" IdBoundary) | lexeme("__asm__" IdBoundary) | lexeme("__asm" IdBoundary);
 KwExtension = lexeme("__extension__" IdBoundary);
+OptionalKwExtension = KwExtension? @AST_ACTION_OPTIONAL_KW_EXTENSION;
 
 StandardReservedWord = KwStatic | KwExtern | KwAuto | KwRegister 
              | KwConst | KwVolatile | KwRestrict
@@ -305,7 +306,7 @@ AsmName = KwAsm LParen StringLiteral+ RParen;
 // --- End of Attribute Support Rules ---
 
 
-StructUnionDeclaration = KwExtension? SpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
+StructUnionDeclaration = OptionalKwExtension SpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
 
 StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARATION_LIST;
 
@@ -361,11 +362,11 @@ DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeList) | (LParen Declar
 
 DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
-ParameterDeclaration = KwExtension? DeclarationSpecifiers (Declarator | AbstractDeclarator)?;
+ParameterDeclaration = OptionalKwExtension DeclarationSpecifiers (Declarator | AbstractDeclarator)?;
 
-ParameterTypeList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)?;
+ParameterDeclarationList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)?;
 
-ParameterList = LParen ParameterTypeList? RParen;
+ParameterList = LParen ParameterDeclarationList? RParen;
 
 // Declarator suffix: arrays or function parameters
 DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
@@ -381,7 +382,6 @@ InitDeclarator = Declarator AttributeList AsmName? AttributeList (Assign Initial
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
-OptionalKwExtension = KwExtension? @AST_ACTION_OPTIONAL_KW_EXTENSION;
 OptionalInitDeclaratorList = InitDeclaratorList? @AST_ACTION_OPTIONAL_INIT_DECLARATOR_LIST;
 Declaration = OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorList Semicolon @AST_ACTION_DECLARATION;
 
@@ -400,7 +400,7 @@ TypedefInitDeclarator = TypedefDeclarator AttributeList AsmName? AttributeList (
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma);
 
 // The whole typedef declaration is wrapped to commit/discard the captured names
-TypedefDeclaration = wrap(KwExtension? KwTypedef DeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL) 
+TypedefDeclaration = wrap(OptionalKwExtension KwTypedef DeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL) 
                    @AST_ACTION_TYPEDEF_DECLARATION;
 
 // --- Statements ---
@@ -481,7 +481,7 @@ Statement = LabeledStatement
 
 FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 
-TopLevelDeclaration = KwExtension? (FunctionDefinition | TypedefDeclaration | Declaration) @AST_ACTION_TOP_LEVEL_DECLARATION;
+TopLevelDeclaration = OptionalKwExtension (FunctionDefinition | TypedefDeclaration | Declaration) @AST_ACTION_TOP_LEVEL_DECLARATION;
 
 ExternalDeclaration = PreprocessorDirective | TopLevelDeclaration @AST_ACTION_EXTERNAL_DECLARATION;
 

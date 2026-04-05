@@ -322,6 +322,13 @@ typedef struct ast_node_declaration_t
     c_grammar_node_t const * init_declarator_list;
 } ast_node_declaration_t;
 
+typedef struct top_level_declaration_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * extension;
+    c_grammar_node_t const * declaration;
+} top_level_declaration_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -363,6 +370,7 @@ typedef union c_grammar_node_t
     ast_node_external_declaration_t external_declaration;
     ast_node_function_definition_t function_definition;
     ast_node_declaration_t declaration;
+    top_level_declaration_t top_level_declaration;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

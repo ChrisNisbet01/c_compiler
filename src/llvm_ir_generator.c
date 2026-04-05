@@ -1119,14 +1119,14 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
             continue;
         }
 
-        // StructDeclaration has: [TypeSpecifier, StructDeclarator]
-        if (struct_decl->list.count < 2)
+        // StructDeclaration has: [KwExtension TypeSpecifier StructDeclarator]
+        if (struct_decl->list.count < 3)
         {
             continue;
         }
 
-        c_grammar_node_t * type_spec = struct_decl->list.children[0];
-        c_grammar_node_t * struct_decl_node = struct_decl->list.children[1];
+        c_grammar_node_t * type_spec = struct_decl->list.children[1];
+        c_grammar_node_t * struct_decl_node = struct_decl->list.children[2];
 
         if (type_spec == NULL || struct_decl_node == NULL || type_spec->type != AST_NODE_TYPE_SPECIFIER)
         {
@@ -2155,7 +2155,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_TOP_LEVEL_DECLARATION:
     {
-        process_ast_node(ctx, node->list.children[0]);
+        process_ast_node(ctx, node->top_level_declaration.declaration);
         break;
     }
     case AST_NODE_PREPROCESSOR_DIRECTIVE:
@@ -2216,15 +2216,15 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (suffix_node && suffix_node->list.count > 0)
         {
-            // Each parameter typically has [TypeSpecifier, Declarator]
-            num_params = suffix_node->list.count / 2;
+            // Each parameter typically has [KwExtension, TypeSpecifier, Declarator]
+            num_params = suffix_node->list.count / 3;
             param_types = calloc(num_params, sizeof(LLVMTypeRef));
             param_names = calloc(num_params, sizeof(char *));
 
             for (size_t i = 0; i < num_params; ++i)
             {
-                c_grammar_node_t const * p_spec = suffix_node->list.children[i * 2];
-                c_grammar_node_t const * p_decl = suffix_node->list.children[i * 2 + 1];
+                c_grammar_node_t const * p_spec = suffix_node->list.children[i * 3 + 1];
+                c_grammar_node_t const * p_decl = suffix_node->list.children[i * 3 + 2];
 
                 param_types[i] = map_type(ctx, p_spec, p_decl);
 
@@ -2823,13 +2823,13 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_TYPEDEF_DECLARATION:
     {
-        /* Handle TypedefDeclaration node: [DeclarationSpecifiers, Identifier] */
+        /* Handle TypedefDeclaration node: [KwExtension DeclarationSpecifiers, Identifier] */
         /* DeclarationSpecifiers contains the struct/union/enum definition */
         /* Identifier is the typedef name */
-        if (node->list.count >= 2)
+        if (node->list.count >= 3)
         {
-            c_grammar_node_t * decl_specs = node->list.children[0];
-            c_grammar_node_t * typedef_name_node = node->list.children[1];
+            c_grammar_node_t * decl_specs = node->list.children[1];
+            c_grammar_node_t * typedef_name_node = node->list.children[2];
 
             if (decl_specs && typedef_name_node && decl_specs->type == AST_NODE_DECL_SPECIFIERS
                 && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->text != NULL)
