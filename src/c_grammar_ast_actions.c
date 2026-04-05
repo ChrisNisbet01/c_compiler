@@ -1730,9 +1730,14 @@ handle_case_label(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 }
 
 static void
-handle_switch_case(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+handle_case_labels(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SWITCH_CASE);
+    if (count == 0)
+    {
+        return;
+    }
+
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CASE_LABELS);
     if (ast_node == NULL)
     {
         return;
@@ -1742,11 +1747,60 @@ handle_switch_case(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
 }
 
 static void
+handle_switch_case(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_SWITCH_CASE), count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SWITCH_CASE);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    ast_node->switch_case.labels = children[0];
+    ast_node->switch_case.statements = children[1];
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_default_statement(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 1)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_DEFAULT_STATEMENT), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DEFAULT_STATEMENT);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    ast_node->switch_case.statements = children[0];
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_switch_body_statements(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SWITCH_BODY_STATEMENTS);
     if (ast_node == NULL)
     {
         return;
@@ -2268,7 +2322,9 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FOR_STATEMENT, handle_for_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LABELED_STATEMENT, handle_labeled_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CASE_LABEL, handle_case_label);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_CASE_LABELS, handle_case_labels);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SWITCH_CASE, handle_switch_case);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_SWITCH_BODY_STATEMENTS, handle_switch_body_statements);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DEFAULT_STATEMENT, handle_default_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_GOTO_STATEMENT, handle_goto_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CONTINUE_STATEMENT, handle_continue_statement);

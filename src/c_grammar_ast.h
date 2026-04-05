@@ -79,8 +79,10 @@ typedef enum
     AST_NODE_LABELED_STATEMENT,
     AST_NODE_CHARACTER_LITERAL,
     AST_NODE_CASE_LABEL,
+    AST_NODE_CASE_LABELS,
     AST_NODE_SWITCH_CASE,
     AST_NODE_DEFAULT_STATEMENT,
+    AST_NODE_SWITCH_BODY_STATEMENTS,
     AST_NODE_ASSIGNMENT_OPERATOR,
     AST_NODE_TERNARY_OPERATION,
     AST_NODE_CONDITIONAL_EXPRESSION,
@@ -353,6 +355,13 @@ typedef struct ast_node_if_statement_t
     c_grammar_node_t const * else_statement;
 } ast_node_if_statement_t;
 
+typedef struct ast_node_switch_case_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * labels;
+    c_grammar_node_t const * statements;
+} ast_node_switch_case_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -398,6 +407,7 @@ typedef union c_grammar_node_t
     ast_node_struct_declaration_t struct_declaration;
     ast_node_labeled_statement_t labeled_statement;
     ast_node_if_statement_t if_statement;
+    ast_node_switch_case_t switch_case;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

@@ -3329,7 +3329,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         typedef struct
         {
             bool is_default;
-            c_grammar_node_t * node;
+            c_grammar_node_t const * node;
             LLVMBasicBlockRef body_block;
         } switch_item_t;
 
@@ -3350,7 +3350,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (num_items >= items_capacity)
                     {
                         items_capacity *= 2;
-                        items = realloc(items, items_capacity * sizeof(switch_item_t));
+                        items = realloc(items, items_capacity * sizeof(*items));
                     }
                     items[num_items].is_default = false;
                     items[num_items].node = child;
@@ -3362,7 +3362,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (num_items >= items_capacity)
                     {
                         items_capacity *= 2;
-                        items = realloc(items, items_capacity * sizeof(switch_item_t));
+                        items = realloc(items, items_capacity * sizeof(*items));
                     }
                     items[num_items].is_default = true;
                     items[num_items].node = child;
@@ -3376,27 +3376,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Create body blocks for all items that have statements
         for (size_t i = 0; i < num_items; i++)
         {
-            c_grammar_node_t * item_node = items[i].node;
-            bool has_statements = false;
-
-            if (items[i].is_default)
-            {
-                has_statements = (item_node->list.count > 0);
-            }
-            else
-            {
-                // SwitchCase: children are [case_label+, statement*]
-                // Statements start after all case labels
-                has_statements = false;
-                for (size_t j = 0; j < item_node->list.count; j++)
-                {
-                    if (item_node->list.children[j]->type != AST_NODE_CASE_LABEL)
-                    {
-                        has_statements = true;
-                        break;
-                    }
-                }
-            }
+            c_grammar_node_t const * item_node = items[i].node;
+            bool has_statements = item_node->switch_case.statements->list.count > 0;
 
             if (has_statements)
             {
@@ -3429,13 +3410,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             if (!items[i].is_default)
             {
                 // Count case labels in this SwitchCase
-                for (size_t j = 0; j < items[i].node->list.count; j++)
-                {
-                    if (items[i].node->list.children[j]->type == AST_NODE_CASE_LABEL)
-                    {
-                        num_case_values++;
-                    }
-                }
+                num_case_values = items[i].node->switch_case.labels->list.count;
             }
         }
 
@@ -3461,20 +3436,15 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
 
             // Add each case value from this SwitchCase
-            c_grammar_node_t * switch_case_node = items[i].node;
-            for (size_t j = 0; j < switch_case_node->list.count; j++)
+            c_grammar_node_t const * switch_case_node = items[i].node;
+            for (size_t j = 0; j < switch_case_node->switch_case.labels->list.count; j++)
             {
-                c_grammar_node_t * child = switch_case_node->list.children[j];
-                if (child->type == AST_NODE_CASE_LABEL)
+                c_grammar_node_t const * child = switch_case_node->switch_case.labels->list.children[j];
+                // CaseLabel contains the case expression
+                if (child->list.count >= 1)
                 {
-                    // CaseLabel contains the case expression
-                    if (child->list.count >= 1)
-                    {
-                        LLVMValueRef case_val = process_expression(ctx, child->list.children[0]);
-                        LLVMAddCase(
-                            switch_inst, case_val, items[i].body_block ? items[i].body_block : fallthrough_target
-                        );
-                    }
+                    LLVMValueRef case_val = process_expression(ctx, child->list.children[0]);
+                    LLVMAddCase(switch_inst, case_val, items[i].body_block ? items[i].body_block : fallthrough_target);
                 }
             }
         }
@@ -3501,22 +3471,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
 
             // Process all statement children (skip CaseLabel children in SwitchCase)
-            c_grammar_node_t * item_node = items[i].node;
-            for (size_t j = 0; j < item_node->list.count; j++)
+            c_grammar_node_t const * item_node = items[i].node;
+            for (size_t j = 0; j < item_node->switch_case.statements->list.count; j++)
             {
-                c_grammar_node_t * child = item_node->list.children[j];
-                if (child->type != AST_NODE_CASE_LABEL)
+                c_grammar_node_t const * child = item_node->switch_case.statements->list.children[j];
+                process_ast_node(ctx, child);
+                if (ctx->errors.fatal)
                 {
-                    process_ast_node(ctx, child);
-                    if (ctx->errors.fatal)
-                    {
-                        return;
-                    }
+                    return;
+                }
 
-                    if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-                    {
-                        break;
-                    }
+                if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+                {
+                    break;
                 }
             }
 
@@ -3738,6 +3705,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASM_STATEMENT:
     case AST_NODE_STRUCT_DECLARATOR_LIST:
     case AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST:
+    case AST_NODE_CASE_LABELS:
+    case AST_NODE_SWITCH_BODY_STATEMENTS:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5794,6 +5763,8 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASM_STATEMENT:
     case AST_NODE_STRUCT_DECLARATOR_LIST:
     case AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST:
+    case AST_NODE_CASE_LABELS:
+    case AST_NODE_SWITCH_BODY_STATEMENTS:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
