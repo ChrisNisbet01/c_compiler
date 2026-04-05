@@ -345,6 +345,14 @@ typedef struct ast_node_labeled_statement_t
     c_grammar_node_t const * statement;
 } ast_node_labeled_statement_t;
 
+typedef struct ast_node_if_statement_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * condition;
+    c_grammar_node_t const * then_statement;
+    c_grammar_node_t const * else_statement;
+} ast_node_if_statement_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -389,6 +397,7 @@ typedef union c_grammar_node_t
     ast_node_top_level_declaration_t top_level_declaration;
     ast_node_struct_declaration_t struct_declaration;
     ast_node_labeled_statement_t labeled_statement;
+    ast_node_if_statement_t if_statement;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

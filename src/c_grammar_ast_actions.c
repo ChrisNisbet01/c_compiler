@@ -1600,10 +1600,25 @@ handle_initializer_list(
 static void
 handle_if_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count < 2 || count > 3)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 or 3 children, but got %u", get_node_type_name_from_type(AST_NODE_IF_STATEMENT), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_IF_STATEMENT);
     if (ast_node == NULL)
     {
         return;
+    }
+
+    ast_node->if_statement.condition = children[0];
+    ast_node->if_statement.then_statement = children[1];
+    if (count == 3)
+    {
+        ast_node->if_statement.else_statement = children[2];
     }
 
     epc_ast_push(ctx, ast_node);

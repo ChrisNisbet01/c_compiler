@@ -3539,18 +3539,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_IF_STATEMENT:
     {
         // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
-        if (node->list.count < 2)
-        {
-            debug_error("Invalid IfStatement AST node.");
-            return;
-        }
-
-        c_grammar_node_t * condition_node = node->list.children[0];
-        c_grammar_node_t * then_node = node->list.children[1];
-        c_grammar_node_t * else_node = (node->list.count > 2) ? node->list.children[2] : NULL;
+        c_grammar_node_t const * condition_node = node->if_statement.condition;
+        c_grammar_node_t const * then_node = node->if_statement.then_statement;
+        c_grammar_node_t const * else_node = node->if_statement.else_statement;
 
         LLVMValueRef condition_val = process_expression(ctx, condition_node);
-        if (!condition_val)
+        if (condition_val == NULL)
         {
             debug_error("Failed to process condition for IfStatement.");
             return;
@@ -3560,7 +3554,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "then");
         LLVMBasicBlockRef else_block
-            = else_node ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
+            = else_node != NULL ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
         LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "if_merge");
 
         if (else_node)
@@ -3585,7 +3579,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // --- Emit 'else' block if present ---
-        if (else_node)
+        if (else_node != NULL)
         {
             LLVMPositionBuilderAtEnd(ctx->builder, else_block);
             process_ast_node(ctx, else_node);
