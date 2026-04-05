@@ -3651,47 +3651,28 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_LABELED_STATEMENT:
     {
-        // LabeledStatement children: [LabeledIdentifier] or [Identifier, Statement] (legacy)
         // LabeledIdentifier children: [Identifier, Statement]
 
-        c_grammar_node_t const * label_id_node = NULL;
-        if (node->list.count >= 1 && node->list.children[0]->type == AST_NODE_LABELED_IDENTIFIER)
+        c_grammar_node_t const * label_node = node->labeled_statement.label;
+        c_grammar_node_t const * statement_node = node->labeled_statement.statement;
+
+        char const * label_name = label_node->text;
+        LLVMBasicBlockRef label_block = get_or_create_label(ctx, label_name);
+
+        // If the current block doesn't have a terminator, branch to the label block
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
         {
-            // New format: children[0] is LabeledIdentifier
-            label_id_node = node->list.children[0];
+            LLVMBuildBr(ctx->builder, label_block);
         }
-        else if (node->list.count >= 2 && node->list.children[0]->type == AST_NODE_IDENTIFIER)
+
+        // Continue building from the label block
+        LLVMPositionBuilderAtEnd(ctx->builder, label_block);
+
+        // Process the statement part of the labeled statement
+        process_ast_node(ctx, statement_node);
+        if (ctx->errors.fatal)
         {
-            // Legacy format: children[0] is Identifier, children[1] is Statement
-            label_id_node = node;
-        }
-
-        if (label_id_node != NULL)
-        {
-            c_grammar_node_t * identifier_node = label_id_node->list.children[0];
-            c_grammar_node_t * statement_node = label_id_node->list.count >= 2 ? label_id_node->list.children[1] : NULL;
-
-            if (identifier_node->type == AST_NODE_IDENTIFIER && statement_node != NULL)
-            {
-                char const * label_name = identifier_node->text;
-                LLVMBasicBlockRef label_block = get_or_create_label(ctx, label_name);
-
-                // If the current block doesn't have a terminator, branch to the label block
-                if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-                {
-                    LLVMBuildBr(ctx->builder, label_block);
-                }
-
-                // Continue building from the label block
-                LLVMPositionBuilderAtEnd(ctx->builder, label_block);
-
-                // Process the statement part of the labeled statement
-                process_ast_node(ctx, statement_node);
-                if (ctx->errors.fatal)
-                {
-                    return;
-                }
-            }
+            return;
         }
         break;
     }
@@ -3740,7 +3721,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_CHARACTER_LITERAL:
     case AST_NODE_SWITCH_CASE:
     case AST_NODE_DEFAULT_STATEMENT:
-    case AST_NODE_LABELED_IDENTIFIER:
     case AST_NODE_ASSIGNMENT_OPERATOR:
     case AST_NODE_INTEGER_BASE:
     case AST_NODE_INIT_DECLARATOR:
@@ -5802,7 +5782,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_CASE_LABEL:
     case AST_NODE_SWITCH_CASE:
     case AST_NODE_DEFAULT_STATEMENT:
-    case AST_NODE_LABELED_IDENTIFIER:
     case AST_NODE_ASSIGNMENT_OPERATOR:
     case AST_NODE_OPTIONAL_KW_EXTENSION:
     case AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST:

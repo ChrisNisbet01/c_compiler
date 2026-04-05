@@ -1670,25 +1670,36 @@ handle_labeled_statement(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_LABELED_STATEMENT), count
+        );
+        return;
+    }
+
+    if (((c_grammar_node_t *)children[0])->type != AST_NODE_IDENTIFIER)
+    {
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected label node at index 0, but got %s",
+            get_node_type_name_from_type(AST_NODE_LABELED_STATEMENT),
+            get_node_type_name_from_node((c_grammar_node_t *)children[0])
+        );
+
+        free_ast_node_children(children, count, user_data);
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LABELED_STATEMENT);
     if (ast_node == NULL)
     {
         return;
     }
 
-    epc_ast_push(ctx, ast_node);
-}
-
-static void
-handle_labeled_identifier(
-    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
-)
-{
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LABELED_IDENTIFIER);
-    if (ast_node == NULL)
-    {
-        return;
-    }
+    ast_node->labeled_statement.label = children[0];
+    ast_node->labeled_statement.statement = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2243,7 +2254,6 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DO_WHILE_STATEMENT, handle_do_while_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FOR_STATEMENT, handle_for_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LABELED_STATEMENT, handle_labeled_statement);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_LABELED_IDENTIFIER, handle_labeled_identifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CASE_LABEL, handle_case_label);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SWITCH_CASE, handle_switch_case);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DEFAULT_STATEMENT, handle_default_statement);

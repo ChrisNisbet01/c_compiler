@@ -436,11 +436,7 @@ LabeledDefaultStatement = KwDefault Colon SwitchBodyStatement* @AST_ACTION_DEFAU
 // SwitchCompoundStatement is used inside switch to allow SwitchCase and default at top level
 SwitchCompoundStatement = LBrace (SwitchCase | LabeledDefaultStatement | SwitchBodyStatement)* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
-LabeledIdentifier = Identifier Colon Statement @AST_ACTION_LABELED_IDENTIFIER;
-
-LabeledStatement = LabeledIdentifier
-                 | LabeledDefaultStatement
-                 | KwCase ConditionalExpression Colon Statement @AST_ACTION_LABELED_STATEMENT;
+LabeledStatement = Identifier Colon Statement @AST_ACTION_LABELED_STATEMENT;
 
 IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
 
