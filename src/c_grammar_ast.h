@@ -324,20 +324,27 @@ typedef struct ast_node_declaration_t
     c_grammar_node_t const * init_declarator_list;
 } ast_node_declaration_t;
 
-typedef struct top_level_declaration_t
+typedef struct ast_node_top_level_declaration_t
 {
     c_grammar_base_node_t base;
     c_grammar_node_t const * extension;
     c_grammar_node_t const * declaration;
-} top_level_declaration_t;
+} ast_node_top_level_declaration_t;
 
-typedef struct struct_declaration_t
+typedef struct ast_node_struct_declaration_t
 {
     c_grammar_base_node_t base;
     c_grammar_node_t const * extension;
     c_grammar_node_t const * specifier_qualifier_list;
     c_grammar_node_t const * declarator_list;
-} struct_declaration_t;
+} ast_node_struct_declaration_t;
+
+typedef struct ast_node_compound_statement_t
+{
+    c_grammar_base_node_t base;
+    ast_node_list_t statement_list;
+
+} ast_node_compound_statement_t;
 
 typedef union c_grammar_node_t
 {
@@ -380,8 +387,9 @@ typedef union c_grammar_node_t
     ast_node_external_declaration_t external_declaration;
     ast_node_function_definition_t function_definition;
     ast_node_declaration_t declaration;
-    top_level_declaration_t top_level_declaration;
-    struct_declaration_t struct_declaration;
+    ast_node_top_level_declaration_t top_level_declaration;
+    ast_node_struct_declaration_t struct_declaration;
+    ast_node_compound_statement_t compound_statement;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

@@ -282,6 +282,8 @@ handle_compound_statement(
         return;
     }
 
+    ast_node->compound_statement.statement_list = ast_node->list;
+
     epc_ast_push(ctx, ast_node);
 }
 
