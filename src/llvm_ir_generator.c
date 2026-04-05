@@ -1125,8 +1125,15 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
             continue;
         }
 
-        c_grammar_node_t * type_spec = struct_decl->list.children[1];
-        c_grammar_node_t * struct_decl_node = struct_decl->list.children[2];
+        c_grammar_node_t const * specifier_qualifier_list = struct_decl->struct_declaration.specifier_qualifier_list;
+        c_grammar_node_t const * declarator_list = struct_decl->struct_declaration.declarator_list;
+        if (declarator_list == NULL || declarator_list->list.count == 0 || specifier_qualifier_list == NULL
+            || specifier_qualifier_list->list.count == 0)
+        {
+            continue;
+        }
+        c_grammar_node_t const * type_spec = specifier_qualifier_list->list.children[0];
+        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
 
         if (type_spec == NULL || struct_decl_node == NULL || type_spec->type != AST_NODE_TYPE_SPECIFIER)
         {
@@ -3758,6 +3765,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRUCT_DECLARATION:
     case AST_NODE_STRUCT_DECLARATION_LIST:
     case AST_NODE_ASM_STATEMENT:
+    case AST_NODE_STRUCT_DECLARATOR_LIST:
+    case AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5813,6 +5822,8 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TOP_LEVEL_DECLARATION:
     case AST_NODE_PREPROCESSOR_DIRECTIVE:
     case AST_NODE_ASM_STATEMENT:
+    case AST_NODE_STRUCT_DECLARATOR_LIST:
+    case AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

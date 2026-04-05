@@ -279,7 +279,7 @@ StructDeclaratorBitfield = (Declarator? Colon ConditionalExpression) @AST_ACTION
 
 StructDeclarator = StructDeclaratorBitfield | Declarator @AST_ACTION_STRUCT_DECLARATOR;
 
-StructDeclaratorList = delimited(StructDeclarator, Comma);
+StructDeclaratorList = delimited(StructDeclarator, Comma) @AST_ACTION_STRUCT_DECLARATOR_LIST;
 
 // --- Attribute Support ---
 // Rule for a single attribute argument. It can be an Identifier, Literal, CastExpression, or a general Expression.
@@ -305,8 +305,9 @@ AsmName = KwAsm LParen StringLiteral+ RParen;
 
 // --- End of Attribute Support Rules ---
 
+StructSpecifierQualifierList = SpecifierQualifierList @AST_ACTION_STRUCT_SPECIFIER_QUALIFIER_LIST;
 
-StructUnionDeclaration = OptionalKwExtension SpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
+StructUnionDeclaration = OptionalKwExtension StructSpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
 
 StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARATION_LIST;
 

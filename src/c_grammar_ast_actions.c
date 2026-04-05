@@ -1833,10 +1833,29 @@ handle_struct_declaration(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count < 2 || count > 3)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected 2 or 3 children, but got %u",
+            get_node_type_name_from_type(AST_NODE_STRUCT_DECLARATION),
+            count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DECLARATION);
     if (ast_node == NULL)
     {
         return;
+    }
+
+    ast_node->struct_declaration.extension = children[0];
+    ast_node->struct_declaration.specifier_qualifier_list = children[1];
+    if (count == 3)
+    {
+        ast_node->struct_declaration.declarator_list = children[2];
     }
 
     epc_ast_push(ctx, ast_node);
@@ -2120,6 +2139,36 @@ handle_struct_declarator(
 }
 
 static void
+handle_struct_declarator_list(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_DECLARATOR_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_struct_specifier_qualifier_list(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_struct_declarator_bitfield(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -2229,6 +2278,10 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DESIGNATION, handle_designation);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMPOUND_LITERAL, handle_compound_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATOR, handle_struct_declarator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATOR_LIST, handle_struct_declarator_list);
+    epc_ast_hook_registry_set_action(
+        registry, AST_ACTION_STRUCT_SPECIFIER_QUALIFIER_LIST, handle_struct_specifier_qualifier_list
+    );
     epc_ast_hook_registry_set_action(
         registry, AST_ACTION_STRUCT_DECLARATOR_BITFIELD, handle_struct_declarator_bitfield
     );

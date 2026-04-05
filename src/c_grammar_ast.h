@@ -89,6 +89,8 @@ typedef enum
     AST_NODE_DESIGNATION,
     AST_NODE_COMPOUND_LITERAL,
     AST_NODE_STRUCT_DECLARATOR,
+    AST_NODE_STRUCT_DECLARATOR_LIST,
+    AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST,
     AST_NODE_STRUCT_DECLARATOR_BITFIELD,
 } c_grammar_node_type_t;
 
@@ -329,6 +331,14 @@ typedef struct top_level_declaration_t
     c_grammar_node_t const * declaration;
 } top_level_declaration_t;
 
+typedef struct struct_declaration_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * extension;
+    c_grammar_node_t const * specifier_qualifier_list;
+    c_grammar_node_t const * declarator_list;
+} struct_declaration_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -371,6 +381,7 @@ typedef union c_grammar_node_t
     ast_node_function_definition_t function_definition;
     ast_node_declaration_t declaration;
     top_level_declaration_t top_level_declaration;
+    struct_declaration_t struct_declaration;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
