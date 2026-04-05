@@ -426,6 +426,8 @@ SwitchBodyStatement = CompoundStatement
                     | PreprocessorDirective
                     ;
 
+Statement = LabeledStatement | SwitchBodyStatement;
+
 // CaseLabel matches a single case expression followed by colon
 CaseLabel = KwCase ConditionalExpression Colon @AST_ACTION_CASE_LABEL;
 
@@ -458,23 +460,6 @@ CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
 // Rule to match a preprocessor directive, including support for line continuations
 PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*) @AST_ACTION_PREPROCESSOR_DIRECTIVE;
-
-Statement = LabeledStatement
-          | CompoundStatement
-          | IfStatement 
-          | SwitchStatement
-          | WhileStatement 
-          | DoWhileStatement 
-          | ForStatement
-          | Declaration
-          | GotoStatement 
-          | ContinueStatement 
-          | BreakStatement 
-          | ReturnStatement
-          | ExpressionStatement
-          | AsmStatement
-          | PreprocessorDirective
-          ;
 
 FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 

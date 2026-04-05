@@ -3310,7 +3310,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t * body_stmt = node->list.children[1];
 
         LLVMValueRef switch_val = process_expression(ctx, switch_expr);
-        if (!switch_val)
+        if (switch_val == NULL)
         {
             debug_error("Failed to process switch expression.");
             return;
@@ -3385,7 +3385,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
             else
             {
-                // SwitchCase: children are [case_label*, statement*]
+                // SwitchCase: children are [case_label+, statement*]
                 // Statements start after all case labels
                 has_statements = false;
                 for (size_t j = 0; j < item_node->list.count; j++)
