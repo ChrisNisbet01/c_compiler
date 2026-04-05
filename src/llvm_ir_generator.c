@@ -2317,7 +2317,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 // Extract struct/union name from parameter specifiers for pointer-to-compound types
                 char const * param_compound_name = NULL;
-                c_grammar_node_t * p_spec = suffix_node->list.children[i * 2];
+                c_grammar_node_t * p_spec = suffix_node->list.children[i * 3 + 1];
 
                 // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
                 c_grammar_node_t * type_spec = NULL;
