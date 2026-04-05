@@ -2408,9 +2408,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Create new scope for this block
         scope_push(ctx);
 
-        for (size_t i = 0; i < node->compound_statement.statement_list.count; ++i)
+        for (size_t i = 0; i < node->list.count; ++i)
         {
-            process_ast_node(ctx, node->compound_statement.statement_list.children[i]);
+            process_ast_node(ctx, node->list.children[i]);
         }
 
         // Pop block scope when exiting
@@ -3341,9 +3341,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
         {
-            for (size_t i = 0; i < body_stmt->compound_statement.statement_list.count; ++i)
+            for (size_t i = 0; i < body_stmt->list.count; ++i)
             {
-                c_grammar_node_t * child = body_stmt->compound_statement.statement_list.children[i];
+                c_grammar_node_t * child = body_stmt->list.children[i];
 
                 if (child->type == AST_NODE_SWITCH_CASE)
                 {

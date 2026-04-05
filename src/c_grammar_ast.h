@@ -338,13 +338,6 @@ typedef struct ast_node_struct_declaration_t
     c_grammar_node_t const * declarator_list;
 } ast_node_struct_declaration_t;
 
-typedef struct ast_node_compound_statement_t
-{
-    c_grammar_base_node_t base;
-    ast_node_list_t statement_list;
-
-} ast_node_compound_statement_t;
-
 typedef struct ast_node_labeled_statement_t
 {
     c_grammar_base_node_t base;
@@ -395,7 +388,6 @@ typedef union c_grammar_node_t
     ast_node_declaration_t declaration;
     ast_node_top_level_declaration_t top_level_declaration;
     ast_node_struct_declaration_t struct_declaration;
-    ast_node_compound_statement_t compound_statement;
     ast_node_labeled_statement_t labeled_statement;
 } c_grammar_node_t;
 
