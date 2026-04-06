@@ -2476,7 +2476,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             c_grammar_node_t const * init_decl_node = init_decl_nodes->list.children[i];
 
             char const * var_name = NULL;
-            c_grammar_node_t const * initializer_expr_node = NULL; // Node representing the initializer expression.
+            c_grammar_node_t const * initializer_expr_node = NULL;
             c_grammar_node_t const * declarator_node = init_decl_node->init_declarator.declarator;
             c_grammar_node_t const * direct_decl_node = find_direct_declarator(declarator_node);
 
@@ -3687,6 +3687,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_INIT_DECLARATION_LIST:
     case AST_NODE_ATTRIBUTE_LIST:
     case AST_NODE_INITIALIZER:
+    case AST_NODE_ASM_NAMES:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5748,6 +5749,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_INIT_DECLARATION_LIST:
     case AST_NODE_ATTRIBUTE_LIST:
     case AST_NODE_INITIALIZER:
+    case AST_NODE_ASM_NAMES:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

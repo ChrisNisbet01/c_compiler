@@ -1574,10 +1574,10 @@ handle_init_declarator(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count < 1)
+    if (count < 3 || count > 5)
     {
         epc_ast_builder_set_error(
-            ctx, "%s at least 1 child but got none", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR)
+            ctx, "%s expected 4 or 5 children but got %u", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR), count
         );
         free_ast_node_children(children, count, user_data);
         return;
@@ -1589,11 +1589,21 @@ handle_init_declarator(
         return;
     }
 
-    ast_node->init_declarator.declarator = children[0];
-    /* There might be other nodes before the initializer node. */
-    if (count > 1)
+    size_t node_idx = 0;
+    ast_node->init_declarator.declarator = children[node_idx++];
+    ast_node->init_declarator.attribute_list_1 = children[node_idx++];
+
+    c_grammar_node_t const * child;
+
+    child = children[node_idx];
+    if (child->type == AST_NODE_ASM_NAMES)
     {
-        ast_node->init_declarator.initializer = children[count - 1];
+        ast_node->init_declarator.optional_asm_name_list = children[node_idx++];
+    }
+    ast_node->init_declarator.attribute_list_2 = children[node_idx++];
+    if (node_idx < (size_t)count)
+    {
+        ast_node->init_declarator.initializer = children[node_idx++];
     }
 
     epc_ast_push(ctx, ast_node);
@@ -2448,6 +2458,18 @@ handle_attribute_list(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_asm_names(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASM_NAMES);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -2559,4 +2581,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_TYPE_REF, handle_union_type_ref);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUM_TYPE_REF, handle_enum_type_ref);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ATTRIBUTE_LIST, handle_attribute_list);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ASM_NAMES, handle_asm_names);
 }

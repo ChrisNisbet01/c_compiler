@@ -304,7 +304,8 @@ AttributeList = Attribute*;
 AttributeListWithAction = Attribute* @AST_ACTION_ATTRIBUTE_LIST;
 
 // Assembler name extension: __asm__("name")
-AsmName = KwAsm LParen StringLiteral+ RParen;
+AsmNames = KwAsm LParen StringLiteral+ RParen;
+AsmNamesWithAction = AsmNames @AST_ACTION_ASM_NAMES;
 
 // --- End of Attribute Support Rules ---
 
@@ -382,7 +383,7 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
 
 Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_DECLARATOR;
 
-InitDeclarator = Declarator AttributeList AsmName? AttributeList (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
+InitDeclarator = Declarator AttributeListWithAction AsmNamesWithAction? AttributeListWithAction (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
@@ -399,7 +400,7 @@ TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningId
 // A specialized declarator that uses the capturing identifier
 TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeListWithAction;
 
-TypedefInitDeclarator = TypedefDeclarator AttributeList AsmName? AttributeList (Assign Initializer)?;
+TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)?;
 
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 

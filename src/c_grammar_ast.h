@@ -96,6 +96,7 @@ typedef enum
     AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST,
     AST_NODE_STRUCT_DECLARATOR_BITFIELD,
     AST_NODE_ATTRIBUTE_LIST,
+    AST_NODE_ASM_NAMES,
 } c_grammar_node_type_t;
 
 typedef struct
@@ -446,6 +447,9 @@ typedef struct ast_node_init_declarator_t
 {
     c_grammar_base_node_t base;
     c_grammar_node_t const * declarator;
+    c_grammar_node_t const * attribute_list_1;
+    c_grammar_node_t const * optional_asm_name_list;
+    c_grammar_node_t const * attribute_list_2;
     c_grammar_node_t const * initializer;
 } ast_node_init_declarator_t;
 
