@@ -3300,14 +3300,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         //   - Case labels have type AST_NODE_CASE_LABEL
         //   - Statements are other statement types
         // DefaultStatement: [statement*]
-        if (node->list.count < 2)
-        {
-            debug_error("Invalid SwitchStatement AST node.");
-            return;
-        }
-
-        c_grammar_node_t * switch_expr = node->list.children[0];
-        c_grammar_node_t * body_stmt = node->list.children[1];
+        c_grammar_node_t const * switch_expr = node->switch_statement.expression;
+        c_grammar_node_t const * body_stmt = node->switch_statement.body;
 
         LLVMValueRef switch_val = process_expression(ctx, switch_expr);
         if (switch_val == NULL)

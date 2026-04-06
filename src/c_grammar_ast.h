@@ -362,6 +362,13 @@ typedef struct ast_node_switch_case_t
     c_grammar_node_t const * statements;
 } ast_node_switch_case_t;
 
+typedef struct ast_node_switch_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * expression;
+    c_grammar_node_t const * body;
+} ast_node_switch_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -408,6 +415,7 @@ typedef union c_grammar_node_t
     ast_node_labeled_statement_t labeled_statement;
     ast_node_if_statement_t if_statement;
     ast_node_switch_case_t switch_case;
+    ast_node_switch_t switch_statement;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
