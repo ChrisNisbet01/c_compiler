@@ -398,9 +398,9 @@ TypedefDefiningIdentifier = wrap(Identifier, typedef_capture_callbacks, NULL);
 TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeListWithAction);
 
 // A specialized declarator that uses the capturing identifier
-TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeListWithAction;
+TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_TYPEDEF_DECLARATOR;
 
-TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)?;
+TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
 
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 

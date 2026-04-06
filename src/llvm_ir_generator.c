@@ -3688,6 +3688,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ATTRIBUTE_LIST:
     case AST_NODE_INITIALIZER:
     case AST_NODE_ASM_NAMES:
+    case AST_NODE_TYPEDEF_DECLARATOR:
+    case AST_NODE_TYPEDEF_INIT_DECLARATOR:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5750,6 +5752,8 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ATTRIBUTE_LIST:
     case AST_NODE_INITIALIZER:
     case AST_NODE_ASM_NAMES:
+    case AST_NODE_TYPEDEF_DECLARATOR:
+    case AST_NODE_TYPEDEF_INIT_DECLARATOR:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

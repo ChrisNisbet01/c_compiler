@@ -2261,6 +2261,61 @@ handle_typedef_declaration(
 }
 
 static void
+handle_typedef_declarator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_DECLARATOR);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_typedef_init_declarator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count < 3 || count > 5)
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s expected 4 or 5 children but got %u", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR), count
+        );
+        free_ast_node_children(children, count, user_data);
+        return;
+    }
+
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_INIT_DECLARATOR);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    size_t node_idx = 0;
+    ast_node->init_declarator.declarator = children[node_idx++];
+    ast_node->init_declarator.attribute_list_1 = children[node_idx++];
+
+    c_grammar_node_t const * child;
+
+    child = children[node_idx];
+    if (child->type == AST_NODE_ASM_NAMES)
+    {
+        ast_node->init_declarator.optional_asm_name_list = children[node_idx++];
+    }
+    ast_node->init_declarator.attribute_list_2 = children[node_idx++];
+    if (node_idx < (size_t)count)
+    {
+        ast_node->init_declarator.initializer = children[node_idx++];
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_ternary_operation(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -2556,6 +2611,8 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_DEFINITION, handle_union_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_DECLARATION, handle_typedef_declaration);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_DECLARATOR, handle_typedef_declarator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_INIT_DECLARATOR, handle_typedef_init_declarator);
     epc_ast_hook_registry_set_action(
         registry, AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST, handle_typedef_init_declarator_list
     );
