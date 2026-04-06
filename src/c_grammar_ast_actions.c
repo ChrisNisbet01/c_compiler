@@ -1975,7 +1975,10 @@ handle_expression_statement(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "%s expected 0 or 1 children, but got %d", get_node_type_name_from_type(AST_NODE_EXPRESSION_STATEMENT), count
+            ctx,
+            "%s expected 0 or 1 children, but got %d",
+            get_node_type_name_from_type(AST_NODE_EXPRESSION_STATEMENT),
+            count
         );
         return;
     }
@@ -2147,15 +2150,41 @@ handle_enum_definition(
 }
 
 static void
+handle_typedef_init_declarator_list(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_INIT_DECLARATION_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_typedef_declaration(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 3)
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s expected 3 children, but got %u", get_node_type_name_from_type(AST_NODE_TYPEDEF_DECLARATION), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_DECLARATION);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->typedef_declaration.extension = children[0];
+    ast_node->typedef_declaration.declaration_specifiers = children[1];
+    ast_node->typedef_declaration.init_declarator_list = children[2];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2431,6 +2460,9 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_DEFINITION, handle_union_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POSTFIX_PARTS, handle_postfix_parts);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_DECLARATION, handle_typedef_declaration);
+    epc_ast_hook_registry_set_action(
+        registry, AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST, handle_typedef_init_declarator_list
+    );
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TERNARY_OPERATION, handle_ternary_operation);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CONDITIONAL_EXPRESSION, handle_conditional_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMMA_EXPRESSION, handle_comma_expression);

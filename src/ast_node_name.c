@@ -72,6 +72,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_UNION_TYPE_REF] = {.name = "UnionTypeRef"},
     [AST_NODE_ENUM_TYPE_REF] = {.name = "EnumTypeRef"},
     [AST_NODE_TYPEDEF_DECLARATION] = {.name = "TypedefDeclaration"},
+    [AST_NODE_TYPEDEF_INIT_DECLARATION_LIST] = {.name = "TypedefInitDeclarationList"},
     [AST_NODE_INITIALIZER_LIST] = {.name = "InitializerList"},
     [AST_NODE_LABELED_STATEMENT] = {.name = "LabeledStatement"},
     [AST_NODE_CHARACTER_LITERAL] = {.name = "CharacterLiteral"},

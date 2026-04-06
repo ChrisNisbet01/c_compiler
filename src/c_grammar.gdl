@@ -398,7 +398,7 @@ TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* Attribute
 
 TypedefInitDeclarator = TypedefDeclarator AttributeList AsmName? AttributeList (Assign Initializer)?;
 
-TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma);
+TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 
 // The whole typedef declaration is wrapped to commit/discard the captured names
 TypedefDeclaration = wrap(OptionalKwExtension KwTypedef DeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL) 
