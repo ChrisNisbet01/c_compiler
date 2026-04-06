@@ -3539,12 +3539,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_RETURN_STATEMENT:
     {
-        // Handle 'return expression;' or 'return;'.
-        if (node->list.count > 0)
+        c_grammar_node_t const * expr_node = node->return_statement.expression;
+        if (expr_node != NULL)
         {
-            c_grammar_node_t const * expr_node = node->list.children[0];
-
-            // Process the return expression.
             LLVMValueRef return_value = process_expression(ctx, expr_node);
 
             if (return_value)
@@ -3571,7 +3568,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_GOTO_STATEMENT:
     {
-        char const * label_name = node->list.children[0]->text;
+        char const * label_name = node->goto_statement.label->text;
         LLVMBasicBlockRef target = get_or_create_label(ctx, label_name);
         LLVMBuildBr(ctx->builder, target);
 
