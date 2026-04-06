@@ -72,31 +72,18 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
         return NULL;
     }
 
-    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF)
+    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF || type_spec_node->type == AST_NODE_UNION_TYPE_REF
+        || type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
     {
-        c_grammar_node_t const * ident = type_spec_node->struct_type_ref.identifier;
-        return ident ? ident->text : NULL;
-    }
-    if (type_spec_node->type == AST_NODE_UNION_TYPE_REF)
-    {
-        c_grammar_node_t const * ident = type_spec_node->union_type_ref.identifier;
-        return ident ? ident->text : NULL;
-    }
-    if (type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
-    {
-        c_grammar_node_t const * ident = type_spec_node->enum_type_ref.identifier;
+        c_grammar_node_t const * ident = type_spec_node->type_ref.identifier;
         return ident ? ident->text : NULL;
     }
 
-    if (type_spec_node->list.count == 0)
+    if (type_spec_node->type != AST_NODE_TYPE_SPECIFIER || type_spec_node->list.count == 0)
     {
         return NULL;
     }
 
-    if (type_spec_node->type != AST_NODE_TYPE_SPECIFIER)
-    {
-        return NULL;
-    }
     c_grammar_node_t const * spec_child = type_spec_node->list.children[0];
 
     if (spec_child->type != AST_NODE_STRUCT_DEFINITION && spec_child->type != AST_NODE_UNION_DEFINITION
@@ -2896,13 +2883,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             /* Check if there's an identifier (forward declaration) */
                             c_grammar_node_t const * name_node = NULL;
-                            if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
+                            if (type_child->type == AST_NODE_STRUCT_TYPE_REF
+                                || type_child->type == AST_NODE_UNION_TYPE_REF)
                             {
-                                name_node = type_child->struct_type_ref.identifier;
-                            }
-                            else if (type_child->type == AST_NODE_UNION_TYPE_REF)
-                            {
-                                name_node = type_child->union_type_ref.identifier;
+                                name_node = type_child->type_ref.identifier;
                             }
 
                             if (name_node && name_node->type == AST_NODE_IDENTIFIER)
@@ -3708,6 +3692,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_CASE_LABELS:
     case AST_NODE_SWITCH_BODY_STATEMENTS:
     case AST_NODE_TYPEDEF_INIT_DECLARATION_LIST:
+    case AST_NODE_ATTRIBUTE_LIST:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5767,6 +5752,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_CASE_LABELS:
     case AST_NODE_SWITCH_BODY_STATEMENTS:
     case AST_NODE_TYPEDEF_INIT_DECLARATION_LIST:
+    case AST_NODE_ATTRIBUTE_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

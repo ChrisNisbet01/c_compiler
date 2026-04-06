@@ -488,9 +488,7 @@ typedef union c_grammar_node_t
     ast_node_if_statement_t if_statement;
     ast_node_switch_case_t switch_case;
     ast_node_switch_t switch_statement;
-    ast_node_struct_type_ref_t struct_type_ref;
-    ast_node_union_type_ref_t union_type_ref;
-    ast_node_enum_type_ref_t enum_type_ref;
+    ast_node_struct_type_ref_t type_ref;
     ast_node_loop_statement_t while_statement;
     ast_node_do_while_statement_t do_while_statement;
     ast_node_for_statement_t for_statement;
