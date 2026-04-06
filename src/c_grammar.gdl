@@ -299,6 +299,7 @@ AttributeArg = (LParen AttributeArgList? RParen) | AttributeArgument;
 
 Attribute = KwAttribute LParen LParen AttributeHead AttributeArg* RParen RParen;
 AttributeList = Attribute*;
+AttributeListWithAction = Attribute* @AST_ACTION_ATTRIBUTE_LIST;
 
 // Assembler name extension: __asm__("name")
 AsmName = KwAsm LParen StringLiteral+ RParen;
@@ -314,9 +315,9 @@ StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARAT
 Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
 
 // StructDefinition: struct with body (definition)
-StructDefinition = KwStruct AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
-UnionDefinition = KwUnion AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_UNION_DEFINITION;
-EnumDefinition = KwEnum AttributeList Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace AttributeList @AST_ACTION_ENUM_DEFINITION;
+StructDefinition = KwStruct AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeListWithAction @AST_ACTION_STRUCT_DEFINITION;
+UnionDefinition = KwUnion AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeListWithAction @AST_ACTION_UNION_DEFINITION;
+EnumDefinition = KwEnum AttributeList Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace AttributeListWithAction @AST_ACTION_ENUM_DEFINITION;
 
 // Typedef names are identifiers that have been registered
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
@@ -359,7 +360,7 @@ Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 // Explicit rule for function pointer declarators like (*name)[size]
 FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffix* RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR;
 
-DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeList) | (LParen Declarator RParen) | (Identifier AttributeList);
+DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeListWithAction) | (LParen Declarator RParen) | (Identifier AttributeListWithAction);
 
 DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
@@ -377,7 +378,7 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket Expression? RBracket)
                  | ParameterList @AST_ACTION_DECLARATOR_SUFFIX;
 
-Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_DECLARATOR;
+Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_DECLARATOR;
 
 InitDeclarator = Declarator AttributeList AsmName? AttributeList (Assign Initializer)? @AST_ACTION_INIT_DECLARATOR;
 
@@ -391,10 +392,10 @@ Declaration = OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorLi
 // A specialized identifier that captures itself when parsed
 TypedefDefiningIdentifier = wrap(Identifier, typedef_capture_callbacks, NULL);
 
-TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeList);
+TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeListWithAction);
 
 // A specialized declarator that uses the capturing identifier
-TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeList;
+TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeListWithAction;
 
 TypedefInitDeclarator = TypedefDeclarator AttributeList AsmName? AttributeList (Assign Initializer)?;
 
