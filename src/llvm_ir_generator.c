@@ -3034,17 +3034,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_FOR_STATEMENT:
     {
-        // AST structure for ForStatement: [InitExpr/Decl, CondExpr, PostExpr, BodyStatement]
-        if (node->list.count < 4)
-        {
-            debug_error("Invalid ForStatement AST node.");
-            return;
-        }
-
-        c_grammar_node_t * init_node = node->list.children[0];
-        c_grammar_node_t * cond_node = node->list.children[1];
-        c_grammar_node_t * post_node = node->list.children[2];
-        c_grammar_node_t * body_node = node->list.children[3];
+        c_grammar_node_t const * init_node = node->for_statement.init;
+        c_grammar_node_t const * cond_node = node->for_statement.condition;
+        c_grammar_node_t const * post_node = node->for_statement.post;
+        c_grammar_node_t const * body_node = node->for_statement.body;
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -3122,15 +3115,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_WHILE_STATEMENT:
     {
-        // AST structure for WhileStatement: [ConditionExpression, BodyStatement]
-        if (node->list.count < 2)
-        {
-            debug_error("Invalid WhileStatement AST node.");
-            return;
-        }
-
-        c_grammar_node_t * condition_node = node->list.children[0];
-        c_grammar_node_t * body_node = node->list.children[1];
+        c_grammar_node_t const * condition_node = node->while_statement.condition;
+        c_grammar_node_t const * body_node = node->while_statement.body;
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -3190,15 +3176,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_DO_WHILE_STATEMENT:
     {
-        // AST structure for DoWhileStatement: [BodyStatement, ConditionExpression]
-        if (node->list.count < 2)
-        {
-            debug_error("Invalid DoWhileStatement AST node.");
-            return;
-        }
-
-        c_grammar_node_t * body_node = node->list.children[0];
-        c_grammar_node_t * condition_node = node->list.children[1];
+        c_grammar_node_t const * body_node = node->do_while_statement.body;
+        c_grammar_node_t const * condition_node = node->do_while_statement.condition;
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 

@@ -1655,11 +1655,22 @@ handle_while_statement(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_WHILE_STATEMENT), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_WHILE_STATEMENT);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->while_statement.condition = ast_node->list.children[0];
+    ast_node->while_statement.body = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1669,11 +1680,22 @@ handle_do_while_statement(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_DO_WHILE_STATEMENT), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DO_WHILE_STATEMENT);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->do_while_statement.body = ast_node->list.children[0];
+    ast_node->do_while_statement.condition = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1681,11 +1703,24 @@ handle_do_while_statement(
 static void
 handle_for_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count != 3 && count != 4)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 3 or 4 children, but got %d", get_node_type_name_from_type(AST_NODE_FOR_STATEMENT), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FOR_STATEMENT);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->for_statement.init = ast_node->list.children[0];
+    ast_node->for_statement.condition = ast_node->list.children[1];
+    ast_node->for_statement.post = (count == 4) ? ast_node->list.children[2] : NULL;
+    ast_node->for_statement.body = (count == 4) ? ast_node->list.children[3] : ast_node->list.children[2];
 
     epc_ast_push(ctx, ast_node);
 }
