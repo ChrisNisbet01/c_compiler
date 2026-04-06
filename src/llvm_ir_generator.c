@@ -2419,12 +2419,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_EXPRESSION_STATEMENT:
     {
-        if (node->list.children)
+        c_grammar_node_t const * expr_node = node->expression_statement.expression;
+        if (expr_node != NULL)
         {
-            for (size_t i = 0; i < node->list.count; ++i)
-            {
-                process_expression(ctx, node->list.children[i]);
-            }
+            process_expression(ctx, expr_node);
         }
         break;
     }

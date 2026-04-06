@@ -404,6 +404,12 @@ typedef struct ast_node_return_statement_t
     c_grammar_node_t const * expression;
 } ast_node_return_statement_t;
 
+typedef struct ast_node_expression_statement_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * expression;
+} ast_node_expression_statement_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -456,6 +462,7 @@ typedef union c_grammar_node_t
     ast_node_for_statement_t for_statement;
     ast_node_goto_statement_t goto_statement;
     ast_node_return_statement_t return_statement;
+    ast_node_expression_statement_t expression_statement;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
