@@ -462,7 +462,7 @@ GotoStatement = KwGoto Identifier Semicolon @AST_ACTION_GOTO_STATEMENT;
 ContinueStatement = KwContinue Semicolon @AST_ACTION_CONTINUE_STATEMENT;
 BreakStatement = KwBreak Semicolon @AST_ACTION_BREAK_STATEMENT;
 ReturnStatement = (KwReturn Expression? Semicolon) @AST_ACTION_RETURN_STATEMENT;
-AsmStatement = (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
+AsmStatement = (KwAsm AttributeListWithAction LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
 
 CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
