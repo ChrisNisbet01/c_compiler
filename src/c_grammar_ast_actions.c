@@ -1574,10 +1574,26 @@ handle_init_declarator(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count < 1)
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s at least 1 child but got none", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR)
+        );
+        free_ast_node_children(children, count, user_data);
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INIT_DECLARATOR);
     if (ast_node == NULL)
     {
         return;
+    }
+
+    ast_node->init_declarator.declarator = children[0];
+    /* There might be other nodes before the initializer node. */
+    if (count > 1)
+    {
+        ast_node->init_declarator.initializer = children[count - 1];
     }
 
     epc_ast_push(ctx, ast_node);
@@ -1589,6 +1605,18 @@ handle_initializer_list(
 )
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INITIALIZER_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_initializer(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INITIALIZER);
     if (ast_node == NULL)
     {
         return;
@@ -2497,6 +2525,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TRANSLATION_UNIT, handle_translation_unit);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_INIT_DECLARATOR, handle_init_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_INITIALIZER_LIST, handle_initializer_list);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INITIALIZER, handle_initializer);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_NAME, handle_type_name);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXPRESSION_STATEMENT, handle_expression_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATION, handle_struct_declaration);

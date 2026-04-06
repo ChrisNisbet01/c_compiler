@@ -77,6 +77,7 @@ typedef enum
     AST_NODE_TYPEDEF_DECLARATION,
     AST_NODE_TYPEDEF_INIT_DECLARATION_LIST,
     AST_NODE_INITIALIZER_LIST,
+    AST_NODE_INITIALIZER,
     AST_NODE_LABELED_STATEMENT,
     AST_NODE_CHARACTER_LITERAL,
     AST_NODE_CASE_LABEL,
@@ -441,6 +442,13 @@ typedef struct ast_node_typedef_declaration_t
     c_grammar_node_t const * init_declarator_list;
 } ast_node_typedef_declaration_t;
 
+typedef struct ast_node_init_declarator_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * declarator;
+    c_grammar_node_t const * initializer;
+} ast_node_init_declarator_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -496,6 +504,7 @@ typedef union c_grammar_node_t
     ast_node_return_statement_t return_statement;
     ast_node_expression_statement_t expression_statement;
     ast_node_typedef_declaration_t typedef_declaration;
+    ast_node_init_declarator_t init_declarator;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

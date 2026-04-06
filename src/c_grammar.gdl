@@ -274,6 +274,8 @@ Designation = Designator+ Assign @AST_ACTION_DESIGNATION;
 InitializerList = delimited_flex(Designation? Initializer, Comma) Comma? @AST_ACTION_INITIALIZER_LIST;
 
 Initializer = (LBrace InitializerList RBrace) | AssignmentExpression;
+InitializerWithAction = (LBrace InitializerList RBrace) | AssignmentExpression @AST_ACTION_INITIALIZER;
+
 
 StructDeclaratorBitfield = (Declarator? Colon ConditionalExpression) @AST_ACTION_STRUCT_DECLARATOR_BITFIELD;
 
@@ -380,7 +382,7 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
 
 Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_DECLARATOR;
 
-InitDeclarator = Declarator AttributeList AsmName? AttributeList (Assign Initializer)? @AST_ACTION_INIT_DECLARATOR;
+InitDeclarator = Declarator AttributeList AsmName? AttributeList (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
