@@ -67,7 +67,28 @@ search_for_identifier_in_ast_node(c_grammar_node_t const * node)
 static char const *
 extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
 {
-    if (type_spec_node == NULL || type_spec_node->list.count == 0)
+    if (type_spec_node == NULL)
+    {
+        return NULL;
+    }
+
+    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF)
+    {
+        c_grammar_node_t const * ident = type_spec_node->struct_type_ref.identifier;
+        return ident ? ident->text : NULL;
+    }
+    if (type_spec_node->type == AST_NODE_UNION_TYPE_REF)
+    {
+        c_grammar_node_t const * ident = type_spec_node->union_type_ref.identifier;
+        return ident ? ident->text : NULL;
+    }
+    if (type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
+    {
+        c_grammar_node_t const * ident = type_spec_node->enum_type_ref.identifier;
+        return ident ? ident->text : NULL;
+    }
+
+    if (type_spec_node->list.count == 0)
     {
         return NULL;
     }
@@ -2871,10 +2892,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             kind = TYPE_KIND_UNION;
                         }
-                        if (kind != TYPE_KIND_UNKNOWN && type_child->list.count > 0)
+                        if (kind != TYPE_KIND_UNKNOWN)
                         {
-                            /* Check if there's an identifier after the keyword (forward declaration) */
-                            c_grammar_node_t const * name_node = type_child->list.children[0];
+                            /* Check if there's an identifier (forward declaration) */
+                            c_grammar_node_t const * name_node = NULL;
+                            if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
+                            {
+                                name_node = type_child->struct_type_ref.identifier;
+                            }
+                            else if (type_child->type == AST_NODE_UNION_TYPE_REF)
+                            {
+                                name_node = type_child->union_type_ref.identifier;
+                            }
+
                             if (name_node && name_node->type == AST_NODE_IDENTIFIER)
                             {
                                 /* This is a forward declaration: e.g. struct Point; */

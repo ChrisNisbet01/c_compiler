@@ -322,9 +322,9 @@ EnumDefinition = KwEnum AttributeList Identifier? LBrace delimited_flex(Enumerat
 // Typedef names are identifiers that have been registered
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
-StructTypeRef = KwStruct AttributeList Identifier @AST_ACTION_STRUCT_TYPE_REF;
-UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;
-EnumTypeRef = KwEnum AttributeList Identifier @AST_ACTION_ENUM_TYPE_REF;
+StructTypeRef = KwStruct AttributeListWithAction Identifier @AST_ACTION_STRUCT_TYPE_REF;
+UnionTypeRef = KwUnion AttributeListWithAction Identifier @AST_ACTION_UNION_TYPE_REF;
+EnumTypeRef = KwEnum AttributeListWithAction Identifier @AST_ACTION_ENUM_TYPE_REF;
 
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | (KwLong KwDouble) | KwLong

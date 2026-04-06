@@ -2075,11 +2075,22 @@ handle_struct_type_ref(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_STRUCT_TYPE_REF), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_TYPE_REF);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->struct_type_ref.attribute_list = ast_node->list.children[0];
+    ast_node->struct_type_ref.identifier = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2087,11 +2098,22 @@ handle_struct_type_ref(
 static void
 handle_union_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_UNION_TYPE_REF), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNION_TYPE_REF);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->union_type_ref.attribute_list = ast_node->list.children[0];
+    ast_node->union_type_ref.identifier = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2099,11 +2121,22 @@ handle_union_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 static void
 handle_enum_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_ENUM_TYPE_REF), count
+        );
+        return;
+    }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUM_TYPE_REF);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->enum_type_ref.attribute_list = ast_node->list.children[0];
+    ast_node->enum_type_ref.identifier = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
