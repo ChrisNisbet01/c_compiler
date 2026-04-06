@@ -2127,8 +2127,8 @@ handle_struct_type_ref(
         return;
     }
 
-    ast_node->type_ref.attribute_list = ast_node->list.children[0];
-    ast_node->type_ref.identifier = ast_node->list.children[1];
+    ast_node->struct_type_ref.attribute_list = ast_node->list.children[0];
+    ast_node->struct_type_ref.identifier = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2150,8 +2150,8 @@ handle_union_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
         return;
     }
 
-    ast_node->type_ref.attribute_list = ast_node->list.children[0];
-    ast_node->type_ref.identifier = ast_node->list.children[1];
+    ast_node->union_type_ref.attribute_list = ast_node->list.children[0];
+    ast_node->union_type_ref.identifier = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2173,8 +2173,8 @@ handle_enum_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         return;
     }
 
-    ast_node->type_ref.attribute_list = ast_node->list.children[0];
-    ast_node->type_ref.identifier = ast_node->list.children[1];
+    ast_node->enum_type_ref.attribute_list = ast_node->list.children[0];
+    ast_node->enum_type_ref.identifier = ast_node->list.children[1];
 
     epc_ast_push(ctx, ast_node);
 }

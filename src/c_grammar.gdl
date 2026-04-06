@@ -400,7 +400,7 @@ TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningId
 // A specialized declarator that uses the capturing identifier
 TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_TYPEDEF_DECLARATOR;
 
-TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
+TypedefInitDeclarator = TypedefDeclarator AttributeListWithAction AsmNamesWithAction? AttributeListWithAction (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
 
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 

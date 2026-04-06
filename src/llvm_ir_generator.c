@@ -72,10 +72,19 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
         return NULL;
     }
 
-    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF || type_spec_node->type == AST_NODE_UNION_TYPE_REF
-        || type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
+    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF)
     {
-        c_grammar_node_t const * ident = type_spec_node->type_ref.identifier;
+        c_grammar_node_t const * ident = type_spec_node->struct_type_ref.identifier;
+        return ident ? ident->text : NULL;
+    }
+    if (type_spec_node->type == AST_NODE_UNION_TYPE_REF)
+    {
+        c_grammar_node_t const * ident = type_spec_node->union_type_ref.identifier;
+        return ident ? ident->text : NULL;
+    }
+    if (type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
+    {
+        c_grammar_node_t const * ident = type_spec_node->enum_type_ref.identifier;
         return ident ? ident->text : NULL;
     }
 
@@ -1609,6 +1618,33 @@ find_direct_declarator(c_grammar_node_t const * declarator)
     return NULL;
 }
 
+static c_grammar_node_t const *
+find_typedef_name_node(c_grammar_node_t const * typedef_decl)
+{
+    if (!typedef_decl || typedef_decl->type != AST_NODE_TYPEDEF_DECLARATOR)
+    {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < typedef_decl->list.count; ++i)
+    {
+        c_grammar_node_t const * child = typedef_decl->list.children[i];
+        if (child->type == AST_NODE_IDENTIFIER)
+        {
+            return child;
+        }
+        if (child->type == AST_NODE_TYPEDEF_DECLARATOR)
+        {
+            c_grammar_node_t const * nested = find_typedef_name_node(child);
+            if (nested != NULL)
+            {
+                return nested;
+            }
+        }
+    }
+    return NULL;
+}
+
 static LLVMTypeRef
 get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
 {
@@ -2826,158 +2862,188 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_TYPEDEF_DECLARATION:
     {
-        /* Handle TypedefDeclaration node: [KwExtension DeclarationSpecifiers, Identifier] */
-        /* DeclarationSpecifiers contains the struct/union/enum definition */
-        /* Identifier is the typedef name */
+        /* Handle TypedefDeclaration node: [KwExtension DeclarationSpecifiers, InitDeclaratorList] */
         c_grammar_node_t const * decl_specs = node->typedef_declaration.declaration_specifiers;
         c_grammar_node_t const * init_declarator_list = node->typedef_declaration.init_declarator_list;
-        c_grammar_node_t const * typedef_name_node = NULL;
-        if (init_declarator_list->list.count > 0)
+
+        if (decl_specs == NULL || init_declarator_list == NULL)
         {
-            typedef_name_node = init_declarator_list->list.children[0];
+            break;
         }
 
-        if (decl_specs->type == AST_NODE_DECL_SPECIFIERS && typedef_name_node != NULL
-            && typedef_name_node->type == AST_NODE_IDENTIFIER && typedef_name_node->text != NULL)
+        c_grammar_node_t const * struct_def_node = NULL;
+        c_grammar_node_t const * enum_def_node = NULL;
+
+        /* Look for struct/union/enum definition inside DeclarationSpecifiers once */
+        for (size_t i = 0; i < decl_specs->list.count; ++i)
         {
-            char * typedef_name = typedef_name_node->text;
-            c_grammar_node_t const * struct_def_node = NULL;
-            c_grammar_node_t const * enum_def_node = NULL;
+            c_grammar_node_t * spec_child = decl_specs->list.children[i];
 
-            /* Look for struct/union/enum definition inside DeclarationSpecifiers */
-            /* Could be:
-                - struct Point { ... } (has StructDefinition)
-                - struct Point; (just keyword + identifier, no body)
-            */
-
-            for (size_t i = 0; i < decl_specs->list.count; ++i)
+            if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER)
             {
-                c_grammar_node_t * spec_child = decl_specs->list.children[i];
-
-                if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER)
+                for (size_t j = 0; j < spec_child->list.count; ++j)
                 {
-                    char const * struct_tag = NULL;
-                    type_kind_t kind = TYPE_KIND_UNKNOWN;
-                    bool handled = false;
-
-                    for (size_t j = 0; j < spec_child->list.count; ++j)
+                    c_grammar_node_t const * type_child = spec_child->list.children[j];
+                    if (type_child
+                        && (type_child->type == AST_NODE_STRUCT_DEFINITION
+                            || type_child->type == AST_NODE_UNION_DEFINITION))
                     {
-                        c_grammar_node_t const * type_child = spec_child->list.children[j];
-                        kind = TYPE_KIND_UNKNOWN;
-                        if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
-                        {
-                            kind = TYPE_KIND_STRUCT;
-                        }
-                        else if (type_child->type == AST_NODE_UNION_TYPE_REF)
-                        {
-                            kind = TYPE_KIND_UNION;
-                        }
-                        if (kind != TYPE_KIND_UNKNOWN)
-                        {
-                            /* Check if there's an identifier (forward declaration) */
-                            c_grammar_node_t const * name_node = NULL;
-                            if (type_child->type == AST_NODE_STRUCT_TYPE_REF
-                                || type_child->type == AST_NODE_UNION_TYPE_REF)
-                            {
-                                name_node = type_child->type_ref.identifier;
-                            }
-
-                            if (name_node && name_node->type == AST_NODE_IDENTIFIER)
-                            {
-                                /* This is a forward declaration: e.g. struct Point; */
-                                struct_tag = name_node->text;
-                                scope_add_typedef_forward_decl(ctx->current_scope, typedef_name, struct_tag, kind);
-                                handled = true;
-                                break;
-                            }
-                        }
+                        struct_def_node = type_child;
+                        break;
                     }
-
-                    if (handled)
+                    else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
                     {
-                        continue;
+                        enum_def_node = type_child;
+                        break;
                     }
-
-                    /* Also check for StructDefinition (full definition) */
-                    for (size_t j = 0; j < spec_child->list.count; ++j)
-                    {
-                        c_grammar_node_t const * type_child = spec_child->list.children[j];
-                        if (type_child
-                            && (type_child->type == AST_NODE_STRUCT_DEFINITION
-                                || type_child->type == AST_NODE_UNION_DEFINITION))
-                        {
-                            struct_def_node = type_child;
-                            break;
-                        }
-                        else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
-                        {
-                            enum_def_node = type_child;
-                            break;
-                        }
-                    }
-                }
-
-                if (struct_def_node || enum_def_node)
-                {
-                    break;
                 }
             }
-
-            if (struct_def_node)
+            if (struct_def_node || enum_def_node)
             {
-                /* We have a full definition */
-                char const * struct_tag = search_ast_for_type_tag(struct_def_node);
-                type_kind_t kind;
+                break;
+            }
+        }
 
-                /* Register the struct definition if we have a tag and definition */
-                scope_typedef_entry_t typedef_entry = {0};
-                typedef_entry.name = strdup(typedef_name);
+        /* Iterate over all TypedefInitDeclarators */
+        for (size_t i = 0; i < init_declarator_list->list.count; ++i)
+        {
+            c_grammar_node_t const * typedef_init_decl = init_declarator_list->list.children[i];
+            if (typedef_init_decl->type != AST_NODE_TYPEDEF_INIT_DECLARATOR)
+            {
+                continue;
+            }
 
-                if (struct_tag != NULL)
+            /* TypedefInitDeclarator -> TypedefDeclarator -> Identifier (via find_typedef_name_node) */
+            c_grammar_node_t const * typedef_decl = typedef_init_decl->init_declarator.declarator;
+            c_grammar_node_t const * name_node = find_typedef_name_node(typedef_decl);
+
+            if (name_node != NULL && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
+            {
+                char const * typedef_name = name_node->text;
+                debug_info("Typedef: name='%s'", typedef_name);
+
+                /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */
+                bool handled = false;
+                for (size_t j = 0; j < decl_specs->list.count && !handled; ++j)
                 {
-                    /* Tagged struct typedef - reference by tag name */
-                    kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-                    register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
-                    typedef_entry.tag = strdup(struct_tag);
+                    c_grammar_node_t * spec_child = decl_specs->list.children[j];
+                    if (spec_child && spec_child->type == AST_NODE_TYPE_SPECIFIER)
+                    {
+                        for (size_t k = 0; k < spec_child->list.count; ++k)
+                        {
+                            c_grammar_node_t const * type_child = spec_child->list.children[k];
+                            type_kind_t kind = TYPE_KIND_UNKNOWN;
+                            if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
+                            {
+                                kind = TYPE_KIND_STRUCT;
+                            }
+                            else if (type_child->type == AST_NODE_UNION_TYPE_REF)
+                            {
+                                kind = TYPE_KIND_UNION;
+                            }
+
+                            if (kind != TYPE_KIND_UNKNOWN)
+                            {
+                                c_grammar_node_t const * tag_name_node = NULL;
+                                if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
+                                {
+                                    tag_name_node = type_child->struct_type_ref.identifier;
+                                }
+                                else if (type_child->type == AST_NODE_UNION_TYPE_REF)
+                                {
+                                    tag_name_node = type_child->union_type_ref.identifier;
+                                }
+
+                                if (tag_name_node && tag_name_node->type == AST_NODE_IDENTIFIER)
+                                {
+                                    scope_add_typedef_forward_decl(
+                                        ctx->current_scope, typedef_name, tag_name_node->text, kind
+                                    );
+                                    handled = true;
+                                    break;
+                                }
+                            }
+                            else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
+                            {
+                                c_grammar_node_t const * tag_name_node = type_child->enum_type_ref.identifier;
+                                if (tag_name_node && tag_name_node->type == AST_NODE_IDENTIFIER)
+                                {
+                                    scope_add_typedef_forward_decl(
+                                        ctx->current_scope, typedef_name, tag_name_node->text, TYPE_KIND_ENUM
+                                    );
+                                    handled = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (handled)
+                {
+                    continue;
+                }
+
+                if (struct_def_node)
+                {
+                    /* We have a full struct/union definition */
+                    char const * struct_tag = search_ast_for_type_tag(struct_def_node);
+                    type_kind_t kind;
+                    scope_typedef_entry_t typedef_entry = {0};
+                    typedef_entry.name = strdup(typedef_name);
+
+                    if (struct_tag != NULL)
+                    {
+                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT
+                                                                                   : TYPE_KIND_UNION;
+                        register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
+                        typedef_entry.tag = strdup(struct_tag);
+                    }
+                    else
+                    {
+                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
+                                                                                   : TYPE_KIND_UNTAGGED_UNION;
+                        register_untagged_struct_or_union_definition(ctx, struct_def_node, kind);
+                        typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                    }
+                    typedef_entry.kind = kind;
+                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                }
+                else if (enum_def_node)
+                {
+                    /* Register the enum values as constants */
+                    char const * enum_tag = search_ast_for_type_tag(enum_def_node);
+                    scope_typedef_entry_t typedef_entry = {0};
+                    typedef_entry.name = strdup(typedef_name);
+
+                    if (enum_tag != NULL)
+                    {
+                        typedef_entry.kind = TYPE_KIND_ENUM;
+                        register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
+                        typedef_entry.tag = strdup(enum_tag);
+                    }
+                    else
+                    {
+                        typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
+                        register_untagged_enum_definition(ctx, enum_def_node);
+                        typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
+                        typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                    }
+                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }
                 else
                 {
-                    kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
-                                                                               : TYPE_KIND_UNTAGGED_UNION;
-                    register_untagged_struct_or_union_definition(ctx, struct_def_node, kind);
-                    // Index of the newly added untagged type
-                    typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                    /* Simple type typedef: e.g. typedef int my_int; */
+                    LLVMTypeRef simple_type = map_type(ctx, decl_specs, typedef_decl);
+                    if (simple_type != NULL)
+                    {
+                        scope_typedef_entry_t typedef_entry = {0};
+                        typedef_entry.name = strdup(typedef_name);
+                        typedef_entry.type = simple_type;
+                        typedef_entry.kind = TYPE_KIND_UNKNOWN;
+                        scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                    }
                 }
-                typedef_entry.kind = kind;
-                scope_add_typedef_entry(ctx->current_scope, typedef_entry);
-            }
-            else if (enum_def_node)
-            {
-                /* Register the enum values as constants */
-                char const * enum_tag = search_ast_for_type_tag(enum_def_node);
-
-                /* Also register the typedef */
-                scope_typedef_entry_t typedef_entry = {0};
-                typedef_entry.name = strdup(typedef_name);
-
-                if (enum_tag != NULL)
-                {
-                    /* Tagged enum typedef */
-                    typedef_entry.kind = TYPE_KIND_ENUM;
-                    register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
-                    typedef_entry.tag = strdup(enum_tag);
-                }
-                else
-                {
-                    /* Untagged enum typedef - store the integer type directly */
-                    typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
-                    register_untagged_enum_definition(ctx, enum_def_node);
-                    typedef_entry.type = LLVMInt32TypeInContext(ctx->context);
-                    // Index of the newly added untagged type
-                    typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
-                }
-
-                scope_add_typedef_entry(ctx->current_scope, typedef_entry);
             }
         }
         break;
