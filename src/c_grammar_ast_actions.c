@@ -1573,11 +1573,22 @@ handle_member_access_dot(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 1)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_MEMBER_ACCESS_DOT), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_MEMBER_ACCESS_DOT);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->identifier.identifier = children[0];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1587,11 +1598,22 @@ handle_member_access_arrow(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 1)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_MEMBER_ACCESS_DOT), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_MEMBER_ACCESS_ARROW);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->identifier.identifier = children[0];
 
     epc_ast_push(ctx, ast_node);
 }

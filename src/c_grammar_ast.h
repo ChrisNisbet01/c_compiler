@@ -470,6 +470,12 @@ typedef struct ast_node_typedef_direct_declarator_t
     c_grammar_node_t const * attribute_list;
 } ast_node_typedef_direct_declarator_t;
 
+typedef struct ast_node_identifier_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * identifier;
+} ast_node_identifier_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -528,6 +534,7 @@ typedef union c_grammar_node_t
     ast_node_declarator_t declarator;
     ast_node_typedef_declarator_t typedef_declarator;
     ast_node_typedef_direct_declarator_t typedef_direct_declarator;
+    ast_node_identifier_t identifier;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

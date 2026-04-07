@@ -513,7 +513,7 @@ process_postfix_suffixes(
         // Handle MEMBER_ACCESS_DOT / MEMBER_ACCESS_ARROW
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
         {
-            char const * member_name = search_for_identifier_in_ast_node(suffix);
+            char const * member_name = suffix->identifier.identifier->text;
             if (member_name == NULL)
             {
                 debug_error("Could not find member name in member access AST node.");
@@ -4214,7 +4214,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         {
             // Struct member access: s.x or p->x
             // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
-            char const * member_name = search_for_identifier_in_ast_node(suffix);
+            char const * member_name = suffix->identifier.identifier->text;
             if (member_name == NULL)
             {
                 ir_gen_error(&ctx->errors, "Could not find member name in member access AST node.");
@@ -4525,9 +4525,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
                     {
-                        /* The one and only child is an IDENTIFIER node. */
-                        c_grammar_node_t * member_node = suffix->list.children[0];
-                        char * member_name = member_node->text;
+                        char * member_name = suffix->identifier.identifier->text;
 
                         if (current_ptr && current_type)
                         {
