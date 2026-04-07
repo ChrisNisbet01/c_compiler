@@ -271,8 +271,7 @@ Designation = Designator+ Assign @AST_ACTION_DESIGNATION;
 
 InitializerList = delimited_flex(Designation? Initializer, Comma) Comma? @AST_ACTION_INITIALIZER_LIST;
 
-Initializer = (LBrace InitializerList RBrace) | AssignmentExpression;
-InitializerWithAction = (LBrace InitializerList RBrace) | AssignmentExpression @AST_ACTION_INITIALIZER;
+Initializer = (LBrace InitializerList RBrace) | AssignmentExpression @AST_ACTION_INITIALIZER;
 
 StructDeclaratorBitfield = (Declarator? Colon ConditionalExpression) @AST_ACTION_STRUCT_DECLARATOR_BITFIELD;
 
@@ -381,7 +380,7 @@ DeclaratorSuffixList = DeclaratorSuffix* @AST_ACTION_DECLARATOR_SUFFIX_LIST;
 
 Declarator = PointerManyList DirectDeclarator DeclaratorSuffixList AttributeList @AST_ACTION_DECLARATOR;
 
-InitDeclarator = Declarator AttributeList AsmNames? AttributeList (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
+InitDeclarator = Declarator AttributeList AsmNames? AttributeList (Assign Initializer)? @AST_ACTION_INIT_DECLARATOR;
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
@@ -398,7 +397,7 @@ TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningId
 // A specialized declarator that uses the capturing identifier
 TypedefDeclarator = PointerManyList TypedefDirectDeclarator DeclaratorSuffixList AttributeList @AST_ACTION_TYPEDEF_DECLARATOR;
 
-TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign InitializerWithAction)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
+TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
 
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 
