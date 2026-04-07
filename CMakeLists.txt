@@ -14,10 +14,12 @@ add_compile_options(-O3)
 
 # LTO settings
 include(CheckIPOSupported)
-check_ipo_supported(RESULT lto_supported)
+check_ipo_supported(RESULT lto_supported OUTPUT error)
 
 if(lto_supported)
     message(STATUS "LTO (Interprocedural Optimization) is supported by the toolchain.")
+else()
+    message(STATUS "LTO NOT supported: ${error}")
 endif()
 
 # --- LLVM Integration ---

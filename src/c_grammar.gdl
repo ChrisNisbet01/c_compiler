@@ -393,10 +393,10 @@ Declaration = OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorLi
 // A specialized identifier that captures itself when parsed
 TypedefDefiningIdentifier = wrap(Identifier, typedef_capture_callbacks, NULL);
 
-TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeList);
+TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeList) @AST_ACTION_TYPEDEF_DIRECT_DECLARATOR;
 
 // A specialized declarator that uses the capturing identifier
-TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_TYPEDEF_DECLARATOR;
+TypedefDeclarator = PointerManyList TypedefDirectDeclarator DeclaratorSuffixList AttributeList @AST_ACTION_TYPEDEF_DECLARATOR;
 
 TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
 

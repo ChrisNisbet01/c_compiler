@@ -19,7 +19,7 @@ add_executable(${app}
   scope.c
 )
 
-target_compile_options(${app} PRIVATE -O3 -std=gnu11 -flto=thin -Wall -Wextra -Wswitch-enum -pedantic)
+target_compile_options(${app} PRIVATE -O3 -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)
 
 # Add LLVM support for linking
 # Map LLVM components to library names.

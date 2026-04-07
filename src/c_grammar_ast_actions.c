@@ -2306,11 +2306,29 @@ handle_typedef_declarator(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count < 4 || count > 5)
+    {
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected 4 or 5 children but got %u",
+            get_node_type_name_from_type(AST_NODE_TYPEDEF_DECLARATOR),
+            count
+        );
+        free_ast_node_children(children, count, user_data);
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_DECLARATOR);
     if (ast_node == NULL)
     {
         return;
     }
+
+    size_t node_idx = 0;
+    ast_node->typedef_declarator.pointer_list = children[node_idx++];
+    ast_node->typedef_declarator.direct_declarator = children[node_idx++];
+    ast_node->typedef_declarator.declarator_suffix_list = children[node_idx++];
+    ast_node->typedef_declarator.attribute_list = children[node_idx++];
 
     epc_ast_push(ctx, ast_node);
 }

@@ -1601,22 +1601,22 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
         return NULL;
     }
 
-    for (size_t i = 0; i < typedef_decl->list.count; ++i)
+    c_grammar_node_t const * direct_decl = typedef_decl->typedef_declarator.direct_declarator;
+    if (direct_decl == NULL)
     {
-        c_grammar_node_t const * child = typedef_decl->list.children[i];
-        if (child->type == AST_NODE_IDENTIFIER)
-        {
-            return child;
-        }
-        if (child->type == AST_NODE_TYPEDEF_DECLARATOR)
-        {
-            c_grammar_node_t const * nested = find_typedef_name_node(child);
-            if (nested != NULL)
-            {
-                return nested;
-            }
-        }
+        return NULL;
     }
+
+    if (direct_decl->type == AST_NODE_IDENTIFIER)
+    {
+        return direct_decl;
+    }
+
+    if (direct_decl->type == AST_NODE_TYPEDEF_DECLARATOR)
+    {
+        return find_typedef_name_node(direct_decl);
+    }
+
     return NULL;
 }
 
