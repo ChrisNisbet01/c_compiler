@@ -5173,14 +5173,8 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         // The compound literal code returns a loaded value, but we need the pointer
         if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
         {
-            // Extract the type and initializer from the compound literal
-            if (operand_node->list.count < 2)
-            {
-                break;
-            }
-
-            c_grammar_node_t const * type_name_node = operand_node->list.children[0];
-            c_grammar_node_t const * init_list_node = operand_node->list.children[1];
+            c_grammar_node_t const * type_name_node = operand_node->compound_literal.type_name;
+            c_grammar_node_t const * init_list_node = operand_node->compound_literal.initializer_list;
 
             /* Extract type name - check struct/union keyword first, then typedef */
             char const * type_name = NULL;
@@ -5644,14 +5638,9 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // CompoundLiteral: (type){initializer-list}
         // e.g., (struct Pos){.x = 1, .y = 2} or (union Data){.x = 1}
         // Structure: TypeName + InitializerList
-        if (node->list.count < 2)
-        {
-            break;
-        }
-
         // First child is TypeName, second is InitializerList
-        c_grammar_node_t const * type_name_node = node->list.children[0];
-        c_grammar_node_t const * init_list_node = node->list.children[1];
+        c_grammar_node_t const * type_name_node = node->compound_literal.type_name;
+        c_grammar_node_t const * init_list_node = node->compound_literal.initializer_list;
 
         /* Extract type name - check struct/union keyword first, then typedef */
         char const * type_name = NULL;
