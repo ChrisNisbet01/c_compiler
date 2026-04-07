@@ -1510,7 +1510,7 @@ handle_postfix_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (0 && count != 2) /* Expecting [PrimaryExpression][Postfix Parts placeholder] */
+    if (count != 2) /* Expecting [PrimaryExpression Postfix Parts] */
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
@@ -1521,19 +1521,6 @@ handle_postfix_expression(
 
     c_grammar_node_t const * base = children[0];
     c_grammar_node_t const * postfix = children[1];
-
-    if (postfix->type != AST_NODE_POSTFIX_PARTS)
-    {
-        free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(
-            ctx,
-            "%s expected postfix parts node at index 1, but got %s (%u)",
-            get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION),
-            get_node_type_name_from_node(postfix),
-            postfix->type
-        );
-        return;
-    }
 
     /*
        If the postfix parts list is empty then we just have a plain expression, so don't bother with a postfix
@@ -1546,15 +1533,14 @@ handle_postfix_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_POSTFIX_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_POSTFIX_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = base;
-    ast_node->rhs = postfix;
+    ast_node->postfix_expression.base_expression = base;
+    ast_node->postfix_expression.postfix_parts = postfix;
 
     epc_ast_push(ctx, ast_node);
 }

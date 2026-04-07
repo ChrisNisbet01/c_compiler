@@ -3021,7 +3021,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Check if LHS is a PostfixExpression with suffixes (array subscript, member access)
         if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
         {
-            c_grammar_node_t const * base_node = lhs_node->lhs;
+            c_grammar_node_t const * base_node = lhs_node->postfix_expression.base_expression;
 
             if (base_node->type == AST_NODE_IDENTIFIER)
             {
@@ -3030,7 +3030,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 LLVMTypeRef base_type;
                 if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
                 {
-                    c_grammar_node_t const * postfix_node = lhs_node->rhs;
+                    c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
 
                     // Use helper to process all suffixes (array subscript, member access)
                     process_postfix_suffixes(
@@ -4026,8 +4026,8 @@ static LLVMValueRef
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
-    c_grammar_node_t const * base_node = node->lhs;
-    c_grammar_node_t const * postfix_node = node->rhs;
+    c_grammar_node_t const * base_node = node->postfix_expression.base_expression;
+    c_grammar_node_t const * postfix_node = node->postfix_expression.postfix_parts;
     LLVMValueRef base_val = NULL;
     LLVMValueRef current_ptr = NULL;
     LLVMTypeRef current_type = NULL;
@@ -4493,7 +4493,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     // Check if LHS is a PostfixExpression with array subscript or member access
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
-        c_grammar_node_t const * base_node = lhs_node->lhs;
+        c_grammar_node_t const * base_node = lhs_node->postfix_expression.base_expression;
         if (base_node->type == AST_NODE_IDENTIFIER)
         {
             char const * base_name = base_node->text;
@@ -4503,7 +4503,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             {
                 LLVMValueRef current_ptr = base_ptr;
                 LLVMTypeRef current_type = base_type;
-                c_grammar_node_t const * postfix_node = lhs_node->rhs;
+                c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
 
                 // Process suffixes to handle array subscripts and member access
                 for (size_t i = 0; i < postfix_node->list.count; ++i)
