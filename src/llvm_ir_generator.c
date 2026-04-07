@@ -759,6 +759,7 @@ process_initializer_list(
             LLVMTypeRef current_type = element_type;
             LLVMTypeKind current_kind = kind;
             int field_indices[16]; // Max nesting depth
+            (void)field_indices;
             int field_count = 0;
             int final_local_index = 0;
             LLVMTypeRef final_type = element_type;
@@ -1602,10 +1603,6 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     }
 
     c_grammar_node_t const * direct_decl = typedef_decl->typedef_declarator.direct_declarator;
-    if (direct_decl == NULL)
-    {
-        return NULL;
-    }
 
     if (direct_decl->type == AST_NODE_IDENTIFIER)
     {
@@ -1615,6 +1612,20 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     if (direct_decl->type == AST_NODE_TYPEDEF_DECLARATOR)
     {
         return find_typedef_name_node(direct_decl);
+    }
+
+    if (direct_decl->type == AST_NODE_TYPEDEF_DIRECT_DECLARATOR)
+    {
+        // Check identifier (TypedefDefiningIdentifier)
+        if (direct_decl->typedef_direct_declarator.identifier != NULL)
+        {
+            return direct_decl->typedef_direct_declarator.identifier;
+        }
+        // Check nested typedef declarator (wrapped in parens)
+        if (direct_decl->typedef_direct_declarator.nested_typedef_declarator != NULL)
+        {
+            return find_typedef_name_node(direct_decl->typedef_direct_declarator.nested_typedef_declarator);
+        }
     }
 
     return NULL;
@@ -1816,6 +1827,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     // 2. Process Declarator (extract pointers and arrays)
     bool is_function_pointer = false;
     LLVMTypeRef func_ptr_param_types[16];
+    (void)func_ptr_param_types;
     size_t func_ptr_num_params = 0;
 
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
@@ -3704,6 +3716,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INITIALIZER:
     case AST_NODE_ASM_NAMES:
     case AST_NODE_TYPEDEF_DECLARATOR:
+    case AST_NODE_TYPEDEF_DIRECT_DECLARATOR:
     case AST_NODE_TYPEDEF_INIT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX_LIST:
     case AST_NODE_POINTER_LIST:
@@ -5770,6 +5783,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INITIALIZER:
     case AST_NODE_ASM_NAMES:
     case AST_NODE_TYPEDEF_DECLARATOR:
+    case AST_NODE_TYPEDEF_DIRECT_DECLARATOR:
     case AST_NODE_TYPEDEF_INIT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX_LIST:
     case AST_NODE_POINTER_LIST:

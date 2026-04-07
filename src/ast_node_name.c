@@ -76,6 +76,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_TYPEDEF_DECLARATION] = {.name = "TypedefDeclaration"},
     [AST_NODE_TYPEDEF_INIT_DECLARATION_LIST] = {.name = "TypedefInitDeclarationList"},
     [AST_NODE_TYPEDEF_DECLARATOR] = {.name = "TypedefDeclarator"},
+    [AST_NODE_TYPEDEF_DIRECT_DECLARATOR] = {.name = "TypedefDirectDeclarator"},
     [AST_NODE_TYPEDEF_INIT_DECLARATOR] = {.name = "TypedefInitDeclarator"},
     [AST_NODE_INITIALIZER_LIST] = {.name = "InitializerList"},
     [AST_NODE_INITIALIZER] = {.name = "Initializer"},
