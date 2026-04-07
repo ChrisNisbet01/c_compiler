@@ -810,11 +810,25 @@ handle_unary_expression(
 static void
 handle_declarator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count != 4)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 4 children, but got %u", get_node_type_name_from_type(AST_NODE_DECLARATOR), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATOR);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->declarator.pointer_list = children[0];
+    ast_node->declarator.direct_declarator = children[1];
+    ast_node->declarator.declarator_suffix_list = children[2];
+    ast_node->declarator.attribute_list = children[3];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -848,6 +862,21 @@ handle_declarator_suffix(
 }
 
 static void
+handle_declarator_suffix_list(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATOR_SUFFIX_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_pointer(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     if (count > 0)
@@ -860,6 +889,18 @@ handle_pointer(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** child
     }
 
     c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_POINTER, node);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_pointer_list(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_POINTER_LIST);
     if (ast_node == NULL)
     {
         return;
@@ -2569,8 +2610,10 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECL_SPECIFIERS, handle_decl_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER_LIST, handle_pointer_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DIRECT_DECLARATOR, handle_direct_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATOR_SUFFIX, handle_declarator_suffix);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATOR_SUFFIX_LIST, handle_declarator_suffix_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATOR, handle_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_OPTIONAL_KW_EXTENSION, handle_optional_kw_extension);
     epc_ast_hook_registry_set_action(

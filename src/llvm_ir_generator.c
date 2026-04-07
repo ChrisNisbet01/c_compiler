@@ -32,7 +32,6 @@ static type_info_t const * add_tagged_struct_or_union_type(
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
-static c_grammar_node_t const * find_direct_declarator(c_grammar_node_t const * declarator);
 static LLVMValueRef get_variable_pointer(
     ir_generator_ctx_t * ctx,
     c_grammar_node_t const * identifier_node,
@@ -1177,7 +1176,7 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     c_grammar_node_t const * bf_decl = decl->list.children[0];
                     if (bf_decl->type == AST_NODE_DECLARATOR)
                     {
-                        c_grammar_node_t const * direct_decl = find_direct_declarator(bf_decl);
+                        c_grammar_node_t const * direct_decl = bf_decl->declarator.direct_declarator;
                         if (direct_decl && direct_decl->list.count > 0)
                         {
                             c_grammar_node_t * ident = direct_decl->list.children[0];
@@ -1231,8 +1230,8 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
             {
                 new_member.type = map_type(ctx, type_spec, decl);
 
-                c_grammar_node_t const * direct_decl = find_direct_declarator(decl);
-                if (direct_decl && direct_decl->list.count > 0)
+                c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
+                if (direct_decl->list.count > 0)
                 {
                     c_grammar_node_t * ident = direct_decl->list.children[0];
                     if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
@@ -1593,21 +1592,6 @@ decode_string(char const * const src)
 }
 
 // --- IR Generator Context Initialization and Disposal ---
-static c_grammar_node_t const *
-find_direct_declarator(c_grammar_node_t const * declarator)
-{
-    if (!declarator || declarator->type != AST_NODE_DECLARATOR)
-        return NULL;
-
-    for (size_t i = 0; i < declarator->list.count; ++i)
-    {
-        if (declarator->list.children[i]->type == AST_NODE_DIRECT_DECLARATOR)
-        {
-            return declarator->list.children[i];
-        }
-    }
-    return NULL;
-}
 
 static c_grammar_node_t const *
 find_typedef_name_node(c_grammar_node_t const * typedef_decl)
@@ -1700,7 +1684,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     }
 
     // 1. Process Specifiers (extract base type and any pointers in specifiers)
-    if (specifiers)
+    if (specifiers != NULL)
     {
         // Handle terminal TypeSpecifier (e.g., typedef name "IntFloat", or basic type "int", "float")
         if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
@@ -1836,46 +1820,38 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
     {
-
-        for (size_t i = 0; i < declarator->list.count; ++i)
+        pointer_level = declarator->declarator.pointer_list->list.count;
         {
-            c_grammar_node_t * child = declarator->list.children[i];
-            if (child->type == AST_NODE_POINTER)
+            c_grammar_node_t const * direct_decl = declarator->declarator.direct_declarator;
+            // Check inside DirectDeclarator for pointers and arrays
+            // The structure can be: DirectDeclarator -> Declarator -> {Pointer, ..., DeclaratorSuffix}
+            for (size_t j = 0; j < direct_decl->list.count; ++j)
             {
-                pointer_level++;
-            }
-            else if (child->type == AST_NODE_DIRECT_DECLARATOR)
-            {
-                // Check inside DirectDeclarator for pointers and arrays
-                // The structure can be: DirectDeclarator -> Declarator -> {Pointer, ..., DeclaratorSuffix}
-                for (size_t j = 0; j < child->list.count; ++j)
+                c_grammar_node_t * direct_child = direct_decl->list.children[j];
+                if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                 {
-                    c_grammar_node_t * direct_child = child->list.children[j];
-                    if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                    // Function pointer parameter: int (*func)(int, int)
+                    is_function_pointer = true;
+                    for (size_t k = 0; k < direct_child->list.count; ++k)
                     {
-                        // Function pointer parameter: int (*func)(int, int)
-                        is_function_pointer = true;
-                        for (size_t k = 0; k < direct_child->list.count; ++k)
+                        c_grammar_node_t * fp_child = direct_child->list.children[k];
+                        if (fp_child->type == AST_NODE_POINTER)
                         {
-                            c_grammar_node_t * fp_child = direct_child->list.children[k];
-                            if (fp_child->type == AST_NODE_POINTER)
+                            pointer_level++;
+                        }
+                        else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
+                        {
+                            // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
+                            for (size_t m = 0; m < fp_child->list.count; ++m)
                             {
-                                pointer_level++;
-                            }
-                            else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
-                            {
-                                // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
-                                for (size_t m = 0; m < fp_child->list.count; ++m)
+                                c_grammar_node_t * suffix_child = fp_child->list.children[m];
+                                if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                                 {
-                                    c_grammar_node_t * suffix_child = fp_child->list.children[m];
-                                    if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                                    unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
+                                    if (array_depth < array_capacity)
                                     {
-                                        unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
-                                        if (array_depth < array_capacity)
-                                        {
-                                            array_sizes[array_depth] = (size_t)size_val;
-                                            array_depth++;
-                                        }
+                                        array_sizes[array_depth] = (size_t)size_val;
+                                        array_depth++;
                                     }
                                 }
                             }
@@ -1883,56 +1859,59 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     }
                 }
             }
-            else if (child->type == AST_NODE_DECLARATOR_SUFFIX)
-            {
-                // Check if this is a function suffix (contains DeclarationSpecifiers for params)
-                // vs array suffix (contains IntegerLiteral for size)
-                bool has_function_params = false;
-                bool has_array_size = false;
+        }
+        c_grammar_node_t const * suffix_list = declarator->declarator.declarator_suffix_list;
 
-                for (size_t j = 0; j < child->list.count; ++j)
+        for (size_t i = 0; i < suffix_list->list.count; ++i)
+        {
+            c_grammar_node_t * child = suffix_list->list.children[i];
+            // Check if this is a function suffix (contains DeclarationSpecifiers for params)
+            // vs array suffix (contains IntegerLiteral for size)
+            bool has_function_params = false;
+            bool has_array_size = false;
+
+            for (size_t j = 0; j < child->list.count; ++j)
+            {
+                c_grammar_node_t * suffix_child = child->list.children[j];
+                if (suffix_child->type == AST_NODE_DECL_SPECIFIERS)
                 {
-                    c_grammar_node_t * suffix_child = child->list.children[j];
-                    if (suffix_child->type == AST_NODE_DECL_SPECIFIERS)
+                    // This is a function parameter type
+                    has_function_params = true;
+                    if (func_ptr_num_params < 16)
                     {
-                        // This is a function parameter type
-                        has_function_params = true;
-                        if (func_ptr_num_params < 16)
-                        {
-                            func_ptr_param_types[func_ptr_num_params++] = map_type(ctx, suffix_child, NULL);
-                        }
-                    }
-                    else if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
-                    {
-                        // This is an array size
-                        unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
-                        if (array_depth < array_capacity)
-                        {
-                            array_sizes[array_depth] = (size_t)size_val;
-                            array_depth++;
-                            has_array_size = true;
-                        }
-                    }
-                    else if (suffix_child->type == AST_NODE_DECLARATOR)
-                    {
-                        // Function parameter with declarator (e.g., int (*func)(int))
-                        // For now, just extract the type specifier
-                        has_function_params = true;
-                        if (func_ptr_num_params < 16)
-                        {
-                            func_ptr_param_types[func_ptr_num_params++] = map_type(ctx, child, NULL);
-                        }
+                        func_ptr_param_types[func_ptr_num_params++] = map_type(ctx, suffix_child, NULL);
                     }
                 }
-
-                // Empty brackets [] - mark as unsized (for arrays)
-                if (!has_array_size && !has_function_params)
+                else if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                 {
+                    // This is an array size
+                    unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
                     if (array_depth < array_capacity)
                     {
-                        array_sizes[array_depth] = 0;
+                        array_sizes[array_depth] = (size_t)size_val;
                         array_depth++;
+                        has_array_size = true;
                     }
+                }
+                else if (suffix_child->type == AST_NODE_DECLARATOR)
+                {
+                    // Function parameter with declarator (e.g., int (*func)(int))
+                    // For now, just extract the type specifier
+                    has_function_params = true;
+                    if (func_ptr_num_params < 16)
+                    {
+                        func_ptr_param_types[func_ptr_num_params++] = map_type(ctx, child, NULL);
+                    }
+                }
+            }
+
+            // Empty brackets [] - mark as unsized (for arrays)
+            if (!has_array_size && !has_function_params)
+            {
+                if (array_depth < array_capacity)
+                {
+                    array_sizes[array_depth] = 0;
+                    array_depth++;
                 }
             }
         }
@@ -1963,8 +1942,10 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 
     // Build array types from innermost to outermost
     LLVMTypeRef final_type = base_type;
+    debug_info("map_type: array_depth=%zu", array_depth);
     for (int i = (int)array_depth - 1; i >= 0; --i)
     {
+        debug_info("map_type: array_size[%d]=%zu", i, array_sizes[i]);
         final_type = LLVMArrayType(final_type, (unsigned)array_sizes[i]);
     }
 
@@ -2234,20 +2215,17 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         char * func_name = "unknown_function";
         c_grammar_node_t const * suffix_node = NULL;
 
-        c_grammar_node_t const * direct_decl = find_direct_declarator(declarator_node);
+        c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
         if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
         {
             func_name = direct_decl->list.children[0]->text;
         }
 
-        // Find parameter suffix
-        for (size_t i = 0; i < declarator_node->list.count; ++i)
+        // Find parameter suffix list
+        c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
+        if (suffix_list != NULL && suffix_list->list.count > 0)
         {
-            if (declarator_node->list.children[i]->type == AST_NODE_DECLARATOR_SUFFIX)
-            {
-                suffix_node = declarator_node->list.children[i];
-                break;
-            }
+            suffix_node = suffix_list->list.children[0];
         }
 
         // --- Extract Parameters ---
@@ -2270,7 +2248,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 param_types[i] = map_type(ctx, p_spec, p_decl);
 
-                c_grammar_node_t const * p_direct = find_direct_declarator(p_decl);
+                c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
                 if (p_direct && p_direct->list.count > 0)
                 {
                     c_grammar_node_t const * first_child = p_direct->list.children[0];
@@ -2282,7 +2260,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         // Nested declarator (e.g., for function pointers like *name)
                         // Find the DirectDeclarator inside and get the Identifier
-                        c_grammar_node_t const * nested_direct = find_direct_declarator(first_child);
+                        c_grammar_node_t const * nested_direct = first_child->declarator.direct_declarator;
                         if (nested_direct && nested_direct->list.count > 0
                             && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
                         {
@@ -2505,7 +2483,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             char const * var_name = NULL;
             c_grammar_node_t const * initializer_expr_node = NULL;
             c_grammar_node_t const * declarator_node = init_decl_node->init_declarator.declarator;
-            c_grammar_node_t const * direct_decl_node = find_direct_declarator(declarator_node);
+            c_grammar_node_t const * direct_decl_node = declarator_node->declarator.direct_declarator;
 
             // For regular variables: DirectDeclarator -> Identifier
             // For function pointers: DirectDeclarator -> FunctionPointerDeclarator -> {Pointer, Identifier,
@@ -2513,6 +2491,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             if (direct_decl_node && direct_decl_node->list.count > 0)
             {
                 c_grammar_node_t * first_child = direct_decl_node->list.children[0];
+                debug_info(
+                    "Direct decl first child type: %s (%u)",
+                    get_node_type_name_from_type(first_child->type),
+                    first_child->type
+                );
                 if (first_child->type == AST_NODE_IDENTIFIER)
                 {
                     var_name = first_child->text;
@@ -2521,7 +2504,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     // Nested declarator (e.g., for function pointers like *name)
                     // Find the DirectDeclarator inside and get the Identifier
-                    c_grammar_node_t const * nested_direct = find_direct_declarator(first_child);
+                    c_grammar_node_t const * nested_direct = first_child->declarator.direct_declarator;
                     if (nested_direct != NULL)
                     {
                         char const * id = search_for_identifier_in_ast_node(nested_direct);
@@ -2543,6 +2526,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
 
             LLVMTypeRef var_type = map_type(ctx, decl_specifiers, declarator_node);
+            debug_info("Processing declaration for '%s', type %p", var_name ? var_name : "NULL", (void *)var_type);
 
             c_grammar_node_t const * init_decl_initializer = init_decl_node->init_declarator.initializer;
             if (init_decl_initializer != NULL && init_decl_initializer->list.count > 0)
@@ -2643,16 +2627,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         if (pointee_type && declarator_node)
                         {
                             // Check if there are pointers in the declarator
-                            bool has_pointer = false;
-                            for (size_t di = 0; di < declarator_node->list.count; di++)
-                            {
-                                c_grammar_node_t * dc = declarator_node->list.children[di];
-                                if (dc && dc->type == AST_NODE_POINTER)
-                                {
-                                    has_pointer = true;
-                                    break;
-                                }
-                            }
+                            bool has_pointer = declarator_node->declarator.pointer_list->list.count > 0;
                             if (!has_pointer)
                             {
                                 pointee_type = NULL;
@@ -2762,22 +2737,18 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         continue;
                     }
 
-                    // Check if this is a function declaration (declarator has params)
+                    // Check if this is a function declaration (declarator has function params)
+                    // Skip only if we detect actual function params, not arrays
                     if (declarator_node)
                     {
-                        bool is_function = false;
-                        for (size_t si = 0; si < declarator_node->list.count; si++)
+                        c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
+
+                        // If we have unsized array type, don't skip - it might be char s[] not void foo()
+                        LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                        bool is_likely_unsized_array = (kind == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
+
+                        if (!is_likely_unsized_array && suffix_list->list.count > 0)
                         {
-                            c_grammar_node_t * suf = declarator_node->list.children[si];
-                            if (suf && suf->type == AST_NODE_DECLARATOR_SUFFIX && suf->list.count > 0)
-                            {
-                                is_function = true;
-                                break;
-                            }
-                        }
-                        if (is_function)
-                        {
-                            // Function declarations are auto-declared when called
                             continue;
                         }
                     }
@@ -3734,6 +3705,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASM_NAMES:
     case AST_NODE_TYPEDEF_DECLARATOR:
     case AST_NODE_TYPEDEF_INIT_DECLARATOR:
+    case AST_NODE_DECLARATOR_SUFFIX_LIST:
+    case AST_NODE_POINTER_LIST:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5798,6 +5771,8 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASM_NAMES:
     case AST_NODE_TYPEDEF_DECLARATOR:
     case AST_NODE_TYPEDEF_INIT_DECLARATOR:
+    case AST_NODE_DECLARATOR_SUFFIX_LIST:
+    case AST_NODE_POINTER_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

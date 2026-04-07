@@ -274,7 +274,6 @@ InitializerList = delimited_flex(Designation? Initializer, Comma) Comma? @AST_AC
 Initializer = (LBrace InitializerList RBrace) | AssignmentExpression;
 InitializerWithAction = (LBrace InitializerList RBrace) | AssignmentExpression @AST_ACTION_INITIALIZER;
 
-
 StructDeclaratorBitfield = (Declarator? Colon ConditionalExpression) @AST_ACTION_STRUCT_DECLARATOR_BITFIELD;
 
 StructDeclarator = StructDeclaratorBitfield | Declarator @AST_ACTION_STRUCT_DECLARATOR;
@@ -355,13 +354,14 @@ SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) | (TypeQual
 
 // Common Declarator: supports pointers, arrays, and function pointers
 Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
+PointerManyList = Pointer* @AST_ACTION_POINTER_LIST;
 
 // Explicit rule for function pointer declarators like (*name)[size]
 FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffix* RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR;
 
-DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeList) | (LParen Declarator RParen) | (Identifier AttributeList);
-
-DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
+DirectDeclarator = (FunctionPointerDeclarator AttributeList) 
+                | (LParen Declarator RParen) 
+                | (Identifier AttributeList) @AST_ACTION_DIRECT_DECLARATOR;
 
 ParameterDeclaration = OptionalKwExtension DeclarationSpecifiers (Declarator | AbstractDeclarator)?;
 
@@ -377,7 +377,9 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket Expression? RBracket)
                  | ParameterList @AST_ACTION_DECLARATOR_SUFFIX;
 
-Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_DECLARATOR;
+DeclaratorSuffixList = DeclaratorSuffix* @AST_ACTION_DECLARATOR_SUFFIX_LIST;
+
+Declarator = PointerManyList DirectDeclarator DeclaratorSuffixList AttributeList @AST_ACTION_DECLARATOR;
 
 InitDeclarator = Declarator AttributeList AsmNames? AttributeList (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
 
