@@ -736,6 +736,12 @@ process_initializer_list(
     {
         c_grammar_node_t const * child = initializer_node->list.children[i];
 
+        // Unwrap INITIALIZER wrapper nodes (new structure wraps values in Initializer nodes)
+        if (child->type == AST_NODE_INITIALIZER && child->list.count > 0)
+        {
+            child = child->list.children[0];
+        }
+
         if (child->list.count == 0 && child->type != AST_NODE_INTEGER_LITERAL)
         {
             continue;
@@ -752,7 +758,13 @@ process_initializer_list(
             }
 
             c_grammar_node_t const * designation = child;
-            c_grammar_node_t const * value_node = initializer_node->list.children[i + 1];
+            c_grammar_node_t * value_node = (c_grammar_node_t *)initializer_node->list.children[i + 1];
+            
+            // Unwrap INITIALIZER wrapper in value_node too
+            if (value_node->type == AST_NODE_INITIALIZER && value_node->list.count > 0)
+            {
+                value_node = value_node->list.children[0];
+            }
 
             // Handle nested designations (e.g., .pos.x = value has 2 identifiers: pos, x)
             LLVMValueRef current_ptr = base_ptr;
