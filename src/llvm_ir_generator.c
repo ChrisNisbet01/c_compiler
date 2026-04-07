@@ -455,7 +455,7 @@ process_postfix_suffixes(
             }
         }
         // Handle FUNCTION_CALL
-        else if (suffix->type == AST_NODE_FUNCTION_CALL)
+        else if (suffix->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
         {
             size_t num_args = 0;
             LLVMValueRef * args = NULL;
@@ -3674,7 +3674,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_SHIFT_EXPRESSION:
     case AST_NODE_ARITHMETIC_OPERATOR:
     case AST_NODE_ARITHMETIC_EXPRESSION:
-    case AST_NODE_FUNCTION_CALL:
+    case AST_NODE_OPTIONAL_ARGUMENT_LIST:
     case AST_NODE_POSTFIX_EXPRESSION:
     case AST_NODE_POSTFIX_OPERATOR:
     case AST_NODE_ARRAY_SUBSCRIPT:
@@ -4065,7 +4065,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
         for (size_t i = 0; i < postfix_node->list.count; ++i)
         {
-            if (postfix_node->list.children[i]->type == AST_NODE_FUNCTION_CALL)
+            if (postfix_node->list.children[i]->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
             {
                 has_func_call_suffix = true;
                 break;
@@ -4080,7 +4080,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     for (size_t i = 0; i < postfix_node->list.count; ++i)
     {
         c_grammar_node_t * suffix = postfix_node->list.children[i];
-        if (suffix->type == AST_NODE_FUNCTION_CALL)
+        if (suffix->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
         {
             // Handle function call. Arguments might be children directly or in an ArgumentList
             size_t num_args = 0;
@@ -5626,7 +5626,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_unary_expression(ctx, node);
     }
-    case AST_NODE_FUNCTION_CALL:
+    case AST_NODE_OPTIONAL_ARGUMENT_LIST:
     case AST_NODE_POSTFIX_PARTS:
     {
         debug_error("got %s in %s", get_node_type_name_from_type(node->type), __func__);

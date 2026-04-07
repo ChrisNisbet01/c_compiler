@@ -176,7 +176,7 @@ PrimaryExpression = NumberLiteral
 
 ArgumentList = delimited(AssignmentExpression, Comma);
 
-FunctionCallPart = LParen ArgumentList? RParen @AST_ACTION_FUNCTION_CALL;
+OptionalArgumentList = LParen ArgumentList? RParen @AST_ACTION_OPTIONAL_ARGUMENT_LIST;
 ArraySubscriptPart = LBracket Expression RBracket @AST_ACTION_ARRAY_SUBSCRIPT;
 MemberAccessDotPart = (Dot Identifier) @AST_ACTION_MEMBER_ACCESS_DOT;
 MemberAccessArrowPart = (Arrow Identifier) @AST_ACTION_MEMBER_ACCESS_ARROW;
@@ -184,7 +184,7 @@ MemberAccessArrowPart = (Arrow Identifier) @AST_ACTION_MEMBER_ACCESS_ARROW;
 PostfixIncOp = lexeme("++") @AST_ACTION_POSTFIX_OPERATOR;
 PostfixDecOp = lexeme("--") @AST_ACTION_POSTFIX_OPERATOR;
 
-PostfixPart = FunctionCallPart
+PostfixPart = OptionalArgumentList
             | ArraySubscriptPart
             | MemberAccessDotPart
             | MemberAccessArrowPart
