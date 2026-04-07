@@ -72,19 +72,10 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
         return NULL;
     }
 
-    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF)
+    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF || type_spec_node->type == AST_NODE_UNION_TYPE_REF
+        || type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
     {
-        c_grammar_node_t const * ident = type_spec_node->struct_type_ref.identifier;
-        return ident ? ident->text : NULL;
-    }
-    if (type_spec_node->type == AST_NODE_UNION_TYPE_REF)
-    {
-        c_grammar_node_t const * ident = type_spec_node->union_type_ref.identifier;
-        return ident ? ident->text : NULL;
-    }
-    if (type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
-    {
-        c_grammar_node_t const * ident = type_spec_node->enum_type_ref.identifier;
+        c_grammar_node_t const * ident = type_spec_node->type_ref.identifier;
         return ident ? ident->text : NULL;
     }
 
@@ -2862,15 +2853,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_TYPEDEF_DECLARATION:
     {
-        /* Handle TypedefDeclaration node: [KwExtension DeclarationSpecifiers, InitDeclaratorList] */
-        c_grammar_node_t const * decl_specs = node->typedef_declaration.declaration_specifiers;
-        c_grammar_node_t const * init_declarator_list = node->typedef_declaration.init_declarator_list;
-
-        if (decl_specs == NULL || init_declarator_list == NULL)
-        {
-            break;
-        }
-
+        /* Handle TypedefDeclaration node: [KwExtension, DeclarationSpecifiers, InitDeclaratorList] */
+        c_grammar_node_t const * decl_specs = node->declaration.declaration_specifiers;
         c_grammar_node_t const * struct_def_node = NULL;
         c_grammar_node_t const * enum_def_node = NULL;
 
@@ -2905,13 +2889,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         /* Iterate over all TypedefInitDeclarators */
+        c_grammar_node_t const * init_declarator_list = node->declaration.init_declarator_list;
+
         for (size_t i = 0; i < init_declarator_list->list.count; ++i)
         {
             c_grammar_node_t const * typedef_init_decl = init_declarator_list->list.children[i];
-            if (typedef_init_decl->type != AST_NODE_TYPEDEF_INIT_DECLARATOR)
-            {
-                continue;
-            }
 
             /* TypedefInitDeclarator -> TypedefDeclarator -> Identifier (via find_typedef_name_node) */
             c_grammar_node_t const * typedef_decl = typedef_init_decl->init_declarator.declarator;
@@ -2945,13 +2927,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             if (kind != TYPE_KIND_UNKNOWN)
                             {
                                 c_grammar_node_t const * tag_name_node = NULL;
-                                if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
+                                if (type_child->type == AST_NODE_STRUCT_TYPE_REF
+                                    || type_child->type == AST_NODE_UNION_TYPE_REF)
                                 {
-                                    tag_name_node = type_child->struct_type_ref.identifier;
-                                }
-                                else if (type_child->type == AST_NODE_UNION_TYPE_REF)
-                                {
-                                    tag_name_node = type_child->union_type_ref.identifier;
+                                    tag_name_node = type_child->type_ref.identifier;
                                 }
 
                                 if (tag_name_node && tag_name_node->type == AST_NODE_IDENTIFIER)
@@ -2965,7 +2944,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                             else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
                             {
-                                c_grammar_node_t const * tag_name_node = type_child->enum_type_ref.identifier;
+                                c_grammar_node_t const * tag_name_node = type_child->type_ref.identifier;
                                 if (tag_name_node && tag_name_node->type == AST_NODE_IDENTIFIER)
                                 {
                                     scope_add_typedef_forward_decl(
@@ -2994,8 +2973,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (struct_tag != NULL)
                     {
-                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT
-                                                                                   : TYPE_KIND_UNION;
+                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
                         register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
                         typedef_entry.tag = strdup(struct_tag);
                     }

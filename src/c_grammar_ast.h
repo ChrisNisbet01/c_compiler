@@ -375,26 +375,12 @@ typedef struct ast_node_switch_t
     c_grammar_node_t const * body;
 } ast_node_switch_t;
 
-typedef struct ast_node_struct_type_ref_t
+typedef struct ast_node_type_ref_t
 {
     c_grammar_base_node_t base;
     c_grammar_node_t const * attribute_list;
     c_grammar_node_t const * identifier;
-} ast_node_struct_type_ref_t;
-
-typedef struct ast_node_union_type_ref_t
-{
-    c_grammar_base_node_t base;
-    c_grammar_node_t const * attribute_list;
-    c_grammar_node_t const * identifier;
-} ast_node_union_type_ref_t;
-
-typedef struct ast_node_enum_type_ref_t
-{
-    c_grammar_base_node_t base;
-    c_grammar_node_t const * attribute_list;
-    c_grammar_node_t const * identifier;
-} ast_node_enum_type_ref_t;
+} ast_node_type_ref_t;
 
 typedef struct ast_node_loop_statement_t
 {
@@ -502,16 +488,13 @@ typedef union c_grammar_node_t
     ast_node_if_statement_t if_statement;
     ast_node_switch_case_t switch_case;
     ast_node_switch_t switch_statement;
-    ast_node_struct_type_ref_t struct_type_ref;
-    ast_node_struct_type_ref_t union_type_ref;
-    ast_node_struct_type_ref_t enum_type_ref;
+    ast_node_type_ref_t type_ref;
     ast_node_loop_statement_t while_statement;
     ast_node_do_while_statement_t do_while_statement;
     ast_node_for_statement_t for_statement;
     ast_node_goto_statement_t goto_statement;
     ast_node_return_statement_t return_statement;
     ast_node_expression_statement_t expression_statement;
-    ast_node_typedef_declaration_t typedef_declaration;
     ast_node_init_declarator_t init_declarator;
 } c_grammar_node_t;
 

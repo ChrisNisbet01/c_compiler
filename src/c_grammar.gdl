@@ -218,12 +218,10 @@ UnaryExpression = memoize(UnaryExpressionRaw);
 // Abstract declarators are used in type names (e.g., in casts)
 AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
 
-TypeNameRaw = SpecifierQualifierList AbstractDeclarator?;
-TypeName = memoize(TypeNameRaw) @AST_ACTION_TYPE_NAME;
+TypeName = SpecifierQualifierList AbstractDeclarator? @AST_ACTION_TYPE_NAME;
 
 CastExpressionWrap = LParen TypeName RParen CastExpression @AST_ACTION_CAST_EXPRESSION;
-CastExpressionRaw = CastExpressionWrap | UnaryExpression;
-CastExpression = memoize(CastExpressionRaw);
+CastExpression = CastExpressionWrap | UnaryExpression;
 
 MulOp = Star | Slash | Percent @AST_ACTION_ARITHMETIC_OPERATOR;
 MultiplicativeExpression = chainl1(CastExpression, MulOp) @AST_ACTION_ARITHMETIC_EXPRESSION;
@@ -300,12 +298,10 @@ AttributeHead = lexeme(identifier) | NumberLiteral | KwAligned;
 AttributeArg = (LParen AttributeArgList? RParen) | AttributeArgument;
 
 Attribute = KwAttribute LParen LParen AttributeHead AttributeArg* RParen RParen;
-AttributeList = Attribute*;
-AttributeListWithAction = Attribute* @AST_ACTION_ATTRIBUTE_LIST;
+AttributeList = Attribute* @AST_ACTION_ATTRIBUTE_LIST;
 
 // Assembler name extension: __asm__("name")
-AsmNames = KwAsm LParen StringLiteral+ RParen;
-AsmNamesWithAction = AsmNames @AST_ACTION_ASM_NAMES;
+AsmNames = KwAsm LParen StringLiteral+ RParen @AST_ACTION_ASM_NAMES;
 
 // --- End of Attribute Support Rules ---
 
@@ -318,16 +314,16 @@ StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARAT
 Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
 
 // StructDefinition: struct with body (definition)
-StructDefinition = KwStruct AttributeListWithAction Identifier? LBrace StructUnionDeclarationList RBrace AttributeListWithAction @AST_ACTION_STRUCT_DEFINITION;
-UnionDefinition = KwUnion AttributeListWithAction Identifier? LBrace StructUnionDeclarationList RBrace AttributeListWithAction @AST_ACTION_UNION_DEFINITION;
-EnumDefinition = KwEnum AttributeListWithAction Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace AttributeListWithAction @AST_ACTION_ENUM_DEFINITION;
+StructDefinition = KwStruct AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
+UnionDefinition = KwUnion AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_UNION_DEFINITION;
+EnumDefinition = KwEnum AttributeList Identifier? LBrace delimited_flex(Enumerator, Comma) Comma? RBrace AttributeList @AST_ACTION_ENUM_DEFINITION;
 
 // Typedef names are identifiers that have been registered
 TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
 
-StructTypeRef = KwStruct AttributeListWithAction Identifier @AST_ACTION_STRUCT_TYPE_REF;
-UnionTypeRef = KwUnion AttributeListWithAction Identifier @AST_ACTION_UNION_TYPE_REF;
-EnumTypeRef = KwEnum AttributeListWithAction Identifier @AST_ACTION_ENUM_TYPE_REF;
+StructTypeRef = KwStruct AttributeList Identifier @AST_ACTION_STRUCT_TYPE_REF;
+UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;
+EnumTypeRef = KwEnum AttributeList Identifier @AST_ACTION_ENUM_TYPE_REF;
 
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwLong) | (KwLong KwDouble) | KwLong
@@ -363,7 +359,7 @@ Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 // Explicit rule for function pointer declarators like (*name)[size]
 FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffix* RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR;
 
-DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeListWithAction) | (LParen Declarator RParen) | (Identifier AttributeListWithAction);
+DirectDeclaratorRaw = (FunctionPointerDeclarator AttributeList) | (LParen Declarator RParen) | (Identifier AttributeList);
 
 DirectDeclarator = memoize(DirectDeclaratorRaw) @AST_ACTION_DIRECT_DECLARATOR;
 
@@ -381,9 +377,9 @@ DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
                  | (LBracket Expression? RBracket)
                  | ParameterList @AST_ACTION_DECLARATOR_SUFFIX;
 
-Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_DECLARATOR;
+Declarator = Pointer* DirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_DECLARATOR;
 
-InitDeclarator = Declarator AttributeListWithAction AsmNamesWithAction? AttributeListWithAction (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
+InitDeclarator = Declarator AttributeList AsmNames? AttributeList (Assign InitializerWithAction)? @AST_ACTION_INIT_DECLARATOR;
 
 InitDeclaratorList = delimited(InitDeclarator, Comma);
 
@@ -395,12 +391,12 @@ Declaration = OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorLi
 // A specialized identifier that captures itself when parsed
 TypedefDefiningIdentifier = wrap(Identifier, typedef_capture_callbacks, NULL);
 
-TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeListWithAction);
+TypedefDirectDeclarator = (LParen TypedefDeclarator RParen) | (TypedefDefiningIdentifier AttributeList);
 
 // A specialized declarator that uses the capturing identifier
-TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeListWithAction @AST_ACTION_TYPEDEF_DECLARATOR;
+TypedefDeclarator = Pointer* TypedefDirectDeclarator DeclaratorSuffix* AttributeList @AST_ACTION_TYPEDEF_DECLARATOR;
 
-TypedefInitDeclarator = TypedefDeclarator AttributeListWithAction AsmNamesWithAction? AttributeListWithAction (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
+TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList (Assign Initializer)? @AST_ACTION_TYPEDEF_INIT_DECLARATOR;
 
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 
@@ -462,7 +458,7 @@ GotoStatement = KwGoto Identifier Semicolon @AST_ACTION_GOTO_STATEMENT;
 ContinueStatement = KwContinue Semicolon @AST_ACTION_CONTINUE_STATEMENT;
 BreakStatement = KwBreak Semicolon @AST_ACTION_BREAK_STATEMENT;
 ReturnStatement = (KwReturn Expression? Semicolon) @AST_ACTION_RETURN_STATEMENT;
-AsmStatement = (KwAsm AttributeListWithAction LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
+AsmStatement = (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
 
 CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
