@@ -91,7 +91,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_SWITCH_BODY_STATEMENTS] = {.name = "SwitchBodyStatements"},
     [AST_NODE_ASSIGNMENT_OPERATOR] = {.name = "AssignmentOperator"},
     [AST_NODE_OPTIONAL_KW_EXTENSION] = {.name = "OptionalKwExtension"},
-    [AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST] = {.name = "OptionalInitDeclaratorList"},
+    [AST_NODE_INIT_DECLARATOR_LIST] = {.name = "OptionalInitDeclaratorList"},
     [AST_NODE_TERNARY_OPERATION] = {.name = "TernaryOperation"},
     [AST_NODE_CONDITIONAL_EXPRESSION] = {.name = "ConditionalExpression"},
     [AST_NODE_COMMA_EXPRESSION] = {.name = "CommaExpression"},

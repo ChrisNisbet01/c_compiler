@@ -313,12 +313,12 @@ handle_optional_kw_extension(
 }
 
 static void
-handle_optional_init_declarator_list(
+handle_init_declarator_list(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
     c_grammar_node_t * ast_node
-        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_OPTIONAL_INIT_DECLARATOR_LIST);
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_INIT_DECLARATOR_LIST);
     if (ast_node == NULL)
     {
         return;
@@ -331,7 +331,7 @@ static void
 handle_declaration(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     /* [ OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorList ] */
-    if (count != 3)
+    if (count != 2 && count != 3)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
@@ -348,7 +348,10 @@ handle_declaration(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
 
     ast_node->declaration.extension = ast_node->list.children[0];
     ast_node->declaration.declaration_specifiers = ast_node->list.children[1];
-    ast_node->declaration.init_declarator_list = ast_node->list.children[2];
+    if (count == 3)
+    {
+        ast_node->declaration.init_declarator_list = ast_node->list.children[2];
+    }
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2812,9 +2815,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATOR_SUFFIX_LIST, handle_declarator_suffix_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATOR, handle_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_OPTIONAL_KW_EXTENSION, handle_optional_kw_extension);
-    epc_ast_hook_registry_set_action(
-        registry, AST_ACTION_OPTIONAL_INIT_DECLARATOR_LIST, handle_optional_init_declarator_list
-    );
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_INIT_DECLARATOR_LIST, handle_init_declarator_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATION, handle_declaration);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_IF_STATEMENT, handle_if_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SWITCH_STATEMENT, handle_switch_statement);
