@@ -1386,7 +1386,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     }
 
     char const * struct_tag = NULL;
-    
+
     if (type_child->struct_definition.identifier != NULL)
     {
         struct_tag = type_child->struct_definition.identifier->text;
@@ -1832,31 +1832,32 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 {
                     // Function pointer parameter: int (*func)(int, int)
                     is_function_pointer = true;
-                    for (size_t k = 0; k < direct_child->list.count; ++k)
+                    pointer_level++;
+
+                    c_grammar_node_t const * suffix_list = 
+                        direct_child->function_pointer_declarator.declarator_suffix_list;
+
+                    for (size_t si = 0; si < suffix_list->list.count; si++)
                     {
-                        c_grammar_node_t * fp_child = direct_child->list.children[k];
-                        if (fp_child->type == AST_NODE_POINTER)
+                        c_grammar_node_t const * suffix = suffix_list->list.children[si];
+
+                        // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
+                        for (size_t m = 0; m < suffix->list.count; ++m)
                         {
-                            pointer_level++;
-                        }
-                        else if (fp_child->type == AST_NODE_DECLARATOR_SUFFIX)
-                        {
-                            // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
-                            for (size_t m = 0; m < fp_child->list.count; ++m)
+                            c_grammar_node_t * suffix_child = suffix->list.children[m];
+
+                            if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
                             {
-                                c_grammar_node_t * suffix_child = fp_child->list.children[m];
-                                if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                                unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
+                                if (array_depth < array_capacity)
                                 {
-                                    unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
-                                    if (array_depth < array_capacity)
-                                    {
-                                        array_sizes[array_depth] = (size_t)size_val;
-                                        array_depth++;
-                                    }
+                                    array_sizes[array_depth] = (size_t)size_val;
+                                    array_depth++;
                                 }
                             }
                         }
                     }
+
                 }
             }
         }
@@ -2574,7 +2575,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             /* Need to find the struct name from the typedef entry */
                                             /* For now, set struct_name to the typedef name itself - */
                                             /* we'll need to find the actual underlying struct */
-                                            /* This is a limitation - we'll fix by looking up the typedef entry directly */
+                                            /* This is a limitation - we'll fix by looking up the typedef entry directly
+                                             */
                                             /* Actually, let's look up the struct by the type */
                                             type_info_t const * info
                                                 = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
@@ -2646,7 +2648,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         if (initializer_expr_node)
                         {
                             if ((LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
-                                || LLVMGetTypeKind(var_type) == LLVMStructTypeKind)
+                                 || LLVMGetTypeKind(var_type) == LLVMStructTypeKind)
                                 && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                             {
                                 // Check if this is an array of pointers (like function pointers)
@@ -2659,7 +2661,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         int current_index = 0;
                                         for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
                                         {
-                                            c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
+                                            c_grammar_node_t const * list_entry
+                                                = initializer_expr_node->list.children[i];
                                             c_grammar_node_t const * initializer
                                                 = list_entry->initializer_list_entry.initializer;
 
@@ -2668,7 +2671,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             {
                                                 // Create GEP to element
                                                 LLVMValueRef indices[2];
-                                                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+                                                indices[0]
+                                                    = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                                                 indices[1] = LLVMConstInt(
                                                     LLVMInt32TypeInContext(ctx->context), current_index, false
                                                 );
@@ -2724,8 +2728,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             && LLVMGetTypeKind(var_type) == LLVMFloatTypeKind
                                         )
                                         {
-                                            initializer_value
-                                                = LLVMBuildFPTrunc(ctx->builder, initializer_value, var_type, "casttmp");
+                                            initializer_value = LLVMBuildFPTrunc(
+                                                ctx->builder, initializer_value, var_type, "casttmp"
+                                            );
                                         }
                                     }
 
@@ -2753,7 +2758,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                             // If we have unsized array type, don't skip - it might be char s[] not void foo()
                             LLVMTypeKind kind = LLVMGetTypeKind(var_type);
-                            bool is_likely_unsized_array = (kind == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
+                            bool is_likely_unsized_array
+                                = (kind == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
 
                             if (!is_likely_unsized_array && suffix_list->list.count > 0)
                             {

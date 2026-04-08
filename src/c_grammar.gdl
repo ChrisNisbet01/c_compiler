@@ -214,7 +214,9 @@ UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
 UnaryExpression = UnaryExpressionPrefix | PostfixExpression;
 
 // Abstract declarators are used in type names (e.g., in casts)
-AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
+PointerPlus = Pointer+ @AST_ACTION_POINTER_LIST;
+DeclaratorSuffixPlus = DeclaratorSuffix+ @AST_ACTION_DECLARATOR_SUFFIX_LIST;
+AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixPlus;
 
 TypeName = SpecifierQualifierList AbstractDeclarator? @AST_ACTION_TYPE_NAME;
 
@@ -356,7 +358,7 @@ Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
 PointerManyList = Pointer* @AST_ACTION_POINTER_LIST;
 
 // Explicit rule for function pointer declarators like (*name)[size]
-FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffix* RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR;
+FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffixList RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR;
 
 DirectDeclarator = (FunctionPointerDeclarator AttributeList) 
                 | (LParen Declarator RParen) 
