@@ -734,38 +734,19 @@ process_initializer_list(
 
     for (size_t i = 0; i < initializer_node->list.count; ++i)
     {
-        c_grammar_node_t const * child = initializer_node->list.children[i];
+        c_grammar_node_t const * list_entry = initializer_node->list.children[i];
+        c_grammar_node_t const * value_node = list_entry->initializer_list_entry.initializer;
+        c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
 
-        // Unwrap INITIALIZER wrapper nodes (new structure wraps values in Initializer nodes)
-        if (child->type == AST_NODE_INITIALIZER && child->list.count > 0)
+        // Unwrap value from INITIALIZER wrapper if present
+        if (value_node->list.count > 0)
         {
-            child = child->list.children[0];
-        }
-
-        if (child->list.count == 0 && child->type != AST_NODE_INTEGER_LITERAL)
-        {
-            continue;
+            value_node = value_node->list.children[0];
         }
 
         // Handle Designation nodes (designated initializers like .x = value or .pos.x = value)
-        if (child->type == AST_NODE_DESIGNATION)
+        if (designation != NULL)
         {
-            // Designation contains a list of field names (identifiers)
-            // The next child in the list is the actual value
-            if (i + 1 >= initializer_node->list.count)
-            {
-                continue;
-            }
-
-            c_grammar_node_t const * designation = child;
-            c_grammar_node_t * value_node = (c_grammar_node_t *)initializer_node->list.children[i + 1];
-            
-            // Unwrap INITIALIZER wrapper in value_node too
-            if (value_node->type == AST_NODE_INITIALIZER && value_node->list.count > 0)
-            {
-                value_node = value_node->list.children[0];
-            }
-
             // Handle nested designations (e.g., .pos.x = value has 2 identifiers: pos, x)
             LLVMValueRef current_ptr = base_ptr;
             LLVMTypeRef current_type = element_type;
@@ -851,7 +832,7 @@ process_initializer_list(
             else
             {
                 // Simple value (not an InitializerList)
-                LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)value_node);
+                LLVMValueRef value = process_expression(ctx, value_node);
                 if (value && field_count > 0)
                 {
                     LLVMValueRef elem_ptr;
@@ -875,58 +856,51 @@ process_initializer_list(
                         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
                     }
 
-                    // Cast the value to the final field type if needed
                     value = cast_value_to_type(ctx, value, final_type, false);
 
                     aligned_store(ctx->builder, value, elem_ptr);
                 }
             }
 
-            // Skip the value node since we already processed it
-            i++;
             local_index++;
-            if (outer_index)
+            if (outer_index != NULL)
             {
                 (*outer_index)++;
             }
             continue;
         }
 
-        // If child is an INITIALIZER_LIST, create GEP to the row and recurse
-        if (child->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
+        // Non-designated: handle plain INITIALIZER_LIST for arrays
+        if (value_node->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
         {
             LLVMTypeRef nested_element = LLVMGetElementType(element_type);
             LLVMValueRef indices[2];
             indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
             indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
-            LLVMValueRef row_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "row_ptr");
-            process_initializer_list(ctx, row_ptr, nested_element, child, NULL);
+            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "elem_ptr");
+            process_initializer_list(ctx, elem_ptr, nested_element, value_node, NULL);
             local_index++;
-            if (outer_index)
+            if (outer_index != NULL)
+            {
                 (*outer_index)++;
+            }
             continue;
         }
 
-        // If child is an ASSIGNMENT node, extract the inner expression
-        if (child->type == AST_NODE_ASSIGNMENT)
-        {
-            child = child->rhs;
-        }
-
         // For array types, create a GEP to the element and recurse
-        if (kind == LLVMArrayTypeKind && child->type != AST_NODE_INTEGER_LITERAL && child->list.count > 0)
+        if (kind == LLVMArrayTypeKind && value_node->type != AST_NODE_INTEGER_LITERAL && value_node->list.count > 0)
         {
             LLVMTypeRef nested_element = LLVMGetElementType(element_type);
             LLVMValueRef indices[2];
             indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
             indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), local_index, false);
             LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-            process_initializer_list(ctx, elem_ptr, nested_element, child, &local_index);
+            process_initializer_list(ctx, elem_ptr, nested_element, value_node, &local_index);
         }
         // Process leaf values - store to array or struct member
         else
         {
-            LLVMValueRef value = process_expression(ctx, (c_grammar_node_t *)child);
+            LLVMValueRef value = process_expression(ctx, value_node);
             if (value)
             {
                 LLVMValueRef indices[2];
@@ -2678,8 +2652,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     int current_index = 0;
                                     for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
                                     {
-                                        c_grammar_node_t * child = initializer_expr_node->list.children[i];
-                                        LLVMValueRef value = process_expression(ctx, child);
+                                        c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
+                                        c_grammar_node_t const * initializer
+                                            = list_entry->initializer_list_entry.initializer;
+
+                                        LLVMValueRef value = process_expression(ctx, initializer);
                                         if (value)
                                         {
                                             // Create GEP to element
@@ -3732,6 +3709,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_INIT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX_LIST:
     case AST_NODE_POINTER_LIST:
+    case AST_NODE_INITIALIZER_LIST_ENTRY:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5786,6 +5764,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_INIT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX_LIST:
     case AST_NODE_POINTER_LIST:
+    case AST_NODE_INITIALIZER_LIST_ENTRY:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
