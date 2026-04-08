@@ -311,14 +311,12 @@ StructUnionDeclaration = OptionalKwExtension StructSpecifierQualifierList Struct
 
 StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARATION_LIST;
 
-Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
-
 // StructDefinition: struct with body (definition)
 StructDefinition = KwStruct AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
 UnionDefinition = KwUnion AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_UNION_DEFINITION;
 
+Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
 EnumeratorList = delimited_flex(Enumerator, Comma) Comma? @AST_ACTION_ENUMERATOR_LIST;
-
 EnumDefinition = KwEnum AttributeList Identifier? LBrace EnumeratorList RBrace AttributeList @AST_ACTION_ENUM_DEFINITION;
 
 // Typedef names are identifiers that have been registered

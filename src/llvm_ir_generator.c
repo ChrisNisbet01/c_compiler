@@ -84,34 +84,30 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
     }
 
     c_grammar_node_t const * spec_child = type_spec_node->list.children[0];
+    c_grammar_node_t const * id_node = NULL;
 
     if (spec_child->type == AST_NODE_ENUM_DEFINITION)
     {
-        if (spec_child->enum_definition.identifier == NULL)
-        {
-            return NULL;
-        }
-        return spec_child->enum_definition.identifier->text;
+        id_node = spec_child->enum_definition.identifier;
+    }
+    else if (spec_child->type == AST_NODE_STRUCT_DEFINITION || spec_child->type == AST_NODE_UNION_DEFINITION)
+    {
+        id_node = spec_child->struct_definition.identifier;
     }
     else if (
         spec_child->type == AST_NODE_ENUM_TYPE_REF || spec_child->type == AST_NODE_STRUCT_TYPE_REF
         || spec_child->type == AST_NODE_UNION_TYPE_REF
     )
     {
-        if (spec_child->type_ref.identifier == NULL)
-        {
-            return NULL;
-        }
-        return spec_child->type_ref.identifier->text;
+        id_node = spec_child->type_ref.identifier;
     }
 
-    if (spec_child->type != AST_NODE_STRUCT_DEFINITION && spec_child->type != AST_NODE_UNION_DEFINITION)
+    if (id_node == NULL)
     {
         return NULL;
     }
 
-    /* Look for identifier in the definition. */
-    return search_for_identifier_in_ast_node(spec_child);
+    return id_node->text;
 }
 
 // Returns the name if found (plain identifier, i.e., typedef name), or NULL
@@ -1072,32 +1068,16 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
         return object_members;
     }
 
-    // Check if we have the new AST structure with StructDeclarationList
-    // StructDefinition has: [Identifier, StructDeclarationList] (new)
-    //                    or: [Keyword, Identifier?, TypeSpec, StructDeclarator, ...] (old)
-    c_grammar_node_t * members_node = NULL;
+    // StructDefinition has: [AttributeList Identifier?, StructDeclarationList AttributeList]
+    c_grammar_node_t const * members_node = type_child->struct_definition.declaration_list;
 
-    for (size_t i = 0; i < type_child->list.count; i++)
-    {
-        c_grammar_node_t * child = type_child->list.children[i];
-        if (child != NULL && child->type == AST_NODE_STRUCT_DECLARATION_LIST)
-        {
-            members_node = child;
-            break;
-        }
-    }
-    if (members_node == NULL)
+    if (members_node == NULL || members_node->list.count == 0)
     {
         return object_members;
     }
 
     // StructDeclarationList contains StructDeclaration nodes
     size_t max_num_members = members_node->list.count;
-    if (max_num_members == 0)
-    {
-        return object_members;
-    }
-
     struct_field_t * members = calloc(max_num_members, sizeof(*members));
     if (members == NULL)
     {
@@ -1384,12 +1364,16 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
         return definition_node->enum_definition.identifier->text;
     }
 
-    if (definition_node->type != AST_NODE_STRUCT_DEFINITION && definition_node->type != AST_NODE_UNION_DEFINITION)
+    if (definition_node->type == AST_NODE_STRUCT_DEFINITION || definition_node->type == AST_NODE_UNION_DEFINITION)
     {
-        return NULL;
+        if (definition_node->struct_definition.identifier == NULL)
+        {
+            return NULL;
+        }
+        return definition_node->struct_definition.identifier->text;
     }
 
-    return search_for_identifier_in_ast_node(definition_node);
+    return NULL;
 }
 
 static type_info_t const *
@@ -1401,7 +1385,12 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         return NULL;
     }
 
-    char const * struct_tag = search_ast_for_type_tag(type_child);
+    char const * struct_tag = NULL;
+    
+    if (type_child->struct_definition.identifier != NULL)
+    {
+        struct_tag = type_child->struct_definition.identifier->text;
+    }
     if (struct_tag == NULL)
     {
         return NULL;

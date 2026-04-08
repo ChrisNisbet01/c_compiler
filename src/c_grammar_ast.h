@@ -508,6 +508,15 @@ typedef struct ast_node_enum_definition_t
     c_grammar_node_t const * attribute_list_2;
 } ast_node_enum_definition_t;
 
+typedef struct ast_node_struct_definition_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * attribute_list_1;
+    c_grammar_node_t const * identifier;
+    c_grammar_node_t const * declaration_list;
+    c_grammar_node_t const * attribute_list_2;
+} ast_node_struct_definition_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -570,6 +579,7 @@ typedef union c_grammar_node_t
     ast_node_compound_literal_t compound_literal;
     ast_node_postfix_expression_t postfix_expression;
     ast_node_initializer_list_entry_t initializer_list_entry;
+    ast_node_struct_definition_t struct_definition;
     ast_node_enum_definition_t enum_definition;
 } c_grammar_node_t;
 
