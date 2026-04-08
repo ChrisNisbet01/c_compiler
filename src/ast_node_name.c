@@ -103,6 +103,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_STRUCT_DECLARATOR_LIST] = {.name = "StructDeclaratorList"},
     [AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST] = {.name = "StructSpecifierQualifierList"},
     [AST_NODE_STRUCT_DECLARATOR_BITFIELD] = {.name = "StructDeclaratorBitfield"},
+    [AST_NODE_ATTRIBUTE] = {.name = "Attribute"},
     [AST_NODE_ATTRIBUTE_LIST] = {.name = "AttributeList"},
     [AST_NODE_ASM_NAMES] = {.name = "AsmNames"},
 };

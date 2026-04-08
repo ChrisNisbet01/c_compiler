@@ -2742,6 +2742,18 @@ handle_struct_declarator_bitfield(
 }
 
 static void
+handle_attribute(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ATTRIBUTE);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_attribute_list(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ATTRIBUTE_LIST);
@@ -2880,6 +2892,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_TYPE_REF, handle_struct_type_ref);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNION_TYPE_REF, handle_union_type_ref);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUM_TYPE_REF, handle_enum_type_ref);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ATTRIBUTE, handle_attribute);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ATTRIBUTE_LIST, handle_attribute_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASM_NAMES, handle_asm_names);
 }

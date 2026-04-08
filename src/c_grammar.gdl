@@ -159,8 +159,7 @@ Question = lexeme('?');
 
 StorageClassSpecifier = KwStatic | KwExtern | KwAuto | KwRegister;
 
-TypeQualifierRaw = KwConst | KwVolatile | KwRestrict | Attribute;
-TypeQualifier = memoize(TypeQualifierRaw);
+TypeQualifier = KwConst | KwVolatile | KwRestrict | Attribute;
 
 FunctionSpecifier = KwInline;
 
@@ -212,8 +211,7 @@ UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (DecOp UnaryExpression)
                       @AST_ACTION_UNARY_EXPRESSION;
 
-UnaryExpressionRaw = UnaryExpressionPrefix | PostfixExpression;
-UnaryExpression = memoize(UnaryExpressionRaw);
+UnaryExpression = UnaryExpressionPrefix | PostfixExpression;
 
 // Abstract declarators are used in type names (e.g., in casts)
 AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+;
@@ -290,14 +288,14 @@ AttributeArgument = AlignedAttribute | Identifier | NumberLiteral | StringLitera
 // Rule for the list of arguments within an attribute.
 // This is a simplified approach; a full C attribute parser would need more complex handling for nested parentheses and expressions.
 // For now, it matches one or more AttributeArguments separated by commas.
-AttributeArgList = AttributeArgument (Comma AttributeArgument)*;
+AttributeArgList = chainl1(AttributeArgument, Comma);
 
 // Rule for matching a C attribute: __attribute__((...))
 // We make it more flexible to handle nested parens and various head types
 AttributeHead = lexeme(identifier) | NumberLiteral | KwAligned;
 AttributeArg = (LParen AttributeArgList? RParen) | AttributeArgument;
 
-Attribute = KwAttribute LParen LParen AttributeHead AttributeArg* RParen RParen;
+Attribute = KwAttribute LParen LParen AttributeHead AttributeArg* RParen RParen @AST_ACTION_ATTRIBUTE;
 AttributeList = Attribute* @AST_ACTION_ATTRIBUTE_LIST;
 
 // Assembler name extension: __asm__("name")
@@ -341,11 +339,10 @@ TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 
 // --- Declarations ---
 
-DeclarationSpecifierRaw = StorageClassSpecifier
+DeclarationSpecifier = StorageClassSpecifier
                      | TypeQualifier
                      | NonTypedefTypeSpecifier
                      | FunctionSpecifier;
-DeclarationSpecifier = memoize(DeclarationSpecifierRaw);
 
 // We ensure that only one TypedefName can be present in a set of specifiers,
 // and it cannot be combined with other type specifiers (standard C rules).
