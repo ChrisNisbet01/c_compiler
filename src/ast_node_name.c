@@ -70,6 +70,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_STRUCT_DEFINITION] = {.name = "StructDefinition"},
     [AST_NODE_UNION_DEFINITION] = {.name = "UnionDefinition"},
     [AST_NODE_ENUM_DEFINITION] = {.name = "EnumDefinition"},
+    [AST_NODE_ENUMERATOR_LIST] = {.name = "EnumeratorList"},
     [AST_NODE_STRUCT_TYPE_REF] = {.name = "StructTypeRef"},
     [AST_NODE_UNION_TYPE_REF] = {.name = "UnionTypeRef"},
     [AST_NODE_ENUM_TYPE_REF] = {.name = "EnumTypeRef"},

@@ -85,10 +85,27 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
 
     c_grammar_node_t const * spec_child = type_spec_node->list.children[0];
 
-    if (spec_child->type != AST_NODE_STRUCT_DEFINITION && spec_child->type != AST_NODE_UNION_DEFINITION
-        && spec_child->type != AST_NODE_ENUM_DEFINITION && spec_child->type != AST_NODE_STRUCT_TYPE_REF
-        && spec_child->type != AST_NODE_UNION_TYPE_REF && spec_child->type != AST_NODE_ENUM_TYPE_REF)
+    if (spec_child->type == AST_NODE_ENUM_DEFINITION)
+    {
+        if (spec_child->enum_definition.identifier == NULL)
+        {
+            return NULL;
+        }
+        return spec_child->enum_definition.identifier->text;
+    }
+    else if (
+        spec_child->type == AST_NODE_ENUM_TYPE_REF || spec_child->type == AST_NODE_STRUCT_TYPE_REF
+        || spec_child->type == AST_NODE_UNION_TYPE_REF
+    )
+    {
+        if (spec_child->type_ref.identifier == NULL)
+        {
+            return NULL;
+        }
+        return spec_child->type_ref.identifier->text;
+    }
 
+    if (spec_child->type != AST_NODE_STRUCT_DEFINITION && spec_child->type != AST_NODE_UNION_DEFINITION)
     {
         return NULL;
     }
@@ -937,30 +954,16 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
         return false;
     }
 
-    // EnumDefinition structure: [Identifier?, Enumerator, Enumerator, ...]
+    // EnumDefinition structure: [AttributeList Identifier?, EnumeratorList, ...]
     // The enumerators contain the enum constant names and values
-
-    // Check if first child is an Identifier (tag name) or Enumerator
-    size_t start_idx;
-    for (start_idx = 0; start_idx < enum_node->list.count; start_idx++)
-    {
-        c_grammar_node_t * child = enum_node->list.children[start_idx];
-        if (child->type == AST_NODE_ENUMERATOR)
-        {
-            break;
-        }
-    }
-    if (start_idx == enum_node->list.count)
-    {
-        return false;
-    }
+    c_grammar_node_t const * enumerator_list = enum_node->enum_definition.enumerator_list;
 
     // Enumerate values and register them as global constants
     int current_value = 0;
 
-    for (size_t i = start_idx; i < enum_node->list.count; ++i)
+    for (size_t i = 0; i < enumerator_list->list.count; ++i)
     {
-        c_grammar_node_t * child = enum_node->list.children[i];
+        c_grammar_node_t * child = enumerator_list->list.children[i];
 
         if (child->type == AST_NODE_ENUMERATOR && child->list.count >= 1)
         {
@@ -1367,9 +1370,21 @@ static char const *
 search_ast_for_type_tag(c_grammar_node_t const * definition_node)
 
 {
-    if (definition_node == NULL
-        || (definition_node->type != AST_NODE_ENUM_DEFINITION && definition_node->type != AST_NODE_STRUCT_DEFINITION
-            && definition_node->type != AST_NODE_UNION_DEFINITION))
+    if (definition_node == NULL)
+    {
+        return NULL;
+    }
+
+    if (definition_node->type == AST_NODE_ENUM_DEFINITION)
+    {
+        if (definition_node->enum_definition.identifier == NULL)
+        {
+            return NULL;
+        }
+        return definition_node->enum_definition.identifier->text;
+    }
+
+    if (definition_node->type != AST_NODE_STRUCT_DEFINITION && definition_node->type != AST_NODE_UNION_DEFINITION)
     {
         return NULL;
     }
@@ -2462,7 +2477,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             char const * enum_tag = search_ast_for_type_tag(type_child);
 
-                            register_tagged_enum_definition(ctx, type_child, enum_tag);
+                            if (enum_tag != NULL)
+                            {
+                                register_tagged_enum_definition(ctx, type_child, enum_tag);
+                            }
                         }
                     }
                 }
@@ -3708,6 +3726,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DECLARATOR_SUFFIX_LIST:
     case AST_NODE_POINTER_LIST:
     case AST_NODE_INITIALIZER_LIST_ENTRY:
+    case AST_NODE_ENUMERATOR_LIST:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5762,6 +5781,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DECLARATOR_SUFFIX_LIST:
     case AST_NODE_POINTER_LIST:
     case AST_NODE_INITIALIZER_LIST_ENTRY:
+    case AST_NODE_ENUMERATOR_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)

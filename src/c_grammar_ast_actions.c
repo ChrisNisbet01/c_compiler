@@ -2298,15 +2298,51 @@ handle_function_pointer_declarator(
 }
 
 static void
+handle_enumerator_list(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUMERATOR_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_enum_definition(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 3 && count != 4)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected 3 or 4 children, but got %u",
+            get_node_type_name_from_type(AST_NODE_ENUM_DEFINITION),
+            count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUM_DEFINITION);
     if (ast_node == NULL)
     {
         return;
     }
+
+    size_t idx = 0;
+
+    ast_node->enum_definition.attribute_list_1 = children[idx++];
+    if (count == 4)
+    {
+        ast_node->enum_definition.identifier = children[idx++];
+    }
+    ast_node->enum_definition.enumerator_list = children[idx++];
+    ast_node->enum_definition.attribute_list_2 = children[idx++];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2780,6 +2816,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TERNARY_OPERATION, handle_ternary_operation);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CONDITIONAL_EXPRESSION, handle_conditional_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMMA_EXPRESSION, handle_comma_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUMERATOR_LIST, handle_enumerator_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUM_DEFINITION, handle_enum_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUMERATOR, handle_enumerator);
     epc_ast_hook_registry_set_action(
