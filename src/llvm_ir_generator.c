@@ -444,13 +444,11 @@ process_postfix_suffixes(
             if (new_ptr)
             {
                 current_ptr = new_ptr;
-                if (current_type)
-                {
-                    if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                        current_type = get_pointer_element_type(ctx, current_type);
-                    else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                        current_type = LLVMGetElementType(current_type);
-                }
+                if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                    current_type = get_pointer_element_type(ctx, current_type);
+                else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
+                    current_type = LLVMGetElementType(current_type);
+
                 current_val = NULL;
             }
         }
@@ -4189,15 +4187,14 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         current_type = get_pointer_element_type(ctx, current_type);
                     else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
                         current_type = LLVMGetElementType(current_type);
-
-                    // Clear base_val so final load uses the correct element type
-                    base_val = NULL;
                 }
                 else
                 {
                     debug_error("Could not process array subscript.");
                     return NULL;
                 }
+                // Clear base_val so final load uses the correct element type
+                base_val = NULL;
             }
         }
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
