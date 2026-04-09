@@ -28,7 +28,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},
     [AST_NODE_TYPEDEF_SPECIFIER] = {.name = "TypedefSpecifier"},
     [AST_NODE_UNARY_OPERATOR] = {.name = "UnaryOperator"},
-    [AST_NODE_UNARY_EXPRESSION] = {.name = "UnaryExpression"},
+    [AST_NODE_UNARY_EXPRESSION_PREFIX] = {.name = "UnaryExpressionPrefix"},
     [AST_NODE_DECLARATOR] = {.name = "Declarator"},
     [AST_NODE_DIRECT_DECLARATOR] = {.name = "DirectDeclarator"},
     [AST_NODE_DECLARATOR_SUFFIX] = {.name = "DeclaratorSuffix"},

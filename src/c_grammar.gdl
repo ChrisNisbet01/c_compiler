@@ -209,7 +209,7 @@ UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (UnaryOp UnaryExpression)
                       | (IncOp UnaryExpression)
                       | (DecOp UnaryExpression)
-                      @AST_ACTION_UNARY_EXPRESSION;
+                      @AST_ACTION_UNARY_EXPRESSION_PREFIX;
 
 UnaryExpression = UnaryExpressionPrefix | PostfixExpression;
 

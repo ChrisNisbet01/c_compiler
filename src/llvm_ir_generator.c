@@ -3624,7 +3624,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_SPECIFIER:
     case AST_NODE_TYPEDEF_SPECIFIER:
     case AST_NODE_UNARY_OPERATOR:
-    case AST_NODE_UNARY_EXPRESSION:
+    case AST_NODE_UNARY_EXPRESSION_PREFIX:
     case AST_NODE_DECLARATOR:
     case AST_NODE_DIRECT_DECLARATOR:
     case AST_NODE_DECLARATOR_SUFFIX:
@@ -5116,12 +5116,13 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 }
 
 static LLVMValueRef
-process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Unary structure: [Operator, Operand]
-    c_grammar_node_t const * operand_node = node->lhs;
+    c_grammar_node_t const * operand_node = node->unary_expression_prefix.operand;
+    c_grammar_node_t const * op = node->unary_expression_prefix.op;
 
-    switch (node->op.unary.op)
+    switch (op->op.unary.op)
     {
     case UNARY_OP_ADDR:
     {
@@ -5143,17 +5144,15 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             c_grammar_node_t const * type_name_node = operand_node->compound_literal.type_name;
             c_grammar_node_t const * init_list_node = operand_node->compound_literal.initializer_list;
 
-            /* Extract type name - check struct/union keyword first, then typedef */
+            /* Extract type name - check typedef, then struct/union keyword */
             char const * type_name = NULL;
             bool is_typedef = false;
             if (type_name_node->type == AST_NODE_TYPE_NAME)
             {
-                for (size_t i = 0; i < type_name_node->list.count && !type_name; ++i)
+                for (size_t i = 0; i < type_name_node->list.count && type_name == NULL; ++i)
                 {
                     c_grammar_node_t const * child = type_name_node->list.children[i];
-                    /* Try struct/union keyword first */
-                    type_name = extract_struct_or_union_or_enum_tag(child);
-                    if (type_name == NULL)
+                    if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
                     {
                         /* Try typedef */
                         type_name = extract_typedef_name(child);
@@ -5161,6 +5160,11 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                         {
                             is_typedef = true;
                         }
+                    }
+                    else
+                    {
+                        /* Try struct/union keyword first */
+                        type_name = extract_struct_or_union_or_enum_tag(child);
                     }
                 }
             }
@@ -5283,7 +5287,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
 
             LLVMValueRef new_val;
-            if (node->op.unary.op == UNARY_OP_INC)
+            if (op->op.unary.op == UNARY_OP_INC)
             {
                 LLVMTypeKind kind = LLVMGetTypeKind(var_type);
                 if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
@@ -5382,9 +5386,10 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         else
         {
             // Handle dereference specially: sizeof(*ptr) should give sizeof of pointee type
-            if (operand_node->type == AST_NODE_UNARY_EXPRESSION && operand_node->op.unary.op == UNARY_OP_DEREF)
+            if (operand_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX
+                && operand_node->unary_expression_prefix.op->op.unary.op == UNARY_OP_DEREF)
             {
-                c_grammar_node_t const * deref_operand = operand_node->lhs;
+                c_grammar_node_t const * deref_operand = operand_node->unary_expression_prefix.operand;
                 if (deref_operand && deref_operand->type == AST_NODE_IDENTIFIER)
                 {
                     char const * var_name = deref_operand->text;
@@ -5491,7 +5496,7 @@ process_unary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
     default:
     {
-        debug_error("Unknown unary operator %u.", node->op.unary.op);
+        debug_error("Unknown unary operator %u.", op->op.unary.op);
         return NULL;
     }
     }
@@ -5589,9 +5594,9 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         return result;
     }
-    case AST_NODE_UNARY_EXPRESSION:
+    case AST_NODE_UNARY_EXPRESSION_PREFIX:
     {
-        return process_unary_expression(ctx, node);
+        return process_unary_expression_prefix(ctx, node);
     }
     case AST_NODE_OPTIONAL_ARGUMENT_LIST:
     case AST_NODE_POSTFIX_PARTS:
@@ -5618,9 +5623,8 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             for (size_t i = 0; i < type_name_node->list.count && !type_name; ++i)
             {
                 c_grammar_node_t const * child = type_name_node->list.children[i];
-                /* Try struct/union keyword first */
-                type_name = extract_struct_or_union_or_enum_tag(child);
-                if (type_name == NULL)
+
+                if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
                 {
                     /* Try typedef */
                     type_name = extract_typedef_name(child);
@@ -5628,6 +5632,11 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         is_typedef = true;
                     }
+                }
+                else
+                {
+                    /* Try struct/union keyword */
+                    type_name = extract_struct_or_union_or_enum_tag(child);
                 }
             }
         }

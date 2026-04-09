@@ -791,7 +791,7 @@ handle_unary_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 }
 
 static void
-handle_unary_expression(
+handle_unary_expression_prefix(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
@@ -799,38 +799,37 @@ handle_unary_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "%s expected at 2 children, but got %u", get_node_type_name_from_type(AST_NODE_UNARY_EXPRESSION), count
+            ctx,
+            "%s expected 2 children, but got %u",
+            get_node_type_name_from_type(AST_NODE_UNARY_EXPRESSION_PREFIX),
+            count
         );
         return;
     }
 
     /* The first child should always be the unary operator node. */
-    c_grammar_node_t * op_node = (c_grammar_node_t *)children[0];
+    c_grammar_node_t const * op_node = children[0];
     if (op_node->type != AST_NODE_UNARY_OPERATOR)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected operator node, but got %s",
-            get_node_type_name_from_type(AST_NODE_UNARY_EXPRESSION),
+            get_node_type_name_from_type(AST_NODE_UNARY_EXPRESSION_PREFIX),
             get_node_type_name_from_node(op_node)
         );
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_UNARY_EXPRESSION, node);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNARY_EXPRESSION_PREFIX);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    /* The operand should be children[1]. Let's save it into node->lhs. */
-    ast_node->lhs = children[1];
-    ast_node->op.unary.op = op_node->op.unary.op;
-    ast_node->op.text = op_node->text;
-    op_node->text = NULL;
-    c_grammar_node_free(op_node, user_data);
+    ast_node->unary_expression_prefix.op = children[0];
+    ast_node->unary_expression_prefix.operand = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2853,7 +2852,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_ARROW, handle_member_access_arrow);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_OPERATOR, handle_unary_operator);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_EXPRESSION, handle_unary_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_EXPRESSION_PREFIX, handle_unary_expression_prefix);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CAST_EXPRESSION, handle_cast_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL_OPERATOR, handle_relational_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL, handle_relational_expression);

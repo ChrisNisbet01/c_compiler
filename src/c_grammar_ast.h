@@ -30,7 +30,7 @@ typedef enum
     AST_NODE_TYPE_SPECIFIER,
     AST_NODE_TYPEDEF_SPECIFIER,
     AST_NODE_UNARY_OPERATOR,
-    AST_NODE_UNARY_EXPRESSION,
+    AST_NODE_UNARY_EXPRESSION_PREFIX,
     AST_NODE_DECLARATOR,
     AST_NODE_DIRECT_DECLARATOR,
     AST_NODE_DECLARATOR_SUFFIX,
@@ -534,6 +534,13 @@ typedef struct ast_node_enumerator_t
     c_grammar_node_t const * expression;
 } ast_node_enumerator_t;
 
+typedef struct ast_node_unary_expression_prefix_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * op;
+    c_grammar_node_t const * operand;
+} ast_node_unary_expression_prefix_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -600,6 +607,7 @@ typedef union c_grammar_node_t
     ast_node_enum_definition_t enum_definition;
     ast_node_function_pointer_declarator_t function_pointer_declarator;
     ast_node_enumerator_t enumerator;
+    ast_node_unary_expression_prefix_t unary_expression_prefix;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
