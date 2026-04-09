@@ -4953,8 +4953,8 @@ static LLVMValueRef
 process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
-    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
+    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
+    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
@@ -4977,7 +4977,10 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         }
     }
 
-    switch (node->op.eq.op)
+    c_grammar_node_t const * op_node = node->binary_expression.op;
+    equality_operator_type_t operator= op_node->op.eq.op;
+
+    switch (operator)
     {
     case EQ_OP_EQ:
         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
@@ -4986,6 +4989,7 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
                            : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
     }
+
     return NULL; /* Shouldn't happen. */
 }
 
