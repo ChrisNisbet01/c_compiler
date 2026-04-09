@@ -1,6 +1,6 @@
 // GDL definition for a basic C-like parser
 // Supports global variables, function definitions, structs, and a more complete expression hierarchy.
-// Now includes support for typedefs using transactional wrap() and satisfy().
+// Includes support for typedefs using transactional wrap() and satisfy().
 
 // --- Lexical Elements ---
 
@@ -320,7 +320,7 @@ EnumeratorList = delimited_flex(Enumerator, Comma) Comma? @AST_ACTION_ENUMERATOR
 EnumDefinition = KwEnum AttributeList Identifier? LBrace EnumeratorList RBrace AttributeList @AST_ACTION_ENUM_DEFINITION;
 
 // Typedef names are identifiers that have been registered
-TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPE_SPECIFIER;
+TypedefName = satisfy(Identifier, "typedef-name", is_typedef_name, NULL) @AST_ACTION_TYPEDEF_SPECIFIER;
 
 StructTypeRef = KwStruct AttributeList Identifier @AST_ACTION_STRUCT_TYPE_REF;
 UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;

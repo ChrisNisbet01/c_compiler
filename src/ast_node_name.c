@@ -26,6 +26,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_DECL_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
     [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
     [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},
+    [AST_NODE_TYPEDEF_SPECIFIER] = {.name = "TypedefSpecifier"},
     [AST_NODE_UNARY_OPERATOR] = {.name = "UnaryOperator"},
     [AST_NODE_UNARY_EXPRESSION] = {.name = "UnaryExpression"},
     [AST_NODE_DECLARATOR] = {.name = "Declarator"},

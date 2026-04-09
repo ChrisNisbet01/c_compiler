@@ -692,6 +692,31 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 }
 
 static void
+handle_typedef_specifier(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count != 1)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_TYPEDEF_SPECIFIER), count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_SPECIFIER);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    ast_node->identifier.identifier = children[0];
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_type_specifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     // Type specifier can have children (e.g., for struct types)
@@ -2835,6 +2860,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT_OPERATOR, handle_assignment_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_SPECIFIER, handle_typedef_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECL_SPECIFIERS, handle_decl_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER_LIST, handle_pointer_list);
