@@ -5047,11 +5047,12 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 {
     // Conditional expression: condition ? true_expr : false_expr
     // Stored in node->lhs (condition), node->rhs (true_expr), node->false_expr (false_expr)
-    c_grammar_node_t const * condition_node = node->lhs;
-    c_grammar_node_t const * true_expr_node = node->rhs;
-    c_grammar_node_t const * false_expr_node = node->false_expr;
+    c_grammar_node_t const * condition_node = node->conditional_expression.condition_expression;
+    c_grammar_node_t const * ternary_operation = node->conditional_expression.ternary_operation;
+    c_grammar_node_t const * true_expr_node = ternary_operation->ternary_operation.true_expression;
+    c_grammar_node_t const * false_expr_node = ternary_operation->ternary_operation.false_expression;
 
-    if (!condition_node || !true_expr_node || !false_expr_node)
+    if (condition_node == NULL || true_expr_node == NULL || false_expr_node == NULL)
     {
         debug_error("Invalid conditional expression");
         return NULL;

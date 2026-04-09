@@ -2605,11 +2605,23 @@ handle_ternary_operation(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_TERNARY_OPERATION), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TERNARY_OPERATION);
     if (ast_node == NULL)
     {
         return;
     }
+
+    ast_node->ternary_operation.true_expression = children[0];
+    ast_node->ternary_operation.false_expression = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2637,35 +2649,15 @@ handle_conditional_expression(
         return;
     }
 
-    // Create the AST node - store all three in the list for IR generator to access
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_CONDITIONAL_EXPRESSION, node);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_CONDITIONAL_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    // Ternary operation present: a ? b : c
-    c_grammar_node_t * ternary = children[1];
-
-    // TernaryOperation children: [AssignmentExpression, ConditionalExpression]
-    // children[0] = LogicalOrExpression (condition)
-    // ternary->list.children[0] = true expression (AssignmentExpression)
-    // ternary->list.children[1] = false expression (ConditionalExpression)
-
-    c_grammar_node_t * condition = children[0];
-    c_grammar_node_t * true_expr = ternary->list.children[0];
-    c_grammar_node_t * false_expr = ternary->list.children[1];
-    ternary->list.count = 0;
-
-    /* Ownership of the ternary child nodes has been transferred to the ConditionalExression node, so it can be freed
-     * now. */
-    c_grammar_node_free(ternary, user_data);
-
-    // Also set lhs/rhs for consistency with other binary ops
-    ast_node->lhs = condition;
-    ast_node->rhs = true_expr;
-    ast_node->false_expr = false_expr;
+    ast_node->conditional_expression.condition_expression = children[0];
+    ast_node->conditional_expression.ternary_operation = children[1];
 
     epc_ast_push(ctx, ast_node);
 }

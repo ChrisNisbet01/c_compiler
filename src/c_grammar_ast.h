@@ -572,6 +572,20 @@ typedef struct ast_node_logical_expression_t
     c_grammar_node_t const * right;
 } ast_node_logical_expression_t;
 
+typedef struct ast_node_ternary_operation_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * true_expression;
+    c_grammar_node_t const * false_expression;
+} ast_node_ternary_operation_t;
+
+typedef struct ast_node_conditional_expression_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * condition_expression;
+    c_grammar_node_t const * ternary_operation;
+} ast_node_conditional_expression_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -643,6 +657,8 @@ typedef union c_grammar_node_t
     ast_node_binary_expression_t binary_expression;
     ast_node_bitwise_expression_t bitwise_expression;
     ast_node_logical_expression_t logical_expression;
+    ast_node_ternary_operation_t ternary_operation;
+    ast_node_conditional_expression_t conditional_expression;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);
