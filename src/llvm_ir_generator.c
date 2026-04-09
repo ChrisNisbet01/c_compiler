@@ -4866,8 +4866,8 @@ static LLVMValueRef
 process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
-    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
+    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
+    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
@@ -4891,8 +4891,10 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
             lhs_type = rhs_type;
         }
     }
+    c_grammar_node_t const * op_node = node->binary_expression.op;
+    arithmetic_operator_type_t operator = op_node->op.arith.op;
 
-    switch (node->op.arith.op)
+    switch (operator)
     {
     case ARITH_OP_ADD:
         return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
