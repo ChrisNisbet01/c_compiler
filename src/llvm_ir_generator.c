@@ -4808,8 +4808,8 @@ static LLVMValueRef
 process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
-    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
+    LLVMValueRef lhs_val = process_expression(ctx, node->bitwise_expression.left);
+    LLVMValueRef rhs_val = process_expression(ctx, node->bitwise_expression.right);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
@@ -4833,7 +4833,9 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
     }
 
-    switch (node->op.bitwise.op)
+    bitwise_operator_type_t operator= node->bitwise_expression.op.op;
+
+    switch (operator)
     {
     case BITWISE_OP_AND:
         return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
@@ -4842,6 +4844,7 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     case BITWISE_OP_XOR:
         return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
     }
+    
     return NULL; /* Shouldn't happen. */
 }
 

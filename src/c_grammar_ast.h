@@ -556,6 +556,14 @@ typedef struct ast_node_binary_expression_t
     c_grammar_node_t const * right;
 } ast_node_binary_expression_t;
 
+typedef struct ast_node_bitwise_expression_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * left;
+    bitwise_operator_data_t op;
+    c_grammar_node_t const * right;
+} ast_node_bitwise_expression_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -625,6 +633,7 @@ typedef union c_grammar_node_t
     ast_node_unary_expression_prefix_t unary_expression_prefix;
     ast_node_cast_expression_t cast_expression;
     ast_node_binary_expression_t binary_expression;
+    ast_node_bitwise_expression_t bitwise_expression;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

@@ -1132,17 +1132,15 @@ handle_bitwise_and_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_BITWISE_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = children[0];
-    ast_node->rhs = children[1];
-    ast_node->op.bitwise.op = BITWISE_OP_AND;
-    ast_node->op.text = strdup("&");
+    ast_node->bitwise_expression.left = children[0];
+    ast_node->bitwise_expression.op.op = BITWISE_OP_AND;
+    ast_node->bitwise_expression.right = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1161,17 +1159,15 @@ handle_bitwise_exclusive_or_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_BITWISE_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = children[0];
-    ast_node->rhs = children[1];
-    ast_node->op.bitwise.op = BITWISE_OP_XOR;
-    ast_node->op.text = strdup("^");
+    ast_node->bitwise_expression.left = children[0];
+    ast_node->bitwise_expression.op.op = BITWISE_OP_XOR;
+    ast_node->bitwise_expression.right = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1190,17 +1186,15 @@ handle_bitwise_inclusive_or_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_BITWISE_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = children[0];
-    ast_node->rhs = children[1];
-    ast_node->op.bitwise.op = BITWISE_OP_OR;
-    ast_node->op.text = strdup("|");
+    ast_node->bitwise_expression.left = children[0];
+    ast_node->bitwise_expression.op.op = BITWISE_OP_OR;
+    ast_node->bitwise_expression.right = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
