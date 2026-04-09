@@ -925,11 +925,40 @@ process_initializer_list(
 static int
 search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value)
 {
-    (void)ctx;
+    if (value_node == NULL)
+    {
+        return current_value;
+    }
 
     if (value_node->type == AST_NODE_INTEGER_LITERAL)
     {
         current_value = (int)value_node->integer_lit.integer_literal.value;
+    }
+    else if (value_node->type == AST_NODE_IDENTIFIER && value_node->text != NULL)
+    {
+        // Look up the identifier in the symbol table to find its value
+        LLVMValueRef symbol_ptr = NULL;
+        LLVMTypeRef symbol_type = NULL;
+        LLVMTypeRef pointee_type = NULL;
+        if (find_symbol(ctx, value_node->text, &symbol_ptr, &symbol_type, &pointee_type))
+        {
+            // If found, try to get the integer value from the symbol
+            // For enum constants, the value is stored as the initializer of a global
+            LLVMValueRef initializer = LLVMGetInitializer(symbol_ptr);
+            if (initializer != NULL && LLVMIsAConstantInt(initializer))
+            {
+                current_value = (int)LLVMConstIntGetZExtValue(initializer);
+            }
+            else
+            {
+                // If it's not a constant int, it might be another enum reference
+                // Recursively search in case it references another identifier
+                // Create a temporary node to search from the symbol's definition
+                current_value = search_nodes_for_integer_value(
+                    ctx, (c_grammar_node_t const *)LLVMGetInitializer(symbol_ptr), current_value
+                );
+            }
+        }
     }
 
     return current_value;
