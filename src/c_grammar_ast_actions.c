@@ -1340,19 +1340,15 @@ handle_shift_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_SHIFT_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_SHIFT_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = children[0];
-    ast_node->rhs = children[2];
-    ast_node->op.shift.op = op_node->op.shift.op;
-    ast_node->op.text = op_node->text;
-    op_node->text = NULL;
-    c_grammar_node_free(op_node, user_data);
+    ast_node->binary_expression.left = children[0];
+    ast_node->binary_expression.op = children[1];
+    ast_node->binary_expression.right = children[2];
 
     epc_ast_push(ctx, ast_node);
 }

@@ -4849,10 +4849,13 @@ static LLVMValueRef
 process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->lhs);
-    LLVMValueRef rhs_val = process_expression(ctx, node->rhs);
+    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
+    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
 
-    switch (node->op.shift.op)
+    c_grammar_node_t const * op_node = node->binary_expression.op;
+    shift_operator_type_t operator = op_node->op.shift.op;
+
+    switch (operator)
     {
     case SHIFT_OP_LL:
         return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");

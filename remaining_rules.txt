@@ -1,0 +1,47 @@
+Rules from c_grammar.gdl with @AST_ACTION_ that don't have '+' or '*' modifiers AND don't already use type-based pointers:
+
+1. InitializerListEntry - Already modified (initializer, designation)
+2. OptionalArgumentList - Uses list.children (simple case)
+3. X - ArraySubscriptPart - Uses list.children
+4. X - MemberAccessDotPart - Uses identifier.identifier (type-based)
+5. X - MemberAccessArrowPart - Uses identifier.identifier (type-based)
+6. Enumerator - Uses list.children (simple case)
+7. DeclaratorSuffix - Uses list.children
+8. OptionalInitDeclaratorList - Uses list.children
+9. ParameterDeclarationList - Uses delimited (no action)
+10. ParameterList - Uses list (no action)
+11. ParameterDeclaration - Uses list.children
+12. ReturnStatement - Uses list.children
+13. GotoStatement - Uses list.children
+14. ContinueStatement - Simple terminal
+15. BreakStatement - Simple terminal
+16. DoWhileStatement - Uses list.children
+17. WhileStatement - Uses list.children
+18. ForStatement - Uses list.children
+19. AsmStatement - Uses list.children
+20. CaseLabel - Uses list.children
+21. LabeledDefaultStatement - Uses list.children
+
+================================================================================
+
+Rules with '*' or '+' modifiers that DON'T already use type-based pointers (from the grammar):
+
+1. PostfixParts = PostfixPart* @AST_ACTION_POSTFIX_PARTS
+2. PointerManyList = Pointer* @AST_ACTION_POINTER_LIST
+3. DeclaratorSuffixList = DeclaratorSuffix* @AST_ACTION_DECLARATOR_SUFFIX_LIST
+4. AttributeList = Attribute* @AST_ACTION_ATTRIBUTE_LIST
+5. CaseLabels = CaseLabel+ @AST_ACTION_CASE_LABELS
+6. SwitchBodyStatements = SwitchBodyStatement* @AST_ACTION_SWITCH_BODY_STATEMENTS
+7. SwitchCompoundStatement = LBrace ...* RBrace @AST_ACTION_COMPOUND_STATEMENT
+8. CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT
+9. StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARATION_LIST
+10. Designation = Designator+ Assign @AST_ACTION_DESIGNATION
+11. ExternalDeclarations = ExternalDeclaration+ @AST_ACTION_EXTERNAL_DECLARATIONS
+12. AsmNames = KwAsm LParen StringLiteral+ RParen @AST_ACTION_ASM_NAMES
+13. FunctionPointerDeclarator = LParen Pointer Identifier DeclaratorSuffix* RParen @AST_ACTION_FUNCTION_POINTER_DECLARATOR
+14. PreprocessorDirective = lexeme('#' ...*) @AST_ACTION_PREPROCESSOR_DIRECTIVE
+15. AbstractDeclarator = (Pointer+ DeclaratorSuffix*) | DeclaratorSuffix+ (no action)
+16. DeclaratorSuffix - Uses list.children in some handlers
+17. AttributeArgList = ... (Comma AttributeArgument)* (no action)
+18. DeclarationSpecifier* / DeclarationSpecifiers (uses ? not +/*) - no action
+19. SpecifierQualifierList (uses * and +) - no action
