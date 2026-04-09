@@ -4844,7 +4844,7 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     case BITWISE_OP_XOR:
         return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
     }
-    
+
     return NULL; /* Shouldn't happen. */
 }
 
@@ -4999,9 +4999,9 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 static LLVMValueRef
 process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    bool is_or = (node->op.logical.op == LOGICAL_OP_OR);
-    c_grammar_node_t const * lhs_node = node->lhs;
-    c_grammar_node_t const * rhs_node = node->rhs;
+    bool is_or = node->logical_expression.op.op == LOGICAL_OP_OR;
+    c_grammar_node_t const * lhs_node = node->logical_expression.left;
+    c_grammar_node_t const * rhs_node = node->logical_expression.right;
 
     LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
 

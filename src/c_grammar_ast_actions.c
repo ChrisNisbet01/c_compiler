@@ -1213,17 +1213,15 @@ handle_logical_and_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_LOGICAL_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = children[0];
-    ast_node->rhs = children[1];
-    ast_node->op.logical.op = LOGICAL_OP_AND;
-    ast_node->op.text = strdup("&&");
+    ast_node->logical_expression.left = children[0];
+    ast_node->logical_expression.op.op = LOGICAL_OP_AND;
+    ast_node->logical_expression.right = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -1242,17 +1240,15 @@ handle_logical_or_expression(
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_LOGICAL_EXPRESSION, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         return;
     }
 
-    ast_node->lhs = children[0];
-    ast_node->rhs = children[1];
-    ast_node->op.logical.op = LOGICAL_OP_OR;
-    ast_node->op.text = strdup("||");
+    ast_node->logical_expression.left = children[0];
+    ast_node->logical_expression.op.op = LOGICAL_OP_OR;
+    ast_node->logical_expression.right = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
