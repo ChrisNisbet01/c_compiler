@@ -4398,19 +4398,8 @@ static LLVMValueRef
 process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for CastExpression: [TypeName, CastExpression]
-    if (node->list.count < 2)
-    {
-        return NULL;
-    }
-
-    c_grammar_node_t const * type_name_node = node->list.children[0];
-    c_grammar_node_t const * inner_expr_node = node->list.children[1];
-
-    if (type_name_node->type != AST_NODE_TYPE_NAME)
-    {
-        debug_error("Expected TypeName in cast expression, got %u", type_name_node->type);
-        return NULL;
-    }
+    c_grammar_node_t const * type_name_node = node->cast_expression.type_name;
+    c_grammar_node_t const * inner_expr_node = node->cast_expression.expression;
 
     // TypeName children are [SpecifierQualifierList, AbstractDeclarator?]
     c_grammar_node_t * spec_qual = type_name_node->list.children[0];
