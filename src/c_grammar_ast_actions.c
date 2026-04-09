@@ -2345,10 +2345,25 @@ handle_enum_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
 static void
 handle_enumerator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count != 1 && count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 or 2 children, but got %u", get_node_type_name_from_type(AST_NODE_ENUMERATOR), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUMERATOR);
     if (ast_node == NULL)
     {
         return;
+    }
+
+    ast_node->enumerator.identifier = children[0];
+    if (count == 2)
+    {
+        ast_node->enumerator.expression = children[1];
     }
 
     epc_ast_push(ctx, ast_node);
@@ -2364,7 +2379,7 @@ handle_function_pointer_declarator(
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
-            "%s expected 3children, but got %u",
+            "%s expected 3 children, but got %u",
             get_node_type_name_from_type(AST_NODE_FUNCTION_POINTER_DECLARATOR),
             count
         );
@@ -2915,9 +2930,9 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TERNARY_OPERATION, handle_ternary_operation);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CONDITIONAL_EXPRESSION, handle_conditional_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMMA_EXPRESSION, handle_comma_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUMERATOR, handle_enumerator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUMERATOR_LIST, handle_enumerator_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUM_DEFINITION, handle_enum_definition);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_ENUMERATOR, handle_enumerator);
     epc_ast_hook_registry_set_action(
         registry, AST_ACTION_FUNCTION_POINTER_DECLARATOR, handle_function_pointer_declarator
     );

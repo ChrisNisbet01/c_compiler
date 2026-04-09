@@ -527,6 +527,13 @@ typedef struct ast_node_function_pointer_declarator_t
     c_grammar_node_t const * declarator_suffix_list;
 } ast_node_function_pointer_declarator_t;
 
+typedef struct ast_node_enumerator_t
+{
+    c_grammar_base_node_t base;
+    c_grammar_node_t const * identifier;
+    c_grammar_node_t const * expression;
+} ast_node_enumerator_t;
+
 typedef union c_grammar_node_t
 {
     struct
@@ -592,6 +599,7 @@ typedef union c_grammar_node_t
     ast_node_struct_definition_t struct_definition;
     ast_node_enum_definition_t enum_definition;
     ast_node_function_pointer_declarator_t function_pointer_declarator;
+    ast_node_enumerator_t enumerator;
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

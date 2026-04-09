@@ -941,65 +941,47 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
     {
         c_grammar_node_t * child = enumerator_list->list.children[i];
 
-        if (child->type == AST_NODE_ENUMERATOR && child->list.count >= 1)
+        if (child->type == AST_NODE_ENUMERATOR)
         {
             // Enumerator = [Identifier] or [Identifier, Assign, IntegerLiteral]
-            c_grammar_node_t * name_node = child->list.children[0];
-
-            if (name_node && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
+            c_grammar_node_t const * name_node = child->enumerator.identifier;
+            c_grammar_node_t const * value_node = child->enumerator.expression;
+            char const * enum_name = name_node->text;
+            // Check if there's an explicit value assignment
+            if (value_node != NULL)
             {
-                char const * enum_name = name_node->text;
-
-                // Check if there's an explicit value assignment
-                // The enumerator could be [Identifier, Value] or [Identifier, Assign, Value]
-                c_grammar_node_t * value_node = NULL;
-
-                if (child->list.count == 2)
+                // Walk down the expression tree to find the integer literal
+                if (value_node->type == AST_NODE_INTEGER_LITERAL)
                 {
-                    // [Identifier, Value]
-                    value_node = child->list.children[1];
+                    current_value = (int)value_node->integer_lit.integer_literal.value;
                 }
-                else if (child->list.count >= 3)
+                else
                 {
-                    // [Identifier, Assign, Value]
-                    value_node = child->list.children[2];
-                }
-
-                if (value_node)
-                {
-                    // Walk down the expression tree to find the integer literal
-                    if (value_node->type == AST_NODE_INTEGER_LITERAL)
+                    // Try lhs recursively for wrapped expressions
+                    c_grammar_node_t const * node = value_node;
+                    while (node != NULL && node->lhs != NULL)
                     {
-                        current_value = (int)value_node->integer_lit.integer_literal.value;
-                    }
-                    else if (value_node->lhs)
-                    {
-                        // Try lhs recursively for wrapped expressions
-                        c_grammar_node_t * node = (c_grammar_node_t *)value_node;
-                        while (node && node->lhs)
+                        if (node->type == AST_NODE_INTEGER_LITERAL)
                         {
-                            if (node->type == AST_NODE_INTEGER_LITERAL)
-                            {
-                                current_value = (int)node->integer_lit.integer_literal.value;
-                                break;
-                            }
-                            node = (c_grammar_node_t *)node->lhs;
+                            current_value = (int)node->integer_lit.integer_literal.value;
+                            break;
                         }
+                        node = node->lhs;
                     }
                 }
-
-                // Create a global constant for this enum value
-                LLVMValueRef const_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_value, true);
-                LLVMValueRef global = LLVMAddGlobal(ctx->module, LLVMInt32TypeInContext(ctx->context), enum_name);
-                LLVMSetInitializer(global, const_val);
-                LLVMSetGlobalConstant(global, true);
-                LLVMSetLinkage(global, LLVMInternalLinkage);
-
-                // Also add to symbol table for immediate lookup
-                add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL);
-
-                current_value++;
             }
+
+            // Create a global constant for this enum value
+            LLVMValueRef const_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_value, true);
+            LLVMValueRef global = LLVMAddGlobal(ctx->module, LLVMInt32TypeInContext(ctx->context), enum_name);
+            LLVMSetInitializer(global, const_val);
+            LLVMSetGlobalConstant(global, true);
+            LLVMSetLinkage(global, LLVMInternalLinkage);
+
+            // Also add to symbol table for immediate lookup
+            add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL);
+
+            current_value++;
         }
     }
 
@@ -2586,7 +2568,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         }
                                     }
                                 }
-                                else if (child->type == AST_NODE_TYPE_SPECIFIER)                                
+                                else if (child->type == AST_NODE_TYPE_SPECIFIER)
                                 {
                                     /* Try to extract struct/union/enum tag directly */
                                     char const * name_from_struct = extract_struct_or_union_or_enum_tag(child);
