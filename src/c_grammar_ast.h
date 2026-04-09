@@ -513,34 +513,25 @@ typedef struct ast_node_conditional_expression_t
     c_grammar_node_t const * ternary_operation;
 } ast_node_conditional_expression_t;
 
+typedef union ast_node_operator_t
+{
+    bitwise_operator_data_t bitwise;
+    shift_operator_data_t shift;
+    arithmetic_operator_data_t arith;
+    relational_operator_data_t rel;
+    equality_operator_data_t eq;
+    logical_operator_data_t logical;
+    unary_operator_data_t unary;
+    postfix_operator_data_t postfix;
+    assignment_operator_data_t assign;
+} ast_node_operator_t;
+
 typedef struct c_grammar_node_t
 {
-    struct
-    {
-        c_grammar_node_type_t type;
+    c_grammar_node_type_t type;
 
-        ast_node_list_t list;
-        char * text;
-
-        /* Operator specific. */
-        struct
-        {
-            char const * text;
-
-            union
-            {
-                bitwise_operator_data_t bitwise;
-                shift_operator_data_t shift;
-                arithmetic_operator_data_t arith;
-                relational_operator_data_t rel;
-                equality_operator_data_t eq;
-                logical_operator_data_t logical;
-                unary_operator_data_t unary;
-                postfix_operator_data_t postfix;
-                assignment_operator_data_t assign;
-            };
-        } op;
-    };
+    ast_node_list_t list;
+    char * text;
 
     union
     {
@@ -583,6 +574,7 @@ typedef struct c_grammar_node_t
         ast_node_logical_expression_t logical_expression;
         ast_node_ternary_operation_t ternary_operation;
         ast_node_conditional_expression_t conditional_expression;
+        ast_node_operator_t op;
     };
 } c_grammar_node_t;
 
