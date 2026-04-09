@@ -5,7 +5,7 @@ typedef enum
     ZERO = 0,
     ONE = 1,
     TWO = 2,
-    TEN = 10
+    TEN = 10,
 } Number;
 
 int
