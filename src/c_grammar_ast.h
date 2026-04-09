@@ -3,7 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef union c_grammar_node_t c_grammar_node_t;
+typedef struct c_grammar_node_t c_grammar_node_t;
 
 typedef enum
 {
@@ -256,61 +256,24 @@ typedef struct
     bool is_long;
 } integer_literal_data_t;
 
-typedef struct c_grammar_base_node_t
-{
-    c_grammar_node_type_t type;
-
-    ast_node_list_t list;
-    char * text;
-
-    /* Expression specific. */
-    c_grammar_node_t const * lhs;
-    c_grammar_node_t const * rhs;
-    c_grammar_node_t const * false_expr; /* Used by ConditionExpression. */
-
-    /* Operator specific. */
-    struct
-    {
-        char const * text;
-
-        union
-        {
-            bitwise_operator_data_t bitwise;
-            shift_operator_data_t shift;
-            arithmetic_operator_data_t arith;
-            relational_operator_data_t rel;
-            equality_operator_data_t eq;
-            logical_operator_data_t logical;
-            unary_operator_data_t unary;
-            postfix_operator_data_t postfix;
-            assignment_operator_data_t assign;
-        };
-    } op;
-} c_grammar_base_node_t;
-
 typedef struct ast_node_expression_t
 {
-    c_grammar_base_node_t base;
-    c_grammar_node_t const * lhs;
-    c_grammar_node_t const * rhs;
-    c_grammar_node_t const * false_expr; /* Used by ConditionalExpression. */
+    c_grammar_node_t const * left;
+    c_grammar_node_t const * right;
 } ast_node_expression_t;
 
 typedef struct ast_node_float_literal_t
 {
-    c_grammar_base_node_t base;
     float_literal_data_t float_literal;
 } ast_node_float_literal_t;
 
 typedef struct ast_node_integer_literal_t
 {
-    c_grammar_base_node_t base;
     integer_literal_data_t integer_literal;
 } ast_node_integer_literal_t;
 
 typedef struct ast_node_external_declaration_t
 {
-    c_grammar_base_node_t base;
     /* One or other of the following. */
     c_grammar_node_t const * top_level_declaration;
     c_grammar_node_t const * preprocessor_directive;
@@ -318,13 +281,11 @@ typedef struct ast_node_external_declaration_t
 
 typedef struct ast_node_translation_unit_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * external_declarations;
 } ast_node_translation_unit_t;
 
 typedef struct ast_node_function_definition_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * declaration_specifiers;
     c_grammar_node_t const * declarator;
     c_grammar_node_t const * body;
@@ -332,7 +293,6 @@ typedef struct ast_node_function_definition_t
 
 typedef struct ast_node_declaration_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * extension;
     c_grammar_node_t const * declaration_specifiers;
     c_grammar_node_t const * init_declarator_list;
@@ -340,14 +300,12 @@ typedef struct ast_node_declaration_t
 
 typedef struct ast_node_top_level_declaration_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * extension;
     c_grammar_node_t const * declaration;
 } ast_node_top_level_declaration_t;
 
 typedef struct ast_node_struct_declaration_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * extension;
     c_grammar_node_t const * specifier_qualifier_list;
     c_grammar_node_t const * declarator_list;
@@ -355,14 +313,12 @@ typedef struct ast_node_struct_declaration_t
 
 typedef struct ast_node_labeled_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * label;
     c_grammar_node_t const * statement;
 } ast_node_labeled_statement_t;
 
 typedef struct ast_node_if_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * condition;
     c_grammar_node_t const * then_statement;
     c_grammar_node_t const * else_statement;
@@ -370,42 +326,36 @@ typedef struct ast_node_if_statement_t
 
 typedef struct ast_node_switch_case_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * labels;
     c_grammar_node_t const * statements;
 } ast_node_switch_case_t;
 
 typedef struct ast_node_switch_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * expression;
     c_grammar_node_t const * body;
 } ast_node_switch_t;
 
 typedef struct ast_node_type_ref_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * attribute_list;
     c_grammar_node_t const * identifier;
 } ast_node_type_ref_t;
 
 typedef struct ast_node_loop_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * condition;
     c_grammar_node_t const * body;
 } ast_node_loop_statement_t;
 
 typedef struct ast_node_do_while_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * body;
     c_grammar_node_t const * condition;
 } ast_node_do_while_statement_t;
 
 typedef struct ast_node_for_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * init;
     c_grammar_node_t const * condition;
     c_grammar_node_t const * post;
@@ -414,25 +364,21 @@ typedef struct ast_node_for_statement_t
 
 typedef struct ast_node_goto_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * label;
 } ast_node_goto_statement_t;
 
 typedef struct ast_node_return_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * expression;
 } ast_node_return_statement_t;
 
 typedef struct ast_node_expression_statement_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * expression;
 } ast_node_expression_statement_t;
 
 typedef struct ast_node_typedef_declaration_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * extension;
     c_grammar_node_t const * declaration_specifiers;
     c_grammar_node_t const * init_declarator_list;
@@ -440,7 +386,6 @@ typedef struct ast_node_typedef_declaration_t
 
 typedef struct ast_node_init_declarator_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * declarator;
     c_grammar_node_t const * attribute_list_1;
     c_grammar_node_t const * optional_asm_name_list;
@@ -450,7 +395,6 @@ typedef struct ast_node_init_declarator_t
 
 typedef struct ast_node_declarator_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * pointer_list;
     c_grammar_node_t const * direct_declarator;
     c_grammar_node_t const * declarator_suffix_list;
@@ -459,7 +403,6 @@ typedef struct ast_node_declarator_t
 
 typedef struct ast_node_typedef_declarator_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * pointer_list;
     c_grammar_node_t const * direct_declarator;
     c_grammar_node_t const * declarator_suffix_list;
@@ -468,7 +411,6 @@ typedef struct ast_node_typedef_declarator_t
 
 typedef struct ast_node_typedef_direct_declarator_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * nested_typedef_declarator;
     c_grammar_node_t const * identifier;
     c_grammar_node_t const * attribute_list;
@@ -476,34 +418,29 @@ typedef struct ast_node_typedef_direct_declarator_t
 
 typedef struct ast_node_identifier_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * identifier;
 } ast_node_identifier_t;
 
 typedef struct ast_node_compound_literal_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * type_name;
     c_grammar_node_t const * initializer_list;
 } ast_node_compound_literal_t;
 
 typedef struct ast_node_postfix_expression_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * base_expression;
     c_grammar_node_t const * postfix_parts;
 } ast_node_postfix_expression_t;
 
 typedef struct ast_node_initializer_list_entry_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * designation;
     c_grammar_node_t const * initializer;
 } ast_node_initializer_list_entry_t;
 
 typedef struct ast_node_enum_definition_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * attribute_list_1;
     c_grammar_node_t const * identifier;
     c_grammar_node_t const * enumerator_list;
@@ -512,7 +449,6 @@ typedef struct ast_node_enum_definition_t
 
 typedef struct ast_node_struct_definition_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * attribute_list_1;
     c_grammar_node_t const * identifier;
     c_grammar_node_t const * declaration_list;
@@ -521,7 +457,6 @@ typedef struct ast_node_struct_definition_t
 
 typedef struct ast_node_function_pointer_declarator_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * pointer;
     c_grammar_node_t const * identifier;
     c_grammar_node_t const * declarator_suffix_list;
@@ -529,28 +464,24 @@ typedef struct ast_node_function_pointer_declarator_t
 
 typedef struct ast_node_enumerator_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * identifier;
     c_grammar_node_t const * expression;
 } ast_node_enumerator_t;
 
 typedef struct ast_node_unary_expression_prefix_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * op;
     c_grammar_node_t const * operand;
 } ast_node_unary_expression_prefix_t;
 
 typedef struct ast_node_cast_expression_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * type_name;
     c_grammar_node_t const * expression;
 } ast_node_cast_expression_t;
 
 typedef struct ast_node_binary_expression_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * left;
     c_grammar_node_t const * op;
     c_grammar_node_t const * right;
@@ -558,7 +489,6 @@ typedef struct ast_node_binary_expression_t
 
 typedef struct ast_node_bitwise_expression_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * left;
     bitwise_operator_data_t op;
     c_grammar_node_t const * right;
@@ -566,7 +496,6 @@ typedef struct ast_node_bitwise_expression_t
 
 typedef struct ast_node_logical_expression_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * left;
     logical_operator_data_t op;
     c_grammar_node_t const * right;
@@ -574,19 +503,17 @@ typedef struct ast_node_logical_expression_t
 
 typedef struct ast_node_ternary_operation_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * true_expression;
     c_grammar_node_t const * false_expression;
 } ast_node_ternary_operation_t;
 
 typedef struct ast_node_conditional_expression_t
 {
-    c_grammar_base_node_t base;
     c_grammar_node_t const * condition_expression;
     c_grammar_node_t const * ternary_operation;
 } ast_node_conditional_expression_t;
 
-typedef union c_grammar_node_t
+typedef struct c_grammar_node_t
 {
     struct
     {
@@ -594,11 +521,6 @@ typedef union c_grammar_node_t
 
         ast_node_list_t list;
         char * text;
-
-        /* Expression specific. */
-        c_grammar_node_t const * lhs;
-        c_grammar_node_t const * rhs;
-        c_grammar_node_t const * false_expr; /* Used by ConditionExpression. */
 
         /* Operator specific. */
         struct
@@ -619,46 +541,49 @@ typedef union c_grammar_node_t
             };
         } op;
     };
-    c_grammar_base_node_t base;
-    ast_node_expression_t expression;
-    ast_node_float_literal_t float_lit;
-    ast_node_integer_literal_t integer_lit;
-    ast_node_translation_unit_t translation_unit;
-    ast_node_external_declaration_t external_declaration;
-    ast_node_function_definition_t function_definition;
-    ast_node_declaration_t declaration;
-    ast_node_top_level_declaration_t top_level_declaration;
-    ast_node_struct_declaration_t struct_declaration;
-    ast_node_labeled_statement_t labeled_statement;
-    ast_node_if_statement_t if_statement;
-    ast_node_switch_case_t switch_case;
-    ast_node_switch_t switch_statement;
-    ast_node_type_ref_t type_ref;
-    ast_node_loop_statement_t while_statement;
-    ast_node_do_while_statement_t do_while_statement;
-    ast_node_for_statement_t for_statement;
-    ast_node_goto_statement_t goto_statement;
-    ast_node_return_statement_t return_statement;
-    ast_node_expression_statement_t expression_statement;
-    ast_node_init_declarator_t init_declarator;
-    ast_node_declarator_t declarator;
-    ast_node_typedef_declarator_t typedef_declarator;
-    ast_node_typedef_direct_declarator_t typedef_direct_declarator;
-    ast_node_identifier_t identifier;
-    ast_node_compound_literal_t compound_literal;
-    ast_node_postfix_expression_t postfix_expression;
-    ast_node_initializer_list_entry_t initializer_list_entry;
-    ast_node_struct_definition_t struct_definition;
-    ast_node_enum_definition_t enum_definition;
-    ast_node_function_pointer_declarator_t function_pointer_declarator;
-    ast_node_enumerator_t enumerator;
-    ast_node_unary_expression_prefix_t unary_expression_prefix;
-    ast_node_cast_expression_t cast_expression;
-    ast_node_binary_expression_t binary_expression;
-    ast_node_bitwise_expression_t bitwise_expression;
-    ast_node_logical_expression_t logical_expression;
-    ast_node_ternary_operation_t ternary_operation;
-    ast_node_conditional_expression_t conditional_expression;
+
+    union
+    {
+        ast_node_expression_t expression;
+        ast_node_float_literal_t float_lit;
+        ast_node_integer_literal_t integer_lit;
+        ast_node_translation_unit_t translation_unit;
+        ast_node_external_declaration_t external_declaration;
+        ast_node_function_definition_t function_definition;
+        ast_node_declaration_t declaration;
+        ast_node_top_level_declaration_t top_level_declaration;
+        ast_node_struct_declaration_t struct_declaration;
+        ast_node_labeled_statement_t labeled_statement;
+        ast_node_if_statement_t if_statement;
+        ast_node_switch_case_t switch_case;
+        ast_node_switch_t switch_statement;
+        ast_node_type_ref_t type_ref;
+        ast_node_loop_statement_t while_statement;
+        ast_node_do_while_statement_t do_while_statement;
+        ast_node_for_statement_t for_statement;
+        ast_node_goto_statement_t goto_statement;
+        ast_node_return_statement_t return_statement;
+        ast_node_expression_statement_t expression_statement;
+        ast_node_init_declarator_t init_declarator;
+        ast_node_declarator_t declarator;
+        ast_node_typedef_declarator_t typedef_declarator;
+        ast_node_typedef_direct_declarator_t typedef_direct_declarator;
+        ast_node_identifier_t identifier;
+        ast_node_compound_literal_t compound_literal;
+        ast_node_postfix_expression_t postfix_expression;
+        ast_node_initializer_list_entry_t initializer_list_entry;
+        ast_node_struct_definition_t struct_definition;
+        ast_node_enum_definition_t enum_definition;
+        ast_node_function_pointer_declarator_t function_pointer_declarator;
+        ast_node_enumerator_t enumerator;
+        ast_node_unary_expression_prefix_t unary_expression_prefix;
+        ast_node_cast_expression_t cast_expression;
+        ast_node_binary_expression_t binary_expression;
+        ast_node_bitwise_expression_t bitwise_expression;
+        ast_node_logical_expression_t logical_expression;
+        ast_node_ternary_operation_t ternary_operation;
+        ast_node_conditional_expression_t conditional_expression;
+    };
 } c_grammar_node_t;
 
 void c_grammar_node_free(void * node, void * user_data);

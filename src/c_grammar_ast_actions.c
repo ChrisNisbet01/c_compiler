@@ -37,11 +37,6 @@ c_grammar_node_free(void * node_ptr, void * user_data)
     free_ast_node_children((void **)node->list.children, node->list.count, user_data);
     free(node->list.children);
 
-    free((char *)node->op.text);
-    c_grammar_node_free((c_grammar_node_t *)node->lhs, user_data);
-    c_grammar_node_free((c_grammar_node_t *)node->rhs, user_data);
-    c_grammar_node_free((c_grammar_node_t *)node->false_expr, user_data);
-
     free(node);
 }
 
@@ -415,16 +410,15 @@ handle_integer_literal(
         );
         return;
     }
-    c_grammar_node_t * _ast_node = create_terminal_node(ctx, AST_NODE_INTEGER_LITERAL, node);
-    if (_ast_node == NULL)
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_INTEGER_LITERAL, node);
+    if (ast_node == NULL)
     {
         free_ast_node_children(children, count, user_data);
         return;
     }
-    ast_node_integer_literal_t * ast_node = &_ast_node->integer_lit;
 
     // Parse with base 0 to automatically handle 0x (hex) and 0 (octal)
-    ast_node->integer_literal.value = strtoull(ast_node->base.text, NULL, 0);
+    ast_node->integer_lit.integer_literal.value = strtoull(ast_node->text, NULL, 0);
 
     if (count == 2)
     {
@@ -435,11 +429,11 @@ handle_integer_literal(
         {
             if (strchr(suffix_text, 'u') || strchr(suffix_text, 'U'))
             {
-                ast_node->integer_literal.is_unsigned = true;
+                ast_node->integer_lit.integer_literal.is_unsigned = true;
             }
             if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
             {
-                ast_node->integer_literal.is_long = true;
+                ast_node->integer_lit.integer_literal.is_long = true;
             }
         }
     }
@@ -461,19 +455,18 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         );
         return;
     }
-    c_grammar_node_t * _ast_node = create_terminal_node(ctx, AST_NODE_FLOAT_LITERAL, node);
-    if (_ast_node == NULL)
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_FLOAT_LITERAL, node);
+    if (ast_node == NULL)
     {
         free_ast_node_children(children, count, user_data);
         return;
     }
-    ast_node_float_literal_t * ast_node = &_ast_node->float_lit;
 
     c_grammar_node_t * suffix_node = count == 2 ? children[1] : NULL;
-    char * full_text = ast_node->base.text;
+    char * full_text = ast_node->text;
 
-    ast_node->float_literal.value = strtold(full_text, NULL);
-    ast_node->float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
+    ast_node->float_lit.float_literal.value = strtold(full_text, NULL);
+    ast_node->float_lit.float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
     if (suffix_node != NULL)
     {
         char * suffix_text = suffix_node->text;
@@ -482,11 +475,11 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         {
             if (strchr(suffix_text, 'f') || strchr(suffix_text, 'F'))
             {
-                ast_node->float_literal.type = FLOAT_LITERAL_TYPE_FLOAT;
+                ast_node->float_lit.float_literal.type = FLOAT_LITERAL_TYPE_FLOAT;
             }
             else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
             {
-                ast_node->float_literal.type = FLOAT_LITERAL_TYPE_LONG_DOUBLE;
+                ast_node->float_lit.float_literal.type = FLOAT_LITERAL_TYPE_LONG_DOUBLE;
             }
         }
     }

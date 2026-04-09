@@ -922,6 +922,19 @@ process_initializer_list(
     }
 }
 
+static int
+search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value)
+{
+    (void)ctx;
+
+    if (value_node->type == AST_NODE_INTEGER_LITERAL)
+    {
+        current_value = (int)value_node->integer_lit.integer_literal.value;
+    }
+
+    return current_value;
+}
+
 static bool
 register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
 {
@@ -951,24 +964,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             if (value_node != NULL)
             {
                 // Walk down the expression tree to find the integer literal
-                if (value_node->type == AST_NODE_INTEGER_LITERAL)
-                {
-                    current_value = (int)value_node->integer_lit.integer_literal.value;
-                }
-                else
-                {
-                    // Try lhs recursively for wrapped expressions
-                    c_grammar_node_t const * node = value_node;
-                    while (node != NULL && node->lhs != NULL)
-                    {
-                        if (node->type == AST_NODE_INTEGER_LITERAL)
-                        {
-                            current_value = (int)node->integer_lit.integer_literal.value;
-                            break;
-                        }
-                        node = node->lhs;
-                    }
-                }
+                current_value = search_nodes_for_integer_value(ctx, value_node, current_value);
             }
 
             // Create a global constant for this enum value
@@ -2976,8 +2972,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ASSIGNMENT:
     {
         // Handle assignment like 'variable = expression', 'arr[i] = expression', or 's.member = expression'
-        c_grammar_node_t const * lhs_node = node->lhs;
-        c_grammar_node_t const * rhs_node = node->rhs;
+        c_grammar_node_t const * lhs_node = node->binary_expression.left;
+        c_grammar_node_t const * rhs_node = node->binary_expression.right;
 
         LLVMValueRef lhs_ptr = NULL;
         LLVMTypeRef lhs_type = NULL;
@@ -4618,7 +4614,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
     c_grammar_node_t const * op_node = node->binary_expression.op;
     assignment_operator_type_t assign_op_type = op_node->op.assign.op;
-    
+
     bool is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
 
     LLVMValueRef rhs_value;
@@ -5048,7 +5044,6 @@ static LLVMValueRef
 process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Conditional expression: condition ? true_expr : false_expr
-    // Stored in node->lhs (condition), node->rhs (true_expr), node->false_expr (false_expr)
     c_grammar_node_t const * condition_node = node->conditional_expression.condition_expression;
     c_grammar_node_t const * ternary_operation = node->conditional_expression.ternary_operation;
     c_grammar_node_t const * true_expr_node = ternary_operation->ternary_operation.true_expression;
