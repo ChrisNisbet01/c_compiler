@@ -4432,8 +4432,8 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static LLVMValueRef
 process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    c_grammar_node_t const * lhs_node = node->lhs;
-    c_grammar_node_t const * rhs_node = node->rhs;
+    c_grammar_node_t const * lhs_node = node->binary_expression.left;
+    c_grammar_node_t const * rhs_node = node->binary_expression.right;
 
     LLVMValueRef lhs_ptr = NULL;
     LLVMTypeRef lhs_type = NULL;
@@ -4616,7 +4616,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
-    assignment_operator_type_t assign_op_type = node->op.assign.op;
+    c_grammar_node_t const * op_node = node->binary_expression.op;
+    assignment_operator_type_t assign_op_type = op_node->op.assign.op;
+    
     bool is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
 
     LLVMValueRef rhs_value;
