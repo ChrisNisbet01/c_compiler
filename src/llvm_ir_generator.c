@@ -5046,7 +5046,7 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     }
 
     c_grammar_node_t const * op_node = node->binary_expression.op;
-    bitwise_operator_type_t operator = op_node->op.bitwise.op;
+    bitwise_operator_type_t operator= op_node->op.bitwise.op;
 
     switch (operator)
     {
@@ -5570,6 +5570,19 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                         target_type = struct_type;
                     }
                 }
+                // Handle TypedefSpecifier (typedef name in sizeof(MyType))
+                else if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
+                {
+                    char const * typedef_name = extract_typedef_name(child);
+                    if (typedef_name != NULL)
+                    {
+                        LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
+                        if (typedef_type != NULL)
+                        {
+                            target_type = typedef_type;
+                        }
+                    }
+                }
             }
         }
         // Check if operand is a type specifier (e.g., sizeof(int))
@@ -5584,6 +5597,15 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             {
                 // Non-terminal type specifier - use map_type
                 target_type = map_type(ctx, operand_node, NULL);
+            }
+        }
+        else if (operand_node->type == AST_NODE_TYPEDEF_SPECIFIER)
+        {
+            char const * type_name = extract_typedef_name(operand_node);
+
+            if (type_name != NULL)
+            {
+                target_type = find_typedef_type(ctx, type_name);
             }
         }
         else if (operand_node->type == AST_NODE_DECL_SPECIFIERS)
