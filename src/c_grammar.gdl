@@ -354,9 +354,9 @@ DeclarationSpecifier = StorageClassSpecifier
 DeclarationSpecifiers = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
                       | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_DECL_SPECIFIERS;
 
-SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) 
-                       | (TypeQualifier | NonTypedefTypeSpecifier)+
-                       @AST_ACTION_SPECIFIER_QUALIFIER_LIST;
+TypedefSpecifierQualifier = (TypeQualifier* TypedefName TypeQualifier*);
+NonTypedefSpecifierQualifier = (TypeQualifier | NonTypedefTypeSpecifier)+;
+SpecifierQualifierList = TypedefSpecifierQualifier | NonTypedefSpecifierQualifier @AST_ACTION_SPECIFIER_QUALIFIER_LIST;
 
 // Common Declarator: supports pointers, arrays, and function pointers
 Pointer = Star TypeQualifier* @AST_ACTION_POINTER;

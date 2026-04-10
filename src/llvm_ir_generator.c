@@ -5324,7 +5324,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             bool is_typedef = false;
             if (type_name_node->type == AST_NODE_TYPE_NAME)
             {
-                c_grammar_node_t const * qualifier_list = type_name_node->type_name.qualifier_list;
+                c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
 
                 for (size_t i = 0; i < qualifier_list->list.count && type_name == NULL; ++i)
                 {
@@ -5500,7 +5500,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
             // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
-            c_grammar_node_t const * qualifier_list = operand_node->type_name.qualifier_list;
+            c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
 
             for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
             {
@@ -5637,7 +5637,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
-            c_grammar_node_t const * qualifier_list = operand_node->type_name.qualifier_list;
+            c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
 
             for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
             {
@@ -5823,7 +5823,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (type_name_node->type == AST_NODE_TYPE_NAME)
         {
-            c_grammar_node_t const * qualifier_list = type_name_node->type_name.qualifier_list;
+            c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
 
             for (size_t i = 0; i < qualifier_list->list.count && !type_name; ++i)
             {

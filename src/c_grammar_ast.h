@@ -517,7 +517,7 @@ typedef union ast_node_operator_t
 
 typedef struct ast_node_type_name_t
 {
-    c_grammar_node_t const * qualifier_list;
+    c_grammar_node_t const * specifier_qualifier_list;
     c_grammar_node_t const * abstract_declarator;
 } ast_node_type_name_t;
 

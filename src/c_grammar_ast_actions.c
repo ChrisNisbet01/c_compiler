@@ -2151,7 +2151,7 @@ handle_type_name(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** chi
         return;
     }
 
-    ast_node->type_name.qualifier_list = children[0];
+    ast_node->type_name.specifier_qualifier_list = children[0];
     if (count == 2)
     {
         ast_node->type_name.abstract_declarator = children[1];
