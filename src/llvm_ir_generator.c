@@ -930,6 +930,9 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
         return current_value;
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-enum"    
+
     switch (value_node->type)
     {
     case AST_NODE_INTEGER_LITERAL:
@@ -1144,6 +1147,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     default:
         break;
     }
+    
+#pragma GCC diagnostic pop
 
     return current_value;
 }
@@ -3898,6 +3903,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INITIALIZER_LIST_ENTRY:
     case AST_NODE_ENUMERATOR_LIST:
     case AST_NODE_ATTRIBUTE:
+    case AST_NODE_BITWISE_OPERATOR:
+    case AST_NODE_LOGICAL_OPERATOR:
+    case AST_NODE_ABSTRACT_DECLARATOR:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -6003,6 +6011,9 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INITIALIZER_LIST_ENTRY:
     case AST_NODE_ENUMERATOR_LIST:
     case AST_NODE_ATTRIBUTE:
+    case AST_NODE_BITWISE_OPERATOR:
+    case AST_NODE_LOGICAL_OPERATOR:
+    case AST_NODE_ABSTRACT_DECLARATOR:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
