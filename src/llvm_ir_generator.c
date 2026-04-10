@@ -925,11 +925,6 @@ process_initializer_list(
 static int
 search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value)
 {
-    if (value_node == NULL)
-    {
-        return current_value;
-    }
-
     if (value_node->type == AST_NODE_INTEGER_LITERAL)
     {
         current_value = (int)value_node->integer_lit.integer_literal.value;
@@ -953,10 +948,52 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
             {
                 // If it's not a constant int, it might be another enum reference
                 // Recursively search in case it references another identifier
-                // Create a temporary node to search from the symbol's definition
-                current_value = search_nodes_for_integer_value(
-                    ctx, (c_grammar_node_t const *)LLVMGetInitializer(symbol_ptr), current_value
-                );
+                // But we can't call process_expression here, so just return current
+            }
+        }
+    }
+    else if (value_node->type == AST_NODE_ARITHMETIC_EXPRESSION)
+    {
+        // Handle binary expressions: left op right
+        // First get the left operand value
+        int lhs_value = current_value;
+        if (value_node->binary_expression.left != NULL)
+        {
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, current_value);
+        }
+        
+        // Get the right operand value  
+        int rhs_value = 0;
+        if (value_node->binary_expression.right != NULL)
+        {
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, current_value);
+        }
+        
+        // The operator is in list.children[1]
+        c_grammar_node_t const * op_node = value_node->binary_expression.op;
+        
+        // Apply the operator
+        if (op_node != NULL && op_node->text != NULL)
+        {
+            if (strcmp(op_node->text, "+") == 0)
+            {
+                current_value = lhs_value + rhs_value;
+            }
+            else if (strcmp(op_node->text, "-") == 0)
+            {
+                current_value = lhs_value - rhs_value;
+            }
+            else if (strcmp(op_node->text, "*") == 0)
+            {
+                current_value = lhs_value * rhs_value;
+            }
+            else if (strcmp(op_node->text, "/") == 0 && rhs_value != 0)
+            {
+                current_value = lhs_value / rhs_value;
+            }
+            else if (strcmp(op_node->text, "%") == 0 && rhs_value != 0)
+            {
+                current_value = lhs_value % rhs_value;
             }
         }
     }
@@ -998,6 +1035,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
 
             // Create a global constant for this enum value
             LLVMValueRef const_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_value, true);
+            
             LLVMValueRef global = LLVMAddGlobal(ctx->module, LLVMInt32TypeInContext(ctx->context), enum_name);
             LLVMSetInitializer(global, const_val);
             LLVMSetGlobalConstant(global, true);

@@ -660,7 +660,7 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
-            "%s expected shift operator node at index 1, but got %s",
+            "%s expected assignment operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_ASSIGNMENT),
             get_node_type_name_from_node(op_node)
         );
