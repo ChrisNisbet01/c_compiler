@@ -923,7 +923,9 @@ process_initializer_list(
 }
 
 static int
-search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value)
+evaluate_enum_value_assignment_expression(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
+)
 {
     if (value_node == NULL)
     {
@@ -931,7 +933,7 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     }
 
 #pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wswitch-enum"    
+#pragma GCC diagnostic ignored "-Wswitch-enum"
 
     switch (value_node->type)
     {
@@ -958,19 +960,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     case AST_NODE_ARITHMETIC_EXPRESSION:
     {
-        int lhs_value = 0;
-        if (value_node->binary_expression.left != NULL)
-        {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
-        }
-
-        int rhs_value = 0;
-        if (value_node->binary_expression.right != NULL)
-        {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
-        }
-
-        // Get operator from binary_expression.op which is a child node
+        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
         arithmetic_operator_type_t op = op_node->op.arith.op;
 
@@ -999,18 +990,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     case AST_NODE_BITWISE_EXPRESSION:
     {
-        int lhs_value = 0;
-        if (value_node->binary_expression.left != NULL)
-        {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
-        }
-
-        int rhs_value = 0;
-        if (value_node->binary_expression.right != NULL)
-        {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
-        }
-
+        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
         bitwise_operator_type_t op = op_node->op.bitwise.op;
 
@@ -1033,19 +1014,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     case AST_NODE_SHIFT_EXPRESSION:
     {
-        int lhs_value = 0;
-        if (value_node->binary_expression.left != NULL)
-        {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
-        }
-
-        int rhs_value = 0;
-        if (value_node->binary_expression.right != NULL)
-        {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
-        }
-
-        // Get operator from binary_expression.op which is a child node
+        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
         shift_operator_type_t op = op_node->op.shift.op;
 
@@ -1062,19 +1032,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     case AST_NODE_EQUALITY_EXPRESSION:
     {
-        int lhs_value = 0;
-        if (value_node->binary_expression.left != NULL)
-        {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
-        }
-
-        int rhs_value = 0;
-        if (value_node->binary_expression.right != NULL)
-        {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
-        }
-
-        // Get operator from binary_expression.op which is a child node
+        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
         equality_operator_type_t op = op_node->op.eq.op;
 
@@ -1091,19 +1050,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     case AST_NODE_RELATIONAL_EXPRESSION:
     {
-        int lhs_value = 0;
-        if (value_node->binary_expression.left != NULL)
-        {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
-        }
-
-        int rhs_value = 0;
-        if (value_node->binary_expression.right != NULL)
-        {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
-        }
-
-        // Get operator from binary_expression.op which is a child node
+        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
         relational_operator_type_t op = op_node->op.rel.op;
 
@@ -1128,8 +1076,8 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     case AST_NODE_LOGICAL_EXPRESSION:
     {
-        int lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
+        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
         logical_operator_type_t op = op_node->op.logical.op;
 
@@ -1147,7 +1095,7 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     default:
         break;
     }
-    
+
 #pragma GCC diagnostic pop
 
     return current_value;
@@ -1182,7 +1130,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             if (value_node != NULL)
             {
                 // Walk down the expression tree to find the integer literal
-                current_value = search_nodes_for_integer_value(ctx, value_node, current_value);
+                current_value = evaluate_enum_value_assignment_expression(ctx, value_node, current_value);
             }
 
             // Create a global constant for this enum value
