@@ -925,77 +925,203 @@ process_initializer_list(
 static int
 search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value)
 {
-    if (value_node->type == AST_NODE_INTEGER_LITERAL)
+    if (value_node == NULL)
     {
-        current_value = (int)value_node->integer_lit.integer_literal.value;
+        return current_value;
     }
-    else if (value_node->type == AST_NODE_IDENTIFIER && value_node->text != NULL)
+
+    switch (value_node->type)
     {
-        // Look up the identifier in the symbol table to find its value
-        LLVMValueRef symbol_ptr = NULL;
-        LLVMTypeRef symbol_type = NULL;
-        LLVMTypeRef pointee_type = NULL;
-        if (find_symbol(ctx, value_node->text, &symbol_ptr, &symbol_type, &pointee_type))
+    case AST_NODE_INTEGER_LITERAL:
+        current_value = (int)value_node->integer_lit.integer_literal.value;
+        break;
+
+    case AST_NODE_IDENTIFIER:
+        if (value_node->text != NULL)
         {
-            // If found, try to get the integer value from the symbol
-            // For enum constants, the value is stored as the initializer of a global
-            LLVMValueRef initializer = LLVMGetInitializer(symbol_ptr);
-            if (initializer != NULL && LLVMIsAConstantInt(initializer))
+            LLVMValueRef symbol_ptr = NULL;
+            LLVMTypeRef symbol_type = NULL;
+            LLVMTypeRef pointee_type = NULL;
+            if (find_symbol(ctx, value_node->text, &symbol_ptr, &symbol_type, &pointee_type))
             {
-                current_value = (int)LLVMConstIntGetZExtValue(initializer);
-            }
-            else
-            {
-                // If it's not a constant int, it might be another enum reference
-                // Recursively search in case it references another identifier
-                // But we can't call process_expression here, so just return current
+                LLVMValueRef initializer = LLVMGetInitializer(symbol_ptr);
+                if (initializer != NULL && LLVMIsAConstantInt(initializer))
+                {
+                    current_value = (int)LLVMConstIntGetZExtValue(initializer);
+                }
             }
         }
-    }
-    else if (value_node->type == AST_NODE_ARITHMETIC_EXPRESSION)
+        break;
+
+    case AST_NODE_ARITHMETIC_EXPRESSION:
     {
-        // Handle binary expressions: left op right
-        // First get the left operand value
-        int lhs_value = current_value;
+        int lhs_value = 0;
         if (value_node->binary_expression.left != NULL)
         {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, current_value);
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
         }
-        
-        // Get the right operand value  
+
         int rhs_value = 0;
         if (value_node->binary_expression.right != NULL)
         {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, current_value);
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
         }
-        
-        // The operator is in list.children[1]
+
+        // Get operator from binary_expression.op which is a child node
         c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        
-        // Apply the operator
-        if (op_node != NULL && op_node->text != NULL)
+        arithmetic_operator_type_t op = op_node->op.arith.op;
+
+        if (op == ARITH_OP_ADD)
         {
-            if (strcmp(op_node->text, "+") == 0)
-            {
-                current_value = lhs_value + rhs_value;
-            }
-            else if (strcmp(op_node->text, "-") == 0)
-            {
-                current_value = lhs_value - rhs_value;
-            }
-            else if (strcmp(op_node->text, "*") == 0)
-            {
-                current_value = lhs_value * rhs_value;
-            }
-            else if (strcmp(op_node->text, "/") == 0 && rhs_value != 0)
-            {
-                current_value = lhs_value / rhs_value;
-            }
-            else if (strcmp(op_node->text, "%") == 0 && rhs_value != 0)
-            {
-                current_value = lhs_value % rhs_value;
-            }
+            current_value = lhs_value + rhs_value;
         }
+        else if (op == ARITH_OP_SUB)
+        {
+            current_value = lhs_value - rhs_value;
+        }
+        else if (op == ARITH_OP_MUL)
+        {
+            current_value = lhs_value * rhs_value;
+        }
+        else if (op == ARITH_OP_DIV && rhs_value != 0)
+        {
+            current_value = lhs_value / rhs_value;
+        }
+        else if (op == ARITH_OP_MOD && rhs_value != 0)
+        {
+            current_value = lhs_value % rhs_value;
+        }
+    }
+    break;
+
+    case AST_NODE_BITWISE_EXPRESSION:
+    {
+        int lhs_value = 0;
+        if (value_node->bitwise_expression.left != NULL)
+        {
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->bitwise_expression.left, 0);
+        }
+
+        int rhs_value = 0;
+        if (value_node->bitwise_expression.right != NULL)
+        {
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->bitwise_expression.right, 0);
+        }
+
+        switch (value_node->bitwise_expression.op.op)
+        {
+        case BITWISE_OP_AND:
+            current_value = lhs_value & rhs_value;
+            break;
+        case BITWISE_OP_XOR:
+            current_value = lhs_value ^ rhs_value;
+            break;
+        case BITWISE_OP_OR:
+            current_value = lhs_value | rhs_value;
+            break;
+        default:
+            break;
+        }
+    }
+    break;
+
+    case AST_NODE_SHIFT_EXPRESSION:
+    {
+        int lhs_value = 0;
+        if (value_node->binary_expression.left != NULL)
+        {
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
+        }
+
+        int rhs_value = 0;
+        if (value_node->binary_expression.right != NULL)
+        {
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
+        }
+
+        // Get operator from binary_expression.op which is a child node
+        c_grammar_node_t const * op_node = value_node->binary_expression.op;
+        shift_operator_type_t op = op_node->op.shift.op;
+
+        if (op == SHIFT_OP_LL)
+        {
+            current_value = lhs_value << rhs_value;
+        }
+        else if (op == SHIFT_OP_AR)
+        {
+            current_value = lhs_value >> rhs_value;
+        }
+    }
+    break;
+
+    case AST_NODE_EQUALITY_EXPRESSION:
+    {
+        int lhs_value = 0;
+        if (value_node->binary_expression.left != NULL)
+        {
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
+        }
+
+        int rhs_value = 0;
+        if (value_node->binary_expression.right != NULL)
+        {
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
+        }
+
+        // Get operator from binary_expression.op which is a child node
+        c_grammar_node_t const * op_node = value_node->binary_expression.op;
+        equality_operator_type_t op = op_node->op.eq.op;
+
+        if (op == EQ_OP_EQ)
+        {
+            current_value = (lhs_value == rhs_value) ? 1 : 0;
+        }
+        else if (op == EQ_OP_NE)
+        {
+            current_value = (lhs_value != rhs_value) ? 1 : 0;
+        }
+    }
+    break;
+
+    case AST_NODE_RELATIONAL_EXPRESSION:
+    {
+        int lhs_value = 0;
+        if (value_node->binary_expression.left != NULL)
+        {
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
+        }
+
+        int rhs_value = 0;
+        if (value_node->binary_expression.right != NULL)
+        {
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
+        }
+
+        // Get operator from binary_expression.op which is a child node
+        c_grammar_node_t const * op_node = value_node->binary_expression.op;
+        relational_operator_type_t op = op_node->op.rel.op;
+
+        if (op == REL_OP_LT)
+        {
+            current_value = (lhs_value < rhs_value) ? 1 : 0;
+        }
+        else if (op == REL_OP_GT)
+        {
+            current_value = (lhs_value > rhs_value) ? 1 : 0;
+        }
+        else if (op == REL_OP_LE)
+        {
+            current_value = (lhs_value <= rhs_value) ? 1 : 0;
+        }
+        else if (op == REL_OP_GE)
+        {
+            current_value = (lhs_value >= rhs_value) ? 1 : 0;
+        }
+    }
+    break;
+
+    default:
+        break;
     }
 
     return current_value;
@@ -1035,7 +1161,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
 
             // Create a global constant for this enum value
             LLVMValueRef const_val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), current_value, true);
-            
+
             LLVMValueRef global = LLVMAddGlobal(ctx->module, LLVMInt32TypeInContext(ctx->context), enum_name);
             LLVMSetInitializer(global, const_val);
             LLVMSetGlobalConstant(global, true);
