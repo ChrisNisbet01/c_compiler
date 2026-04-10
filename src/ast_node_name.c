@@ -109,6 +109,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_ATTRIBUTE] = {.name = "Attribute"},
     [AST_NODE_ATTRIBUTE_LIST] = {.name = "AttributeList"},
     [AST_NODE_ASM_NAMES] = {.name = "AsmNames"},
+    [AST_NODE_ABSTRACT_DECLARATOR] = {.name = "AbstractDeclarator"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

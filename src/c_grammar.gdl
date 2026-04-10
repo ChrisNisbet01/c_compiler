@@ -216,7 +216,7 @@ UnaryExpression = UnaryExpressionPrefix | PostfixExpression;
 // Abstract declarators are used in type names (e.g., in casts)
 PointerPlus = Pointer+ @AST_ACTION_POINTER_LIST;
 DeclaratorSuffixPlus = DeclaratorSuffix+ @AST_ACTION_DECLARATOR_SUFFIX_LIST;
-AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixPlus;
+AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixPlus @AST_ACTION_ABSTRACT_DECLARATOR;
 
 TypeName = SpecifierQualifierList AbstractDeclarator? @AST_ACTION_TYPE_NAME;
 
@@ -310,9 +310,7 @@ AsmNames = KwAsm LParen StringLiteral+ RParen @AST_ACTION_ASM_NAMES;
 
 // --- End of Attribute Support Rules ---
 
-StructSpecifierQualifierList = SpecifierQualifierList @AST_ACTION_STRUCT_SPECIFIER_QUALIFIER_LIST;
-
-StructUnionDeclaration = OptionalKwExtension StructSpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
+StructUnionDeclaration = OptionalKwExtension SpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
 
 StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARATION_LIST;
 
@@ -356,7 +354,9 @@ DeclarationSpecifier = StorageClassSpecifier
 DeclarationSpecifiers = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
                       | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_DECL_SPECIFIERS;
 
-SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) | (TypeQualifier | NonTypedefTypeSpecifier)+;
+SpecifierQualifierList = (TypeQualifier* TypedefName TypeQualifier*) 
+                       | (TypeQualifier | NonTypedefTypeSpecifier)+
+                       @AST_ACTION_SPECIFIER_QUALIFIER_LIST;
 
 // Common Declarator: supports pointers, arrays, and function pointers
 Pointer = Star TypeQualifier* @AST_ACTION_POINTER;

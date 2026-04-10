@@ -2136,10 +2136,25 @@ handle_return_statement(
 static void
 handle_type_name(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
+    if (count != 1 && count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 1 or 2 children, but got %d", get_node_type_name_from_type(AST_NODE_TYPE_NAME), count
+        );
+        return;
+    }
+
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_NAME);
     if (ast_node == NULL)
     {
         return;
+    }
+
+    ast_node->type_name.qualifier_list = children[0];
+    if (count == 2)
+    {
+        ast_node->type_name.abstract_declarator = children[1];
     }
 
     epc_ast_push(ctx, ast_node);
@@ -2782,7 +2797,7 @@ handle_struct_declarator_list(
 }
 
 static void
-handle_struct_specifier_qualifier_list(
+handle_specifier_qualifier_list(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
@@ -2839,6 +2854,20 @@ static void
 handle_asm_names(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ASM_NAMES);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_abstract_declarator(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ABSTRACT_DECLARATOR);
     if (ast_node == NULL)
     {
         return;
@@ -2949,9 +2978,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_COMPOUND_LITERAL, handle_compound_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATOR, handle_struct_declarator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRUCT_DECLARATOR_LIST, handle_struct_declarator_list);
-    epc_ast_hook_registry_set_action(
-        registry, AST_ACTION_STRUCT_SPECIFIER_QUALIFIER_LIST, handle_struct_specifier_qualifier_list
-    );
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_SPECIFIER_QUALIFIER_LIST, handle_specifier_qualifier_list);
     epc_ast_hook_registry_set_action(
         registry, AST_ACTION_STRUCT_DECLARATOR_BITFIELD, handle_struct_declarator_bitfield
     );
@@ -2961,4 +2988,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ATTRIBUTE, handle_attribute);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ATTRIBUTE_LIST, handle_attribute_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASM_NAMES, handle_asm_names);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_ABSTRACT_DECLARATOR, handle_abstract_declarator);
 }

@@ -108,6 +108,7 @@ typedef enum
     AST_NODE_ATTRIBUTE,
     AST_NODE_ATTRIBUTE_LIST,
     AST_NODE_ASM_NAMES,
+    AST_NODE_ABSTRACT_DECLARATOR,
 } c_grammar_node_type_t;
 
 typedef struct
@@ -514,6 +515,12 @@ typedef union ast_node_operator_t
     assignment_operator_data_t assign;
 } ast_node_operator_t;
 
+typedef struct ast_node_type_name_t
+{
+    c_grammar_node_t const * qualifier_list;
+    c_grammar_node_t const * abstract_declarator;
+} ast_node_type_name_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -561,6 +568,7 @@ typedef struct c_grammar_node_t
         ast_node_ternary_operation_t ternary_operation;
         ast_node_conditional_expression_t conditional_expression;
         ast_node_operator_t op;
+        ast_node_type_name_t type_name;
     };
 } c_grammar_node_t;
 

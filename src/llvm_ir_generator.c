@@ -5368,9 +5368,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             bool is_typedef = false;
             if (type_name_node->type == AST_NODE_TYPE_NAME)
             {
-                for (size_t i = 0; i < type_name_node->list.count && type_name == NULL; ++i)
+                c_grammar_node_t const * qualifier_list = type_name_node->type_name.qualifier_list;
+
+                for (size_t i = 0; i < qualifier_list->list.count && type_name == NULL; ++i)
                 {
-                    c_grammar_node_t const * child = type_name_node->list.children[i];
+                    c_grammar_node_t const * child = qualifier_list->list.children[i];
                     if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
                     {
                         /* Try typedef */
@@ -5542,9 +5544,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
             // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
-            for (size_t i = 0; i < operand_node->list.count && target_type == NULL; i++)
+            c_grammar_node_t const * qualifier_list = operand_node->type_name.qualifier_list;
+
+            for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
             {
-                c_grammar_node_t * child = operand_node->list.children[i];
+                c_grammar_node_t * child = qualifier_list->list.children[i];
 
                 // Handle terminal type specifier (e.g., "int", "char")
                 if (child->type == AST_NODE_TYPE_SPECIFIER)
@@ -5677,9 +5681,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
-            for (size_t i = 0; i < operand_node->list.count && target_type == NULL; i++)
+            c_grammar_node_t const * qualifier_list = operand_node->type_name.qualifier_list;
+
+            for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
             {
-                c_grammar_node_t * child = operand_node->list.children[i];
+                c_grammar_node_t * child = qualifier_list->list.children[i];
 
                 if (child->type == AST_NODE_TYPE_SPECIFIER)
                 {
@@ -5861,9 +5867,11 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (type_name_node->type == AST_NODE_TYPE_NAME)
         {
-            for (size_t i = 0; i < type_name_node->list.count && !type_name; ++i)
+            c_grammar_node_t const * qualifier_list = type_name_node->type_name.qualifier_list;
+
+            for (size_t i = 0; i < qualifier_list->list.count && !type_name; ++i)
             {
-                c_grammar_node_t const * child = type_name_node->list.children[i];
+                c_grammar_node_t const * child = qualifier_list->list.children[i];
 
                 if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
                 {
