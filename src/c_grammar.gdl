@@ -160,6 +160,8 @@ Question = lexeme('?');
 StorageClassSpecifier = KwStatic | KwExtern | KwAuto | KwRegister;
 
 TypeQualifier = KwConst | KwVolatile | KwRestrict | Attribute;
+TypeQualifierMany = TypeQualifier*;
+TypeQualifierPlus = TypeQualifier+;
 
 FunctionSpecifier = KwInline;
 
@@ -354,12 +356,13 @@ DeclarationSpecifier = StorageClassSpecifier
 DeclarationSpecifiers = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
                       | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_DECL_SPECIFIERS;
 
-TypedefSpecifierQualifier = (TypeQualifier* TypedefName TypeQualifier*);
-NonTypedefSpecifierQualifier = (TypeQualifier | NonTypedefTypeSpecifier)+;
-SpecifierQualifierList = TypedefSpecifierQualifier | NonTypedefSpecifierQualifier @AST_ACTION_SPECIFIER_QUALIFIER_LIST;
+TypedefSpecifierQualifier = TypeQualifierMany TypedefName TypeQualifierMany;
+NonTypedefSpecifierQualifier = TypeQualifier | NonTypedefTypeSpecifier;
+NonTypedefSpecifierQualifierPlus = NonTypedefSpecifierQualifier+;
+SpecifierQualifierList = TypedefSpecifierQualifier | NonTypedefSpecifierQualifierPlus @AST_ACTION_SPECIFIER_QUALIFIER_LIST;
 
 // Common Declarator: supports pointers, arrays, and function pointers
-Pointer = Star TypeQualifier* @AST_ACTION_POINTER;
+Pointer = Star TypeQualifierMany @AST_ACTION_POINTER;
 PointerManyList = Pointer* @AST_ACTION_POINTER_LIST;
 
 // Explicit rule for function pointer declarators like (*name)[size]
@@ -376,10 +379,10 @@ ParameterDeclarationList = delimited_flex(ParameterDeclaration, Comma) (Comma El
 ParameterList = LParen ParameterDeclarationList? RParen;
 
 // Declarator suffix: arrays or function parameters
-DeclaratorSuffix = (LBracket (TypeQualifier* KwStatic? Expression) RBracket)
-                 | (LBracket (KwStatic TypeQualifier* Expression) RBracket)
-                 | (LBracket (TypeQualifier+ Expression?) RBracket)
-                 | (LBracket (TypeQualifier* Star) RBracket)
+DeclaratorSuffix = (LBracket (TypeQualifierMany KwStatic? Expression) RBracket)
+                 | (LBracket (KwStatic TypeQualifierMany Expression) RBracket)
+                 | (LBracket (TypeQualifierPlus Expression?) RBracket)
+                 | (LBracket (TypeQualifierMany Star) RBracket)
                  | (LBracket Expression? RBracket)
                  | ParameterList @AST_ACTION_DECLARATOR_SUFFIX;
 
