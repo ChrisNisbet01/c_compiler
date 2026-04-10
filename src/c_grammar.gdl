@@ -238,15 +238,20 @@ RelationalExpression = chainl1(ShiftExpression, RelOp) @AST_ACTION_RELATIONAL;
 EqOp = Eq | Ne @AST_ACTION_EQUALITY_OPERATOR;
 EqualityExpression = chainl1(RelationalExpression, EqOp) @AST_ACTION_EQUALITY;
 
-AndExpression = chainl1(EqualityExpression, Amp) @AST_ACTION_BITWISE_AND_EXPRESSION;
+BitwiseAndOp = Amp @AST_ACTION_BITWISE_OPERATOR;
+AndExpression = chainl1(EqualityExpression, BitwiseAndOp) @AST_ACTION_BITWISE_EXPRESSION;
 
-ExclusiveOrExpression = chainl1(AndExpression, Caret) @AST_ACTION_BITWISE_EXCLUSIVE_OR_EXPRESSION;
+BitwiseXorOp = Caret @AST_ACTION_BITWISE_OPERATOR;
+ExclusiveOrExpression = chainl1(AndExpression, BitwiseXorOp) @AST_ACTION_BITWISE_EXPRESSION;
 
-InclusiveOrExpression = chainl1(ExclusiveOrExpression, Pipe) @AST_ACTION_BITWISE_INCLUSIVE_OR_EXPRESSION;
+BitwiseOrOp = Pipe @AST_ACTION_BITWISE_OPERATOR;
+InclusiveOrExpression = chainl1(ExclusiveOrExpression, BitwiseOrOp) @AST_ACTION_BITWISE_EXPRESSION;
 
-LogicalAndExpression = chainl1(InclusiveOrExpression, AmpAmp) @AST_ACTION_LOGICAL_AND_EXPRESSION;
+LogicalAndOp = AmpAmp @AST_ACTION_LOGICAL_OPERATOR;
+LogicalAndExpression = chainl1(InclusiveOrExpression, LogicalAndOp) @AST_ACTION_LOGICAL_EXPRESSION;
 
-LogicalOrExpression = chainl1(LogicalAndExpression, PipePipe) @AST_ACTION_LOGICAL_OR_EXPRESSION;
+LogicalOrOp = PipePipe @AST_ACTION_LOGICAL_OPERATOR;
+LogicalOrExpression = chainl1(LogicalAndExpression, LogicalOrOp) @AST_ACTION_LOGICAL_EXPRESSION;
 
 TernaryOperation = Question AssignmentExpression Colon ConditionalExpression @AST_ACTION_TERNARY_OPERATION;
 

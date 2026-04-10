@@ -997,18 +997,21 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     case AST_NODE_BITWISE_EXPRESSION:
     {
         int lhs_value = 0;
-        if (value_node->bitwise_expression.left != NULL)
+        if (value_node->binary_expression.left != NULL)
         {
-            lhs_value = search_nodes_for_integer_value(ctx, value_node->bitwise_expression.left, 0);
+            lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
         }
 
         int rhs_value = 0;
-        if (value_node->bitwise_expression.right != NULL)
+        if (value_node->binary_expression.right != NULL)
         {
-            rhs_value = search_nodes_for_integer_value(ctx, value_node->bitwise_expression.right, 0);
+            rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
         }
 
-        switch (value_node->bitwise_expression.op.op)
+        c_grammar_node_t const * op_node = value_node->binary_expression.op;
+        bitwise_operator_type_t op = op_node->op.bitwise.op;
+
+        switch (op)
         {
         case BITWISE_OP_AND:
             current_value = lhs_value & rhs_value;
@@ -1116,6 +1119,24 @@ search_nodes_for_integer_value(ir_generator_ctx_t * ctx, c_grammar_node_t const 
         else if (op == REL_OP_GE)
         {
             current_value = (lhs_value >= rhs_value) ? 1 : 0;
+        }
+    }
+    break;
+
+    case AST_NODE_LOGICAL_EXPRESSION:
+    {
+        int lhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.left, 0);
+        int rhs_value = search_nodes_for_integer_value(ctx, value_node->binary_expression.right, 0);
+        c_grammar_node_t const * op_node = value_node->binary_expression.op;
+        logical_operator_type_t op = op_node->op.logical.op;
+
+        if (op == LOGICAL_OP_AND)
+        {
+            current_value = (lhs_value && rhs_value) ? 1 : 0;
+        }
+        else if (op == LOGICAL_OP_OR)
+        {
+            current_value = (lhs_value || rhs_value) ? 1 : 0;
         }
     }
     break;
@@ -4999,8 +5020,8 @@ static LLVMValueRef
 process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-    LLVMValueRef lhs_val = process_expression(ctx, node->bitwise_expression.left);
-    LLVMValueRef rhs_val = process_expression(ctx, node->bitwise_expression.right);
+    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
+    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
@@ -5024,7 +5045,8 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
     }
 
-    bitwise_operator_type_t operator= node->bitwise_expression.op.op;
+    c_grammar_node_t const * op_node = node->binary_expression.op;
+    bitwise_operator_type_t operator = op_node->op.bitwise.op;
 
     switch (operator)
     {
@@ -5190,9 +5212,10 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 static LLVMValueRef
 process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    bool is_or = node->logical_expression.op.op == LOGICAL_OP_OR;
-    c_grammar_node_t const * lhs_node = node->logical_expression.left;
-    c_grammar_node_t const * rhs_node = node->logical_expression.right;
+    c_grammar_node_t const * op_node = node->binary_expression.op;
+    bool is_or = op_node->op.logical.op == LOGICAL_OP_OR;
+    c_grammar_node_t const * lhs_node = node->binary_expression.left;
+    c_grammar_node_t const * rhs_node = node->binary_expression.right;
 
     LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
 

@@ -1105,18 +1105,75 @@ handle_equality_expression(
 }
 
 static void
-handle_bitwise_and_expression(
+handle_bitwise_operator(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    (void)count;
-    (void)user_data;
+    if (count != 0)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_BITWISE_OPERATOR), count
+        );
+        return;
+    }
 
-    if (count != 2)
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_BITWISE_OPERATOR, node);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    char const * op_text = ast_node->text;
+
+    if (strcmp(op_text, "&") == 0)
+    {
+        ast_node->op.bitwise.op = BITWISE_OP_AND;
+    }
+    else if (strcmp(op_text, "^") == 0)
+    {
+        ast_node->op.bitwise.op = BITWISE_OP_XOR;
+    }
+    else if (strcmp(op_text, "|") == 0)
+    {
+        ast_node->op.bitwise.op = BITWISE_OP_OR;
+    }
+    else
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s, Unknown operator: %s", get_node_type_name_from_type(AST_NODE_BITWISE_OPERATOR), op_text
+        );
+        c_grammar_node_free(ast_node, user_data);
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_bitwise_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count != 3)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_BITWISE_EXPRESSION), count
+        );
+        return;
+    }
+
+    c_grammar_node_t const * op_node = children[1];
+
+    if (op_node->type != AST_NODE_BITWISE_OPERATOR)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected bitwise operator node at index 1, but got %s",
+            get_node_type_name_from_type(AST_NODE_BITWISE_EXPRESSION),
+            get_node_type_name_from_node(op_node)
         );
         return;
     }
@@ -1127,77 +1184,79 @@ handle_bitwise_and_expression(
         return;
     }
 
-    ast_node->bitwise_expression.left = children[0];
-    ast_node->bitwise_expression.op.op = BITWISE_OP_AND;
-    ast_node->bitwise_expression.right = children[1];
+    ast_node->binary_expression.left = children[0];
+    ast_node->binary_expression.op = children[1];
+    ast_node->binary_expression.right = children[2];
 
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_bitwise_exclusive_or_expression(
+handle_logical_operator(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count != 2)
+    if (count != 0)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_BITWISE_EXPRESSION), count
+            ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_LOGICAL_OPERATOR), count
         );
         return;
     }
 
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_LOGICAL_OPERATOR, node);
     if (ast_node == NULL)
     {
         return;
     }
 
-    ast_node->bitwise_expression.left = children[0];
-    ast_node->bitwise_expression.op.op = BITWISE_OP_XOR;
-    ast_node->bitwise_expression.right = children[1];
+    char const * op_text = ast_node->text;
 
-    epc_ast_push(ctx, ast_node);
-}
-
-static void
-handle_bitwise_inclusive_or_expression(
-    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
-)
-{
-    if (count != 2)
+    if (strcmp(op_text, "&&") == 0)
     {
-        free_ast_node_children(children, count, user_data);
+        ast_node->op.logical.op = LOGICAL_OP_AND;
+    }
+    else if (strcmp(op_text, "||") == 0)
+    {
+        ast_node->op.logical.op = LOGICAL_OP_OR;
+    }
+    else
+    {
         epc_ast_builder_set_error(
-            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_BITWISE_EXPRESSION), count
+            ctx, "%s, Unknown operator: %s", get_node_type_name_from_type(AST_NODE_LOGICAL_OPERATOR), op_text
         );
+        c_grammar_node_free(ast_node, user_data);
         return;
     }
-
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_BITWISE_EXPRESSION);
-    if (ast_node == NULL)
-    {
-        return;
-    }
-
-    ast_node->bitwise_expression.left = children[0];
-    ast_node->bitwise_expression.op.op = BITWISE_OP_OR;
-    ast_node->bitwise_expression.right = children[1];
 
     epc_ast_push(ctx, ast_node);
 }
 
 static void
-handle_logical_and_expression(
+handle_logical_expression(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count != 2)
+    if (count != 3)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_LOGICAL_EXPRESSION), count
+        );
+        return;
+    }
+
+    c_grammar_node_t const * op_node = children[1];
+
+    if (op_node->type != AST_NODE_LOGICAL_OPERATOR)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected bitwise operator node at index 1, but got %s",
+            get_node_type_name_from_type(AST_NODE_LOGICAL_OPERATOR),
+            get_node_type_name_from_node(op_node)
         );
         return;
     }
@@ -1208,36 +1267,9 @@ handle_logical_and_expression(
         return;
     }
 
-    ast_node->logical_expression.left = children[0];
-    ast_node->logical_expression.op.op = LOGICAL_OP_AND;
-    ast_node->logical_expression.right = children[1];
-
-    epc_ast_push(ctx, ast_node);
-}
-
-static void
-handle_logical_or_expression(
-    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
-)
-{
-    if (count != 2)
-    {
-        free_ast_node_children(children, count, user_data);
-        epc_ast_builder_set_error(
-            ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_LOGICAL_EXPRESSION), count
-        );
-        return;
-    }
-
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_LOGICAL_EXPRESSION);
-    if (ast_node == NULL)
-    {
-        return;
-    }
-
-    ast_node->logical_expression.left = children[0];
-    ast_node->logical_expression.op.op = LOGICAL_OP_OR;
-    ast_node->logical_expression.right = children[1];
+    ast_node->binary_expression.left = children[0];
+    ast_node->binary_expression.op = children[1];
+    ast_node->binary_expression.right = children[2];
 
     epc_ast_push(ctx, ast_node);
 }
@@ -2841,15 +2873,10 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL, handle_relational_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY_OPERATOR, handle_equality_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EQUALITY, handle_equality_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_BITWISE_AND_EXPRESSION, handle_bitwise_and_expression);
-    epc_ast_hook_registry_set_action(
-        registry, AST_ACTION_BITWISE_EXCLUSIVE_OR_EXPRESSION, handle_bitwise_exclusive_or_expression
-    );
-    epc_ast_hook_registry_set_action(
-        registry, AST_ACTION_BITWISE_INCLUSIVE_OR_EXPRESSION, handle_bitwise_inclusive_or_expression
-    );
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_AND_EXPRESSION, handle_logical_and_expression);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_OR_EXPRESSION, handle_logical_or_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_BITWISE_OPERATOR, handle_bitwise_operator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_BITWISE_EXPRESSION, handle_bitwise_expression);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_OPERATOR, handle_logical_operator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_LOGICAL_EXPRESSION, handle_logical_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_OPERATOR, handle_shift_operator);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_SHIFT_EXPRESSION, handle_shift_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ARITHMETIC_OPERATOR, handle_arithmetic_operator);

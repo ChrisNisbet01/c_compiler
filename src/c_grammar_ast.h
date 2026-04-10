@@ -42,7 +42,9 @@ typedef enum
     AST_NODE_RELATIONAL_EXPRESSION,
     AST_NODE_EQUALITY_OPERATOR,
     AST_NODE_EQUALITY_EXPRESSION,
+    AST_NODE_BITWISE_OPERATOR,
     AST_NODE_BITWISE_EXPRESSION,
+    AST_NODE_LOGICAL_OPERATOR,
     AST_NODE_LOGICAL_EXPRESSION,
     AST_NODE_SHIFT_OPERATOR,
     AST_NODE_SHIFT_EXPRESSION,
@@ -487,20 +489,6 @@ typedef struct ast_node_binary_expression_t
     c_grammar_node_t const * right;
 } ast_node_binary_expression_t;
 
-typedef struct ast_node_bitwise_expression_t
-{
-    c_grammar_node_t const * left;
-    bitwise_operator_data_t op;
-    c_grammar_node_t const * right;
-} ast_node_bitwise_expression_t;
-
-typedef struct ast_node_logical_expression_t
-{
-    c_grammar_node_t const * left;
-    logical_operator_data_t op;
-    c_grammar_node_t const * right;
-} ast_node_logical_expression_t;
-
 typedef struct ast_node_ternary_operation_t
 {
     c_grammar_node_t const * true_expression;
@@ -570,8 +558,6 @@ typedef struct c_grammar_node_t
         ast_node_unary_expression_prefix_t unary_expression_prefix;
         ast_node_cast_expression_t cast_expression;
         ast_node_binary_expression_t binary_expression;
-        ast_node_bitwise_expression_t bitwise_expression;
-        ast_node_logical_expression_t logical_expression;
         ast_node_ternary_operation_t ternary_operation;
         ast_node_conditional_expression_t conditional_expression;
         ast_node_operator_t op;
