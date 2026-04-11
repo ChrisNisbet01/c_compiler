@@ -580,12 +580,12 @@ handle_named_decl_specifiers(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    if (count < 3)
+    if (count < 4)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
-            "%s expected at least 3 children, but got %d",
+            "%s expected at least 4 children, but got %d",
             get_node_type_name_from_type(AST_NODE_NAMED_DECL_SPECIFIERS),
             count
         );
@@ -602,7 +602,16 @@ handle_named_decl_specifiers(
 
     ast_node->decl_specifiers.storage_class = (c_grammar_node_t *)children[idx++];
     ast_node->decl_specifiers.type_qualifiers = (c_grammar_node_t *)children[idx++];
-    ast_node->decl_specifiers.function_specifier = (c_grammar_node_t *)children[idx++];
+
+    c_grammar_node_t * third_child = (c_grammar_node_t *)children[idx];
+    if (third_child != NULL && third_child->type == AST_NODE_FUNCTION_SPECIFIER)
+    {
+        ast_node->decl_specifiers.function_specifier = (c_grammar_node_t *)children[idx++];
+    }
+    else
+    {
+        ast_node->decl_specifiers.function_specifier = NULL;
+    }
 
     c_grammar_node_t * child = (c_grammar_node_t *)children[idx];
     if (idx < (size_t)count && child != NULL && child->type == AST_NODE_TYPEDEF_SPECIFIER)
@@ -614,6 +623,11 @@ handle_named_decl_specifiers(
     {
         ast_node->decl_specifiers.typedef_name = NULL;
         ast_node->decl_specifiers.type_specifier = (c_grammar_node_t *)children[idx++];
+    }
+
+    if (idx < (size_t)count)
+    {
+        ast_node->decl_specifiers.trailing_type_qualifiers = (c_grammar_node_t *)children[idx++];
     }
 
     epc_ast_push(ctx, ast_node);

@@ -354,11 +354,15 @@ DeclarationSpecifier = StorageClassSpecifier
                      ;
 DeclarationSpecifiers = DeclarationSpecifier* @AST_ACTION_DECLARATION_SPECIFIERS;
 
-// Structured rule for regular declarations: [storage*, qualifiers*, func_spec?, type_spec+, qualifiers*]
-NamedDeclSpecsRegular = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? NonTypedefTypeSpecifier+ TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
+// Structured rule for regular declarations: [storage*, qualifiers*, func_spec?, type_spec_list, qualifiers*]
+NamedDeclSpecsRegular = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? TypeSpecifierList TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
 
 // Structured rule for typedef declarations: [storage*, qualifiers*, func_spec?, types*, typedef_name, qualifiers*]
-NamedDeclSpecsTypedef = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? NonTypedefTypeSpecifier* TypedefName TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
+NamedDeclSpecsTypedef = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? TypeSpecifierListMany TypedefName TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
+
+// Wrapper rules to avoid +/* in NamedDeclSpecs
+TypeSpecifierList = NonTypedefTypeSpecifier+;
+TypeSpecifierListMany = NonTypedefTypeSpecifier*;
 
 NamedDeclarationSpecifiers = NamedDeclSpecsRegular | NamedDeclSpecsTypedef;
 

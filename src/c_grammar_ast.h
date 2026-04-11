@@ -300,6 +300,7 @@ typedef struct ast_node_decl_specifiers_t
     c_grammar_node_t const * function_specifier;
     c_grammar_node_t const * type_specifier;
     c_grammar_node_t const * typedef_name;
+    c_grammar_node_t const * trailing_type_qualifiers;
 } ast_node_decl_specifiers_t;
 
 typedef struct ast_node_function_definition_t

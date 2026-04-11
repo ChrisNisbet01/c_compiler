@@ -1877,60 +1877,105 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 }
             }
         }
-        // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
+        // Handle DeclarationSpecifiers - use structured fields
         else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
-            for (size_t i = 0; i < specifiers->list.count; ++i)
+            // Use the structured fields from ast_node_decl_specifiers_t
+            c_grammar_node_t const * typedef_name_node = specifiers->decl_specifiers.typedef_name;
+            c_grammar_node_t const * type_spec_node = specifiers->decl_specifiers.type_specifier;
+
+            // Check for typedef name first
+            if (typedef_name_node != NULL)
             {
-                c_grammar_node_t * child = specifiers->list.children[i];
-                if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
+                char const * typedef_name = extract_typedef_name(typedef_name_node);
+                if (typedef_name != NULL)
                 {
-                    char const * typedef_name = extract_typedef_name(child);
-                    if (typedef_name != NULL)
+                    LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
+                    if (typedef_type != NULL)
                     {
-                        LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                        if (typedef_type != NULL)
-                        {
-                            base_type = typedef_type;
-                        }
+                        base_type = typedef_type;
                     }
                 }
-                else if (child->type == AST_NODE_TYPE_SPECIFIER)
+            }
+            // Check type specifier
+            else if (type_spec_node != NULL)
+            {
+                // Handle case where type_spec_node is AST_NODE_TYPE_SPECIFIER with text (terminal)
+                if (type_spec_node->text != NULL)
                 {
-                    // Found TypeSpecifier, process it
-                    if (child->text != NULL)
-                    {
-                        char const * type_name = child->text;
+                    char const * type_name = type_spec_node->text;
 
-                        // First check for typedef
-                        LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
-                        if (typedef_type)
-                        {
-                            base_type = typedef_type;
-                        }
-                        else
-                        {
-                            base_type = get_type_from_name(ctx, type_name);
-                        }
+                    // First check for typedef
+                    LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
+                    if (typedef_type)
+                    {
+                        base_type = typedef_type;
                     }
                     else
                     {
-                        // Use helper to determine if this is a struct/union reference
-                        // Check struct/union keyword
-                        char const * struct_name = extract_struct_or_union_or_enum_tag(child);
-                        if (struct_name != NULL)
+                        base_type = get_type_from_name(ctx, type_name);
+                    }
+                }
+                else if (type_spec_node->type == AST_NODE_TYPE_SPECIFIER && type_spec_node->list.count > 0)
+                {
+                    // Type specifier is a list - find first child with type name text
+                    for (size_t i = 0; i < type_spec_node->list.count; ++i)
+                    {
+                        c_grammar_node_t const * child = type_spec_node->list.children[i];
+                        if (child != NULL && child->text != NULL)
                         {
-                            LLVMTypeRef struct_type = find_type_by_tag(ctx, struct_name);
-                            if (struct_type != NULL)
+                            // Check for typedef first
+                            LLVMTypeRef typedef_type = find_typedef_type(ctx, child->text);
+                            if (typedef_type)
                             {
-                                base_type = struct_type;
+                                base_type = typedef_type;
+                                break;
+                            }
+                            base_type = get_type_from_name(ctx, child->text);
+                            if (base_type != NULL)
+                            {
+                                break;
+                            }
+                        }
+                        else if (child != NULL
+                                 && (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION))
+                        {
+                            type_info_t const * info = register_struct_definition(ctx, child);
+                            if (info != NULL)
+                            {
+                                base_type = info->type;
+                                break;
+                            }
+                        }
+                        else if (
+                            child != NULL
+                            && (child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
+                                || child->type == AST_NODE_ENUM_TYPE_REF))
+                        {
+                            char const * tag = extract_struct_or_union_or_enum_tag(child);
+                            if (tag != NULL)
+                            {
+                                base_type = find_type_by_tag(ctx, tag);
+                                if (base_type != NULL)
+                                {
+                                    break;
+                                }
                             }
                         }
                     }
                 }
-                if (base_type != NULL)
+                else
                 {
-                    break;
+                    // Use helper to determine if this is a struct/union reference
+                    char const * struct_name = extract_struct_or_union_or_enum_tag(type_spec_node);
+                    if (struct_name != NULL)
+                    {
+                        LLVMTypeRef struct_type = find_type_by_tag(ctx, struct_name);
+                        if (struct_type != NULL)
+                        {
+                            base_type = struct_type;
+                        }
+                    }
                 }
             }
         }
@@ -2469,19 +2514,18 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     if (p_spec->type == AST_NODE_TYPE_SPECIFIER || p_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
                     {
-                        type_spec = p_spec;
+                        type_spec = (c_grammar_node_t *)p_spec;
                     }
                     else if (p_spec->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                     {
-                        // DeclarationSpecifiers has TypeSpecifier of TypedefSpecifier as a child.
-                        for (size_t i = 0; i < p_spec->list.count; ++i)
+                        // Use structured fields
+                        if (p_spec->decl_specifiers.typedef_name != NULL)
                         {
-                            c_grammar_node_t * child = p_spec->list.children[i];
-
-                            if (child->type == AST_NODE_TYPEDEF_SPECIFIER || child->type == AST_NODE_TYPE_SPECIFIER)
-                            {
-                                type_spec = child;
-                            }
+                            type_spec = (c_grammar_node_t *)p_spec->decl_specifiers.typedef_name;
+                        }
+                        else if (p_spec->decl_specifiers.type_specifier != NULL)
+                        {
+                            type_spec = (c_grammar_node_t *)p_spec->decl_specifiers.type_specifier;
                         }
                     }
                 }
@@ -2581,14 +2625,14 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Register any struct/enum definitions in the declaration specifiers (in current scope)
         c_grammar_node_t const * decl_specifiers = node->declaration.declaration_specifiers;
-        for (size_t i = 0; i < decl_specifiers->list.count; ++i)
+        if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
-            c_grammar_node_t * spec_child = decl_specifiers->list.children[i];
-            if (spec_child->type == AST_NODE_TYPE_SPECIFIER)
+            c_grammar_node_t const * type_spec_node = decl_specifiers->decl_specifiers.type_specifier;
+            if (type_spec_node != NULL && type_spec_node->type == AST_NODE_TYPE_SPECIFIER)
             {
-                for (size_t j = 0; j < spec_child->list.count; ++j)
+                for (size_t j = 0; j < type_spec_node->list.count; ++j)
                 {
-                    c_grammar_node_t * type_child = spec_child->list.children[j];
+                    c_grammar_node_t * type_child = type_spec_node->list.children[j];
 
                     if (type_child != NULL)
                     {
