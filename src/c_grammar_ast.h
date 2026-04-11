@@ -200,6 +200,20 @@ typedef enum
     ASSIGN_OP_OR,     // |=
 } assignment_operator_type_t;
 
+typedef enum
+{
+    STORAGE_CLASS_NONE,
+    STORAGE_CLASS_STATIC,
+    STORAGE_CLASS_EXTERN,
+    STORAGE_CLASS_AUTO,
+    STORAGE_CLASS_REGISTER,
+} storage_class_type_t;
+
+typedef struct
+{
+    storage_class_type_t storage_class;
+} storage_class_data_t;
+
 typedef struct
 {
     bitwise_operator_type_t op;
@@ -586,6 +600,7 @@ typedef struct c_grammar_node_t
         ast_node_conditional_expression_t conditional_expression;
         ast_node_operator_t op;
         ast_node_type_name_t type_name;
+        storage_class_data_t storage_class;
     };
 } c_grammar_node_t;
 

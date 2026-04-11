@@ -1881,17 +1881,6 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             // Use the structured fields from ast_node_decl_specifiers_t
-            c_grammar_node_t const * storage_class_node = specifiers->decl_specifiers.storage_class;
-            if (storage_class_node != NULL && storage_class_node->list.count > 0)
-            {
-                c_grammar_node_t const * first_sc = storage_class_node->list.children[0];
-                debug_info(
-                    "map_type: storage_class list.count=%zu, first child type=%d, text='%s'",
-                    storage_class_node->list.count,
-                    first_sc ? first_sc->type : -1,
-                    first_sc && first_sc->text ? first_sc->text : "(null)"
-                );
-            }
             c_grammar_node_t const * typedef_name_node = specifiers->decl_specifiers.typedef_name;
             c_grammar_node_t const * type_spec_node = specifiers->decl_specifiers.type_specifier;
 
@@ -2742,8 +2731,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             for (size_t sc_idx = 0; sc_idx < storage_class_node->list.count; ++sc_idx)
                             {
                                 c_grammar_node_t const * sc_child = storage_class_node->list.children[sc_idx];
-                                if (sc_child != NULL && sc_child->text != NULL
-                                    && strcmp(sc_child->text, "static") == 0)
+                                if (sc_child != NULL && sc_child->storage_class.storage_class == STORAGE_CLASS_STATIC)
                                 {
                                     is_static = true;
                                     break;

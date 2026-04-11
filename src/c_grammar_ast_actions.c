@@ -2934,6 +2934,26 @@ handle_storage_class_specifier(
         return;
     }
 
+    if (ast_node->text != NULL)
+    {
+        if (strcmp(ast_node->text, "static") == 0)
+        {
+            ast_node->storage_class.storage_class = STORAGE_CLASS_STATIC;
+        }
+        else if (strcmp(ast_node->text, "extern") == 0)
+        {
+            ast_node->storage_class.storage_class = STORAGE_CLASS_EXTERN;
+        }
+        else if (strcmp(ast_node->text, "auto") == 0)
+        {
+            ast_node->storage_class.storage_class = STORAGE_CLASS_AUTO;
+        }
+        else if (strcmp(ast_node->text, "register") == 0)
+        {
+            ast_node->storage_class.storage_class = STORAGE_CLASS_REGISTER;
+        }
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 
