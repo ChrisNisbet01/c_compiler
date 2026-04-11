@@ -592,7 +592,8 @@ handle_named_decl_specifiers(
         return;
     }
 
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_NAMED_DECL_SPECIFIERS);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_NAMED_DECL_SPECIFIERS);
     if (ast_node == NULL)
     {
         return;
@@ -2967,6 +2968,15 @@ handle_storage_class_specifiers(
     if (ast_node == NULL)
     {
         return;
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        c_grammar_node_t * child = (c_grammar_node_t *)children[i];
+        ast_node->storage_class_specifiers.has_static |= child->storage_class.storage_class == STORAGE_CLASS_STATIC;
+        ast_node->storage_class_specifiers.has_extern |= child->storage_class.storage_class == STORAGE_CLASS_EXTERN;
+        ast_node->storage_class_specifiers.has_auto |= child->storage_class.storage_class == STORAGE_CLASS_AUTO;
+        ast_node->storage_class_specifiers.has_register |= child->storage_class.storage_class == STORAGE_CLASS_REGISTER;
     }
 
     epc_ast_push(ctx, ast_node);

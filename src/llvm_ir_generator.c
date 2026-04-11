@@ -2726,17 +2726,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                     {
                         c_grammar_node_t const * storage_class_node = decl_specifiers->decl_specifiers.storage_class;
-                        if (storage_class_node != NULL && storage_class_node->list.count > 0)
+                        if (storage_class_node != NULL)
                         {
-                            for (size_t sc_idx = 0; sc_idx < storage_class_node->list.count; ++sc_idx)
-                            {
-                                c_grammar_node_t const * sc_child = storage_class_node->list.children[sc_idx];
-                                if (sc_child != NULL && sc_child->storage_class.storage_class == STORAGE_CLASS_STATIC)
-                                {
-                                    is_static = true;
-                                    break;
-                                }
-                            }
+                            is_static = storage_class_node->storage_class_specifiers.has_static;
                         }
                     }
 

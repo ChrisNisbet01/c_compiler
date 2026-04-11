@@ -216,6 +216,14 @@ typedef struct
 
 typedef struct
 {
+    bool has_static;
+    bool has_extern;
+    bool has_auto;
+    bool has_register;
+} storage_class_specifiers_data_t;
+
+typedef struct
+{
     bitwise_operator_type_t op;
 } bitwise_operator_data_t;
 
@@ -601,6 +609,7 @@ typedef struct c_grammar_node_t
         ast_node_operator_t op;
         ast_node_type_name_t type_name;
         storage_class_data_t storage_class;
+        storage_class_specifiers_data_t storage_class_specifiers;
     };
 } c_grammar_node_t;
 
