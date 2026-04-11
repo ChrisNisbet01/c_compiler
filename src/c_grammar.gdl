@@ -354,10 +354,13 @@ DeclarationSpecifier = StorageClassSpecifier
                      ;
 DeclarationSpecifiers = DeclarationSpecifier* @AST_ACTION_DECLARATION_SPECIFIERS;
 
-// We ensure that only one TypedefName can be present in a set of specifiers,
-// and it cannot be combined with other type specifiers (standard C rules).
-NamedDeclarationSpecifiers = (DeclarationSpecifiers TypedefName DeclarationSpecifiers)
-                           | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_NAMED_DECL_SPECIFIERS;
+// Structured rule for regular declarations: [storage*, qualifiers*, func_spec?, type_spec+, qualifiers*]
+NamedDeclSpecsRegular = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? NonTypedefTypeSpecifier+ TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
+
+// Structured rule for typedef declarations: [storage*, qualifiers*, func_spec?, types*, typedef_name, qualifiers*]
+NamedDeclSpecsTypedef = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? NonTypedefTypeSpecifier* TypedefName TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
+
+NamedDeclarationSpecifiers = NamedDeclSpecsRegular | NamedDeclSpecsTypedef;
 
 TypedefSpecifierQualifier = TypeQualifierMany TypedefName TypeQualifierMany;
 NonTypedefSpecifierQualifier = TypeQualifier | NonTypedefTypeSpecifier;

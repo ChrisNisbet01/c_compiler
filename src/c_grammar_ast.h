@@ -293,6 +293,15 @@ typedef struct ast_node_translation_unit_t
     c_grammar_node_t const * external_declarations;
 } ast_node_translation_unit_t;
 
+typedef struct ast_node_decl_specifiers_t
+{
+    c_grammar_node_t const * storage_class;
+    c_grammar_node_t const * type_qualifiers;
+    c_grammar_node_t const * function_specifier;
+    c_grammar_node_t const * type_specifier;
+    c_grammar_node_t const * typedef_name;
+} ast_node_decl_specifiers_t;
+
 typedef struct ast_node_function_definition_t
 {
     c_grammar_node_t const * declaration_specifiers;
@@ -543,6 +552,7 @@ typedef struct c_grammar_node_t
         ast_node_external_declaration_t external_declaration;
         ast_node_function_definition_t function_definition;
         ast_node_declaration_t declaration;
+        ast_node_decl_specifiers_t decl_specifiers;
         ast_node_top_level_declaration_t top_level_declaration;
         ast_node_struct_declaration_t struct_declaration;
         ast_node_labeled_statement_t labeled_statement;
