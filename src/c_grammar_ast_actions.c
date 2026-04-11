@@ -576,11 +576,12 @@ handle_identifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 }
 
 static void
-handle_decl_specifiers(
+handle_named_decl_specifiers(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
 {
-    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECL_SPECIFIERS);
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_NAMED_DECL_SPECIFIERS);
     if (ast_node == NULL)
     {
         return;
@@ -2876,6 +2877,120 @@ handle_abstract_declarator(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_storage_class_specifier(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected no children, but got %u",
+            get_node_type_name_from_type(AST_NODE_STORAGE_CLASS_SPECIFIER),
+            count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_STORAGE_CLASS_SPECIFIER, node);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_storage_class_specifiers(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STORAGE_CLASS_SPECIFIERS);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_function_specifier(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count > 0)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_FUNCTION_SPECIFIER), count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_FUNCTION_SPECIFIER, node);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_type_qualifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count > 0)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_TYPE_QUALIFIER), count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_TYPE_QUALIFIER, node);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_type_qualifiers(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_QUALIFERS);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_declaration_specifiers(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DECLARATION_SPECIFIERS);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -2914,7 +3029,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASSIGNMENT, handle_assignment);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_SPECIFIER, handle_typedef_specifier);
-    epc_ast_hook_registry_set_action(registry, AST_ACTION_DECL_SPECIFIERS, handle_decl_specifiers);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_NAMED_DECL_SPECIFIERS, handle_named_decl_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER_LIST, handle_pointer_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DIRECT_DECLARATOR, handle_direct_declarator);
@@ -2989,4 +3104,10 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ATTRIBUTE_LIST, handle_attribute_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASM_NAMES, handle_asm_names);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ABSTRACT_DECLARATOR, handle_abstract_declarator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STORAGE_CLASS_SPECIFIER, handle_storage_class_specifier);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_SPECIFIER, handle_function_specifier);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STORAGE_CLASS_SPECIFIERS, handle_storage_class_specifiers);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_QUALIFIER, handle_type_qualifier);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_QUALIFIERS, handle_type_qualifiers);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATION_SPECIFIERS, handle_declaration_specifiers);
 }

@@ -157,13 +157,14 @@ Question = lexeme('?');
 
 // --- Grammar Rules ---
 
-StorageClassSpecifier = KwStatic | KwExtern | KwAuto | KwRegister;
+StorageClassSpecifier = KwStatic | KwExtern | KwAuto | KwRegister @AST_ACTION_STORAGE_CLASS_SPECIFIER;
+StorageClassSpecifiers = StorageClassSpecifier* @AST_ACTION_STORAGE_CLASS_SPECIFIERS;
 
-TypeQualifier = KwConst | KwVolatile | KwRestrict | Attribute;
-TypeQualifierMany = TypeQualifier*;
-TypeQualifierPlus = TypeQualifier+;
+TypeQualifier = KwConst | KwVolatile | KwRestrict | Attribute @AST_ACTION_TYPE_QUALIFIER;
+TypeQualifierMany = TypeQualifier* @AST_ACTION_TYPE_QUALIFIERS;
+TypeQualifierPlus = TypeQualifier+ @AST_ACTION_TYPE_QUALIFIERS;
 
-FunctionSpecifier = KwInline;
+FunctionSpecifier = KwInline @AST_ACTION_FUNCTION_SPECIFIER;
 
 // --- Expression Hierarchy ---
 CompoundLiteral = LParen TypeName RParen LBrace InitializerList RBrace @AST_ACTION_COMPOUND_LITERAL;
@@ -349,12 +350,14 @@ TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 DeclarationSpecifier = StorageClassSpecifier
                      | TypeQualifier
                      | NonTypedefTypeSpecifier
-                     | FunctionSpecifier;
+                     | FunctionSpecifier
+                     ;
+DeclarationSpecifiers = DeclarationSpecifier* @AST_ACTION_DECLARATION_SPECIFIERS;
 
 // We ensure that only one TypedefName can be present in a set of specifiers,
 // and it cannot be combined with other type specifiers (standard C rules).
-DeclarationSpecifiers = (DeclarationSpecifier* TypedefName DeclarationSpecifier*)
-                      | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_DECL_SPECIFIERS;
+NamedDeclarationSpecifiers = (DeclarationSpecifiers TypedefName DeclarationSpecifiers)
+                           | (DeclarationSpecifier | NonTypedefTypeSpecifier)+ @AST_ACTION_NAMED_DECL_SPECIFIERS;
 
 TypedefSpecifierQualifier = TypeQualifierMany TypedefName TypeQualifierMany;
 NonTypedefSpecifierQualifier = TypeQualifier | NonTypedefTypeSpecifier;
@@ -372,15 +375,17 @@ DirectDeclarator = (FunctionPointerDeclarator AttributeList)
                 | (LParen Declarator RParen) 
                 | (Identifier AttributeList) @AST_ACTION_DIRECT_DECLARATOR;
 
-ParameterDeclaration = OptionalKwExtension DeclarationSpecifiers (Declarator | AbstractDeclarator)?;
+ParameterDeclaration = OptionalKwExtension NamedDeclarationSpecifiers (Declarator | AbstractDeclarator)?;
 
 ParameterDeclarationList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)?;
 
 ParameterList = LParen ParameterDeclarationList? RParen;
 
+ArraySizeQualifier = KwStatic @AST_ACTION_ARRAY_SIZE_QUALIFER;
+
 // Declarator suffix: arrays or function parameters
-DeclaratorSuffix = (LBracket (TypeQualifierMany KwStatic? Expression) RBracket)
-                 | (LBracket (KwStatic TypeQualifierMany Expression) RBracket)
+DeclaratorSuffix = (LBracket (TypeQualifierMany ArraySizeQualifier? Expression) RBracket)
+                 | (LBracket (ArraySizeQualifier TypeQualifierMany Expression) RBracket)
                  | (LBracket (TypeQualifierPlus Expression?) RBracket)
                  | (LBracket (TypeQualifierMany Star) RBracket)
                  | (LBracket Expression? RBracket)
@@ -394,7 +399,7 @@ InitDeclarator = Declarator AttributeList AsmNames? AttributeList (Assign Initia
 
 InitDeclaratorList = delimited(InitDeclarator, Comma) @AST_ACTION_INIT_DECLARATOR_LIST;
 
-Declaration = OptionalKwExtension DeclarationSpecifiers InitDeclaratorList? Semicolon @AST_ACTION_DECLARATION;
+Declaration = OptionalKwExtension NamedDeclarationSpecifiers InitDeclaratorList? Semicolon @AST_ACTION_DECLARATION;
 
 // --- Typedef Specific Rules ---
 
@@ -411,7 +416,7 @@ TypedefInitDeclarator = TypedefDeclarator AttributeList AsmNames? AttributeList 
 TypedefInitDeclaratorList = delimited(TypedefInitDeclarator, Comma) @AST_ACTION_TYPEDEF_INIT_DECLARATOR_LIST;
 
 // The whole typedef declaration is wrapped to commit/discard the captured names
-TypedefDeclaration = wrap(OptionalKwExtension KwTypedef DeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL) 
+TypedefDeclaration = wrap(OptionalKwExtension KwTypedef NamedDeclarationSpecifiers TypedefInitDeclaratorList Semicolon, typedef_commit_callbacks, NULL) 
                    @AST_ACTION_TYPEDEF_DECLARATION;
 
 // --- Statements ---
@@ -475,7 +480,7 @@ CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 // Rule to match a preprocessor directive, including support for line continuations
 PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*) @AST_ACTION_PREPROCESSOR_DIRECTIVE;
 
-FunctionDefinition = DeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
+FunctionDefinition = NamedDeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 
 TopLevelDeclaration = OptionalKwExtension (FunctionDefinition | TypedefDeclaration | Declaration) @AST_ACTION_TOP_LEVEL_DECLARATION;
 

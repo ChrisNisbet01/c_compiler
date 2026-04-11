@@ -23,7 +23,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_STRING_LITERAL] = {.name = "StringLiteral"},
     [AST_NODE_LITERAL_SUFFIX] = {.name = "LiteralSuffix"},
     [AST_NODE_IDENTIFIER] = {.name = "Identifier"},
-    [AST_NODE_DECL_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
+    [AST_NODE_NAMED_DECL_SPECIFIERS] = {.name = "NamedDeclarationSpecifiers"},
     [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
     [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},
     [AST_NODE_TYPEDEF_SPECIFIER] = {.name = "TypedefSpecifier"},
@@ -110,6 +110,12 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_ATTRIBUTE_LIST] = {.name = "AttributeList"},
     [AST_NODE_ASM_NAMES] = {.name = "AsmNames"},
     [AST_NODE_ABSTRACT_DECLARATOR] = {.name = "AbstractDeclarator"},
+    [AST_NODE_STORAGE_CLASS_SPECIFIER] = {.name = "StorageClassSpecifier"},
+    [AST_NODE_STORAGE_CLASS_SPECIFIERS] = {.name = "StorageClassSpecifiers"},
+    [AST_NODE_FUNCTION_SPECIFIER] = {.name = "FunctionSpecifier"},
+    [AST_NODE_TYPE_QUALIFIER] = {.name = "TypeQualifier"},
+    [AST_NODE_TYPE_QUALIFERS] = {.name = "TypeQualifiers"},
+    [AST_NODE_DECLARATION_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

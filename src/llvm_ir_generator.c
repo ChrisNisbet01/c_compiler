@@ -1878,7 +1878,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             }
         }
         // Handle DeclarationSpecifiers - extract TypeSpecifier from inside
-        else if (specifiers->type == AST_NODE_DECL_SPECIFIERS)
+        else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             for (size_t i = 0; i < specifiers->list.count; ++i)
             {
@@ -1997,7 +1997,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
             for (size_t j = 0; j < child->list.count; ++j)
             {
                 c_grammar_node_t * suffix_child = child->list.children[j];
-                if (suffix_child->type == AST_NODE_DECL_SPECIFIERS)
+                if (suffix_child->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                 {
                     // This is a function parameter type
                     has_function_params = true;
@@ -2471,10 +2471,18 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         type_spec = p_spec;
                     }
-                    else if (p_spec->type == AST_NODE_DECL_SPECIFIERS)
+                    else if (p_spec->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                     {
-                        // DeclarationSpecifiers has TypeSpecifier as child
-                        type_spec = p_spec->list.children[0];
+                        // DeclarationSpecifiers has TypeSpecifier of TypedefSpecifier as a child.
+                        for (size_t i = 0; i < p_spec->list.count; ++i)
+                        {
+                            c_grammar_node_t * child = p_spec->list.children[i];
+
+                            if (child->type == AST_NODE_TYPEDEF_SPECIFIER || child->type == AST_NODE_TYPE_SPECIFIER)
+                            {
+                                type_spec = child;
+                            }
+                        }
                     }
                 }
 
@@ -3783,7 +3791,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STRING_LITERAL:
     case AST_NODE_LITERAL_SUFFIX:
     case AST_NODE_IDENTIFIER:
-    case AST_NODE_DECL_SPECIFIERS:
+    case AST_NODE_NAMED_DECL_SPECIFIERS:
     case AST_NODE_TYPE_SPECIFIER:
     case AST_NODE_TYPEDEF_SPECIFIER:
     case AST_NODE_UNARY_OPERATOR:
@@ -3854,6 +3862,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_BITWISE_OPERATOR:
     case AST_NODE_LOGICAL_OPERATOR:
     case AST_NODE_ABSTRACT_DECLARATOR:
+    case AST_NODE_STORAGE_CLASS_SPECIFIER:
+    case AST_NODE_FUNCTION_SPECIFIER:
+    case AST_NODE_TYPE_QUALIFIER:
+    case AST_NODE_TYPE_QUALIFERS:
+    case AST_NODE_DECLARATION_SPECIFIERS:
+    case AST_NODE_STORAGE_CLASS_SPECIFIERS:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5568,7 +5582,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 target_type = find_typedef_type(ctx, type_name);
             }
         }
-        else if (operand_node->type == AST_NODE_DECL_SPECIFIERS)
+        else if (operand_node->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             target_type = map_type(ctx, operand_node, NULL);
         }
@@ -5667,7 +5681,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 }
             }
         }
-        else if (operand_node->type == AST_NODE_TYPE_SPECIFIER || operand_node->type == AST_NODE_DECL_SPECIFIERS)
+        else if (operand_node->type == AST_NODE_TYPE_SPECIFIER || operand_node->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             target_type = map_type(ctx, operand_node, NULL);
         }
@@ -5887,7 +5901,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_INTEGER_BASE:
     case AST_NODE_FLOAT_BASE:
     case AST_NODE_LITERAL_SUFFIX:
-    case AST_NODE_DECL_SPECIFIERS:
+    case AST_NODE_NAMED_DECL_SPECIFIERS:
     case AST_NODE_TYPE_SPECIFIER:
     case AST_NODE_TYPEDEF_SPECIFIER:
     case AST_NODE_UNARY_OPERATOR:
@@ -5962,6 +5976,12 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_BITWISE_OPERATOR:
     case AST_NODE_LOGICAL_OPERATOR:
     case AST_NODE_ABSTRACT_DECLARATOR:
+    case AST_NODE_STORAGE_CLASS_SPECIFIER:
+    case AST_NODE_STORAGE_CLASS_SPECIFIERS:
+    case AST_NODE_FUNCTION_SPECIFIER:
+    case AST_NODE_TYPE_QUALIFIER:
+    case AST_NODE_TYPE_QUALIFERS:
+    case AST_NODE_DECLARATION_SPECIFIERS:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
