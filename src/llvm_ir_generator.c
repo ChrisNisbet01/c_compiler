@@ -1881,6 +1881,17 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             // Use the structured fields from ast_node_decl_specifiers_t
+            c_grammar_node_t const * storage_class_node = specifiers->decl_specifiers.storage_class;
+            if (storage_class_node != NULL && storage_class_node->list.count > 0)
+            {
+                c_grammar_node_t const * first_sc = storage_class_node->list.children[0];
+                debug_info(
+                    "map_type: storage_class list.count=%zu, first child type=%d, text='%s'",
+                    storage_class_node->list.count,
+                    first_sc ? first_sc->type : -1,
+                    first_sc && first_sc->text ? first_sc->text : "(null)"
+                );
+            }
             c_grammar_node_t const * typedef_name_node = specifiers->decl_specifiers.typedef_name;
             c_grammar_node_t const * type_spec_node = specifiers->decl_specifiers.type_specifier;
 
@@ -2722,7 +2733,78 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
 
-                    if (current_block && var_type)
+                    bool is_static = false;
+                    if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+                    {
+                        c_grammar_node_t const * storage_class_node = decl_specifiers->decl_specifiers.storage_class;
+                        if (storage_class_node != NULL && storage_class_node->list.count > 0)
+                        {
+                            for (size_t sc_idx = 0; sc_idx < storage_class_node->list.count; ++sc_idx)
+                            {
+                                c_grammar_node_t const * sc_child = storage_class_node->list.children[sc_idx];
+                                if (sc_child != NULL && sc_child->text != NULL
+                                    && strcmp(sc_child->text, "static") == 0)
+                                {
+                                    is_static = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    if (is_static)
+                    {
+                        debug_info("Creating global for static variable '%s'", var_name);
+
+                        bool is_unsized_array
+                            = (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
+
+                        if (is_unsized_array && initializer_expr_node
+                            && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
+                        {
+                            char * raw_text = initializer_expr_node->text;
+                            char * decoded = decode_string(raw_text);
+                            char * str = decoded ? decoded : raw_text;
+
+                            size_t str_len = strlen(str);
+                            LLVMTypeRef elem_type = LLVMGetElementType(var_type);
+                            var_type = LLVMArrayType(elem_type, (unsigned)(str_len + 1));
+
+                            LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+                            LLVMSetLinkage(global_var, LLVMInternalLinkage);
+                            LLVMSetGlobalConstant(global_var, true);
+                            LLVMSetInitializer(
+                                global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false)
+                            );
+                            add_symbol(ctx, var_name, global_var, var_type, NULL);
+
+                            free(decoded);
+                        }
+                        else
+                        {
+                            LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+                            LLVMSetLinkage(global_var, LLVMInternalLinkage);
+                            add_symbol(ctx, var_name, global_var, var_type, NULL);
+
+                            if (initializer_expr_node)
+                            {
+                                if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
+                                    && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+                                {
+                                    LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
+                                }
+                                else
+                                {
+                                    LLVMValueRef initializer_value = process_expression(ctx, initializer_expr_node);
+                                    if (initializer_value)
+                                    {
+                                        LLVMSetInitializer(global_var, initializer_value);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (current_block && var_type)
                     {
                         // Inside a function - use stack allocation
                         LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, var_type, var_name);
