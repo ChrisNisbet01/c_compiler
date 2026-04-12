@@ -2726,11 +2726,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     bool is_const = false;
                     if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                     {
-                        c_grammar_node_t const * storage_class_node = decl_specifiers->decl_specifiers.storage_class;
-                        if (storage_class_node != NULL)
-                        {
-                            is_static = storage_class_node->storage_class_specifiers.has_static;
-                        }
+                        is_static = decl_specifiers->decl_specifiers.has_static;
                         is_const = decl_specifiers->decl_specifiers.has_const;
                     }
 

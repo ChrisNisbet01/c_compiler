@@ -333,6 +333,10 @@ typedef struct ast_node_decl_specifiers_t
     bool has_const;
     bool has_volatile;
     bool has_restrict;
+    bool has_static;
+    bool has_extern;
+    bool has_auto;
+    bool has_register;
 } ast_node_decl_specifiers_t;
 
 typedef struct ast_node_function_definition_t

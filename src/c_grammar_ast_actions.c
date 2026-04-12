@@ -648,6 +648,15 @@ handle_named_decl_specifiers(
         }
     }
 
+    c_grammar_node_t * storage_class_node = ast_node->decl_specifiers.storage_class;
+    if (storage_class_node != NULL)
+    {
+        ast_node->decl_specifiers.has_static = storage_class_node->storage_class_specifiers.has_static;
+        ast_node->decl_specifiers.has_extern = storage_class_node->storage_class_specifiers.has_extern;
+        ast_node->decl_specifiers.has_auto = storage_class_node->storage_class_specifiers.has_auto;
+        ast_node->decl_specifiers.has_register = storage_class_node->storage_class_specifiers.has_register;
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 
