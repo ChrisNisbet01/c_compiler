@@ -157,8 +157,6 @@ get_type_alignment(LLVMTypeRef type)
     case LLVMStructTypeKind:
     {
         unsigned count = LLVMCountStructElementTypes(type);
-        if (count == 0)
-            return 1;
         unsigned max_align = 1;
         for (unsigned i = 0; i < count; i++)
         {
@@ -1838,10 +1836,6 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     {
                         c_grammar_node_t * child = type_specifier_node->list.children[i];
 
-                        if (child == NULL)
-                        {
-                            continue;
-                        }
                         if (child->text != NULL
                             && (child->type == AST_NODE_IDENTIFIER || child->type == AST_NODE_INTEGER_BASE
                                 || child->type == AST_NODE_FLOAT_BASE))
@@ -1922,7 +1916,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                     for (size_t i = 0; i < type_spec_node->list.count; ++i)
                     {
                         c_grammar_node_t const * child = type_spec_node->list.children[i];
-                        if (child != NULL && child->text != NULL)
+                        if (child->text != NULL)
                         {
                             // Check for typedef first
                             LLVMTypeRef typedef_type = find_typedef_type(ctx, child->text);
@@ -1937,10 +1931,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 break;
                             }
                         }
-                        else if (
-                            child != NULL
-                            && (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION)
-                        )
+                        else if (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION)
                         {
                             type_info_t const * info = register_struct_definition(ctx, child);
                             if (info != NULL)
@@ -1949,11 +1940,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 break;
                             }
                         }
-                        else if (
-                            child != NULL
-                            && (child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
-                                || child->type == AST_NODE_ENUM_TYPE_REF)
-                        )
+                        else if (child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF)
                         {
                             char const * tag = extract_struct_or_union_or_enum_tag(child);
                             if (tag != NULL)
