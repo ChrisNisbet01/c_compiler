@@ -123,6 +123,79 @@ extract_typedef_name(c_grammar_node_t const * type_spec_node)
     return type_spec_node->identifier.identifier->text;
 }
 
+// Helper function to extract pointer qualifiers from a pointer_list AST node and type specifiers
+// Parses const/volatile qualifiers at each level of indirection
+// For 'int const * p': level 0 const comes from type specifiers
+// For 'int * const p': level 0 const comes from pointer_list[0]
+static void
+extract_pointer_qualifiers(
+    c_grammar_node_t const * pointer_list,
+    c_grammar_node_t const * type_specifiers,
+    pointer_qualifiers_t * pq
+)
+{
+    if (pq == NULL)
+    {
+        return;
+    }
+
+    memset(pq, 0, sizeof(*pq));
+
+    if (pointer_list != NULL && pointer_list->type == AST_NODE_POINTER_LIST)
+    {
+        pq->level = (unsigned int)pointer_list->list.count;
+    }
+
+    if (pq->level > MAX_POINTER_INDIRECTION_LEVELS)
+    {
+        pq->level = MAX_POINTER_INDIRECTION_LEVELS;
+    }
+
+    // Extract qualifiers from pointer_list (const/volatile after each *)
+    for (unsigned int i = 0; i < pq->level; i++)
+    {
+        if (pointer_list == NULL)
+        {
+            break;
+        }
+        c_grammar_node_t const * ptr_node = pointer_list->list.children[i];
+        if (ptr_node == NULL)
+        {
+            continue;
+        }
+
+        for (size_t j = 0; j < ptr_node->list.count; j++)
+        {
+            c_grammar_node_t const * qual = ptr_node->list.children[j];
+            if (qual->type == AST_NODE_TYPE_QUALIFIER)
+            {
+                if (qual->type_qualifier.is_const)
+                {
+                    pq->is_const[i] = true;
+                }
+                if (qual->type_qualifier.is_volatile)
+                {
+                    pq->is_volatile[i] = true;
+                }
+            }
+        }
+    }
+
+    // If there's a pointer level, check type specifiers for level 0 const (the pointee type)
+    // e.g., 'int const * p' - the const is on 'int'
+    if (pq->level > 0 && type_specifiers != NULL && type_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+    {
+        if (type_specifiers->decl_specifiers.type.is_const)
+        {
+            pq->is_const[0] = true;
+        }
+        if (type_specifiers->decl_specifiers.type.is_volatile)
+        {
+            pq->is_volatile[0] = true;
+        }
+    }
+}
+
 // Helper function to get natural alignment for a type
 static unsigned
 get_type_alignment(LLVMTypeRef type)
@@ -2876,7 +2949,26 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                         }
 
-                        symbol_data_t symbol_data = {.is_const = is_const};
+                        // Extract pointer qualifiers at each level of indirection
+                        pointer_qualifiers_t pointer_quals = {0};
+                        if (declarator_node && declarator_node->declarator.pointer_list)
+                        {
+                            extract_pointer_qualifiers(declarator_node->declarator.pointer_list, decl_specifiers, &pointer_quals);
+                        }
+
+                        bool symbol_is_const = false;
+                        if (pointer_quals.level == 0)
+                        {
+                            // No pointer: is_const directly on the variable
+                            symbol_is_const = is_const;
+                        }
+                        else if (pointer_quals.level > 0)
+                        {
+                            // Pointer: is_const at level 0 means the pointer itself is const (can't reassign)
+                            symbol_is_const = pointer_quals.is_const[0];
+                        }
+
+                        symbol_data_t symbol_data = {.is_const = symbol_is_const, .pointer_qualifiers = pointer_quals};
                         add_symbol_with_struct(
                             ctx, var_name, alloca_inst, var_type, pointee_type, struct_name, &symbol_data
                         );
@@ -4908,6 +5000,31 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
         }
     }
+    else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
+    {
+        // Pointer dereference: *ptr = value
+        c_grammar_node_t const * op_node = lhs_node->unary_expression_prefix.op;
+        if (op_node != NULL && op_node->op.unary.op == UNARY_OP_DEREF)
+        {
+            c_grammar_node_t const * operand = lhs_node->unary_expression_prefix.operand;
+            if (operand != NULL && operand->type == AST_NODE_IDENTIFIER)
+            {
+                char const * ptr_name = operand->text;
+                LLVMValueRef ptr_val;
+                LLVMTypeRef ptr_type;
+                LLVMTypeRef pointee_type;
+                if (find_symbol(ctx, ptr_name, &ptr_val, &ptr_type, &pointee_type))
+                {
+                    // Load the pointer value (the address)
+                    LLVMValueRef addr = aligned_load(ctx->builder, ptr_type, ptr_val, "ptr_load");
+                    // The pointee type is what we assign to
+                    lhs_type = pointee_type;
+                    // The address to store to is the loaded address
+                    lhs_ptr = addr;
+                }
+            }
+        }
+    }
     else
     {
         // Simple variable assignment
@@ -4920,13 +5037,81 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NULL;
     }
 
-    if (lhs_node->type == AST_NODE_IDENTIFIER)
+    // Check const correctness at the target level of assignment
     {
-        symbol_t const * sym = find_symbol_entry(ctx, lhs_node->text);
-        if (sym != NULL && sym->data.is_const)
+        char const * target_name = NULL;
+        unsigned int deref_level = 0;
+
+        // Determine the base identifier and dereference level
+        if (lhs_node->type == AST_NODE_IDENTIFIER)
         {
-            ir_gen_error(&ctx->errors, "cannot assign to const variable '%s'", lhs_node->text);
-            return NULL;
+            target_name = lhs_node->text;
+            deref_level = 0;
+        }
+        else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
+        {
+            // Pointer dereference: *ptr = value
+            // Check if this is a dereference operation
+            c_grammar_node_t const * op_node = lhs_node->unary_expression_prefix.op;
+            if (op_node != NULL && op_node->op.unary.op == UNARY_OP_DEREF)
+            {
+                c_grammar_node_t const * operand = lhs_node->unary_expression_prefix.operand;
+                if (operand != NULL && operand->type == AST_NODE_IDENTIFIER)
+                {
+                    target_name = operand->text;
+                    deref_level = 1;
+                }
+            }
+        }
+        else if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
+        {
+            // Array subscript or member access - need to traverse back to find base identifier
+            // For now, check the base identifier at level 0
+            c_grammar_node_t const * base = lhs_node->postfix_expression.base_expression;
+            if (base != NULL && base->type == AST_NODE_IDENTIFIER)
+            {
+                target_name = base->text;
+                // Array subscript means we're accessing element (level 0 of the array)
+                // Member access means accessing member (level 0 of the struct)
+                deref_level = 0;
+            }
+        }
+
+        // Check if the target is const at the appropriate level
+        if (target_name != NULL)
+        {
+            symbol_t const * sym = find_symbol_entry(ctx, target_name);
+            if (sym != NULL)
+            {
+                bool is_target_const = false;
+                if (deref_level == 0)
+                {
+                    // Direct assignment to variable
+                    is_target_const = sym->data.is_const;
+                }
+                else if (deref_level > 0 && deref_level <= sym->data.pointer_qualifiers.level)
+                {
+                    // Assignment through pointer: check qualifier at that level
+                    // Level 0 = *ptr, level 1 = **ptr, etc.
+                    is_target_const = sym->data.pointer_qualifiers.is_const[deref_level - 1];
+                }
+
+                if (is_target_const)
+                {
+                    if (deref_level == 0)
+                    {
+                        ir_gen_error(&ctx->errors, "cannot assign to const variable '%s'", target_name);
+                    }
+                    else
+                    {
+                        ir_gen_error(
+                            &ctx->errors, "cannot assign to const memory through '%s' at dereference level %u",
+                            target_name, deref_level
+                        );
+                    }
+                    return NULL;
+                }
+            }
         }
     }
 

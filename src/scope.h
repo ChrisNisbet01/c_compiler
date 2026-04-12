@@ -83,11 +83,21 @@ typedef struct scope_typedefs
     size_t capacity;
 } scope_typedefs_t;
 
+#define MAX_POINTER_INDIRECTION_LEVELS 8
+
+typedef struct pointer_qualifiers_t
+{
+    unsigned int level;
+    bool is_const[MAX_POINTER_INDIRECTION_LEVELS];
+    bool is_volatile[MAX_POINTER_INDIRECTION_LEVELS];
+} pointer_qualifiers_t;
+
 typedef struct symbol_data_t
 {
     bool is_const;
     bool is_volatile;
     bool is_extern;
+    pointer_qualifiers_t pointer_qualifiers;
 } symbol_data_t;
 
 // --- Symbol Table Management ---
