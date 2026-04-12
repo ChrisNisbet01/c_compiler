@@ -224,6 +224,13 @@ typedef struct
 
 typedef struct
 {
+    bool is_const;
+    bool is_volatile;
+    bool is_restrict;
+} type_qualifier_data_t;
+
+typedef struct
+{
     bitwise_operator_type_t op;
 } bitwise_operator_data_t;
 
@@ -323,6 +330,9 @@ typedef struct ast_node_decl_specifiers_t
     c_grammar_node_t const * type_specifier;
     c_grammar_node_t const * typedef_name;
     c_grammar_node_t const * trailing_type_qualifiers;
+    bool has_const;
+    bool has_volatile;
+    bool has_restrict;
 } ast_node_decl_specifiers_t;
 
 typedef struct ast_node_function_definition_t
@@ -610,6 +620,7 @@ typedef struct c_grammar_node_t
         ast_node_type_name_t type_name;
         storage_class_data_t storage_class;
         storage_class_specifiers_data_t storage_class_specifiers;
+        type_qualifier_data_t type_qualifier;
     };
 } c_grammar_node_t;
 

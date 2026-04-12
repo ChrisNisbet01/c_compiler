@@ -89,8 +89,11 @@ typedef struct symbol
     char * name;
     LLVMValueRef ptr;
     LLVMTypeRef type;
-    LLVMTypeRef pointee_type; // For pointer types, stores the pointed-to type (e.g., for int* this would be i32)
-    char * tag_name;          // For pointer-to-struct types, stores the struct tag for member access
+    LLVMTypeRef pointee_type;
+    char * tag_name;
+    bool is_const;
+    bool is_volatile;
+    bool is_extern;
 } symbol_t;
 
 // --- Scope structure for hierarchical symbol tables ---
@@ -318,6 +321,14 @@ bool find_symbol(
  * @return The struct tag name, or NULL if not found.
  */
 char const * find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name);
+
+/**
+ * @brief Finds a symbol entry by name and returns the full symbol struct.
+ * @param ctx The IR generator context.
+ * @param name The symbol name.
+ * @return Pointer to the symbol struct, or NULL if not found.
+ */
+symbol_t const * find_symbol_entry(ir_generator_ctx_t * ctx, char const * name);
 
 // --- Scope push/pop ---
 

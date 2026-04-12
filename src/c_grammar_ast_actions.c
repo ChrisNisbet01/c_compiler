@@ -602,7 +602,15 @@ handle_named_decl_specifiers(
     size_t idx = 0;
 
     ast_node->decl_specifiers.storage_class = (c_grammar_node_t *)children[idx++];
-    ast_node->decl_specifiers.type_qualifiers = (c_grammar_node_t *)children[idx++];
+    c_grammar_node_t * type_qualifiers_node = (c_grammar_node_t *)children[idx++];
+    ast_node->decl_specifiers.type_qualifiers = type_qualifiers_node;
+
+    if (type_qualifiers_node != NULL)
+    {
+        ast_node->decl_specifiers.has_const = type_qualifiers_node->type_qualifier.is_const;
+        ast_node->decl_specifiers.has_volatile = type_qualifiers_node->type_qualifier.is_volatile;
+        ast_node->decl_specifiers.has_restrict = type_qualifiers_node->type_qualifier.is_restrict;
+    }
 
     c_grammar_node_t * third_child = (c_grammar_node_t *)children[idx];
     if (third_child != NULL && third_child->type == AST_NODE_FUNCTION_SPECIFIER)
@@ -629,6 +637,15 @@ handle_named_decl_specifiers(
     if (idx < (size_t)count)
     {
         ast_node->decl_specifiers.trailing_type_qualifiers = (c_grammar_node_t *)children[idx++];
+        if (ast_node->decl_specifiers.trailing_type_qualifiers != NULL)
+        {
+            ast_node->decl_specifiers.has_const
+                |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_const;
+            ast_node->decl_specifiers.has_volatile
+                |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_volatile;
+            ast_node->decl_specifiers.has_restrict
+                |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_restrict;
+        }
     }
 
     epc_ast_push(ctx, ast_node);
@@ -3023,6 +3040,22 @@ handle_type_qualifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
         return;
     }
 
+    if (ast_node->text != NULL)
+    {
+        if (strcmp(ast_node->text, "const") == 0)
+        {
+            ast_node->type_qualifier.is_const = true;
+        }
+        else if (strcmp(ast_node->text, "volatile") == 0)
+        {
+            ast_node->type_qualifier.is_volatile = true;
+        }
+        else if (strcmp(ast_node->text, "restrict") == 0)
+        {
+            ast_node->type_qualifier.is_restrict = true;
+        }
+    }
+
     epc_ast_push(ctx, ast_node);
 }
 
@@ -3035,6 +3068,14 @@ handle_type_qualifiers(
     if (ast_node == NULL)
     {
         return;
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        c_grammar_node_t * child = (c_grammar_node_t *)children[i];
+        ast_node->type_qualifier.is_const |= child->type_qualifier.is_const;
+        ast_node->type_qualifier.is_volatile |= child->type_qualifier.is_volatile;
+        ast_node->type_qualifier.is_restrict |= child->type_qualifier.is_restrict;
     }
 
     epc_ast_push(ctx, ast_node);

@@ -2723,6 +2723,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
 
                     bool is_static = false;
+                    bool is_const = false;
                     if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                     {
                         c_grammar_node_t const * storage_class_node = decl_specifiers->decl_specifiers.storage_class;
@@ -2730,6 +2731,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             is_static = storage_class_node->storage_class_specifiers.has_static;
                         }
+                        is_const = decl_specifiers->decl_specifiers.has_const;
                     }
 
                     if (is_static)
@@ -2764,7 +2766,16 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         {
                             LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
                             LLVMSetLinkage(global_var, LLVMInternalLinkage);
+                            if (is_const)
+                            {
+                                LLVMSetGlobalConstant(global_var, true);
+                            }
                             add_symbol(ctx, var_name, global_var, var_type, NULL);
+                            symbol_t const * sym = find_symbol_entry(ctx, var_name);
+                            if (sym != NULL)
+                            {
+                                ((symbol_t *)sym)->is_const = true;
+                            }
 
                             if (initializer_expr_node)
                             {
@@ -2881,6 +2892,16 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         }
 
                         add_symbol_with_struct(ctx, var_name, alloca_inst, var_type, pointee_type, struct_name);
+
+                        // Set const flag on symbol if const qualified
+                        if (is_const)
+                        {
+                            symbol_t const * sym = find_symbol_entry(ctx, var_name);
+                            if (sym != NULL)
+                            {
+                                ((symbol_t *)sym)->is_const = true;
+                            }
+                        }
 
                         // Process initializer if present
                         if (initializer_expr_node)
@@ -3037,7 +3058,31 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         else
                         {
                             LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+
+                            bool is_const = false;
+                            bool is_volatile = false;
+                            if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+                            {
+                                is_const = decl_specifiers->decl_specifiers.has_const;
+                                is_volatile = decl_specifiers->decl_specifiers.has_volatile;
+                            }
+
+                            if (is_const)
+                            {
+                                LLVMSetGlobalConstant(global_var, true);
+                            }
+                            if (is_volatile)
+                            {
+                                LLVMSetVolatile(global_var, true);
+                            }
+
                             add_symbol(ctx, var_name, global_var, var_type, NULL);
+                            symbol_t const * sym = find_symbol_entry(ctx, var_name);
+                            if (sym != NULL)
+                            {
+                                ((symbol_t *)sym)->is_const = is_const;
+                                ((symbol_t *)sym)->is_volatile = is_volatile;
+                            }
 
                             // Process initializer for global variable
                             if (initializer_expr_node)
@@ -4899,6 +4944,16 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         debug_error("Could not get pointer for LHS in assignment.");
         return NULL;
+    }
+
+    if (lhs_node->type == AST_NODE_IDENTIFIER)
+    {
+        symbol_t const * sym = find_symbol_entry(ctx, lhs_node->text);
+        if (sym != NULL && sym->is_const)
+        {
+            ir_gen_error(&ctx->errors, "cannot assign to const variable '%s'", lhs_node->text);
+            return NULL;
+        }
     }
 
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)

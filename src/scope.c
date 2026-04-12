@@ -524,6 +524,9 @@ add_symbol_with_struct(
     scope->symbols[scope->symbol_count].type = type;
     scope->symbols[scope->symbol_count].pointee_type = pointee_type;
     scope->symbols[scope->symbol_count].tag_name = tag ? strdup(tag) : NULL;
+    scope->symbols[scope->symbol_count].is_const = false;
+    scope->symbols[scope->symbol_count].is_volatile = false;
+    scope->symbols[scope->symbol_count].is_extern = false;
     scope->symbol_count++;
     debug_info(
         "Added symbol: name='%s', ptr=%p, type=%p, pointee_type=%p, tag='%s'",
@@ -596,6 +599,17 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
     }
 
     return scope_find_symbol_entry(scope->parent, name);
+}
+
+symbol_t const *
+find_symbol_entry(ir_generator_ctx_t * ctx, char const * name)
+{
+    if (ctx == NULL || name == NULL)
+    {
+        return NULL;
+    }
+
+    return scope_find_symbol_entry(ctx->current_scope, name);
 }
 
 static bool
