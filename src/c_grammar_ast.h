@@ -200,27 +200,13 @@ typedef enum
     ASSIGN_OP_OR,     // |=
 } assignment_operator_type_t;
 
-typedef enum
-{
-    STORAGE_CLASS_NONE,
-    STORAGE_CLASS_STATIC,
-    STORAGE_CLASS_EXTERN,
-    STORAGE_CLASS_AUTO,
-    STORAGE_CLASS_REGISTER,
-} storage_class_type_t;
-
-typedef struct
-{
-    storage_class_type_t storage_class;
-} storage_class_data_t;
-
 typedef struct
 {
     bool has_static;
     bool has_extern;
     bool has_auto;
     bool has_register;
-} storage_class_specifiers_data_t;
+} storage_class_data_t;
 
 typedef struct
 {
@@ -330,13 +316,8 @@ typedef struct ast_node_decl_specifiers_t
     c_grammar_node_t const * type_specifier;
     c_grammar_node_t const * typedef_name;
     c_grammar_node_t const * trailing_type_qualifiers;
-    bool has_const;
-    bool has_volatile;
-    bool has_restrict;
-    bool has_static;
-    bool has_extern;
-    bool has_auto;
-    bool has_register;
+    storage_class_data_t storage;
+    type_qualifier_data_t type;
 } ast_node_decl_specifiers_t;
 
 typedef struct ast_node_function_definition_t
@@ -623,7 +604,6 @@ typedef struct c_grammar_node_t
         ast_node_operator_t op;
         ast_node_type_name_t type_name;
         storage_class_data_t storage_class;
-        storage_class_specifiers_data_t storage_class_specifiers;
         type_qualifier_data_t type_qualifier;
     };
 } c_grammar_node_t;

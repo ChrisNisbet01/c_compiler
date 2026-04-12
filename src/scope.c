@@ -170,10 +170,7 @@ add_info_to_list(scope_types_t * list, type_info_t info)
 
     list->entries[list->count++] = info;
     debug_info(
-        "Added type info: tag='%s', kind=%d, total count=%zu",
-        info.tag ? info.tag : "(null)",
-        info.kind,
-        list->count
+        "Added type info: tag='%s', kind=%d, total count=%zu", info.tag ? info.tag : "(null)", info.kind, list->count
     );
     return &list->entries[list->count - 1];
 }
@@ -185,12 +182,7 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
     {
         return NULL;
     }
-    debug_info(
-        "Adding tagged type: scope=%p, tag='%s', kind=%d",
-        (void *)scope,
-        info.tag,
-        info.kind
-    );
+    debug_info("Adding tagged type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag, info.kind);
     scope_types_t * tagged = &scope->tagged_types;
 
     return add_info_to_list(tagged, info);
@@ -289,7 +281,7 @@ scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
     type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, index);
     if (entry == NULL)
     {
-    debug_info("Untagged type not found for index: %d", index);
+        debug_info("Untagged type not found for index: %d", index);
         return NULL;
     }
 
@@ -501,7 +493,8 @@ add_symbol_with_struct(
     LLVMValueRef ptr,
     LLVMTypeRef type,
     LLVMTypeRef pointee_type,
-    char const * tag
+    char const * tag,
+    symbol_data_t const * data
 )
 {
     if (!ctx || !name || !ptr || !type || !ctx->current_scope)
@@ -518,15 +511,17 @@ add_symbol_with_struct(
         scope->symbols = new_symbols;
         scope->symbol_capacity = new_cap;
     }
+    symbol_t * new_symbol = &scope->symbols[scope->symbol_count];
 
-    scope->symbols[scope->symbol_count].name = strdup(name);
-    scope->symbols[scope->symbol_count].ptr = ptr;
-    scope->symbols[scope->symbol_count].type = type;
-    scope->symbols[scope->symbol_count].pointee_type = pointee_type;
-    scope->symbols[scope->symbol_count].tag_name = tag ? strdup(tag) : NULL;
-    scope->symbols[scope->symbol_count].is_const = false;
-    scope->symbols[scope->symbol_count].is_volatile = false;
-    scope->symbols[scope->symbol_count].is_extern = false;
+    new_symbol->name = strdup(name);
+    new_symbol->ptr = ptr;
+    new_symbol->type = type;
+    new_symbol->pointee_type = pointee_type;
+    new_symbol->tag_name = tag ? strdup(tag) : NULL;
+    if (data != NULL)
+    {
+        new_symbol->data = *data;
+    }
     scope->symbol_count++;
     debug_info(
         "Added symbol: name='%s', ptr=%p, type=%p, pointee_type=%p, tag='%s'",
@@ -539,9 +534,16 @@ add_symbol_with_struct(
 }
 
 void
-add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type)
+add_symbol(
+    ir_generator_ctx_t * ctx,
+    char const * name,
+    LLVMValueRef ptr,
+    LLVMTypeRef type,
+    LLVMTypeRef pointee_type,
+    symbol_data_t const * data
+)
 {
-    add_symbol_with_struct(ctx, name, ptr, type, pointee_type, NULL);
+    add_symbol_with_struct(ctx, name, ptr, type, pointee_type, NULL, data);
 }
 
 static char const *
@@ -799,9 +801,8 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRe
     if (ctx->function_declarations.count >= ctx->function_declarations.capacity)
     {
         size_t new_cap = ctx->function_declarations.capacity == 0 ? 4 : ctx->function_declarations.capacity * 2;
-        struct function_decl_entry * new_entries = realloc(
-            ctx->function_declarations.entries, new_cap * sizeof(*new_entries)
-        );
+        struct function_decl_entry * new_entries
+            = realloc(ctx->function_declarations.entries, new_cap * sizeof(*new_entries));
         if (new_entries == NULL)
         {
             return false;

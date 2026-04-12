@@ -607,9 +607,7 @@ handle_named_decl_specifiers(
 
     if (type_qualifiers_node != NULL)
     {
-        ast_node->decl_specifiers.has_const = type_qualifiers_node->type_qualifier.is_const;
-        ast_node->decl_specifiers.has_volatile = type_qualifiers_node->type_qualifier.is_volatile;
-        ast_node->decl_specifiers.has_restrict = type_qualifiers_node->type_qualifier.is_restrict;
+        ast_node->decl_specifiers.type = type_qualifiers_node->type_qualifier;
     }
 
     c_grammar_node_t * third_child = (c_grammar_node_t *)children[idx];
@@ -639,22 +637,19 @@ handle_named_decl_specifiers(
         ast_node->decl_specifiers.trailing_type_qualifiers = (c_grammar_node_t *)children[idx++];
         if (ast_node->decl_specifiers.trailing_type_qualifiers != NULL)
         {
-            ast_node->decl_specifiers.has_const
+            ast_node->decl_specifiers.type.is_const
                 |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_const;
-            ast_node->decl_specifiers.has_volatile
+            ast_node->decl_specifiers.type.is_volatile
                 |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_volatile;
-            ast_node->decl_specifiers.has_restrict
+            ast_node->decl_specifiers.type.is_restrict
                 |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_restrict;
         }
     }
 
-    c_grammar_node_t * storage_class_node = ast_node->decl_specifiers.storage_class;
+    c_grammar_node_t const * storage_class_node = ast_node->decl_specifiers.storage_class;
     if (storage_class_node != NULL)
     {
-        ast_node->decl_specifiers.has_static = storage_class_node->storage_class_specifiers.has_static;
-        ast_node->decl_specifiers.has_extern = storage_class_node->storage_class_specifiers.has_extern;
-        ast_node->decl_specifiers.has_auto = storage_class_node->storage_class_specifiers.has_auto;
-        ast_node->decl_specifiers.has_register = storage_class_node->storage_class_specifiers.has_register;
+        ast_node->decl_specifiers.storage = storage_class_node->storage_class;
     }
 
     epc_ast_push(ctx, ast_node);
@@ -2965,19 +2960,19 @@ handle_storage_class_specifier(
     {
         if (strcmp(ast_node->text, "static") == 0)
         {
-            ast_node->storage_class.storage_class = STORAGE_CLASS_STATIC;
+            ast_node->storage_class.has_static = true;
         }
         else if (strcmp(ast_node->text, "extern") == 0)
         {
-            ast_node->storage_class.storage_class = STORAGE_CLASS_EXTERN;
+            ast_node->storage_class.has_extern = true;
         }
         else if (strcmp(ast_node->text, "auto") == 0)
         {
-            ast_node->storage_class.storage_class = STORAGE_CLASS_AUTO;
+            ast_node->storage_class.has_auto = true;
         }
         else if (strcmp(ast_node->text, "register") == 0)
         {
-            ast_node->storage_class.storage_class = STORAGE_CLASS_REGISTER;
+            ast_node->storage_class.has_register = true;
         }
     }
 
@@ -2999,10 +2994,10 @@ handle_storage_class_specifiers(
     for (int i = 0; i < count; i++)
     {
         c_grammar_node_t * child = (c_grammar_node_t *)children[i];
-        ast_node->storage_class_specifiers.has_static |= child->storage_class.storage_class == STORAGE_CLASS_STATIC;
-        ast_node->storage_class_specifiers.has_extern |= child->storage_class.storage_class == STORAGE_CLASS_EXTERN;
-        ast_node->storage_class_specifiers.has_auto |= child->storage_class.storage_class == STORAGE_CLASS_AUTO;
-        ast_node->storage_class_specifiers.has_register |= child->storage_class.storage_class == STORAGE_CLASS_REGISTER;
+        ast_node->storage_class.has_static |= child->storage_class.has_static;
+        ast_node->storage_class.has_extern |= child->storage_class.has_extern;
+        ast_node->storage_class.has_auto |= child->storage_class.has_auto;
+        ast_node->storage_class.has_register |= child->storage_class.has_register;
     }
 
     epc_ast_push(ctx, ast_node);

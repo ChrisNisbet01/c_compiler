@@ -83,6 +83,13 @@ typedef struct scope_typedefs
     size_t capacity;
 } scope_typedefs_t;
 
+typedef struct symbol_data_t
+{
+    bool is_const;
+    bool is_volatile;
+    bool is_extern;
+} symbol_data_t;
+
 // --- Symbol Table Management ---
 typedef struct symbol
 {
@@ -91,9 +98,7 @@ typedef struct symbol
     LLVMTypeRef type;
     LLVMTypeRef pointee_type;
     char * tag_name;
-    bool is_const;
-    bool is_volatile;
-    bool is_extern;
+    symbol_data_t data;
 } symbol_t;
 
 // --- Scope structure for hierarchical symbol tables ---
@@ -283,7 +288,8 @@ void add_symbol_with_struct(
     LLVMValueRef ptr,
     LLVMTypeRef type,
     LLVMTypeRef pointee_type,
-    char const * tag
+    char const * tag,
+    symbol_data_t const * data
 );
 
 /**
@@ -294,8 +300,14 @@ void add_symbol_with_struct(
  * @param type The LLVM type.
  * @param pointee_type The pointed-to type (for pointers).
  */
-void
-add_symbol(ir_generator_ctx_t * ctx, char const * name, LLVMValueRef ptr, LLVMTypeRef type, LLVMTypeRef pointee_type);
+void add_symbol(
+    ir_generator_ctx_t * ctx,
+    char const * name,
+    LLVMValueRef ptr,
+    LLVMTypeRef type,
+    LLVMTypeRef pointee_type,
+    symbol_data_t const * data
+);
 
 /**
  * @brief Finds a symbol in a scope and returns its pointer and type.

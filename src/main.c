@@ -750,7 +750,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 
     if (!success)
     {
-        debug_error("LLVM IR generation failed.");
+        debug_error("Compilation error.");
     }
 
     ir_generator_dispose(ir_ctx);

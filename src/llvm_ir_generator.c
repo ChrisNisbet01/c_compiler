@@ -1142,7 +1142,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             LLVMSetLinkage(global, LLVMInternalLinkage);
 
             // Also add to symbol table for immediate lookup
-            add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL);
+            add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL, NULL);
 
             current_value++;
         }
@@ -1937,8 +1937,10 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                                 break;
                             }
                         }
-                        else if (child != NULL
-                                 && (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION))
+                        else if (
+                            child != NULL
+                            && (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION)
+                        )
                         {
                             type_info_t const * info = register_struct_definition(ctx, child);
                             if (info != NULL)
@@ -1950,7 +1952,8 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                         else if (
                             child != NULL
                             && (child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
-                                || child->type == AST_NODE_ENUM_TYPE_REF))
+                                || child->type == AST_NODE_ENUM_TYPE_REF)
+                        )
                         {
                             char const * tag = extract_struct_or_union_or_enum_tag(child);
                             if (tag != NULL)
@@ -2563,7 +2566,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                 }
 
-                add_symbol_with_struct(ctx, param_names[i], alloca_inst, param_types[i], NULL, param_compound_name);
+                add_symbol_with_struct(
+                    ctx, param_names[i], alloca_inst, param_types[i], NULL, param_compound_name, NULL
+                );
             }
         }
 
@@ -2726,8 +2731,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     bool is_const = false;
                     if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                     {
-                        is_static = decl_specifiers->decl_specifiers.has_static;
-                        is_const = decl_specifiers->decl_specifiers.has_const;
+                        is_static = decl_specifiers->decl_specifiers.storage.has_static;
+                        is_const = decl_specifiers->decl_specifiers.type.is_const;
                     }
 
                     if (is_static)
@@ -2754,7 +2759,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             LLVMSetInitializer(
                                 global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false)
                             );
-                            add_symbol(ctx, var_name, global_var, var_type, NULL);
+                            add_symbol(ctx, var_name, global_var, var_type, NULL, NULL);
 
                             free(decoded);
                         }
@@ -2766,12 +2771,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 LLVMSetGlobalConstant(global_var, true);
                             }
-                            add_symbol(ctx, var_name, global_var, var_type, NULL);
-                            symbol_t const * sym = find_symbol_entry(ctx, var_name);
-                            if (sym != NULL)
-                            {
-                                ((symbol_t *)sym)->is_const = true;
-                            }
+                            symbol_data_t symbol_data = {.is_const = is_const};
+
+                            add_symbol(ctx, var_name, global_var, var_type, NULL, &symbol_data);
 
                             if (initializer_expr_node)
                             {
@@ -2887,17 +2889,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                         }
 
-                        add_symbol_with_struct(ctx, var_name, alloca_inst, var_type, pointee_type, struct_name);
-
-                        // Set const flag on symbol if const qualified
-                        if (is_const)
-                        {
-                            symbol_t const * sym = find_symbol_entry(ctx, var_name);
-                            if (sym != NULL)
-                            {
-                                ((symbol_t *)sym)->is_const = true;
-                            }
-                        }
+                        symbol_data_t symbol_data = {.is_const = is_const};
+                        add_symbol_with_struct(
+                            ctx, var_name, alloca_inst, var_type, pointee_type, struct_name, &symbol_data
+                        );
 
                         // Process initializer if present
                         if (initializer_expr_node)
@@ -3047,7 +3042,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             LLVMSetInitializer(
                                 global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false)
                             );
-                            add_symbol(ctx, var_name, global_var, var_type, NULL);
+                            add_symbol(ctx, var_name, global_var, var_type, NULL, NULL);
 
                             free(decoded);
                         }
@@ -3059,8 +3054,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             bool is_volatile = false;
                             if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                             {
-                                is_const = decl_specifiers->decl_specifiers.has_const;
-                                is_volatile = decl_specifiers->decl_specifiers.has_volatile;
+                                is_const = decl_specifiers->decl_specifiers.type.is_const;
+                                is_volatile = decl_specifiers->decl_specifiers.type.is_volatile;
                             }
 
                             if (is_const)
@@ -3072,13 +3067,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 LLVMSetVolatile(global_var, true);
                             }
 
-                            add_symbol(ctx, var_name, global_var, var_type, NULL);
-                            symbol_t const * sym = find_symbol_entry(ctx, var_name);
-                            if (sym != NULL)
-                            {
-                                ((symbol_t *)sym)->is_const = is_const;
-                                ((symbol_t *)sym)->is_volatile = is_volatile;
-                            }
+                            symbol_data_t symbol_data = {.is_const = is_const, .is_volatile = is_volatile};
+
+                            add_symbol(ctx, var_name, global_var, var_type, NULL, &symbol_data);
 
                             // Process initializer for global variable
                             if (initializer_expr_node)
@@ -4945,7 +4936,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (lhs_node->type == AST_NODE_IDENTIFIER)
     {
         symbol_t const * sym = find_symbol_entry(ctx, lhs_node->text);
-        if (sym != NULL && sym->is_const)
+        if (sym != NULL && sym->data.is_const)
         {
             ir_gen_error(&ctx->errors, "cannot assign to const variable '%s'", lhs_node->text);
             return NULL;
