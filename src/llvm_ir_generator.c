@@ -2365,7 +2365,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         if (decl_specifiers_node == NULL || declarator_node == NULL || compound_stmt_node == NULL)
         {
-            ir_gen_error(&ctx->errors, "Function definition is missing declaration specifiers, declarator, or body.");
+            debug_error("Function definition is missing declaration specifiers, declarator, or body.");
             scope_pop(ctx);
             return;
         }
@@ -4055,7 +4055,7 @@ write_llvm_ir_to_file(LLVMModuleRef module, char const * file_path)
     }
 
     // If successful, error_message will be NULL.
-    printf("IRGen: Successfully wrote LLVM IR to %s\n", file_path);
+    debug_info("IRGen: Successfully wrote LLVM IR to %s", file_path);
     return 0;
 }
 
@@ -4136,8 +4136,8 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
         return -1;
     }
 
-    printf(
-        "IRGen: Successfully emitted %s to %s\n", (file_type == LLVMObjectFile) ? "object code" : "assembly", file_path
+    debug_info(
+        "IRGen: Successfully emitted %s to %s", (file_type == LLVMObjectFile) ? "object code" : "assembly", file_path
     );
 
     // Cleanup
@@ -4489,7 +4489,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             char const * member_name = suffix->identifier.identifier->text;
             if (member_name == NULL)
             {
-                ir_gen_error(&ctx->errors, "Could not find member name in member access AST node.");
+                debug_error(&ctx->errors, "Could not find member name in member access AST node.");
                 return NULL;
             }
 
