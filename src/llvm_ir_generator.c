@@ -1288,26 +1288,39 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
             continue;
         }
 
-        // StructDeclaration has: [KwExtension TypeSpecifier StructDeclarator]
-        if (struct_decl->list.count < 3)
-        {
-            continue;
-        }
-
         c_grammar_node_t const * specifier_qualifier_list = struct_decl->struct_declaration.specifier_qualifier_list;
         c_grammar_node_t const * declarator_list = struct_decl->struct_declaration.declarator_list;
-        if (declarator_list == NULL || declarator_list->list.count == 0 || specifier_qualifier_list == NULL
-            || specifier_qualifier_list->list.count == 0)
-        {
-            continue;
-        }
-        c_grammar_node_t const * type_spec = specifier_qualifier_list->list.children[0];
-        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
 
-        if (type_spec == NULL || struct_decl_node == NULL || type_spec->type != AST_NODE_TYPE_SPECIFIER)
+        if (specifier_qualifier_list == NULL || specifier_qualifier_list->list.count == 0)
         {
             continue;
         }
+
+        /* Search through specifier_qualifier_list children for the actual type specifier */
+        c_grammar_node_t const * type_spec = NULL;
+        for (size_t j = 0; j < specifier_qualifier_list->list.count; j++)
+        {
+            c_grammar_node_t const * child = specifier_qualifier_list->list.children[j];
+            if (child != NULL
+                && (child->type == AST_NODE_TYPE_SPECIFIER || child->type == AST_NODE_TYPEDEF_SPECIFIER))
+            {
+                type_spec = child;
+                break;
+            }
+        }
+
+        if (type_spec == NULL)
+        {
+            continue;
+        }
+
+        /* Anonymous struct/union: no declarator list - skip for now */
+        if (declarator_list == NULL || declarator_list->list.count == 0)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
 
         struct_field_t new_member = {0};
 
@@ -1403,6 +1416,11 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 }
                 if (new_member.name == NULL)
                 {
+                    continue;
+                }
+                if (new_member.type == NULL)
+                {
+                    free(new_member.name);
                     continue;
                 }
 
@@ -1942,7 +1960,20 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
                 }
             }
         }
-        // Handle DeclarationSpecifiers - use structured fields
+        /* Handle TypedefSpecifier directly (e.g. from struct member type_spec) */
+        else if (specifiers->type == AST_NODE_TYPEDEF_SPECIFIER)
+        {
+            char const * typedef_name = extract_typedef_name(specifiers);
+            if (typedef_name != NULL)
+            {
+                LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
+                if (typedef_type != NULL)
+                {
+                    base_type = typedef_type;
+                }
+            }
+        }
+        /* Handle DeclarationSpecifiers - use structured fields */
         else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             // Use the structured fields from ast_node_decl_specifiers_t
@@ -2518,30 +2549,36 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef existing = LLVMGetNamedFunction(ctx->module, func_name);
         if (existing != NULL)
         {
-            LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
-            if (!function_signatures_match(existing_type, func_type))
-            {
-                ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
-                free(param_types);
-                free(param_names);
-                scope_pop(ctx);
-                return;
-            }
-
             struct function_decl_entry * decl = find_function_declaration(ctx, func_name);
-            if (decl != NULL && decl->has_definition)
-            {
-                ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
-                free(param_types);
-                free(param_names);
-                scope_pop(ctx);
-                return;
-            }
 
-            // Update existing declaration to mark it as having a definition
+            /* Only check signature mismatch for tracked declarations (not forward decls from our static handling) */
             if (decl != NULL)
             {
+                LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
+                if (!function_signatures_match(existing_type, func_type))
+                {
+                    ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
+                    free(param_types);
+                    free(param_names);
+                    scope_pop(ctx);
+                    return;
+                }
+
+                if (decl->has_definition)
+                {
+                    ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
+                    free(param_types);
+                    free(param_names);
+                    scope_pop(ctx);
+                    return;
+                }
+
                 decl->has_definition = true;
+            }
+            else
+            {
+                /* Forward declaration not tracked — register it now */
+                add_function_declaration(ctx, func_name, func_type, true);
             }
         }
         else
@@ -2550,7 +2587,27 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             add_function_declaration(ctx, func_name, func_type, true);
         }
 
-        LLVMValueRef func = LLVMAddFunction(ctx->module, func_name, func_type);
+        /* Reuse existing declaration if already added (e.g. from a forward declaration),
+         * but only if the type matches. If it was an auto-declared stub with wrong type,
+         * delete it and recreate with the correct type. */
+        LLVMValueRef func = LLVMGetNamedFunction(ctx->module, func_name);
+        if (func != NULL)
+        {
+            LLVMTypeRef existing_type = LLVMGlobalGetValueType(func);
+            if (!function_signatures_match(existing_type, func_type))
+            {
+                /* Replace the stub: redirect all uses to a new function then delete the old one */
+                LLVMValueRef new_func = LLVMAddFunction(ctx->module, "", func_type);
+                LLVMReplaceAllUsesWith(func, new_func);
+                LLVMDeleteFunction(func);
+                LLVMSetValueName(new_func, func_name);
+                func = new_func;
+            }
+        }
+        else
+        {
+            func = LLVMAddFunction(ctx->module, func_name, func_type);
+        }
 
         // Create a basic block for the function's entry point.
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
@@ -2591,26 +2648,20 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                 }
 
-                // Use helper to extract type name - check struct/union keyword first, then typedef
+                /* Use helper to extract type name - check struct/union keyword first, then typedef */
                 if (type_spec)
                 {
-                    if (p_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
+                    if (type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
                     {
-                        // Is a typedef name
+                        /* Is a typedef name - get the underlying struct tag from the typedef entry */
                         char const * typedef_name = extract_typedef_name(type_spec);
                         if (typedef_name != NULL)
                         {
-                            // Look up typedef to get the struct type for member access
-                            LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                            if (typedef_type != NULL)
+                            scope_typedef_entry_t const * entry
+                                = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+                            if (entry != NULL && entry->tag != NULL)
                             {
-                                param_types[i] = typedef_type;
-                                // Get underlying struct name for member access
-                                type_info_t * info = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
-                                if (info != NULL)
-                                {
-                                    param_compound_name = (char *)info->tag;
-                                }
+                                param_compound_name = (char *)entry->tag;
                             }
                         }
                     }
@@ -2795,6 +2846,21 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (is_static)
                     {
+                        /* Check if this is a static function forward declaration */
+                        if (declarator_node)
+                        {
+                            c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
+                            LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                            bool is_likely_unsized_array
+                                = (kind == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
+
+                            if (!is_likely_unsized_array && suffix_list->list.count > 0)
+                            {
+                                /* Static function forward declaration - skip, the definition will create it */
+                                continue;
+                            }
+                        }
+
                         debug_info("Creating global for static variable '%s'", var_name);
 
                         bool is_unsized_array
@@ -4503,8 +4569,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     bool found = find_symbol(ctx, func_name, &var_ptr, &var_type, NULL);
                     if (found && var_ptr)
                     {
-                        // It's a function pointer variable - load the pointer value
-                        base_val = aligned_load(ctx->builder, var_type, var_ptr, "func_ptr");
+                        if (LLVMIsAFunction(var_ptr))
+                        {
+                            /* Direct function (e.g. static forward declaration) - use as-is */
+                            base_val = var_ptr;
+                        }
+                        else
+                        {
+                            /* It's a function pointer variable - load the pointer value */
+                            base_val = aligned_load(ctx->builder, var_type, var_ptr, "func_ptr");
+                        }
                     }
                     else
                     {

@@ -318,14 +318,19 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 {
     if (scope == NULL || type == NULL)
     {
+        debug_info("scope_find_type_by_llvm_type: Invalid scope or type. Scope: %p, Type: %p", (void*)scope, (void*)type);
         return NULL;
     }
+
+    debug_info("scope_find_type_by_llvm_type: Searching for LLVMTypeRef %p", (void*)type);
 
     /* Search in tagged_types */
     for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
+        debug_info("scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p", i, (void*)scope->tagged_types.entries[i].type);
         if (scope->tagged_types.entries[i].type == type)
         {
+            debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
             return &scope->tagged_types.entries[i];
         }
     }
@@ -333,13 +338,22 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
     /* Search in untagged_types */
     for (size_t i = 0; i < scope->untagged_types.count; ++i)
     {
+        debug_info("scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p", i, (void*)scope->untagged_types.entries[i].type);
         if (scope->untagged_types.entries[i].type == type)
         {
+            debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
             return &scope->untagged_types.entries[i];
         }
     }
 
-    return scope_find_type_by_llvm_type(scope->parent, type);
+    if (scope->parent != NULL)
+    {
+        debug_info("scope_find_type_by_llvm_type: Searching in parent scope.");
+        return scope_find_type_by_llvm_type(scope->parent, type);
+    }
+
+    debug_info("scope_find_type_by_llvm_type: Type %p not found in any scope.", (void*)type);
+    return NULL;
 }
 
 // --- Typedef management ---

@@ -3,3 +3,6 @@ a.out.ll
 /tests/output/
 /build/
 /.cache/
+/build_debug/
+/build_reldbg/
+/tests/ncc/
