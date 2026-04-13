@@ -2833,7 +2833,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                             symbol_data_t symbol_data = {.is_const = is_const};
 
-                            add_symbol(ctx, var_name, global_var, var_type, NULL, &symbol_data);
+                            add_symbol(ctx, var_name, global_var, var_type, var_type, &symbol_data);
 
                             if (initializer_expr_node)
                             {
@@ -3121,7 +3121,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             LLVMSetInitializer(
                                 global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false)
                             );
-                            add_symbol(ctx, var_name, global_var, var_type, NULL, NULL);
+                            add_symbol(ctx, var_name, global_var, var_type, var_type, NULL);
 
                             free(decoded);
                         }
@@ -3148,7 +3148,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                             symbol_data_t symbol_data = {.is_const = is_const, .is_volatile = is_volatile};
 
-                            add_symbol(ctx, var_name, global_var, var_type, NULL, &symbol_data);
+                            add_symbol(ctx, var_name, global_var, var_type, var_type, &symbol_data);
 
                             // Process initializer for global variable
                             if (initializer_expr_node)
@@ -4270,8 +4270,13 @@ get_variable_pointer(
 
     if (find_symbol(ctx, name, &var_ptr, &retrieved_type, &pointee_type))
     {
+        /* For global variables (file-scope), the retrieved_type is the element type,
+         * so we need to use it directly (the var_ptr is already the pointer to the global) */
+        /* For local variables, the retrieved_type should be the element type */
+        LLVMTypeRef element_type = (pointee_type != NULL) ? pointee_type : retrieved_type;
+        
         if (out_type)
-            *out_type = retrieved_type;
+            *out_type = element_type;
         if (out_pointee_type)
             *out_pointee_type = pointee_type;
         return var_ptr;
@@ -5277,8 +5282,21 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     // Get the variable's pointer and its element type from the symbol table.
     var_ptr = get_variable_pointer(ctx, node, &element_type, NULL);
 
-    if (var_ptr && element_type) // Ensure both are valid
+    if (var_ptr && element_type)
     {
+        // Check if the symbol is an integer constant (like enum values)
+        // These are global i32 values, not pointers - we can just return them directly
+        // But only for globals, not for local variables (which are alloca instructions)
+        if (LLVMGetTypeKind(element_type) == LLVMIntegerTypeKind && LLVMIsAGlobalValue(var_ptr))
+        {
+            LLVMValueRef initializer = LLVMGetInitializer(var_ptr);
+            if (initializer != NULL)
+            {
+                // Return the constant initializer directly
+                return initializer;
+            }
+        }
+
         // Check if the type is an array (for file-scope or local arrays)
         if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind)
         {
@@ -5288,7 +5306,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             return LLVMBuildInBoundsGEP2(ctx->builder, element_type, var_ptr, indices, 2, "array_ptr");
         }
         // Load the value from the memory address using LLVMBuildLoad2.
-        return aligned_load(ctx->builder, element_type, var_ptr, "load_tmp"); // "load_tmp" is a debug name.
+        return aligned_load(ctx->builder, element_type, var_ptr, "load_tmp");
     }
     else if (var_ptr == NULL)
     {
