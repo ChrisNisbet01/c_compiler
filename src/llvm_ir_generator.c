@@ -129,9 +129,7 @@ extract_typedef_name(c_grammar_node_t const * type_spec_node)
 // For 'int * const p': level 0 const comes from pointer_list[0]
 static void
 extract_pointer_qualifiers(
-    c_grammar_node_t const * pointer_list,
-    c_grammar_node_t const * type_specifiers,
-    pointer_qualifiers_t * pq
+    c_grammar_node_t const * pointer_list, c_grammar_node_t const * type_specifiers, pointer_qualifiers_t * pq
 )
 {
     if (pq == NULL)
@@ -1838,7 +1836,9 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
         type_ref = LLVMX86FP80TypeInContext(ctx->context);
     else if (strncmp(type_name, "double", 6) == 0)
         type_ref = LLVMDoubleTypeInContext(ctx->context);
-    else if (strncmp(type_name, "long", 4) == 0)
+    else if (
+        strncmp(type_name, "long", 4) == 0 || (strstr(type_name, "long") != NULL && strstr(type_name, "int") != NULL)
+    )
         type_ref = LLVMInt64TypeInContext(ctx->context);
     else if (strncmp(type_name, "short", 5) == 0)
         type_ref = LLVMInt16TypeInContext(ctx->context);
@@ -2953,7 +2953,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         pointer_qualifiers_t pointer_quals = {0};
                         if (declarator_node && declarator_node->declarator.pointer_list)
                         {
-                            extract_pointer_qualifiers(declarator_node->declarator.pointer_list, decl_specifiers, &pointer_quals);
+                            extract_pointer_qualifiers(
+                                declarator_node->declarator.pointer_list, decl_specifiers, &pointer_quals
+                            );
                         }
 
                         bool symbol_is_const = false;
@@ -4292,7 +4294,7 @@ get_variable_pointer(
             /* Default: use retrieved_type */
             element_type = retrieved_type;
         }
-        
+
         if (out_type)
             *out_type = element_type;
         if (out_pointee_type)
@@ -4604,7 +4606,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             char const * member_name = suffix->identifier.identifier->text;
             if (member_name == NULL)
             {
-                debug_error(&ctx->errors, "Could not find member name in member access AST node.");
+                debug_error("Could not find member name in member access AST node.");
                 return NULL;
             }
 
@@ -5128,8 +5130,10 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else
                     {
                         ir_gen_error(
-                            &ctx->errors, "cannot assign to const memory through '%s' at dereference level %u",
-                            target_name, deref_level
+                            &ctx->errors,
+                            "cannot assign to const memory through '%s' at dereference level %u",
+                            target_name,
+                            deref_level
                         );
                     }
                     return NULL;
