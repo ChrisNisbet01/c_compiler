@@ -1836,9 +1836,7 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
         type_ref = LLVMX86FP80TypeInContext(ctx->context);
     else if (strncmp(type_name, "double", 6) == 0)
         type_ref = LLVMDoubleTypeInContext(ctx->context);
-    else if (
-        strncmp(type_name, "long", 4) == 0 || (strstr(type_name, "long") != NULL && strstr(type_name, "int") != NULL)
-    )
+    else if (strncmp(type_name, "long", 4) == 0)
         type_ref = LLVMInt64TypeInContext(ctx->context);
     else if (strncmp(type_name, "short", 5) == 0)
         type_ref = LLVMInt16TypeInContext(ctx->context);

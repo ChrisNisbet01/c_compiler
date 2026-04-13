@@ -315,7 +315,7 @@ AsmNames = KwAsm LParen StringLiteral+ RParen @AST_ACTION_ASM_NAMES;
 
 StructUnionDeclaration = OptionalKwExtension SpecifierQualifierList StructDeclaratorList? Semicolon @AST_ACTION_STRUCT_DECLARATION;
 
-StructUnionDeclarationList = StructUnionDeclaration+ @AST_ACTION_STRUCT_DECLARATION_LIST;
+StructUnionDeclarationList = (StructUnionDeclaration | PreprocessorDirective)+ @AST_ACTION_STRUCT_DECLARATION_LIST;
 
 // StructDefinition: struct with body (definition)
 StructDefinition = KwStruct AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_STRUCT_DEFINITION;
