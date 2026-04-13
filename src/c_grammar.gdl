@@ -322,7 +322,8 @@ StructDefinition = KwStruct AttributeList Identifier? LBrace StructUnionDeclarat
 UnionDefinition = KwUnion AttributeList Identifier? LBrace StructUnionDeclarationList RBrace AttributeList @AST_ACTION_UNION_DEFINITION;
 
 Enumerator = Identifier (Assign ConditionalExpression)? @AST_ACTION_ENUMERATOR;
-EnumeratorList = delimited_flex(Enumerator, Comma) Comma? @AST_ACTION_ENUMERATOR_LIST;
+EnumElement = (PreprocessorDirective | Enumerator Comma?);
+EnumeratorList = EnumElement* @AST_ACTION_ENUMERATOR_LIST;
 EnumDefinition = KwEnum AttributeList Identifier? LBrace EnumeratorList RBrace AttributeList @AST_ACTION_ENUM_DEFINITION;
 
 // Typedef names are identifiers that have been registered
