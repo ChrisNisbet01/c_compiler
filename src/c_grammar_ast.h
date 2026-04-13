@@ -213,6 +213,7 @@ typedef struct
     bool is_const;
     bool is_volatile;
     bool is_restrict;
+    c_grammar_node_t * attribute;
 } type_qualifier_data_t;
 
 typedef struct
@@ -559,7 +560,7 @@ typedef struct c_grammar_node_t
     c_grammar_node_type_t type;
 
     ast_node_list_t list;
-    char * text;
+    char const * text;
 
     union
     {

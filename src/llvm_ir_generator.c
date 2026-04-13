@@ -1301,8 +1301,7 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
         for (size_t j = 0; j < specifier_qualifier_list->list.count; j++)
         {
             c_grammar_node_t const * child = specifier_qualifier_list->list.children[j];
-            if (child != NULL
-                && (child->type == AST_NODE_TYPE_SPECIFIER || child->type == AST_NODE_TYPEDEF_SPECIFIER))
+            if (child != NULL && (child->type == AST_NODE_TYPE_SPECIFIER || child->type == AST_NODE_TYPEDEF_SPECIFIER))
             {
                 type_spec = child;
                 break;
@@ -1733,7 +1732,7 @@ add_tagged_struct_or_union_type(
     return scope_add_tagged_type(ctx->current_scope, new_struct);
 }
 
-static char *
+static char const *
 decode_string(char const * const src)
 {
     if (src == NULL)
@@ -2473,7 +2472,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // --- Extract Function Name ---
-        char * func_name = "unknown_function";
+        char const * func_name = "unknown_function";
         c_grammar_node_t const * suffix_node = NULL;
 
         c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
@@ -2492,7 +2491,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Extract Parameters ---
         size_t num_params = 0;
         LLVMTypeRef * param_types = NULL;
-        char ** param_names = NULL;
+        char const ** param_names = NULL;
         LLVMTypeRef empty_params[1];
 
         if (suffix_node && suffix_node->list.count > 0)
@@ -2534,7 +2533,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         char const * id = first_child->function_pointer_declarator.identifier->text;
                         if (id != NULL)
                         {
-                            param_names[i] = (char *)id;
+                            param_names[i] = id;
                         }
                     }
                 }
@@ -2661,7 +2660,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
                             if (entry != NULL && entry->tag != NULL)
                             {
-                                param_compound_name = (char *)entry->tag;
+                                param_compound_name = entry->tag;
                             }
                         }
                     }
@@ -2670,7 +2669,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         char const * tag = extract_struct_or_union_or_enum_tag(type_spec);
                         if (tag != NULL)
                         {
-                            param_compound_name = (char *)tag;
+                            param_compound_name = tag;
                         }
                     }
                 }
@@ -2869,9 +2868,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         if (is_unsized_array && initializer_expr_node
                             && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
                         {
-                            char * raw_text = initializer_expr_node->text;
-                            char * decoded = decode_string(raw_text);
-                            char * str = decoded ? decoded : raw_text;
+                            char const * raw_text = initializer_expr_node->text;
+                            char const * decoded = decode_string(raw_text);
+                            char const * str = decoded ? decoded : raw_text;
 
                             size_t str_len = strlen(str);
                             LLVMTypeRef elem_type = LLVMGetElementType(var_type);
@@ -2885,7 +2884,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             );
                             add_symbol(ctx, var_name, global_var, var_type, NULL, NULL);
 
-                            free(decoded);
+                            free((char *)decoded);
                         }
                         else
                         {
@@ -3171,9 +3170,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
                         {
                             // Infer array size from string literal
-                            char * raw_text = initializer_expr_node->text;
-                            char * decoded = decode_string(raw_text);
-                            char * str = decoded ? decoded : raw_text;
+                            char const * raw_text = initializer_expr_node->text;
+                            char const * decoded = decode_string(raw_text);
+                            char const * str = decoded ? decoded : raw_text;
 
                             size_t str_len = strlen(str);
                             LLVMTypeRef elem_type = LLVMGetElementType(var_type);
@@ -3189,7 +3188,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             );
                             add_symbol(ctx, var_name, global_var, var_type, var_type, NULL);
 
-                            free(decoded);
+                            free((char *)decoded);
                         }
                         else
                         {
@@ -4420,10 +4419,10 @@ process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NULL;
     }
 
-    char * raw_text = node->text;
-    char * decoded = decode_string(raw_text);
+    char const * raw_text = node->text;
+    char const * decoded = decode_string(raw_text);
     LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
-    free(decoded);
+    free((char *)decoded);
 
     return global_str;
 }
@@ -4436,7 +4435,7 @@ process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
         return NULL;
     }
 
-    char * raw_text = node->text;
+    char const * raw_text = node->text;
     // Character literal content (no quotes), e.g., "a" or "\\n"
     char value = 0;
     if (raw_text[0] == '\\')
@@ -4975,7 +4974,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
                     {
-                        char * member_name = suffix->identifier.identifier->text;
+                        char const * member_name = suffix->identifier.identifier->text;
 
                         if (current_ptr && current_type)
                         {

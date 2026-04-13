@@ -32,7 +32,7 @@ c_grammar_node_free(void * node_ptr, void * user_data)
         return;
     }
 
-    free(node->text);
+    free((char *)node->text);
 
     free_ast_node_children((void **)node->list.children, node->list.count, user_data);
     free(node->list.children);
@@ -67,6 +67,14 @@ create_list_node(c_grammar_node_type_t type, void ** children, int count)
     return node;
 }
 
+static char const *
+extract_node_text(epc_cpt_node_t * node)
+{
+    char const * text = epc_cpt_node_get_semantic_content(node);
+    size_t text_len = epc_cpt_node_get_semantic_len(node);
+    return strndup(text, text_len);
+}
+
 static c_grammar_node_t *
 create_terminal_node(epc_ast_builder_ctx_t * ctx, c_grammar_node_type_t type, epc_cpt_node_t * node)
 {
@@ -79,9 +87,7 @@ create_terminal_node(epc_ast_builder_ctx_t * ctx, c_grammar_node_type_t type, ep
 
     ast_node->type = type;
 
-    char const * text = epc_cpt_node_get_semantic_content(node);
-    size_t text_len = epc_cpt_node_get_semantic_len(node);
-    ast_node->text = strndup(text, text_len);
+    ast_node->text = extract_node_text(node);
     if (ast_node->text == NULL)
     {
         free(ast_node);
@@ -423,7 +429,7 @@ handle_integer_literal(
     if (count == 2)
     {
         c_grammar_node_t * suffix_node = children[1];
-        char * suffix_text = suffix_node->text;
+        char const * suffix_text = suffix_node->text;
 
         if (suffix_text != NULL)
         {
@@ -463,13 +469,13 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
     }
 
     c_grammar_node_t * suffix_node = count == 2 ? children[1] : NULL;
-    char * full_text = ast_node->text;
+    char const * full_text = ast_node->text;
 
     ast_node->float_lit.float_literal.value = strtold(full_text, NULL);
     ast_node->float_lit.float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
     if (suffix_node != NULL)
     {
-        char * suffix_text = suffix_node->text;
+        char const * suffix_text = suffix_node->text;
 
         if (suffix_text != NULL)
         {
@@ -601,8 +607,8 @@ handle_named_decl_specifiers(
 
     size_t idx = 0;
 
-    ast_node->decl_specifiers.storage_class = (c_grammar_node_t *)children[idx++];
-    c_grammar_node_t * type_qualifiers_node = (c_grammar_node_t *)children[idx++];
+    ast_node->decl_specifiers.storage_class = children[idx++];
+    c_grammar_node_t * type_qualifiers_node = children[idx++];
     ast_node->decl_specifiers.type_qualifiers = type_qualifiers_node;
 
     if (type_qualifiers_node != NULL)
@@ -610,31 +616,31 @@ handle_named_decl_specifiers(
         ast_node->decl_specifiers.type = type_qualifiers_node->type_qualifier;
     }
 
-    c_grammar_node_t * third_child = (c_grammar_node_t *)children[idx];
+    c_grammar_node_t * third_child = children[idx];
     if (third_child != NULL && third_child->type == AST_NODE_FUNCTION_SPECIFIER)
     {
-        ast_node->decl_specifiers.function_specifier = (c_grammar_node_t *)children[idx++];
+        ast_node->decl_specifiers.function_specifier = children[idx++];
     }
     else
     {
         ast_node->decl_specifiers.function_specifier = NULL;
     }
 
-    c_grammar_node_t * child = (c_grammar_node_t *)children[idx];
+    c_grammar_node_t * child = children[idx];
     if (idx < (size_t)count && child != NULL && child->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
-        ast_node->decl_specifiers.typedef_name = (c_grammar_node_t *)children[idx++];
+        ast_node->decl_specifiers.typedef_name = children[idx++];
         ast_node->decl_specifiers.type_specifier = NULL;
     }
     else
     {
         ast_node->decl_specifiers.typedef_name = NULL;
-        ast_node->decl_specifiers.type_specifier = (c_grammar_node_t *)children[idx++];
+        ast_node->decl_specifiers.type_specifier = children[idx++];
     }
 
     if (idx < (size_t)count)
     {
-        ast_node->decl_specifiers.trailing_type_qualifiers = (c_grammar_node_t *)children[idx++];
+        ast_node->decl_specifiers.trailing_type_qualifiers = children[idx++];
         if (ast_node->decl_specifiers.trailing_type_qualifiers != NULL)
         {
             ast_node->decl_specifiers.type.is_const
@@ -3029,7 +3035,7 @@ handle_function_specifier(
 static void
 handle_type_qualifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
 {
-    if (count > 0)
+    if (count > 1)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
@@ -3038,26 +3044,40 @@ handle_type_qualifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_TYPE_QUALIFIER, node);
-    if (ast_node == NULL)
+    char const * node_text = extract_node_text(node);
+    if (node_text == NULL)
     {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s: Memory allocation failed", get_node_type_name_from_type(AST_NODE_TYPE_QUALIFIER)
+        );
         return;
     }
 
-    if (ast_node->text != NULL)
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_QUALIFIER);
+    if (ast_node == NULL)
     {
-        if (strcmp(ast_node->text, "const") == 0)
-        {
-            ast_node->type_qualifier.is_const = true;
-        }
-        else if (strcmp(ast_node->text, "volatile") == 0)
-        {
-            ast_node->type_qualifier.is_volatile = true;
-        }
-        else if (strcmp(ast_node->text, "restrict") == 0)
-        {
-            ast_node->type_qualifier.is_restrict = true;
-        }
+        free((char *)node_text);
+        return;
+    }
+
+    ast_node->text = node_text;
+    if (strcmp(ast_node->text, "const") == 0)
+    {
+        ast_node->type_qualifier.is_const = true;
+    }
+    else if (strcmp(ast_node->text, "volatile") == 0)
+    {
+        ast_node->type_qualifier.is_volatile = true;
+    }
+    else if (strcmp(ast_node->text, "restrict") == 0)
+    {
+        ast_node->type_qualifier.is_restrict = true;
+    }
+
+    if (count > 0)
+    {
+        ast_node->type_qualifier.attribute = children[0];
     }
 
     epc_ast_push(ctx, ast_node);
