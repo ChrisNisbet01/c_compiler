@@ -4273,7 +4273,25 @@ get_variable_pointer(
         /* For global variables (file-scope), the retrieved_type is the element type,
          * so we need to use it directly (the var_ptr is already the pointer to the global) */
         /* For local variables, the retrieved_type should be the element type */
-        LLVMTypeRef element_type = (pointee_type != NULL) ? pointee_type : retrieved_type;
+        /* But if pointee_type is set (for pointers), we need to use retrieved_type for loading
+         * the actual value. Pointee_type is only for pointer arithmetic.
+         * Only use pointee_type if it's different from retrieved_type. */
+        LLVMTypeRef element_type = NULL;
+        if (pointee_type != NULL && LLVMGetTypeKind(retrieved_type) == LLVMPointerTypeKind)
+        {
+            /* For pointer variables: use retrieved_type (the pointer type itself) for loading */
+            element_type = retrieved_type;
+        }
+        else if (pointee_type != NULL && pointee_type != retrieved_type)
+        {
+            /* For types where pointee_type is different (actual pointers), use retrieved_type */
+            element_type = retrieved_type;
+        }
+        else
+        {
+            /* Default: use retrieved_type */
+            element_type = retrieved_type;
+        }
         
         if (out_type)
             *out_type = element_type;
@@ -5286,11 +5304,14 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         // Check if the symbol is an integer constant (like enum values)
         // These are global i32 values, not pointers - we can just return them directly
-        // But only for globals, not for local variables (which are alloca instructions)
+        // But only for globals that are marked as constants (e.g., enum values, const globals),
+        // not for regular static/global variables (which can be modified)
         if (LLVMGetTypeKind(element_type) == LLVMIntegerTypeKind && LLVMIsAGlobalValue(var_ptr))
         {
             LLVMValueRef initializer = LLVMGetInitializer(var_ptr);
-            if (initializer != NULL)
+            // Only return initializer directly for actual constants (LLVMIsGlobalConstant)
+            // For non-const globals like "static int x;", we need to load from the global
+            if (initializer != NULL && LLVMIsGlobalConstant(var_ptr))
             {
                 // Return the constant initializer directly
                 return initializer;
