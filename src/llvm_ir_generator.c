@@ -1882,6 +1882,14 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
 static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
+    static int map_type_depth = 0;
+    if (map_type_depth > 64)
+    {
+        debug_error("map_type: recursion depth exceeded, returning i32");
+        return LLVMInt32TypeInContext(ctx->context);
+    }
+    map_type_depth++;
+
     LLVMTypeRef base_type = NULL;
     int pointer_level = 0;
     size_t array_depth = 0;
@@ -2217,6 +2225,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 
     free(array_sizes);
 
+    map_type_depth--;
     return final_type;
 }
 
