@@ -472,6 +472,19 @@ handle_bitfield_extraction(
     return current_val;
 }
 
+LLVMValueRef
+LLVMBuildAlloca_wrapped(LLVMBuilderRef ref, LLVMTypeRef Ty, char const * Name, int line)
+{
+    if (Ty == NULL || Name == NULL)
+    {
+        debug_error("line: %u passed NULL type %p or name%p: %s", (void *)Ty, (void *)Name, Name == NULL ? "" : Name);
+        return NULL;
+    }
+    debug_info("LLVMBuildAlloca: %u type: %p name %s", line, (void *)Ty, Name);
+    return LLVMBuildAlloca(ref, Ty, Name);
+}
+#define LLVMBuildAlloca_wrapper(ref, Ty, Name) LLVMBuildAlloca_wrapped((ref), (Ty), (Name), __LINE__)
+
 // Helper to process all postfix expression suffixes (array subscript, member access, function call, postfix ops)
 // Returns the final value, and optionally updates out_ptr/out_type for assignment targets
 static LLVMValueRef
@@ -653,7 +666,7 @@ process_postfix_suffixes(
                     }
                     else if (current_val)
                     {
-                        LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
+                        LLVMValueRef struct_ptr = LLVMBuildAlloca_wrapper(ctx->builder, struct_type, "struct_tmp");
                         aligned_store(ctx->builder, current_val, struct_ptr);
                         current_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
@@ -1479,9 +1492,8 @@ register_tagged_struct_or_union_definition(
     }
 
     /* Fill in the body of the pre-registered opaque struct */
-    type_info_t * mutable_entry = (kind == TYPE_KIND_UNION)
-        ? scope_find_tagged_union(ctx->current_scope, tag)
-        : scope_find_tagged_struct(ctx->current_scope, tag);
+    type_info_t * mutable_entry = (kind == TYPE_KIND_UNION) ? scope_find_tagged_union(ctx->current_scope, tag)
+                                                            : scope_find_tagged_struct(ctx->current_scope, tag);
     if (mutable_entry == NULL)
     {
         free(members.members);
@@ -1928,21 +1940,12 @@ static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
     static int map_type_depth = 0;
-    if (map_type_depth > 20)
+    if (map_type_depth > 64)
     {
         debug_error("map_type: recursion depth exceeded");
         return LLVMInt32TypeInContext(ctx->context);
     }
     map_type_depth++;
-    if (map_type_depth > 10)
-    {
-        fprintf(stderr, "DEBUG: map_type depth=%d, specifiers type=%s\n",
-            map_type_depth, specifiers ? get_node_type_name_from_node(specifiers) : "NULL");
-    }
-    if (map_type_depth > 10)
-    {
-        fprintf(stderr, "DEBUG: map_type depth=%d\n", map_type_depth);
-    }
     LLVMTypeRef base_type = NULL;
     int pointer_level = 0;
     size_t array_depth = 0;
@@ -2459,8 +2462,12 @@ visit_stack_push(c_grammar_node_t const * node)
     {
         if (visit_stack[i] == node)
         {
-            fprintf(stderr, "DEBUG: cycle detected in _process_ast_node! node=%p type=%s\n",
-                (void *)node, get_node_type_name_from_node(node));
+            fprintf(
+                stderr,
+                "DEBUG: cycle detected in _process_ast_node! node=%p type=%s\n",
+                (void *)node,
+                get_node_type_name_from_node(node)
+            );
             return false; /* cycle */
         }
     }
@@ -2570,6 +2577,14 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             debug_error("Function definition is missing declaration specifiers, declarator, or body.");
             scope_pop(ctx);
             return;
+        }
+
+        /* Skip inline functions — we don't support them and they leave the builder in a dirty state */
+        if (decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS
+            && decl_specifiers_node->decl_specifiers.function_specifier != NULL)
+        {
+            scope_pop(ctx);
+            break;
         }
 
         // --- Extract Function Name ---
@@ -2703,6 +2718,20 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 LLVMSetValueName(new_func, func_name);
                 func = new_func;
             }
+            /* Verify param count matches before proceeding */
+            if (LLVMCountParams(func) != (unsigned)num_params)
+            {
+                debug_error(
+                    "Function '%s': param count mismatch after setup (%u vs %zu), skipping.",
+                    func_name,
+                    LLVMCountParams(func),
+                    num_params
+                );
+                free(param_types);
+                free(param_names);
+                scope_pop(ctx);
+                return;
+            }
         }
         else
         {
@@ -2718,7 +2747,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
             LLVMValueRef alloca_inst
-                = LLVMBuildAlloca(ctx->builder, param_types[i], param_names[i] ? param_names[i] : "");
+                = LLVMBuildAlloca_wrapper(ctx->builder, param_types[i], param_names[i] ? param_names[i] : "");
             aligned_store(ctx->builder, param_val, alloca_inst);
             if (param_names[i])
             {
@@ -2806,6 +2835,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Pop function scope
         scope_pop(ctx);
+
+        /* Clear the builder insert point so subsequent declarations don't
+         * mistakenly think we're inside a function body. */
+        LLVMClearInsertionPosition(ctx->builder);
 
         break;
     }
@@ -3020,7 +3053,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (current_block && var_type)
                     {
                         // Inside a function - use stack allocation
-                        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, var_type, var_name);
+                        LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, var_type, var_name);
 
                         // Find struct name for pointer-to-struct types
                         char const * struct_name = NULL;
@@ -4529,7 +4562,28 @@ process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     char const * raw_text = node->text;
     char const * decoded = decode_string(raw_text);
-    LLVMValueRef global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
+
+    LLVMValueRef global_str;
+    if (LLVMGetInsertBlock(ctx->builder) != NULL)
+    {
+        global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
+    }
+    else
+    {
+        /* No insert point (global scope) — create a global string constant directly */
+        size_t len = strlen(decoded);
+        LLVMTypeRef str_type = LLVMArrayType(LLVMInt8TypeInContext(ctx->context), (unsigned)(len + 1));
+        LLVMValueRef global = LLVMAddGlobal(ctx->module, str_type, "str_tmp");
+        LLVMSetLinkage(global, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(global, true);
+        LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, decoded, (unsigned)len, false));
+        LLVMValueRef indices[2] = {
+            LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false),
+            LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false)
+        };
+        global_str = LLVMConstInBoundsGEP2(str_type, global, indices, 2);
+    }
+
     free((char *)decoded);
 
     return global_str;
@@ -4931,7 +4985,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     else
                     {
                         // For value types (struct passed by value), we need to get the pointer
-                        LLVMValueRef struct_ptr = LLVMBuildAlloca(ctx->builder, struct_type, "struct_tmp");
+                        LLVMValueRef struct_ptr = LLVMBuildAlloca_wrapper(ctx->builder, struct_type, "struct_tmp");
                         aligned_store(ctx->builder, struct_val, struct_ptr);
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
@@ -5729,7 +5783,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     c_grammar_node_t const * lhs_node = node->binary_expression.left;
     c_grammar_node_t const * rhs_node = node->binary_expression.right;
 
-    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
+    LLVMValueRef res_alloca = LLVMBuildAlloca_wrapper(ctx->builder, LLVMInt1TypeInContext(ctx->context), "logical_res");
 
     LLVMBasicBlockRef rhs_block = LLVMAppendBasicBlockInContext(
         ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_rhs"
@@ -5917,7 +5971,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             }
 
             // Create a temporary local variable (alloca) for the compound literal
-            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
+            LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, compound_type, "compound_literal_tmp");
             if (alloca_inst == NULL)
             {
                 debug_error("Failed to allocate compound literal for unary &");
@@ -6417,7 +6471,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // Create a temporary local variable (alloca) for the compound literal
-        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
+        LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, compound_type, "compound_literal_tmp");
         if (alloca_inst == NULL)
         {
             debug_error("Failed to allocate compound literal");
