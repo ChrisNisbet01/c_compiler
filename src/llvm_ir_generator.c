@@ -1442,6 +1442,18 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     previous_member = &members[num_members - 1];
                 }
                 new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+
+                /* If the field is a pointer, record what struct it points to for chained arrow access */
+                if (LLVMGetTypeKind(new_member.type) == LLVMPointerTypeKind)
+                {
+                    /* Look up the base type from the type specifier to find the pointee struct */
+                    LLVMTypeRef base = map_type(ctx, type_spec, NULL);
+                    if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind)
+                    {
+                        new_member.pointee_struct_type = base;
+                    }
+                }
+
                 members[num_members] = new_member;
                 num_members++;
             }
@@ -2809,6 +2821,26 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 add_symbol_with_struct(
                     ctx, param_names[i], alloca_inst, param_types[i], NULL, param_compound_name, NULL
                 );
+
+                /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
+                if (type_spec != NULL && type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
+                {
+                    char const * typedef_name = extract_typedef_name(type_spec);
+                    if (typedef_name != NULL)
+                    {
+                        LLVMTypeRef base = find_typedef_type(ctx, typedef_name);
+                        if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind
+                            && LLVMGetTypeKind(param_types[i]) == LLVMPointerTypeKind)
+                        {
+                            /* Update the symbol's pointee_type */
+                            symbol_t * sym = (symbol_t *)find_symbol_entry(ctx, param_names[i]);
+                            if (sym != NULL)
+                            {
+                                sym->pointee_type = base;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -4650,6 +4682,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     LLVMTypeRef current_type = NULL;
     bool have_ptr = false;
     bool base_is_array = false;
+    bool did_member_access = false; /* tracks whether we've done at least one member access */
 
     // Check if base is a symbol (for array access)
     // Do this before process_expression to avoid double GEP for arrays
@@ -4899,13 +4932,47 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
-                    char const * tag = find_symbol_tag_name(ctx, base_node->text);
-                    debug_info("Looking up struct type by tag '%s' for opaque pointer.", tag ? tag : "NULL");
-                    if (tag != NULL)
+                    /* For chained arrow access, current_type was set to the pointee struct
+                     * type after the previous member access — use it with priority. */
+                    if (did_member_access && current_type != NULL
+                        && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
                     {
-                        struct_type = find_type_by_tag(ctx, tag);
+                        struct_type = current_type;
+                        struct_val = current_ptr;
+                    }
+                    else
+                    {
+                        char const * tag = find_symbol_tag_name(ctx, base_node->text);
+                        debug_info("Looking up struct type by tag '%s' for opaque pointer.", tag ? tag : "NULL");
+                        if (tag != NULL)
+                        {
+                            struct_type = find_type_by_tag(ctx, tag);
+                        }
+
+                        /* For anonymous struct typedefs (tag not in tagged list), use pointee_type from symbol */
+                        if (struct_type == NULL)
+                        {
+                            LLVMValueRef sym_ptr = NULL;
+                            LLVMTypeRef sym_type = NULL;
+                            LLVMTypeRef sym_pointee = NULL;
+                            if (find_symbol(ctx, base_node->text, &sym_ptr, &sym_type, &sym_pointee)
+                                && sym_pointee != NULL
+                                && LLVMGetTypeKind(sym_pointee) == LLVMStructTypeKind)
+                            {
+                                struct_type = sym_pointee;
+                            }
+                        }
                     }
                 }
+
+                /* Fallback for chained arrow access when base_node is not an identifier */
+                if (is_arrow && struct_type == NULL && current_type != NULL
+                    && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
+                {
+                    struct_type = current_type;
+                    struct_val = current_ptr;
+                }
+
                 // Fallback for older LLVM / dot access
                 if (!struct_type)
                 {
@@ -4917,7 +4984,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 if (!struct_type || LLVMGetTypeKind(struct_type) != LLVMStructTypeKind)
                 {
-                    debug_error("Could not find struct type for member access.");
+                    debug_error("Could not find struct type for member access of '%s' on '%s'.",
+                        member_name,
+                        (base_node && base_node->text) ? base_node->text : "?");
                     continue;
                 }
 
@@ -4995,6 +5064,25 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                     base_val = aligned_load(ctx->builder, member_type, member_ptr, "member");
                     base_val = handle_bitfield_extraction(ctx, base_val, struct_info, member_index);
+
+                    /* Track the member's struct type for chained arrow accesses (e.g. a->b->c).
+                     * If the member is a pointer, find what struct it points to. */
+                    if (struct_info != NULL && member_index < struct_info->field_count)
+                    {
+                        LLVMTypeRef field_type = struct_info->fields[member_index].type;
+                        if (LLVMGetTypeKind(field_type) == LLVMPointerTypeKind
+                            && struct_info->fields[member_index].pointee_struct_type != NULL)
+                        {
+                            current_type = struct_info->fields[member_index].pointee_struct_type;
+                            current_ptr = base_val;
+                            have_ptr = true;
+                        }
+                        else if (LLVMGetTypeKind(field_type) == LLVMStructTypeKind)
+                        {
+                            current_type = field_type;
+                        }
+                    }
+                    did_member_access = true;
                 }
             }
         }
