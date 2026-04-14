@@ -17,6 +17,7 @@ add_executable(${app}
   ir_gen_error.c
   llvm_ir_generator.c
   scope.c
+  symbol_table.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)

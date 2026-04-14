@@ -4,6 +4,7 @@
 #include "c_grammar_ast_actions.h"
 #include "callbacks.h"
 #include "debug.h"
+#include "symbol_table.h"
 
 /* Include for LLVM IR Generator */
 #include "llvm_ir_generator.h"
@@ -42,107 +43,7 @@ static char * defines[64]; // -D flags
 static int defines_count = 0;
 
 // --- Symbol Table Implementation ---
-
-// Initial capacity for dynamically sized symbol tables
-#define INITIAL_SYMBOL_CAPACITY 16
-
-typedef struct
-{
-    char ** names;   // Dynamically allocated array of names
-    size_t count;    // Current number of names
-    size_t capacity; // Current capacity of the names array
-} symbol_table_t;
-
-symbol_table_t *
-symbol_table_create(void)
-{
-    symbol_table_t * st = calloc(1, sizeof(*st));
-    if (st == NULL)
-        return NULL;
-
-    st->capacity = INITIAL_SYMBOL_CAPACITY;
-    st->names = malloc(sizeof(*st->names) * st->capacity);
-    if (st->names == NULL)
-    {
-        free(st);
-        return NULL;
-    }
-    st->count = 0;
-    return st;
-}
-
-void
-symbol_table_free(symbol_table_t * st)
-{
-    if (st == NULL)
-    {
-        return;
-    }
-
-    for (size_t i = 0; i < st->count; i++)
-    {
-        free(st->names[i]);
-    }
-    free(st->names); // Free the dynamically allocated array
-    free(st);
-}
-
-void
-symbol_table_add(symbol_table_t * st, char const * name)
-{
-    if (st == NULL || name == NULL)
-    {
-        return;
-    }
-
-    // Check if name already exists
-    for (size_t i = 0; i < st->count; i++)
-    {
-        if (strcmp(st->names[i], name) == 0)
-        {
-            // Already exists, do nothing
-            return;
-        }
-    }
-
-    // Resize if capacity is reached
-    if (st->count >= st->capacity)
-    {
-        st->capacity *= 2;
-        char ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
-        if (new_names == NULL)
-        {
-            debug_error("Error: Failed to resize symbol table names array.");
-            return;
-        }
-        st->names = new_names;
-    }
-
-    st->names[st->count++] = strdup(name);
-}
-
-bool
-symbol_table_contains(symbol_table_t * st, char const * name)
-{
-    if (st == NULL || name == NULL)
-    {
-        return false;
-    }
-    if (st->count == 0)
-    {
-        return false;
-    }
-
-    for (size_t i = 0; i < st->count; i++)
-    {
-        if (strcmp(st->names[i], name) == 0)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
+// Moved to symbol_table.c / symbol_table.h
 
 // --- Transactional Context ---
 
@@ -153,6 +54,7 @@ typedef struct
     char ** pending;
     int pending_count;
     int pending_capacity;
+
     int * marker_stack;
     int marker_top;
     int marker_capacity;
