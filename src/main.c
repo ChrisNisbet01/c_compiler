@@ -5,19 +5,19 @@
 #include "callbacks.h"
 #include "debug.h"
 
-// Include for LLVM IR Generator
+/* Include for LLVM IR Generator */
 #include "llvm_ir_generator.h"
 
 #include <easy_pc/easy_pc.h>
-#include <errno.h>   // For errno
-#include <getopt.h>  // For getopt_long
-#include <spawn.h>   // For posix_spawn
-#include <stdbool.h> // For bool type
+#include <errno.h>
+#include <getopt.h>
+#include <spawn.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h> // For waitpid
-#include <unistd.h>   // For exec functions
+#include <sys/wait.h>
+#include <unistd.h>
 
 // Declare environ for posix_spawn
 extern char ** environ;
@@ -635,6 +635,25 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
     return -1; // Should not reach here
 }
 
+static size_t
+ast_max_depth(c_grammar_node_t const * node, size_t current_depth)
+{
+    if (node == NULL)
+    {
+        return current_depth;
+    }
+    size_t max = current_depth;
+    for (size_t i = 0; i < node->list.count; i++)
+    {
+        size_t child_depth = ast_max_depth(node->list.children[i], current_depth + 1);
+        if (child_depth > max)
+        {
+            max = child_depth;
+        }
+    }
+    return max;
+}
+
 static bool
 generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 {
@@ -983,6 +1002,7 @@ main(int argc, char * argv[])
             {
                 print_ast(ast_root);
             }
+            debug_info("AST max depth: %zu", ast_max_depth(ast_root, 0));
             if (!generate_output(ast_root, filename))
             {
                 exit_code = EXIT_FAILURE;

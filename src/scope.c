@@ -205,19 +205,18 @@ scope_add_untagged_type(scope_t * scope, type_info_t info)
 type_info_t *
 scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
 {
-    if (scope == NULL || tag == NULL)
+    while (scope != NULL && tag != NULL)
     {
-        return NULL;
-    }
-    for (size_t i = 0; i < scope->tagged_types.count; ++i)
-    {
-        if (scope->tagged_types.entries[i].tag && strcmp(scope->tagged_types.entries[i].tag, tag) == 0)
+        for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
-            return &scope->tagged_types.entries[i];
+            if (scope->tagged_types.entries[i].tag && strcmp(scope->tagged_types.entries[i].tag, tag) == 0)
+            {
+                return &scope->tagged_types.entries[i];
+            }
         }
+        scope = scope->parent;
     }
-
-    return scope_lookup_tagged_entry_by_tag(scope->parent, tag);
+    return NULL;
 }
 
 type_info_t *
@@ -261,17 +260,16 @@ scope_find_tagged_enum(scope_t const * scope, char const * tag)
 type_info_t *
 scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
 {
-    if (scope == NULL || index < 0)
+    while (scope != NULL && index >= 0)
     {
-        return NULL;
+        debug_info("Looking up untagged type by index: %d", index);
+        if ((size_t)index < scope->untagged_types.count)
+        {
+            return &scope->untagged_types.entries[index];
+        }
+        scope = scope->parent;
     }
-    debug_info("Looking up untagged type by index: %d", index);
-    if ((size_t)index < scope->untagged_types.count)
-    {
-        return &scope->untagged_types.entries[index];
-    }
-
-    return scope_lookup_untagged_entry_by_index(scope->parent, index);
+    return NULL;
 }
 
 type_info_t const *
@@ -316,40 +314,32 @@ scope_find_untagged_enum(scope_t const * scope, int index)
 type_info_t *
 scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 {
-    if (scope == NULL || type == NULL)
+    while (scope != NULL && type != NULL)
     {
-        debug_info("scope_find_type_by_llvm_type: Invalid scope or type. Scope: %p, Type: %p", (void*)scope, (void*)type);
-        return NULL;
-    }
+        debug_info("scope_find_type_by_llvm_type: Searching for LLVMTypeRef %p", (void*)type);
 
-    debug_info("scope_find_type_by_llvm_type: Searching for LLVMTypeRef %p", (void*)type);
-
-    /* Search in tagged_types */
-    for (size_t i = 0; i < scope->tagged_types.count; ++i)
-    {
-        debug_info("scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p", i, (void*)scope->tagged_types.entries[i].type);
-        if (scope->tagged_types.entries[i].type == type)
+        for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
-            debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
-            return &scope->tagged_types.entries[i];
+            debug_info("scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p", i, (void*)scope->tagged_types.entries[i].type);
+            if (scope->tagged_types.entries[i].type == type)
+            {
+                debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
+                return &scope->tagged_types.entries[i];
+            }
         }
-    }
 
-    /* Search in untagged_types */
-    for (size_t i = 0; i < scope->untagged_types.count; ++i)
-    {
-        debug_info("scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p", i, (void*)scope->untagged_types.entries[i].type);
-        if (scope->untagged_types.entries[i].type == type)
+        for (size_t i = 0; i < scope->untagged_types.count; ++i)
         {
-            debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
-            return &scope->untagged_types.entries[i];
+            debug_info("scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p", i, (void*)scope->untagged_types.entries[i].type);
+            if (scope->untagged_types.entries[i].type == type)
+            {
+                debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
+                return &scope->untagged_types.entries[i];
+            }
         }
-    }
 
-    if (scope->parent != NULL)
-    {
         debug_info("scope_find_type_by_llvm_type: Searching in parent scope.");
-        return scope_find_type_by_llvm_type(scope->parent, type);
+        scope = scope->parent;
     }
 
     debug_info("scope_find_type_by_llvm_type: Type %p not found in any scope.", (void*)type);
@@ -395,20 +385,18 @@ scope_add_typedef_forward_decl(scope_t * scope, char const * typedef_name, char 
 scope_typedef_entry_t *
 scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
 {
-    if (scope == NULL || name == NULL)
+    while (scope != NULL && name != NULL)
     {
-        return NULL;
-    }
-
-    for (size_t i = 0; i < scope->typedefs.count; ++i)
-    {
-        if (scope->typedefs.entries[i].name && strcmp(scope->typedefs.entries[i].name, name) == 0)
+        for (size_t i = 0; i < scope->typedefs.count; ++i)
         {
-            return &scope->typedefs.entries[i];
+            if (scope->typedefs.entries[i].name && strcmp(scope->typedefs.entries[i].name, name) == 0)
+            {
+                return &scope->typedefs.entries[i];
+            }
         }
+        scope = scope->parent;
     }
-
-    return scope_lookup_typedef_entry_by_name(scope->parent, name);
+    return NULL;
 }
 
 LLVMTypeRef
@@ -599,28 +587,26 @@ find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name)
 static symbol_t *
 scope_find_symbol_entry(scope_t const * scope, char const * name)
 {
-    debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
-    if (scope == NULL || name == NULL)
+    while (scope != NULL && name != NULL)
     {
-        debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
-        return NULL;
-    }
-
-    for (size_t i = scope->symbol_count; i > 0; --i)
-    {
-        if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
+        debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
+        for (size_t i = scope->symbol_count; i > 0; --i)
         {
-            debug_info(
-                "Found symbol entry in current scope: name='%s', ptr=%p, type=%p",
-                name,
-                (void *)scope->symbols[i - 1].ptr,
-                (void *)scope->symbols[i - 1].type
-            );
-            return &scope->symbols[i - 1];
+            if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
+            {
+                debug_info(
+                    "Found symbol entry in current scope: name='%s', ptr=%p, type=%p",
+                    name,
+                    (void *)scope->symbols[i - 1].ptr,
+                    (void *)scope->symbols[i - 1].type
+                );
+                return &scope->symbols[i - 1];
+            }
         }
+        scope = scope->parent;
     }
-
-    return scope_find_symbol_entry(scope->parent, name);
+    debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
+    return NULL;
 }
 
 symbol_t const *

@@ -1453,20 +1453,65 @@ register_tagged_struct_or_union_definition(
 
     if (find_type_by_tag(ctx, tag) != NULL)
     {
-        /* Already defined. Is this an error? */
+        /* Already defined. */
+        return NULL;
+    }
+
+    /* Pre-register as an opaque struct to break recursive cycles (e.g. struct containing pointer to itself).
+     * Any recursive call to map_type for this tag will find this entry and return the opaque type. */
+    type_info_t opaque = {0};
+    opaque.tag = strdup(tag);
+    opaque.kind = kind;
+    opaque.type = LLVMStructCreateNamed(ctx->context, tag);
+    type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
+    if (registered == NULL)
+    {
+        free(opaque.tag);
         return NULL;
     }
 
     struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
 
-    if (members.num_members > 0)
+    if (members.num_members == 0)
     {
-        return add_tagged_struct_or_union_type(ctx, tag, kind, members.members, members.num_members);
+        free(members.members);
+        return registered;
     }
 
-    free(members.members);
+    /* Fill in the body of the pre-registered opaque struct */
+    type_info_t * mutable_entry = (kind == TYPE_KIND_UNION)
+        ? scope_find_tagged_union(ctx->current_scope, tag)
+        : scope_find_tagged_struct(ctx->current_scope, tag);
+    if (mutable_entry == NULL)
+    {
+        free(members.members);
+        return registered;
+    }
 
-    return NULL;
+    mutable_entry->field_count = members.num_members;
+    mutable_entry->fields = members.members;
+
+    struct_field_t * last_field = &members.members[members.num_members - 1];
+    unsigned num_storage_units = last_field->storage_index + 1;
+    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+    if (field_types == NULL)
+    {
+        return registered;
+    }
+    int current_storage_unit = -1;
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        struct_field_t * field = &members.members[i];
+        if (field->storage_index != (unsigned)current_storage_unit)
+        {
+            current_storage_unit = (int)field->storage_index;
+            field_types[current_storage_unit] = field->type;
+        }
+    }
+    LLVMStructSetBody(mutable_entry->type, field_types, num_storage_units, false);
+    free(field_types);
+
+    return mutable_entry;
 }
 
 char *
@@ -1883,13 +1928,21 @@ static LLVMTypeRef
 map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
     static int map_type_depth = 0;
-    if (map_type_depth > 64)
+    if (map_type_depth > 20)
     {
-        debug_error("map_type: recursion depth exceeded, returning i32");
+        debug_error("map_type: recursion depth exceeded");
         return LLVMInt32TypeInContext(ctx->context);
     }
     map_type_depth++;
-
+    if (map_type_depth > 10)
+    {
+        fprintf(stderr, "DEBUG: map_type depth=%d, specifiers type=%s\n",
+            map_type_depth, specifiers ? get_node_type_name_from_node(specifiers) : "NULL");
+    }
+    if (map_type_depth > 10)
+    {
+        fprintf(stderr, "DEBUG: map_type depth=%d\n", map_type_depth);
+    }
     LLVMTypeRef base_type = NULL;
     int pointer_level = 0;
     size_t array_depth = 0;
@@ -1898,6 +1951,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
 
     if (array_sizes == NULL)
     {
+        map_type_depth--;
         return LLVMInt32TypeInContext(ctx->context);
     }
 
@@ -2205,6 +2259,7 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
         }
 
         free(array_sizes);
+        map_type_depth--;
         return func_ptr_type;
     }
 
@@ -2224,7 +2279,6 @@ map_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_gramma
     }
 
     free(array_sizes);
-
     map_type_depth--;
     return final_type;
 }
@@ -2393,6 +2447,39 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
 
 // --- AST Node Processing Logic ---
 
+/* --- Cycle detection for AST node processing --- */
+#define VISIT_STACK_MAX 4096
+static c_grammar_node_t const * visit_stack[VISIT_STACK_MAX];
+static int visit_stack_top = 0;
+
+static bool
+visit_stack_push(c_grammar_node_t const * node)
+{
+    for (int i = 0; i < visit_stack_top; i++)
+    {
+        if (visit_stack[i] == node)
+        {
+            fprintf(stderr, "DEBUG: cycle detected in _process_ast_node! node=%p type=%s\n",
+                (void *)node, get_node_type_name_from_node(node));
+            return false; /* cycle */
+        }
+    }
+    if (visit_stack_top < VISIT_STACK_MAX)
+    {
+        visit_stack[visit_stack_top++] = node;
+    }
+    return true;
+}
+
+static void
+visit_stack_pop(c_grammar_node_t const * node)
+{
+    if (visit_stack_top > 0 && visit_stack[visit_stack_top - 1] == node)
+    {
+        visit_stack_top--;
+    }
+}
+
 /**
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
@@ -2403,6 +2490,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (node == NULL)
     {
         return;
+    }
+
+    if (!visit_stack_push(node))
+    {
+        return; /* cycle detected, abort */
     }
 
     // fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
@@ -3149,6 +3241,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         // Skip void types (e.g., extern void setbuf(...))
                         if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
+                        {
+                            continue;
+                        }
+
+                        /* Skip function declarations - they can't be global variables */
+                        if (LLVMGetTypeKind(var_type) == LLVMFunctionTypeKind)
                         {
                             continue;
                         }
@@ -4182,6 +4280,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         break;
     }
+    visit_stack_pop(node);
 }
 
 static void
@@ -4189,7 +4288,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (ctx->errors.fatal)
     {
-        return; // Stop processing if a fatal error has occurred
+        return; /* Stop processing if a fatal error has occurred */
     }
     _process_ast_node(ctx, node);
 }
@@ -6457,7 +6556,12 @@ process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return NULL;
     }
+    if (!visit_stack_push(node))
+    {
+        return NULL; /* cycle detected */
+    }
     LLVMValueRef result = _process_expression(ctx, node);
+    visit_stack_pop(node);
 
     if (ctx->errors.fatal)
     {
