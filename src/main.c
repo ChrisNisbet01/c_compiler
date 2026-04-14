@@ -361,7 +361,7 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * p
         for (int i = marker; i < session->pending_count; i++)
         {
             symbol_table_add(session->symbols, session->pending[i]);
-            printf("Committed typedef: '%s'\n", session->pending[i]);
+            // printf("Committed typedef: '%s'\n", session->pending[i]);
             free(session->pending[i]);
         }
         session->pending_count = marker;

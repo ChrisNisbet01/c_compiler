@@ -2579,14 +2579,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             return;
         }
 
-        /* Skip inline functions — we don't support them and they leave the builder in a dirty state */
-        if (decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS
-            && decl_specifiers_node->decl_specifiers.function_specifier != NULL)
-        {
-            scope_pop(ctx);
-            break;
-        }
-
         // --- Extract Function Name ---
         char const * func_name = "unknown_function";
         c_grammar_node_t const * suffix_node = NULL;
@@ -2741,6 +2733,16 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Create a basic block for the function's entry point.
         LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
         LLVMPositionBuilderAtEnd(ctx->builder, entry_block);
+
+        /* Add inlinehint attribute if function has inline specifier */
+        if (decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS
+            && decl_specifiers_node->decl_specifiers.function_specifier != NULL)
+        {
+            LLVMAttributeRef attr = LLVMCreateEnumAttribute(
+                ctx->context, LLVMGetEnumAttributeKindForName("inlinehint", 10), 0
+            );
+            LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attr);
+        }
 
         // --- Handle function parameters: allocate space and store arguments ---
         for (size_t i = 0; i < num_params; ++i)
