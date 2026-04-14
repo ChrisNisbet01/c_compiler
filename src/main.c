@@ -49,11 +49,9 @@ static int defines_count = 0;
 
 typedef struct
 {
-    symbol_table_t * symbols;  // For user-defined typedefs
-    symbol_table_t * builtins; // For pre-registered built-in types
-    char ** pending;
-    int pending_count;
-    int pending_capacity;
+    symbol_table_t * symbols;          // For user-defined typedefs
+    symbol_table_t * builtins;         // For pre-registered built-in types
+    symbol_table_t * pending_names_st; // For pending names
 
     int * marker_stack;
     int marker_top;
@@ -87,9 +85,8 @@ session_ctx_create(void)
     // Pre-register common built-in types that are often used without explicit typedefs
     symbol_table_add(ctx->builtins, "__builtin_va_list");
 
-    ctx->pending_capacity = 16;
-    ctx->pending = malloc(sizeof(*ctx->pending) * ctx->pending_capacity);
-    if (ctx->pending == NULL)
+    ctx->pending_names_st = symbol_table_create();
+    if (ctx->pending_names_st == NULL)
     {
         symbol_table_free(ctx->builtins);
         symbol_table_free(ctx->symbols);
@@ -101,17 +98,12 @@ session_ctx_create(void)
     ctx->marker_stack = malloc(sizeof(*ctx->marker_stack) * ctx->marker_capacity);
     if (ctx->marker_stack == NULL)
     {
-        for (int i = 0; i < ctx->pending_count; i++)
-        {
-            free(ctx->pending[i]);
-        }
-        free(ctx->pending);
+        symbol_table_free(ctx->pending_names_st);
         symbol_table_free(ctx->builtins);
         symbol_table_free(ctx->symbols);
         free(ctx);
         return NULL;
     }
-
     return ctx;
 }
 
@@ -125,34 +117,9 @@ session_ctx_free(parse_session_ctx_t * ctx)
 
     symbol_table_free(ctx->symbols);
     symbol_table_free(ctx->builtins);
-    for (int i = 0; i < ctx->pending_count; i++)
-    {
-        free(ctx->pending[i]);
-    }
-    free(ctx->pending);
+    symbol_table_free(ctx->pending_names_st);
     free(ctx->marker_stack);
     free(ctx);
-}
-
-void
-session_ctx_push_pending(parse_session_ctx_t * ctx, char const * name)
-{
-    if (ctx == NULL || name == NULL)
-    {
-        return;
-    }
-    if (ctx->pending_count >= ctx->pending_capacity)
-    {
-        ctx->pending_capacity *= 2;
-        char ** new_pending = realloc(ctx->pending, sizeof(*ctx->pending) * ctx->pending_capacity);
-        if (new_pending == NULL)
-        {
-            debug_error("Error: Failed to resize pending names array.");
-            return;
-        }
-        ctx->pending = new_pending;
-    }
-    ctx->pending[ctx->pending_count++] = strdup(name);
 }
 
 // --- GDL Callbacks and Predicates ---
@@ -214,9 +181,9 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * 
         return true;
     }
 
-    session_ctx_push_pending(session, name_copy);
-    free(name_copy);
-
+    symbol_table_add(session->pending_names_st, name_copy);
+    // printf("Pending: '%s'\n", name_copy);
+    // free(name_copy);
     return true;
 }
 
@@ -243,7 +210,7 @@ on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * pars
         }
         session->marker_stack = new_marker_stack;
     }
-    session->marker_stack[session->marker_top++] = session->pending_count;
+    session->marker_stack[session->marker_top++] = session->pending_names_st->count;
 }
 
 static bool
@@ -260,21 +227,21 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * p
 
     if (!result.is_error)
     {
-        for (int i = marker; i < session->pending_count; i++)
+        for (size_t i = marker; i < session->pending_names_st->count; i++)
         {
-            symbol_table_add(session->symbols, session->pending[i]);
-            // printf("Committed typedef: '%s'\n", session->pending[i]);
-            free(session->pending[i]);
+            symbol_table_add(session->symbols, session->pending_names_st->names[i]);
+            // printf("Committed typedef: '%s'\n", session->pending_names_st->names[i]);
+            free(session->pending_names_st->names[i]);
         }
-        session->pending_count = marker;
+        session->pending_names_st->count = marker;
     }
     else
     {
-        for (int i = marker; i < session->pending_count; i++)
+        for (size_t i = marker; i < session->pending_names_st->count; i++)
         {
-            free(session->pending[i]);
+            free(session->pending_names_st->names[i]);
         }
-        session->pending_count = marker;
+        session->pending_names_st->count = marker;
     }
 
     return true;
