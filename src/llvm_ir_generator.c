@@ -5588,6 +5588,10 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
     LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
     LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
+    if (lhs_val == NULL || rhs_val == NULL)
+    {
+        return NULL;
+    }
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
@@ -5633,6 +5637,10 @@ process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     // Standard binary ops: [LHS, OP, RHS]
     LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
     LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
+    if (lhs_val == NULL || rhs_val == NULL)
+    {
+        return NULL;
+    }
 
     c_grammar_node_t const * op_node = node->binary_expression.op;
     shift_operator_type_t operator= op_node->op.shift.op;
@@ -5653,6 +5661,10 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     // Standard binary ops: [LHS, OP, RHS]
     LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
     LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
+    if (lhs_val == NULL || rhs_val == NULL)
+    {
+        return NULL;
+    }
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
@@ -5705,6 +5717,10 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     // Standard binary ops: [LHS, OP, RHS]
     LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
     LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
+    if (lhs_val == NULL || rhs_val == NULL)
+    {
+        return NULL;
+    }
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
@@ -5737,6 +5753,10 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     // Standard binary ops: [LHS, OP, RHS]
     LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
     LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
+    if (lhs_val == NULL || rhs_val == NULL)
+    {
+        return NULL;
+    }
     LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
     LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
