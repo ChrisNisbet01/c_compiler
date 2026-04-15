@@ -253,7 +253,7 @@ epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit
 static char *
 derive_output_filename(char const * input_path, char const * ext)
 {
-    static char derived[1024];
+    char * derived;
     char const * base = strrchr(input_path, '/');
     base = base ? base + 1 : input_path;
 
@@ -262,11 +262,13 @@ derive_output_filename(char const * input_path, char const * ext)
 
     char const * dir_end = strrchr(input_path, '/');
     size_t dir_len = dir_end ? (size_t)(dir_end - input_path + 1) : 0;
-
+    int res = asprintf(&derived, "%.*s%.*s.%s", (int)dir_len, input_path, (int)base_len, base, ext);
+    (void)res;
+#if 0
     memcpy(derived, input_path, dir_len);
     memcpy(derived + dir_len, base, base_len);
     snprintf(derived + dir_len + base_len, sizeof(derived) - dir_len - base_len, ".%s", ext);
-
+#endif
     return derived;
 }
 
@@ -557,7 +559,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                 char const * out_path;
                 if (output_filename)
                 {
-                    out_path = output_filename;
+                    out_path = strdup(output_filename);
                 }
                 else if (emit_llvm_flag)
                 {
@@ -586,6 +588,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                         success = false;
                     }
                 }
+                free((char *)out_path);
             }
             else if (compile_only_flag)
             {
@@ -593,7 +596,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                 char const * out_path;
                 if (output_filename)
                 {
-                    out_path = output_filename;
+                    out_path = strdup(output_filename);
                 }
                 else if (emit_llvm_flag)
                 {
@@ -622,6 +625,7 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
                         success = false;
                     }
                 }
+                free((char *)out_path);
             }
         }
         else
