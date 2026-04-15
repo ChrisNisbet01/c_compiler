@@ -2280,6 +2280,62 @@ map_type_to_llvm_t_wrapped(
         }
     }
 
+    // Handle Abstract Declarator (used in type names, e.g., cast expressions)
+    if (declarator && declarator->type == AST_NODE_ABSTRACT_DECLARATOR)
+    {
+        // AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixList
+        // The children can be: [PointerList?, DeclaratorSuffixList?]
+
+        // First child might be a pointer list
+        if (declarator->list.count > 0)
+        {
+            c_grammar_node_t const * first_child = declarator->list.children[0];
+            if (first_child->type == AST_NODE_POINTER_LIST)
+            {
+                pointer_level = first_child->list.count;
+            }
+        }
+
+        // Look for declarator suffix list (array sizes, function params)
+        for (size_t i = 0; i < declarator->list.count; ++i)
+        {
+            c_grammar_node_t const * child = declarator->list.children[i];
+            if (child->type == AST_NODE_DECLARATOR_SUFFIX_LIST)
+            {
+                for (size_t j = 0; j < child->list.count; ++j)
+                {
+                    c_grammar_node_t const * suffix = child->list.children[j];
+                    bool has_array_size = false;
+
+                    for (size_t k = 0; k < suffix->list.count; ++k)
+                    {
+                        c_grammar_node_t const * suffix_child = suffix->list.children[k];
+                        if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
+                        {
+                            unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
+                            if (array_depth < array_capacity)
+                            {
+                                array_sizes[array_depth] = (size_t)size_val;
+                                array_depth++;
+                                has_array_size = true;
+                            }
+                        }
+                    }
+
+                    // Empty brackets [] - unsized array
+                    if (!has_array_size && suffix->list.count > 0)
+                    {
+                        if (array_depth < array_capacity)
+                        {
+                            array_sizes[array_depth] = 0;
+                            array_depth++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (!base_type)
     {
         base_type = LLVMInt32TypeInContext(ctx->context);
@@ -3089,14 +3145,62 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                             symbol_data_t symbol_data = {.is_const = is_const};
 
-                            add_symbol(ctx, var_name, global_var, var_type, var_type, &symbol_data);
+                            // For pointer types, compute the pointee type from decl_specifiers
+                            // (LLVMGetElementType returns NULL for opaque pointers in LLVM 18+)
+                            LLVMTypeRef pointee_type = NULL;
+                            if (var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+                            {
+                                // Compute the base type from specifiers (same as local variables)
+                                pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
+                            }
+
+                            add_symbol(ctx, var_name, global_var, var_type, pointee_type, &symbol_data);
 
                             if (initializer_expr_node)
                             {
+                                debug_info(
+                                    "Initializer expr type: %d (%s), var_type kind: %d",
+                                    initializer_expr_node->type,
+                                    get_node_type_name_from_node(initializer_expr_node),
+                                    LLVMGetTypeKind(var_type)
+                                );
+
                                 if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
                                     && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                                 {
                                     LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
+                                }
+                                else if (
+                                    LLVMGetTypeKind(var_type) == LLVMStructTypeKind
+                                    && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST
+                                )
+                                {
+                                    // Build constant aggregate for struct initializer
+                                    LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
+                                    int current_index = 0;
+
+                                    for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
+                                    {
+                                        c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
+                                        c_grammar_node_t const * element_init
+                                            = list_entry->initializer_list_entry.initializer;
+
+                                        // Unwrap from Initializer wrapper if needed
+                                        if (element_init->list.count > 0)
+                                        {
+                                            element_init = element_init->list.children[0];
+                                        }
+
+                                        LLVMValueRef elem_value = process_expression(ctx, element_init);
+                                        if (elem_value)
+                                        {
+                                            const_aggregate = LLVMBuildInsertValue(
+                                                ctx->builder, const_aggregate, elem_value, current_index, "init_elem"
+                                            );
+                                        }
+                                        current_index++;
+                                    }
+                                    LLVMSetInitializer(global_var, const_aggregate);
                                 }
                                 else
                                 {
@@ -3111,6 +3215,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (current_block && var_type)
                     {
+                        debug_warning("inside a function");
                         // Inside a function - use stack allocation
                         LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, var_type, var_name);
 
@@ -3331,6 +3436,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (var_type)
                     {
+                        debug_warning("NOT IN A FUNCTION");
                         // Skip void types (e.g., extern void setbuf(...))
                         if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
                         {
@@ -3412,7 +3518,16 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                             symbol_data_t symbol_data = {.is_const = is_const, .is_volatile = is_volatile};
 
-                            add_symbol(ctx, var_name, global_var, var_type, var_type, &symbol_data);
+                            // For pointer types, compute the pointee type from decl_specifiers
+                            // (LLVMGetElementType returns NULL for opaque pointers in LLVM 18+)
+                            LLVMTypeRef pointee_type = NULL;
+                            if (var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+                            {
+                                // Compute the base type from specifiers (same as local variables)
+                                pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
+                            }
+
+                            add_symbol(ctx, var_name, global_var, var_type, pointee_type, &symbol_data);
 
                             // Process initializer for global variable
                             if (initializer_expr_node)
@@ -3423,6 +3538,42 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     // For array initializers at file scope, we'd need to create a constant
                                     // For now, just set the global with undef and process it differently
                                     LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
+                                }
+                                else if (
+                                    LLVMGetTypeKind(var_type) == LLVMStructTypeKind
+                                    && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST
+                                )
+                                {
+                                    // Build constant aggregate for struct initializer
+                                    LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
+                                    int current_index = 0;
+
+                                    for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
+                                    {
+                                        c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
+                                        c_grammar_node_t const * element_init
+                                            = list_entry->initializer_list_entry.initializer;
+
+                                        // Unwrap from Initializer wrapper if needed
+                                        if (element_init != NULL && element_init->type == AST_NODE_INITIALIZER)
+                                        {
+                                            c_grammar_node_t const * wrapper = element_init;
+                                            if (wrapper->list.count > 0)
+                                            {
+                                                element_init = wrapper->list.children[0];
+                                            }
+                                        }
+
+                                        LLVMValueRef elem_value = process_expression(ctx, element_init);
+                                        if (elem_value)
+                                        {
+                                            const_aggregate = LLVMBuildInsertValue(
+                                                ctx->builder, const_aggregate, elem_value, current_index, "init_elem"
+                                            );
+                                        }
+                                        current_index++;
+                                    }
+                                    LLVMSetInitializer(global_var, const_aggregate);
                                 }
                                 else
                                 {
@@ -4902,6 +5053,14 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 return NULL;
             }
 
+            debug_info(
+                "Member access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type=%p",
+                (void *)base_val,
+                have_ptr,
+                (void *)current_ptr,
+                (void *)current_type
+            );
+
             LLVMValueRef struct_val = base_val;
             LLVMTypeRef struct_type = NULL;
             bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
@@ -4938,10 +5097,18 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 if (struct_type)
                 {
                     base_type = struct_type;
+                    debug_info(
+                        "Using provided struct_type=%p (kind=%d)",
+                        (void *)struct_type,
+                        (int)LLVMGetTypeKind(struct_type)
+                    );
                 }
                 else
                 {
                     base_type = LLVMTypeOf(struct_val);
+                    debug_info(
+                        "Using type of struct_val=%p (kind=%d)", (void *)struct_val, (int)LLVMGetTypeKind(base_type)
+                    );
                 }
                 if (!base_type)
                 {
@@ -4954,8 +5121,18 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
 
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
+                // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
+                // was already set (it might be the pointer type from earlier)
                 if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
+                    debug_info(
+                        "Arrow access: is_arrow=%d, base_node->type=%d, struct_val=%p, struct_type=%d (%p)",
+                        is_arrow,
+                        base_node->type,
+                        (void *)struct_val,
+                        LLVMGetTypeKind(struct_type),
+                        (void *)struct_type
+                    );
                     /* For chained arrow access, current_type was set to the pointee struct
                      * type after the previous member access — use it with priority. */
                     if (did_member_access && current_type != NULL
@@ -4974,15 +5151,42 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         }
 
                         /* For anonymous struct typedefs (tag not in tagged list), use pointee_type from symbol */
-                        if (struct_type == NULL)
+                        // Even if struct_type is not NULL, for arrow access we need to check if it's a pointer type
+                        // and if so, use the pointee type instead
+                        bool should_lookup_pointee = (struct_type == NULL);
+                        if (!should_lookup_pointee && is_arrow && struct_type != NULL
+                            && LLVMGetTypeKind(struct_type) == LLVMPointerTypeKind)
                         {
+                            should_lookup_pointee = true;
+                            debug_info("struct_type is pointer, need to lookup pointee for arrow access");
+                        }
+
+                        if (should_lookup_pointee)
+                        {
+                            debug_info("Checking find_symbol for '%s', struct_type is NULL", base_node->text);
                             LLVMValueRef sym_ptr = NULL;
                             LLVMTypeRef sym_type = NULL;
                             LLVMTypeRef sym_pointee = NULL;
-                            if (find_symbol(ctx, base_node->text, &sym_ptr, &sym_type, &sym_pointee)
-                                && sym_pointee != NULL && LLVMGetTypeKind(sym_pointee) == LLVMStructTypeKind)
+                            debug_info("Looking up symbol '%s' for pointee type", base_node->text);
+                            if (find_symbol(ctx, base_node->text, &sym_ptr, &sym_type, &sym_pointee))
                             {
-                                struct_type = sym_pointee;
+                                debug_info(
+                                    "Found symbol: sym_ptr=%p, sym_type=%p (kind=%d), sym_pointee=%p (kind=%d)",
+                                    (void *)sym_ptr,
+                                    (void *)sym_type,
+                                    sym_type ? (int)LLVMGetTypeKind(sym_type) : -1,
+                                    (void *)sym_pointee,
+                                    sym_pointee ? (int)LLVMGetTypeKind(sym_pointee) : -1
+                                );
+                                if (sym_pointee != NULL && LLVMGetTypeKind(sym_pointee) == LLVMStructTypeKind)
+                                {
+                                    struct_type = sym_pointee;
+                                    debug_info("Found struct type from pointee!");
+                                }
+                            }
+                            else
+                            {
+                                debug_info("find_symbol returned false for '%s'", base_node->text);
                             }
                         }
                     }
@@ -5193,6 +5397,12 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         )
         {
             return LLVMBuildSIToFP(ctx->builder, val_to_cast, target_type, "casttmp");
+        }
+        else if (
+            LLVMGetTypeKind(target_type) == LLVMPointerTypeKind && LLVMGetTypeKind(src_type) == LLVMPointerTypeKind
+        )
+        {
+            return LLVMBuildBitCast(ctx->builder, val_to_cast, target_type, "casttmp");
         }
         else
         {
