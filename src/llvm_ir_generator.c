@@ -1322,21 +1322,6 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
             type_spec = child->typedef_specifier_qualifier.typedef_specifier;
             debug_info("ssql type spec is a %s node", get_node_type_name_from_node(type_spec));
         }
-        else if (
-            specifier_qualifier_list->list.count == 1
-            && specifier_qualifier_list->list.children[0]->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST
-        )
-        {
-            c_grammar_node_t const * child = specifier_qualifier_list->list.children[0];
-
-            debug_info("%s: specifier_qualifier child is a %s node", __func__, get_node_type_name_from_node(child));
-            if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
-            {
-                debug_warning("%s:%u using specifiers from typedef specifier qualifier", __func__, __LINE__);
-                type_spec = child->typedef_specifier_qualifier.typedef_specifier;
-                debug_info("ssql wrapped type spec is a %s node", get_node_type_name_from_node(type_spec));
-            }
-        }
         else
         {
             for (size_t j = 0; j < specifier_qualifier_list->list.count; j++)
@@ -4879,6 +4864,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
     // Check if base is a symbol (for array access)
     // Do this before process_expression to avoid double GEP for arrays
+    if (base_node->type == AST_NODE_CAST_EXPRESSION)
+    {
+        base_node = base_node->cast_expression.expression;
+    }
     if (base_node->type == AST_NODE_IDENTIFIER)
     {
         char const * var_name = base_node->text;
@@ -4936,7 +4925,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
                 have_ptr = true;
                 debug_info(
-                    "Set current_ptr from base_val pointer for member access, current_type=%p", (void *)current_type
+                    "Set current_ptr from base_val pointer for member access, current_type kind=%d",
+                    LLVMGetTypeKind(current_type)
                 );
             }
         }
@@ -5135,12 +5125,67 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
                 else if (
-                    have_ptr && current_ptr && type_kind == 0
+                    have_ptr && current_ptr && (type_kind == 0 || type_kind == 1)
                     && LLVMGetTypeKind(LLVMTypeOf(current_ptr)) == LLVMPointerTypeKind
                 )
                 {
-                    // current_type is NULL but current_ptr is a pointer - try to get struct from symbol
-                    debug_info("current_type is NULL but current_ptr is set - try symbol lookup");
+                    // current_type is NULL or void but current_ptr is a valid pointer - try to get struct via
+                    // identifier
+                    debug_info("current_type is invalid (%d) but current_ptr is set - try symbol lookup", type_kind);
+                    debug_info(
+                        "current_ptr type kind: %d", current_ptr ? (int)LLVMGetTypeKind(LLVMTypeOf(current_ptr)) : 0
+                    );
+
+                    // Extract identifier from base expression for symbol lookup
+                    c_grammar_node_t const * base_expr = NULL;
+                    if (node != NULL && node->type == AST_NODE_POSTFIX_EXPRESSION)
+                    {
+                        base_expr = node->postfix_expression.base_expression;
+                    }
+
+                    if (base_expr != NULL)
+                    {
+                        // If base is a cast expression, get the inner identifier
+                        c_grammar_node_t const * inner = base_expr;
+                        if (base_expr->type == AST_NODE_CAST_EXPRESSION)
+                        {
+                            inner = base_expr->cast_expression.expression;
+                        }
+                        else if (base_expr->type == AST_NODE_IDENTIFIER)
+                        {
+                            // Direct identifier
+                        }
+                        else
+                        {
+                            // Try direct children for identifier
+                            inner = NULL;
+                        }
+
+                        // Look up the identifier in symbol table
+                        if (inner != NULL && inner->type == AST_NODE_IDENTIFIER && inner->identifier.identifier != NULL)
+                        {
+                            char const * var_name = inner->identifier.identifier->text;
+                            LLVMValueRef lookup_ptr = NULL;
+                            LLVMTypeRef lookup_type = NULL;
+                            LLVMTypeRef lookup_pointee = NULL;
+                            debug_info("Looking up '%s' from member access", var_name);
+                            if (find_symbol(ctx, var_name, &lookup_ptr, &lookup_type, &lookup_pointee))
+                            {
+                                debug_info(
+                                    "Found: type=%p, pointee=%p (kind=%d)",
+                                    (void *)lookup_type,
+                                    (void *)lookup_pointee,
+                                    lookup_pointee ? (int)LLVMGetTypeKind(lookup_pointee) : -1
+                                );
+                                if (lookup_pointee != NULL && LLVMGetTypeKind(lookup_pointee) == LLVMStructTypeKind)
+                                {
+                                    struct_type = lookup_pointee;
+                                    struct_val = current_ptr;
+                                    debug_info("Got struct via identifier '%s'", var_name);
+                                }
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -5191,7 +5236,18 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // For arrow access with cast expressions like ((Point *)ptr)->member
                 // if current_type is already the struct type, use it directly
                 // OR if base is a cast expression, get type from the cast's target type
-                if (is_arrow && current_type != NULL && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
+                if (is_arrow && current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                {
+                    debug_warning("!!!!current type is pointertypekind");
+                    LLVMTypeRef pointee = LLVMGetElementType(current_type);
+                    if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
+                    {
+                        debug_warning("!!!!Using current_ptr as struct type for cast->member");
+                        struct_type = pointee;
+                        struct_val = current_ptr;
+                    }
+                }
+                else if (is_arrow && current_type != NULL && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
                 {
                     struct_type = current_type;
                     struct_val = current_ptr;
