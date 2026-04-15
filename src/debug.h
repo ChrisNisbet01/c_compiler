@@ -59,4 +59,5 @@ void debug_warning(char const * fmt, ...);
  * @param fmt Format string.
  * @param ... Variable arguments.
  */
-void debug_error(char const * fmt, ...);
+void debug_error_int(char const * func, int line, char const * fmt, ...);
+#define debug_error(fmt, ...) debug_error_int(__func__, __LINE__, (fmt), ##__VA_ARGS__)

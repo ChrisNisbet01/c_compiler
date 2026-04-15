@@ -61,7 +61,7 @@ debug_warning(char const * fmt, ...)
 }
 
 void
-debug_error(char const * fmt, ...)
+debug_error_int(char const * func, int line, char const * fmt, ...)
 {
     if (!debug_is_enabled(DEBUG_LEVEL_ERROR))
     {
@@ -70,7 +70,7 @@ debug_error(char const * fmt, ...)
 
     va_list args;
     va_start(args, fmt);
-    fprintf(stderr, "DEBUG: ");
+    fprintf(stderr, "ERROR: %s:%u\n\t", func, line);
     vfprintf(stderr, fmt, args);
     fprintf(stderr, "\n");
     va_end(args);
