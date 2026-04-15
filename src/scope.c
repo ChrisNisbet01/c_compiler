@@ -545,7 +545,7 @@ add_symbol_with_struct(
         (void *)ptr,
         LLVMGetTypeKind(type),
         (void *)type,
-        pointee_type == NULL ? -1 : LLVMGetTypeKind(pointee_type),
+        pointee_type == NULL ? -1 : (int)LLVMGetTypeKind(pointee_type),
         (void *)pointee_type,
         tag ? tag : "(null)"
     );
