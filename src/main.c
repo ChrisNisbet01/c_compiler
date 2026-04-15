@@ -210,7 +210,7 @@ on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * pars
         }
         session->marker_stack = new_marker_stack;
     }
-    session->marker_stack[session->marker_top++] = session->pending_names_st->count;
+    session->marker_stack[session->marker_top++] = symbol_table_count(session->pending_names_st);
 }
 
 static bool
@@ -227,22 +227,12 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * p
 
     if (!result.is_error)
     {
-        for (size_t i = marker; i < session->pending_names_st->count; i++)
+        for (size_t i = marker; i < symbol_table_count(session->pending_names_st); i++)
         {
-            symbol_table_add(session->symbols, session->pending_names_st->names[i]);
-            // printf("Committed typedef: '%s'\n", session->pending_names_st->names[i]);
-            free(session->pending_names_st->names[i]);
+            symbol_table_add(session->symbols, symbol_table_name_at(session->pending_names_st, i));
         }
-        session->pending_names_st->count = marker;
     }
-    else
-    {
-        for (size_t i = marker; i < session->pending_names_st->count; i++)
-        {
-            free(session->pending_names_st->names[i]);
-        }
-        session->pending_names_st->count = marker;
-    }
+    symbol_table_clear_from(session->pending_names_st, marker);
 
     return true;
 }

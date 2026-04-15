@@ -18,6 +18,7 @@ add_executable(${app}
   llvm_ir_generator.c
   scope.c
   symbol_table.c
+  hash_table.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)
