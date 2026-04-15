@@ -1885,6 +1885,12 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
         type_ref = LLVMX86FP80TypeInContext(ctx->context);
     else if (strncmp(type_name, "double", 6) == 0)
         type_ref = LLVMDoubleTypeInContext(ctx->context);
+    else if (strncmp(type_name, "unsigned long long", 19) == 0)
+        type_ref = LLVMInt64TypeInContext(ctx->context);
+    else if (strncmp(type_name, "unsigned long", 13) == 0)
+        type_ref = LLVMInt64TypeInContext(ctx->context);
+    else if (strncmp(type_name, "long long", 9) == 0)
+        type_ref = LLVMInt64TypeInContext(ctx->context);
     else if (strncmp(type_name, "long", 4) == 0)
         type_ref = LLVMInt64TypeInContext(ctx->context);
     else if (strncmp(type_name, "short", 5) == 0)
@@ -4308,9 +4314,32 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         else
         {
-            // Handle 'return;' (e.g., void function or default return).
-            // Assuming 'int' return type, so return 0.
-            LLVMBuildRet(ctx->builder, LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false));
+            // Handle 'return;' for functions with no return expression.
+            // Return a zero of the function's declared return type, or build a void return if appropriate.
+            LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+            LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
+            if (LLVMGetTypeKind(func_ret_type) == LLVMVoidTypeKind) {
+                LLVMBuildRetVoid(ctx->builder);
+            } else {
+                // Create a zero constant of the correct integer/float type.
+                LLVMValueRef zero_const;
+                if (LLVMGetTypeKind(func_ret_type) == LLVMIntegerTypeKind) {
+                    unsigned bits = LLVMGetIntTypeWidth(func_ret_type);
+                    LLVMTypeRef int_type = LLVMIntTypeInContext(ctx->context, bits);
+                    zero_const = LLVMConstInt(int_type, 0, false);
+                } else if (LLVMGetTypeKind(func_ret_type) == LLVMFloatTypeKind) {
+                    zero_const = LLVMConstReal(func_ret_type, 0.0);
+                } else if (LLVMGetTypeKind(func_ret_type) == LLVMDoubleTypeKind) {
+                    zero_const = LLVMConstReal(func_ret_type, 0.0);
+                } else {
+                    // Fallback: bitcast a zero integer of same size.
+                    unsigned bits = LLVMGetIntTypeWidth(func_ret_type);
+                    LLVMTypeRef int_type = LLVMIntTypeInContext(ctx->context, bits);
+                    zero_const = LLVMConstInt(int_type, 0, false);
+                    zero_const = LLVMBuildIntCast2(ctx->builder, zero_const, func_ret_type, false, "zero_cast");
+                }
+                LLVMBuildRet(ctx->builder, zero_const);
+            }
         }
         break;
     }
@@ -6132,6 +6161,26 @@ process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     if (lhs_val == NULL || rhs_val == NULL)
     {
         return NULL;
+    }
+
+    // Ensure shift amount has same integer width as lhs
+    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
+    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeKind rhs_kind = LLVMGetTypeKind(rhs_type);
+    if (lhs_kind == LLVMIntegerTypeKind && rhs_kind == LLVMIntegerTypeKind)
+    {
+        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
+        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
+        if (lhs_bits > rhs_bits)
+        {
+            rhs_val = LLVMBuildZExt(ctx->builder, rhs_val, lhs_type, "promote_shift_rhs");
+        }
+        else if (rhs_bits > lhs_bits)
+        {
+            // Shift amount larger than lhs width: truncate to lhs width
+            rhs_val = LLVMBuildTrunc(ctx->builder, rhs_val, lhs_type, "trunc_shift_rhs");
+        }
     }
 
     c_grammar_node_t const * op_node = node->binary_expression.op;
