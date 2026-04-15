@@ -29,9 +29,6 @@ static type_info_t const * register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
 );
 static type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
-static type_info_t const * add_tagged_struct_or_union_type(
-    ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind, struct_field_t * fields, size_t num_fields
-);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
@@ -1767,55 +1764,6 @@ cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef tar
     return value;
 }
 
-static type_info_t const *
-add_tagged_struct_or_union_type(
-    ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind, struct_field_t * fields, size_t num_fields
-)
-{
-    if (ctx == NULL || tag == NULL || fields == NULL || num_fields == 0)
-    {
-        debug_error(
-            "Invalid arguments to add_tagged_struct_or_union_type. ctx=%p, tag=%s, fields=%p, num_fields=%zu",
-            (void *)ctx,
-            tag ? tag : "NULL",
-            (void *)fields,
-            num_fields
-        );
-        return NULL;
-    }
-
-    if (scope_find_tagged_struct(ctx->current_scope, tag))
-    {
-        return NULL;
-    }
-
-    type_info_t new_struct = {0};
-
-    new_struct.tag = strdup(tag);
-    new_struct.kind = kind;
-    new_struct.field_count = num_fields;
-    new_struct.fields = fields;
-    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
-
-    struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
-    unsigned num_storage_units = last_field->storage_index + 1;
-    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-    int current_storage_unit = -1;
-    for (size_t i = 0; i < new_struct.field_count; i++)
-    {
-        struct_field_t * field = &fields[i];
-        if (field->storage_index != (unsigned)current_storage_unit)
-        {
-            current_storage_unit = field->storage_index;
-            field_types[current_storage_unit] = field->type;
-        }
-    }
-    LLVMStructSetBody(new_struct.type, field_types, num_storage_units, false);
-    free(field_types);
-
-    return scope_add_tagged_type(ctx->current_scope, new_struct);
-}
-
 static char const *
 decode_string(char const * const src)
 {
@@ -1994,9 +1942,7 @@ map_type_to_llvm_t_wrapped(
         c_grammar_node_t const * child = specifiers->list.children[0];
         if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
         {
-            debug_warning("%s:%u using specifiers from typedef specifier qualifer", __func__, __LINE__);
             specifiers = child->typedef_specifier_qualifier.typedef_specifier;
-            debug_info("specifiers %s node", get_node_type_name_from_node(specifiers));
         }
     }
 
@@ -3218,7 +3164,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (current_block && var_type)
                     {
-                        debug_warning("inside a function");
                         // Inside a function - use stack allocation
                         LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, var_type, var_name);
 
@@ -3439,7 +3384,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (var_type)
                     {
-                        debug_warning("NOT IN A FUNCTION");
                         // Skip void types (e.g., extern void setbuf(...))
                         if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
                         {
@@ -4503,6 +4447,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_QUALIFERS:
     case AST_NODE_DECLARATION_SPECIFIERS:
     case AST_NODE_STORAGE_CLASS_SPECIFIERS:
+    case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -5230,7 +5175,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     (void *)base_type,
                     (void *)struct_type,
                     struct_type ? (int)LLVMGetTypeKind(struct_type) : -1,
-                    base_node ? base_node->type : -1
+                    base_node ? (int)base_node->type : -1
                 );
 
                 // For arrow access with cast expressions like ((Point *)ptr)->member
@@ -5238,11 +5183,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // OR if base is a cast expression, get type from the cast's target type
                 if (is_arrow && current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                 {
-                    debug_warning("!!!!current type is pointertypekind");
                     LLVMTypeRef pointee = LLVMGetElementType(current_type);
                     if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
                     {
-                        debug_warning("!!!!Using current_ptr as struct type for cast->member");
                         struct_type = pointee;
                         struct_val = current_ptr;
                     }
@@ -5251,7 +5194,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 {
                     struct_type = current_type;
                     struct_val = current_ptr;
-                    debug_info("Using current_type as struct type for cast->member");
                 }
                 else if (is_arrow && base_node && base_node->type == AST_NODE_CAST_EXPRESSION)
                 {
@@ -5392,8 +5334,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // This handles cast-based access where we just have a loaded pointer value
                 if (struct_type == NULL && current_ptr != NULL)
                 {
-                    debug_info("Trying to deref current_ptr to get struct type");
-                    LLVMValueRef deref_ptr = current_ptr;
                     // If we have the address of the pointer variable (not what it points to), load first
                     LLVMTypeRef current_ptr_type = LLVMTypeOf(current_ptr);
                     if (current_ptr_type != NULL && LLVMGetTypeKind(current_ptr_type) == LLVMPointerTypeKind)
@@ -5408,7 +5348,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             {
                                 struct_type = loaded_type;
                                 struct_val = loaded_ptr;
-                                debug_info("Found struct from loaded type!");
+                                debug_info("Found struct from loaded type");
                             }
                         }
                     }
@@ -5631,7 +5571,7 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     else
     {
-        debug_warning("missing val: %p or target type: %p", val_to_cast, target_type);
+        debug_warning("%s: missing val: %p or target type: %p", __func__, val_to_cast, target_type);
     }
     return NULL;
 }
@@ -7150,6 +7090,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_QUALIFIER:
     case AST_NODE_TYPE_QUALIFERS:
     case AST_NODE_DECLARATION_SPECIFIERS:
+    case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
