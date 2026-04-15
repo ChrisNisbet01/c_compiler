@@ -367,7 +367,7 @@ TypeSpecifierListMany = NonTypedefTypeSpecifier*;
 
 NamedDeclarationSpecifiers = NamedDeclSpecsRegular | NamedDeclSpecsTypedef;
 
-TypedefSpecifierQualifier = TypeQualifierMany TypedefName TypeQualifierMany;
+TypedefSpecifierQualifier = TypeQualifierMany TypedefName TypeQualifierMany @AST_ACTION_TYPEDEF_SPECIFIER_QUALIFIER;
 NonTypedefSpecifierQualifier = TypeQualifier | NonTypedefTypeSpecifier;
 NonTypedefSpecifierQualifierPlus = NonTypedefSpecifierQualifier+;
 SpecifierQualifierList = TypedefSpecifierQualifier | NonTypedefSpecifierQualifierPlus @AST_ACTION_SPECIFIER_QUALIFIER_LIST;

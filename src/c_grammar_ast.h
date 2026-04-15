@@ -103,6 +103,7 @@ typedef enum
     AST_NODE_COMPOUND_LITERAL,
     AST_NODE_STRUCT_DECLARATOR,
     AST_NODE_STRUCT_DECLARATOR_LIST,
+    AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER,
     AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST,
     AST_NODE_STRUCT_DECLARATOR_BITFIELD,
     AST_NODE_ATTRIBUTE,
@@ -555,6 +556,13 @@ typedef struct ast_node_type_name_t
     c_grammar_node_t const * abstract_declarator;
 } ast_node_type_name_t;
 
+typedef struct ast_node_typedef_specifier_qualifier_t
+{
+    c_grammar_node_t const * pre_type_qualifier;
+    c_grammar_node_t const * typedef_specifier;
+    c_grammar_node_t const * post_type_qualifier;
+} ast_node_typedef_specifier_qualifier_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -606,6 +614,7 @@ typedef struct c_grammar_node_t
         ast_node_type_name_t type_name;
         storage_class_data_t storage_class;
         type_qualifier_data_t type_qualifier;
+        ast_node_typedef_specifier_qualifier_t typedef_specifier_qualifier;
     };
 } c_grammar_node_t;
 
