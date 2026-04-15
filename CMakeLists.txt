@@ -13,13 +13,16 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-O3)
 
 # LTO settings
-include(CheckIPOSupported)
-check_ipo_supported(RESULT lto_supported OUTPUT error)
-
-if(lto_supported)
-    message(STATUS "LTO (Interprocedural Optimization) is supported by the toolchain.")
-else()
-    message(STATUS "LTO NOT supported: ${error}")
+option(ENABLE_LTO "Enable Link Time Optimization" OFF)
+if(ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT lto_supported OUTPUT error)
+    if(lto_supported)
+        message(STATUS "LTO (Interprocedural Optimization) is supported by the toolchain.")
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    else()
+        message(STATUS "LTO NOT supported: ${error}")
+    endif()
 endif()
 
 # --- LLVM Integration ---
@@ -39,6 +42,7 @@ if(LLVM_FOUND)
 else()
     message(FATAL_ERROR "LLVM not found. Please ensure LLVM 20.1.8 is installed and CMake can find it.")
 endif()
+
 # --- End LLVM Integration ---
 
 # --- easy_pc Integration ---
@@ -50,6 +54,8 @@ if(DEFINED EASY_PC_LOCAL_PATH AND EXISTS ${EASY_PC_LOCAL_PATH})
   if(NOT IS_DIRECTORY ${EASY_PC_LOCAL_PATH})
     message(FATAL_ERROR "EASY_PC_LOCAL_PATH is not a valid path: ${EASY_PC_LOCAL_PATH}")
   endif()
+   
+
   message(STATUS "Using local easy_pc repository at: ${EASY_PC_LOCAL_PATH}")
   add_subdirectory(${EASY_PC_LOCAL_PATH} easy_pc-build)
 else()
@@ -66,8 +72,11 @@ else()
   # Create a dummy Doxyfile if it doesn't exist (to prevent docs target failure)
   if(NOT EXISTS "${easy_pc_SOURCE_DIR}/Doxyfile")
     file(WRITE "${easy_pc_SOURCE_DIR}/Doxyfile" "# Dummy Doxyfile\nPROJECT_NAME = easy_pc\n")
-  endif()
 endif()
+endif()
+   
+
+
 # --- End easy_pc Integration ---
 
 # Add our source
