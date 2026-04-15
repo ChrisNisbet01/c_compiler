@@ -316,11 +316,15 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 {
     while (scope != NULL && type != NULL)
     {
-        debug_info("scope_find_type_by_llvm_type: Searching for LLVMTypeRef %p", (void*)type);
+        debug_info("scope_find_type_by_llvm_type: Searching for LLVMTypeRef %p", (void *)type);
 
         for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
-            debug_info("scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p", i, (void*)scope->tagged_types.entries[i].type);
+            debug_info(
+                "scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p",
+                i,
+                (void *)scope->tagged_types.entries[i].type
+            );
             if (scope->tagged_types.entries[i].type == type)
             {
                 debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
@@ -330,7 +334,11 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 
         for (size_t i = 0; i < scope->untagged_types.count; ++i)
         {
-            debug_info("scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p", i, (void*)scope->untagged_types.entries[i].type);
+            debug_info(
+                "scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p",
+                i,
+                (void *)scope->untagged_types.entries[i].type
+            );
             if (scope->untagged_types.entries[i].type == type)
             {
                 debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
@@ -342,7 +350,7 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
         scope = scope->parent;
     }
 
-    debug_info("scope_find_type_by_llvm_type: Type %p not found in any scope.", (void*)type);
+    debug_info("scope_find_type_by_llvm_type: Type %p not found in any scope.", (void *)type);
     return NULL;
 }
 
@@ -532,10 +540,12 @@ add_symbol_with_struct(
     }
     scope->symbol_count++;
     debug_info(
-        "Added symbol: name='%s', ptr=%p, type=%p, pointee_type=%p, tag='%s'",
+        "Added symbol: name='%s', ptr=%p, type=%d (%p), pointee_type=%d (%p), tag='%s'",
         name,
         (void *)ptr,
+        LLVMGetTypeKind(type),
         (void *)type,
+        pointee_type == NULL ? -1 : LLVMGetTypeKind(pointee_type),
         (void *)pointee_type,
         tag ? tag : "(null)"
     );
