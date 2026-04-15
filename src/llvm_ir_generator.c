@@ -1311,6 +1311,7 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             continue;
         }
+        debug_info("%s: spec_qual_list_type is %s", __func__, get_node_type_name_from_node(specifier_qualifier_list));
 
         /* Search through specifier_qualifier_list children for the actual type specifier */
         c_grammar_node_t const * type_spec = NULL;
@@ -1319,6 +1320,22 @@ extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             c_grammar_node_t const * child = specifier_qualifier_list->list.children[0];
             type_spec = child->typedef_specifier_qualifier.typedef_specifier;
+            debug_info("ssql type spec is a %s node", get_node_type_name_from_node(type_spec));
+        }
+        else if (
+            specifier_qualifier_list->list.count == 1
+            && specifier_qualifier_list->list.children[0]->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST
+        )
+        {
+            c_grammar_node_t const * child = specifier_qualifier_list->list.children[0];
+
+            debug_info("%s: specifier_qualifier child is a %s node", __func__, get_node_type_name_from_node(child));
+            if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+            {
+                debug_warning("%s:%u using specifiers from typedef specifier qualifier", __func__, __LINE__);
+                type_spec = child->typedef_specifier_qualifier.typedef_specifier;
+                debug_info("ssql wrapped type spec is a %s node", get_node_type_name_from_node(type_spec));
+            }
         }
         else
         {
@@ -1992,8 +2009,9 @@ map_type_to_llvm_t_wrapped(
         c_grammar_node_t const * child = specifiers->list.children[0];
         if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
         {
-            debug_warning("using specifiers from typedef specifier qualifer");
-            specifiers = specifiers->list.children[0];
+            debug_warning("%s:%u using specifiers from typedef specifier qualifer", __func__, __LINE__);
+            specifiers = child->typedef_specifier_qualifier.typedef_specifier;
+            debug_info("specifiers %s node", get_node_type_name_from_node(specifiers));
         }
     }
 
@@ -4895,7 +4913,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 has_func_call_suffix = true;
                 break;
             }
-}
+        }
         if (!has_func_call_suffix)
         {
             base_val = process_expression(ctx, base_node);
@@ -4917,8 +4935,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     debug_info("LLVMGetElementType returned NULL for opaque pointer");
                 }
                 have_ptr = true;
-                debug_info("Set current_ptr from base_val pointer for member access, current_type=%p",
-                    (void *)current_type);
+                debug_info(
+                    "Set current_ptr from base_val pointer for member access, current_type=%p", (void *)current_type
+                );
             }
         }
     }
@@ -5084,8 +5103,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             if (current_type != NULL)
             {
-                debug_info("current_type kind at start of member access: %d",
-                    (int)LLVMGetTypeKind(current_type));
+                debug_info("current_type kind at start of member access: %d", (int)LLVMGetTypeKind(current_type));
+            }
+            else
+            {
+                debug_info("current_type is NULL at start of member access");
             }
 
             LLVMValueRef struct_val = base_val;
@@ -5094,8 +5116,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             // Handle case where base_val is NULL but we have current_ptr from array subscript
             // OR for arrow access where current_ptr is set
-            if ((!struct_val && have_ptr && current_ptr && current_type)
-                || (is_arrow && have_ptr && current_ptr))
+            if ((!struct_val && have_ptr && current_ptr && current_type) || (is_arrow && have_ptr && current_ptr))
             {
                 // current_ptr points to the element, current_type is its type
                 LLVMTypeKind type_kind = current_type ? LLVMGetTypeKind(current_type) : 0;
@@ -5113,8 +5134,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         struct_type = elem_type;
                     }
                 }
-                else if (have_ptr && current_ptr && type_kind == 0
-                    && LLVMGetTypeKind(LLVMTypeOf(current_ptr)) == LLVMPointerTypeKind)
+                else if (
+                    have_ptr && current_ptr && type_kind == 0
+                    && LLVMGetTypeKind(LLVMTypeOf(current_ptr)) == LLVMPointerTypeKind
+                )
                 {
                     // current_type is NULL but current_ptr is a pointer - try to get struct from symbol
                     debug_info("current_type is NULL but current_ptr is set - try symbol lookup");
@@ -5145,128 +5168,94 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         "Using type of struct_val=%p (kind=%d)", (void *)struct_val, (int)LLVMGetTypeKind(base_type)
                     );
                 }
-if (!base_type)
-            {
-                debug_error("NULL type for member access base.");
-                continue;
-            }
-            if (!struct_type)
-            {
-                struct_type = base_type;
-            }
-
-            debug_info("Checking struct_type after assignment: is_arrow=%d, base_type=%p, struct_type=%p (kind=%d), base_node type=%d",
-                is_arrow, (void *)base_type, (void *)struct_type,
-                struct_type ? (int)LLVMGetTypeKind(struct_type) : -1,
-                base_node ? base_node->type : -1);
-
-            // For arrow access, if struct_type is pointer type, get the actual struct type
-            // This handles cast expressions where we need the pointee
-            if (is_arrow && struct_type != NULL && LLVMGetTypeKind(struct_type) == LLVMPointerTypeKind)
-            {
-                // Try to get element from pointer
-                LLVMTypeRef pointee = LLVMGetElementType(struct_type);
-                if (pointee == NULL && base_node != NULL && base_node->type == AST_NODE_CAST_EXPRESSION)
+                if (!base_type)
                 {
-                    // Get type from cast via lookup
+                    debug_error("NULL type for member access base.");
+                    continue;
+                }
+                if (!struct_type)
+                {
+                    struct_type = base_type;
+                }
+
+                debug_info(
+                    "Checking struct_type after assignment: is_arrow=%d, base_type=%p, struct_type=%p (kind=%d), "
+                    "base_node type=%d",
+                    is_arrow,
+                    (void *)base_type,
+                    (void *)struct_type,
+                    struct_type ? (int)LLVMGetTypeKind(struct_type) : -1,
+                    base_node ? base_node->type : -1
+                );
+
+                // For arrow access with cast expressions like ((Point *)ptr)->member
+                // if current_type is already the struct type, use it directly
+                // OR if base is a cast expression, get type from the cast's target type
+                if (is_arrow && current_type != NULL && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
+                {
+                    struct_type = current_type;
+                    struct_val = current_ptr;
+                    debug_info("Using current_type as struct type for cast->member");
+                }
+                else if (is_arrow && base_node && base_node->type == AST_NODE_CAST_EXPRESSION)
+                {
+                    // For cast expressions, get the target type from the cast type name
+                    // First find the TypedefSpecifier and get its name to look up
                     c_grammar_node_t const * type_name_node = base_node->cast_expression.type_name;
                     if (type_name_node != NULL)
                     {
                         c_grammar_node_t const * spec_qual = type_name_node->type_name.specifier_qualifier_list;
                         if (spec_qual != NULL)
                         {
-                            char const * tname = NULL;
-                            for (size_t i = 0; i < spec_qual->list.count && tname == NULL; i++)
+                            // Search for identifier in the spec_qual tree
+                            char const * typedef_name = NULL;
+                            // Try a deep search for any identifier in the tree
+                            for (size_t sci = 0; sci < spec_qual->list.count && typedef_name == NULL; sci++)
                             {
-                                tname = extract_typedef_name(spec_qual->list.children[i]);
+                                c_grammar_node_t const * child = spec_qual->list.children[sci];
+                                typedef_name = extract_typedef_name(child);
                             }
-                            if (tname != NULL)
+                            if (typedef_name != NULL)
                             {
-                                LLVMTypeRef ttype = find_typedef_type(ctx, tname);
-                                if (ttype != NULL)
+                                LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
+                                debug_info("Found typedef '%s' for cast: %p", typedef_name, (void *)typedef_type);
+                                if (typedef_type != NULL && LLVMGetTypeKind(typedef_type) == LLVMStructTypeKind)
                                 {
-                                    type_info_t const * info = scope_find_type_by_llvm_type(ctx->current_scope, ttype);
-                                    if (info != NULL)
-                                    {
-                                        struct_type = info->type;
-                                        struct_val = current_ptr;
-                                        debug_info("Fixed pointer struct_type to actual struct via cast typedef!");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // For arrow access with cast expressions like ((Point *)ptr)->member
-            // if current_type is already the struct type, use it directly
-            // OR if base is a cast expression, get type from the cast's target type
-            if (is_arrow && current_type != NULL && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
-            {
-                struct_type = current_type;
-                struct_val = current_ptr;
-                debug_info("Using current_type as struct type for cast->member");
-            }
-            else if (is_arrow && base_node && base_node->type == AST_NODE_CAST_EXPRESSION)
-            {
-                // For cast expressions, get the target type from the cast type name
-                // First find the TypedefSpecifier and get its name to look up
-                c_grammar_node_t const * type_name_node = base_node->cast_expression.type_name;
-                if (type_name_node != NULL)
-                {
-                    c_grammar_node_t const * spec_qual = type_name_node->type_name.specifier_qualifier_list;
-                    if (spec_qual != NULL)
-                    {
-                        // Search for identifier in the spec_qual tree
-                        char const * typedef_name = NULL;
-                        // Try a deep search for any identifier in the tree
-                        for (size_t sci = 0; sci < spec_qual->list.count && typedef_name == NULL; sci++)
-                        {
-                            c_grammar_node_t const * child = spec_qual->list.children[sci];
-                            typedef_name = extract_typedef_name(child);
-                        }
-                        if (typedef_name != NULL)
-                        {
-                            LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                            debug_info("Found typedef '%s' for cast: %p", typedef_name, (void *)typedef_type);
-                            if (typedef_type != NULL && LLVMGetTypeKind(typedef_type) == LLVMStructTypeKind)
-                            {
-                                struct_type = typedef_type;
-                                struct_val = current_ptr;
-                                debug_info("Using typedef struct type from cast!");
-                            }
-                            else if (typedef_type != NULL && LLVMGetTypeKind(typedef_type) == LLVMPointerTypeKind)
-                            {
-                                LLVMTypeRef pointee = LLVMGetElementType(typedef_type);
-                                if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
-                                {
-                                    struct_type = pointee;
+                                    struct_type = typedef_type;
                                     struct_val = current_ptr;
-                                    debug_info("Using pointee from typedef!");
+                                    debug_info("Using typedef struct type from cast!");
                                 }
-                                else
+                                else if (typedef_type != NULL && LLVMGetTypeKind(typedef_type) == LLVMPointerTypeKind)
                                 {
-                                    // Try via scope lookup
-                                    type_info_t const * info
-                                        = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
-                                    if (info != NULL)
+                                    LLVMTypeRef pointee = LLVMGetElementType(typedef_type);
+                                    if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
                                     {
-                                        struct_type = info->type;
+                                        struct_type = pointee;
                                         struct_val = current_ptr;
-                                        debug_info("Found struct via scope lookup!");
+                                        debug_info("Using pointee from typedef!");
+                                    }
+                                    else
+                                    {
+                                        // Try via scope lookup
+                                        type_info_t const * info
+                                            = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
+                                        if (info != NULL)
+                                        {
+                                            struct_type = info->type;
+                                            struct_val = current_ptr;
+                                            debug_info("Found struct via scope lookup!");
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // For LLVM 18+ opaque pointers, use struct name from symbol table
-            // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
-            // was already set (it might be the pointer type from earlier)
-            if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
+                // For LLVM 18+ opaque pointers, use struct name from symbol table
+                // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
+                // was already set (it might be the pointer type from earlier)
+                if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
                     debug_info(
                         "Arrow access: is_arrow=%d, base_node->type=%d, struct_val=%p, struct_type=%d (%p)",
@@ -5353,8 +5342,8 @@ if (!base_type)
                     LLVMTypeRef current_ptr_type = LLVMTypeOf(current_ptr);
                     if (current_ptr_type != NULL && LLVMGetTypeKind(current_ptr_type) == LLVMPointerTypeKind)
                     {
-                        LLVMValueRef loaded_ptr = aligned_load(ctx->builder,
-                            LLVMGetElementType(current_ptr_type), current_ptr, "deref");
+                        LLVMValueRef loaded_ptr
+                            = aligned_load(ctx->builder, LLVMGetElementType(current_ptr_type), current_ptr, "deref");
                         if (loaded_ptr != NULL)
                         {
                             LLVMTypeRef loaded_type = LLVMTypeOf(loaded_ptr);
