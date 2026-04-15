@@ -82,7 +82,7 @@ run_test() {
 
     # 2. Compile LLVM IR to an executable using clang
     echo "  [CLANG] Compiling $ll_file -> $exe_file"
-    if ! "$LLVM_COMPILER" "$ll_file" -o "$exe_file" 2> "$err_file"; then
+    if ! "$LLVM_COMPILER" "$ll_file" -o "$exe_file" 2>> "$err_file"; then
         echo "  ERROR: clang compilation failed for $ll_file. Check $err_file"
         TEST_FAILED=true
         current_test_failed=true
