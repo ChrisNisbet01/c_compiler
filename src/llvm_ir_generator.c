@@ -3362,73 +3362,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             continue;
                         }
 
-                        debug_info("Creating global for variable '%s'", var_name);
-                        LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
-                        LLVMSetLinkage(global_var, LLVMInternalLinkage);
-                        if (is_const)
-                        {
-                            LLVMSetGlobalConstant(global_var, true);
-                        }
-
-                        // Zero‑initialize by default for global variables without an explicit initializer
-                        // But only if the type is valid (not void, not NULL)
-                        if (var_type != NULL && LLVMGetTypeKind(var_type) != LLVMVoidTypeKind)
-                        {
-                            LLVMSetInitializer(global_var, LLVMConstNull(var_type));
-                        }
-
-                        symbol_data_t symbol_data = {.is_const = is_const};
-                        LLVMTypeRef pointee_type = NULL;
-                        if (var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
-                        {
-                            pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
-                        }
-                        add_symbol(ctx, var_name, global_var, var_type, pointee_type, &symbol_data);
-
-                        if (initializer_expr_node)
-                        {
-                            // Similar initializer handling as static case (simplified)
-                            if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
-                                && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
-                            {
-                                LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
-                            }
-                            else if (
-                                LLVMGetTypeKind(var_type) == LLVMStructTypeKind
-                                && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST
-                            )
-                            {
-                                LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
-                                int current_index = 0;
-                                for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
-                                {
-                                    c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
-                                    c_grammar_node_t const * element_init
-                                        = list_entry->initializer_list_entry.initializer;
-                                    if (element_init->list.count > 0)
-                                    {
-                                        element_init = element_init->list.children[0];
-                                    }
-                                    LLVMValueRef elem_value = process_expression(ctx, element_init);
-                                    if (elem_value)
-                                    {
-                                        const_aggregate = LLVMBuildInsertValue(
-                                            ctx->builder, const_aggregate, elem_value, current_index, "init_elem"
-                                        );
-                                    }
-                                    current_index++;
-                                }
-                                LLVMSetInitializer(global_var, const_aggregate);
-                            }
-                            else
-                            {
-                                LLVMValueRef initializer_value = process_expression(ctx, initializer_expr_node);
-                                if (initializer_value)
-                                {
-                                    LLVMSetInitializer(global_var, initializer_value);
-                                }
-                            }
-                        }
+                        /* Create non-static global variable using helper */
+                        create_global_variable(
+                            ctx, var_type, var_name, is_static, is_const, initializer_expr_node, decl_specifiers
+                        );
                     }
                     else if (current_block && var_type)
                     {
