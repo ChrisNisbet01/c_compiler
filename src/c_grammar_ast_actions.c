@@ -3169,6 +3169,18 @@ handle_declaration_specifiers(
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_parameter_list(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_PARAMETER_LIST);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -3292,4 +3304,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_QUALIFIER, handle_type_qualifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_QUALIFIERS, handle_type_qualifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATION_SPECIFIERS, handle_declaration_specifiers);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_PARAMETER_LIST, handle_parameter_list);
 }

@@ -117,6 +117,7 @@ typedef enum
     AST_NODE_TYPE_QUALIFIER,
     AST_NODE_TYPE_QUALIFERS,
     AST_NODE_DECLARATION_SPECIFIERS,
+    AST_NODE_PARAMETER_LIST,
 } c_grammar_node_type_t;
 
 typedef struct

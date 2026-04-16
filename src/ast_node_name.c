@@ -118,6 +118,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_TYPE_QUALIFIER] = {.name = "TypeQualifier"},
     [AST_NODE_TYPE_QUALIFERS] = {.name = "TypeQualifiers"},
     [AST_NODE_DECLARATION_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
+    [AST_NODE_PARAMETER_LIST] = {.name = "ParameterList"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)

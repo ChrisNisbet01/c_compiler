@@ -387,7 +387,7 @@ ParameterDeclaration = OptionalKwExtension NamedDeclarationSpecifiers (Declarato
 
 ParameterDeclarationList = delimited_flex(ParameterDeclaration, Comma) (Comma Ellipsis)?;
 
-ParameterList = LParen ParameterDeclarationList? RParen;
+ParameterList = LParen ParameterDeclarationList? RParen @AST_ACTION_PARAMETER_LIST;
 
 ArraySizeQualifier = KwStatic @AST_ACTION_ARRAY_SIZE_QUALIFER;
 
