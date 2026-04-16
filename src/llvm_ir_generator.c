@@ -40,7 +40,7 @@ static LLVMValueRef get_variable_pointer(
 );
 
 static char *
-combine_type_specifiers(c_grammar_node_t const * specifier_list)
+combine_type_specifiers_text(c_grammar_node_t const * specifier_list)
 {
     char * type_specs_str = NULL;
     for (size_t i = 0; i < specifier_list->list.count; ++i)
@@ -2094,7 +2094,7 @@ map_type_to_llvm_t_wrapped(
                 {
                     /* Likely something like "unsigned", "int" */
                     debug_info("multiple type specifiers: %u", specifier_list->list.count);
-                    char * type_specs_str = combine_type_specifiers(specifier_list);
+                    char * type_specs_str = combine_type_specifiers_text(specifier_list);
                     base_type = get_type_from_name(ctx, type_specs_str);
 
                     free(type_specs_str);
@@ -2393,7 +2393,7 @@ map_type_to_llvm_t_wrapped(
  * Creates LLVM context, module, and builder.
  */
 ir_generator_ctx_t *
-ir_generator_init(void)
+ir_generator_init(char const * module_name)
 {
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
@@ -2410,7 +2410,7 @@ ir_generator_init(void)
         return NULL;
     }
 
-    ctx->module = LLVMModuleCreateWithName("c_compiler_module");
+    ctx->module = LLVMModuleCreateWithName(module_name);
     if (!ctx->module)
     {
         debug_error("Failed to create LLVM module.");
