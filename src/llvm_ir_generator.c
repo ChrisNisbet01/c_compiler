@@ -2691,13 +2691,14 @@ is_a_function_declaration(c_grammar_node_t const * declarator_node)
  * @return Created global variable (always succeeds, never returns NULL)
  */
 static LLVMValueRef
-create_global_variable(ir_generator_ctx_t *ctx,
-                       LLVMTypeRef var_type,
-                       const char *var_name,
-                       bool is_static,
-                       bool is_const,
-                       c_grammar_node_t const *initializer_expr_node,
-                       c_grammar_node_t const *decl_specifiers)
+create_global_variable(
+    ir_generator_ctx_t * ctx,
+    LLVMTypeRef var_type,
+    char const * var_name,
+    bool is_const,
+    c_grammar_node_t const * initializer_expr_node,
+    c_grammar_node_t const * decl_specifiers
+)
 {
     debug_info("Creating global for variable '%s'", var_name);
 
@@ -2706,9 +2707,9 @@ create_global_variable(ir_generator_ctx_t *ctx,
 
     if (is_unsized_array && initializer_expr_node && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
     {
-        char const *raw_text = initializer_expr_node->text;
-        char const *decoded = decode_string(raw_text);
-        char const *str = decoded ? decoded : raw_text;
+        char const * raw_text = initializer_expr_node->text;
+        char const * decoded = decode_string(raw_text);
+        char const * str = decoded ? decoded : raw_text;
 
         size_t str_len = strlen(str);
         LLVMTypeRef elem_type = LLVMGetElementType(var_type);
@@ -2761,7 +2762,9 @@ create_global_variable(ir_generator_ctx_t *ctx,
         {
             LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
         }
-        else if (LLVMGetTypeKind(var_type) == LLVMStructTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+        else if (
+            LLVMGetTypeKind(var_type) == LLVMStructTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST
+        )
         {
             /* Build constant aggregate for struct initializer */
             LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
@@ -2769,8 +2772,8 @@ create_global_variable(ir_generator_ctx_t *ctx,
 
             for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
             {
-                c_grammar_node_t const *list_entry = initializer_expr_node->list.children[i];
-                c_grammar_node_t const *element_init = list_entry->initializer_list_entry.initializer;
+                c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
+                c_grammar_node_t const * element_init = list_entry->initializer_list_entry.initializer;
 
                 /* Unwrap from Initializer wrapper if needed */
                 if (element_init->list.count > 0)
@@ -2781,7 +2784,8 @@ create_global_variable(ir_generator_ctx_t *ctx,
                 LLVMValueRef elem_value = process_expression(ctx, element_init);
                 if (elem_value)
                 {
-                    const_aggregate = LLVMBuildInsertValue(ctx->builder, const_aggregate, elem_value, current_index, "init_elem");
+                    const_aggregate
+                        = LLVMBuildInsertValue(ctx->builder, const_aggregate, elem_value, current_index, "init_elem");
                 }
                 current_index++;
             }
@@ -3320,6 +3324,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     debug_info("var type is: %d", LLVMGetTypeKind(var_type));
                 }
+                else
+                {
+                    continue;
+                }
                 c_grammar_node_t const * init_decl_initializer = init_decl_node->init_declarator.initializer;
                 if (init_decl_initializer != NULL && init_decl_initializer->list.count > 0)
                 {
@@ -3330,7 +3338,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     debug_info("got var name: %s", var_name);
                     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
-
+                    bool is_global = current_block == NULL;
                     bool is_static = false;
                     bool is_const = false;
                     if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
@@ -3339,9 +3347,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         is_const = decl_specifiers->decl_specifiers.type.is_const;
                     }
 
-                    if (is_static)
+                    if (is_static || is_global)
                     {
-                        /* Check if this is a static function forward declaration */
                         if (is_a_function_declaration(declarator_node))
                         {
                             debug_info("skip function decl");
@@ -3350,24 +3357,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                         /* Create static global variable using helper */
                         create_global_variable(
-                            ctx, var_type, var_name, is_static, is_const, initializer_expr_node, decl_specifiers
+                            ctx, var_type, var_name, is_const, initializer_expr_node, decl_specifiers
                         );
                     }
-                    else if (!current_block && var_type)
-                    {
-                        /* Non-static global variable */
-                        if (is_a_function_declaration(declarator_node))
-                        {
-                            debug_info("skip non-static function decl");
-                            continue;
-                        }
-
-                        /* Create non-static global variable using helper */
-                        create_global_variable(
-                            ctx, var_type, var_name, is_static, is_const, initializer_expr_node, decl_specifiers
-                        );
-                    }
-                    else if (current_block && var_type)
+                    else
                     {
                         // Inside a function - use stack allocation
                         LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, var_type, var_name);
