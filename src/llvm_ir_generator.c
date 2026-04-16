@@ -3245,6 +3245,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 LLVMSetGlobalConstant(global_var, true);
                             }
+
+                            // Zero‑initialize by default for static globals without an explicit initializer
+                            LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+
                             symbol_data_t symbol_data = {.is_const = is_const};
 
                             // For pointer types, compute the pointee type from decl_specifiers
