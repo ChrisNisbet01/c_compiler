@@ -206,12 +206,12 @@ extract_pointer_qualifiers(
     }
 
     // If there's a pointer level, check type specifiers for level 0 const (the pointee type)
-    // e.g., 'int const * p' - the const is on 'int'
+    // e.g., 'int const * p' - the const is on 'int' (pointee), not on the pointer itself
     if (pq->level > 0 && type_specifiers != NULL && type_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
     {
         if (type_specifiers->decl_specifiers.type.is_const)
         {
-            pq->is_const[0] = true;
+            pq->is_const_on_pointee = true;  // const is on pointee, not on pointer
         }
         if (type_specifiers->decl_specifiers.type.is_volatile)
         {
@@ -3475,11 +3475,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             // No pointer: is_const directly on the variable
                             symbol_is_const = is_const;
                         }
-                        else if (pointer_quals.level > 0)
-                        {
-                            // Pointer: is_const at level 0 means the pointer itself is const (can't reassign)
-                            symbol_is_const = pointer_quals.is_const[0];
-                        }
+                        // For pointer types, we don't set symbol_is_const here.
+                        // All const checking is done via pointer_qualifiers:
+                        // - is_const[level-1] for direct pointer assignment (can't reassign pointer)
+                        // - is_const[0] for data pointed to (can't modify through pointer)
 
                         symbol_data_t symbol_data = {.is_const = symbol_is_const, .pointer_qualifiers = pointer_quals};
                         add_symbol_with_struct(
@@ -5912,13 +5911,33 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 if (deref_level == 0)
                 {
                     // Direct assignment to variable
-                    is_target_const = sym->data.is_const;
+                    // For pointer types:
+                    // - Check is_const[level-1]: const on the pointer itself (e.g., char * const p)
+                    // - is_const_on_pointee means const on data pointed to (e.g., char const * p) - can reassign
+                    // For non-pointer types: check is_const
+                    if (sym->data.pointer_qualifiers.level > 0)
+                    {
+                        unsigned int outermost_level = sym->data.pointer_qualifiers.level - 1;
+                        is_target_const = sym->data.pointer_qualifiers.is_const[outermost_level];
+                    }
+                    else
+                    {
+                        is_target_const = sym->data.is_const;
+                    }
                 }
                 else if (deref_level > 0 && deref_level <= sym->data.pointer_qualifiers.level)
                 {
                     // Assignment through pointer: check qualifier at that level
                     // Level 0 = *ptr, level 1 = **ptr, etc.
-                    is_target_const = sym->data.pointer_qualifiers.is_const[deref_level - 1];
+                    // Also check if pointee is const (is_const_on_pointee for deref_level == 1)
+                    if (deref_level == 1 && sym->data.pointer_qualifiers.is_const_on_pointee)
+                    {
+                        is_target_const = true;
+                    }
+                    else
+                    {
+                        is_target_const = sym->data.pointer_qualifiers.is_const[deref_level - 1];
+                    }
                 }
 
                 if (is_target_const)

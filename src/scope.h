@@ -89,13 +89,14 @@ typedef struct scope_typedefs
 typedef struct pointer_qualifiers_t
 {
     unsigned int level;
-    bool is_const[MAX_POINTER_INDIRECTION_LEVELS];
-    bool is_volatile[MAX_POINTER_INDIRECTION_LEVELS];
+    bool is_const[MAX_POINTER_INDIRECTION_LEVELS];       /* const at this level (index = deref level) */
+    bool is_volatile[MAX_POINTER_INDIRECTION_LEVELS];    /* volatile at this level */
+    bool is_const_on_pointee;                             /* true if const is on pointee type (e.g., const char *) */
 } pointer_qualifiers_t;
 
 typedef struct symbol_data_t
 {
-    bool is_const;
+    bool is_const;  /* For non-pointer variables only. For pointers, use pointer_qualifiers. */
     bool is_volatile;
     bool is_extern;
     pointer_qualifiers_t pointer_qualifiers;
