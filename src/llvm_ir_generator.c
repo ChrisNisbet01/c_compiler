@@ -2616,6 +2616,63 @@ visit_stack_pop(c_grammar_node_t const * node)
     }
 }
 
+static void
+add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_name)
+{
+    // __FUNC__ and __func__ as string constants of the function name
+    char const * func_name_macro = func_name;
+    size_t flen = strlen(func_name_macro);
+    LLVMTypeRef farr_type = LLVMArrayType(LLVMInt8TypeInContext(ctx->context), (unsigned)(flen + 1));
+    LLVMValueRef fglobal = LLVMAddGlobal(ctx->module, farr_type, "__FUNC__");
+    LLVMSetLinkage(fglobal, LLVMPrivateLinkage);
+    LLVMSetGlobalConstant(fglobal, true);
+    LLVMSetInitializer(fglobal, LLVMConstStringInContext(ctx->context, func_name_macro, (unsigned)flen, false));
+    LLVMValueRef findices[2]
+        = {LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false),
+           LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false)};
+    LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
+    add_symbol(ctx, "__FUNC__", fptr, farr_type, NULL, NULL);
+    // __func__ alias to same value
+    add_symbol(ctx, "__func__", fptr, farr_type, NULL, NULL);
+
+    // __LINE__ as integer constant 0 (i32)
+    LLVMValueRef line_const = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
+    add_symbol(ctx, "__LINE__", line_const, LLVMInt32TypeInContext(ctx->context), NULL, NULL);
+}
+
+static bool
+is_a_function_declaration(c_grammar_node_t const * declarator_node)
+{
+    if (declarator_node == NULL)
+    {
+        return false;
+    }
+    debug_info(
+        "is_static decl node: %s count %u", get_node_type_name_from_node(declarator_node), declarator_node->list.count
+    );
+    c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
+    if (suffix_list->list.count == 0)
+    {
+        return false;
+    }
+    c_grammar_node_t const * suffix = suffix_list->list.children[0];
+    debug_info("suff node: %s count %u", get_node_type_name_from_node(suffix), suffix->list.count);
+    if (suffix->type != AST_NODE_DECLARATOR_SUFFIX || suffix->list.count == 0)
+    {
+        return false;
+    }
+    c_grammar_node_t const * schld = suffix->list.children[0];
+    debug_info("schld node: %s count %u", get_node_type_name_from_node(schld), schld->list.count);
+    if (schld->type != AST_NODE_PARAMETER_LIST)
+    {
+        return false;
+    }
+
+    /* We have a function declaration. */
+    debug_info("have function declaration");
+    return true;
+}
+
 /**
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
@@ -2710,8 +2767,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // --- Extract Function Name ---
         char const * func_name = NULL;
         c_grammar_node_t const * suffix_node = NULL;
-
         c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
+
         if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
         {
             func_name = direct_decl->list.children[0]->text;
@@ -2720,28 +2777,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             func_name = "unknown_function";
         }
-        // Add built-in macros for function scope
-        {
-            // __FUNC__ and __func__ as string constants of the function name
-            char const * func_name_macro = func_name;
-            size_t flen = strlen(func_name_macro);
-            LLVMTypeRef farr_type = LLVMArrayType(LLVMInt8TypeInContext(ctx->context), (unsigned)(flen + 1));
-            LLVMValueRef fglobal = LLVMAddGlobal(ctx->module, farr_type, "__FUNC__");
-            LLVMSetLinkage(fglobal, LLVMPrivateLinkage);
-            LLVMSetGlobalConstant(fglobal, true);
-            LLVMSetInitializer(fglobal, LLVMConstStringInContext(ctx->context, func_name_macro, (unsigned)flen, false));
-            LLVMValueRef findices[2]
-                = {LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false),
-                   LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false)};
-            LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
-            add_symbol(ctx, "__FUNC__", fptr, farr_type, NULL, NULL);
-            // __func__ alias to same value
-            add_symbol(ctx, "__func__", fptr, farr_type, NULL, NULL);
-
-            // __LINE__ as integer constant 0 (i32)
-            LLVMValueRef line_const = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-            add_symbol(ctx, "__LINE__", line_const, LLVMInt32TypeInContext(ctx->context), NULL, NULL);
-        }
+        add_function_scope_builtin_macros(ctx, func_name);
 
         // Find parameter suffix list
         c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
@@ -3179,36 +3215,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (is_static)
                     {
                         /* Check if this is a static function forward declaration */
-                        if (declarator_node)
+                        if (is_a_function_declaration(declarator_node))
                         {
-                            debug_info(
-                                "is_static decl node: %s count %u",
-                                get_node_type_name_from_node(declarator_node),
-                                declarator_node->list.count
-                            );
-                            c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
-                            if (suffix_list->list.count > 0)
-                            {
-                                c_grammar_node_t const * suffix = suffix_list->list.children[0];
-                                debug_info(
-                                    "suff node: %s count %u", get_node_type_name_from_node(suffix), suffix->list.count
-                                );
-                                if (suffix->type == AST_NODE_DECLARATOR_SUFFIX && suffix->list.count > 0)
-                                {
-                                    c_grammar_node_t const * schld = suffix->list.children[0];
-                                    debug_info(
-                                        "schld node: %s count %u",
-                                        get_node_type_name_from_node(schld),
-                                        schld->list.count
-                                    );
-                                    if (schld->type == AST_NODE_PARAMETER_LIST)
-                                    {
-                                        /* We have a function declaration. */
-                                        debug_info("have function decl");
-                                        continue;
-                                    }
-                                }
-                            }
+                            debug_info("skip function decl");
+                            continue;
                         }
 
                         debug_info("Creating global for static variable '%s'", var_name);
@@ -3247,7 +3257,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
 
                             // Zero‑initialize by default for static globals without an explicit initializer
-                            LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+                            // But only if the type is valid (not void, not NULL)
+                            if (var_type != NULL && LLVMGetTypeKind(var_type) != LLVMVoidTypeKind)
+                            {
+                                LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+                            }
 
                             symbol_data_t symbol_data = {.is_const = is_const};
 
@@ -3322,13 +3336,44 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (!current_block && var_type)
                     {
                         /* Non-static global variable */
+
+                        // Skip void types (e.g., extern void setbuf(...))
+                        if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
+                        {
+                            debug_info("skip void global");
+                            continue;
+                        }
+
+                        // Skip function types (these are function declarations, not global variables)
+                        if (LLVMGetTypeKind(var_type) == LLVMFunctionTypeKind)
+                        {
+                            debug_info("skip function type global");
+                            continue;
+                        }
+
+                        // Check if this is a function declaration (declarator has function params)
+                        // Skip only if we detect actual function params, not arrays
+                        if (is_a_function_declaration(declarator_node))
+                        {
+                            debug_info("skip non-static function decl");
+                            continue;
+                        }
+
                         debug_info("Creating global for variable '%s'", var_name);
                         LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
-                        LLVMSetLinkage(global_var, LLVMExternalLinkage);
+                        LLVMSetLinkage(global_var, LLVMInternalLinkage);
                         if (is_const)
                         {
                             LLVMSetGlobalConstant(global_var, true);
                         }
+
+                        // Zero‑initialize by default for global variables without an explicit initializer
+                        // But only if the type is valid (not void, not NULL)
+                        if (var_type != NULL && LLVMGetTypeKind(var_type) != LLVMVoidTypeKind)
+                        {
+                            LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+                        }
+
                         symbol_data_t symbol_data = {.is_const = is_const};
                         LLVMTypeRef pointee_type = NULL;
                         if (var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
@@ -3340,18 +3385,23 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         if (initializer_expr_node)
                         {
                             // Similar initializer handling as static case (simplified)
-                            if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+                            if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind
+                                && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
                             {
                                 LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
                             }
-                            else if (LLVMGetTypeKind(var_type) == LLVMStructTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+                            else if (
+                                LLVMGetTypeKind(var_type) == LLVMStructTypeKind
+                                && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST
+                            )
                             {
                                 LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
                                 int current_index = 0;
                                 for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
                                 {
                                     c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
-                                    c_grammar_node_t const * element_init = list_entry->initializer_list_entry.initializer;
+                                    c_grammar_node_t const * element_init
+                                        = list_entry->initializer_list_entry.initializer;
                                     if (element_init->list.count > 0)
                                     {
                                         element_init = element_init->list.children[0];
@@ -3359,7 +3409,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     LLVMValueRef elem_value = process_expression(ctx, element_init);
                                     if (elem_value)
                                     {
-                                        const_aggregate = LLVMBuildInsertValue(ctx->builder, const_aggregate, elem_value, current_index, "init_elem");
+                                        const_aggregate = LLVMBuildInsertValue(
+                                            ctx->builder, const_aggregate, elem_value, current_index, "init_elem"
+                                        );
                                     }
                                     current_index++;
                                 }
@@ -3618,36 +3670,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                         // Check if this is a function declaration (declarator has function params)
                         // Skip only if we detect actual function params, not arrays
-                        if (declarator_node)
+                        if (is_a_function_declaration(declarator_node))
                         {
-                            debug_info(
-                                "decl node: %s count %u",
-                                get_node_type_name_from_node(declarator_node),
-                                declarator_node->list.count
-                            );
-                            c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
-                            if (suffix_list->list.count > 0)
-                            {
-                                c_grammar_node_t const * suffix = suffix_list->list.children[0];
-                                debug_info(
-                                    "suff node: %s count %u", get_node_type_name_from_node(suffix), suffix->list.count
-                                );
-                                if (suffix->type == AST_NODE_DECLARATOR_SUFFIX && suffix->list.count > 0)
-                                {
-                                    c_grammar_node_t const * schld = suffix->list.children[0];
-                                    debug_info(
-                                        "schld node: %s count %u",
-                                        get_node_type_name_from_node(schld),
-                                        schld->list.count
-                                    );
-                                    if (schld->type == AST_NODE_PARAMETER_LIST)
-                                    {
-                                        /* We have a function declaration. */
-                                        debug_info("have function decl");
-                                        continue;
-                                    }
-                                }
-                            }
+                            debug_info("skip function decl");
+                            continue;
                         }
 
                         // File-scope (global) variable
