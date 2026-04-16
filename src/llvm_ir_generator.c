@@ -3336,23 +3336,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (!current_block && var_type)
                     {
                         /* Non-static global variable */
-
-                        // Skip void types (e.g., extern void setbuf(...))
-                        if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
-                        {
-                            debug_info("skip void global");
-                            continue;
-                        }
-
-                        // Skip function types (these are function declarations, not global variables)
-                        if (LLVMGetTypeKind(var_type) == LLVMFunctionTypeKind)
-                        {
-                            debug_info("skip function type global");
-                            continue;
-                        }
-
-                        // Check if this is a function declaration (declarator has function params)
-                        // Skip only if we detect actual function params, not arrays
                         if (is_a_function_declaration(declarator_node))
                         {
                             debug_info("skip non-static function decl");
@@ -3654,22 +3637,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else if (var_type)
                     {
                         debug_info("not in a function");
-                        // Skip void types (e.g., extern void setbuf(...))
-                        if (LLVMGetTypeKind(var_type) == LLVMVoidTypeKind)
-                        {
-                            debug_info("skip void");
-                            continue;
-                        }
-
-                        /* Skip function declarations - they can't be global variables */
-                        if (LLVMGetTypeKind(var_type) == LLVMFunctionTypeKind)
-                        {
-                            debug_info("skip func decl");
-                            continue;
-                        }
-
-                        // Check if this is a function declaration (declarator has function params)
-                        // Skip only if we detect actual function params, not arrays
                         if (is_a_function_declaration(declarator_node))
                         {
                             debug_info("skip function decl");
@@ -4746,6 +4713,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STORAGE_CLASS_SPECIFIERS:
     case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     case AST_NODE_TYPE_SPECIFIERS:
+    case AST_NODE_PARAMETER_LIST:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -7410,6 +7378,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_DECLARATION_SPECIFIERS:
     case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     case AST_NODE_TYPE_SPECIFIERS:
+    case AST_NODE_PARAMETER_LIST:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
