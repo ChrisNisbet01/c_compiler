@@ -23,6 +23,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_STRING_LITERAL] = {.name = "StringLiteral"},
     [AST_NODE_LITERAL_SUFFIX] = {.name = "LiteralSuffix"},
     [AST_NODE_IDENTIFIER] = {.name = "Identifier"},
+    [AST_NODE_TYPE_SPECIFIERS] = {.name = "TypeSpecifiers"},
     [AST_NODE_NAMED_DECL_SPECIFIERS] = {.name = "NamedDeclarationSpecifiers"},
     [AST_NODE_ASSIGNMENT] = {.name = "Assignment"},
     [AST_NODE_TYPE_SPECIFIER] = {.name = "TypeSpecifier"},

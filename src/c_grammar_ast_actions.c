@@ -582,6 +582,20 @@ handle_identifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 }
 
 static void
+handle_type_specifiers(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPE_SPECIFIERS);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_named_decl_specifiers(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -621,21 +635,25 @@ handle_named_decl_specifiers(
     {
         ast_node->decl_specifiers.function_specifier = children[idx++];
     }
-    else
+
+    ast_node->decl_specifiers.type_specifiers = children[idx++];
+    if (ast_node->decl_specifiers.type_specifiers->type != AST_NODE_TYPE_SPECIFIERS)
     {
-        ast_node->decl_specifiers.function_specifier = NULL;
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx,
+            "%s expected type specifiers node at index %u, but got %s",
+            get_node_type_name_from_type(AST_NODE_NAMED_DECL_SPECIFIERS),
+            idx - 1,
+            get_node_type_name_from_node(ast_node->decl_specifiers.type_specifiers)
+        );
+        return;
     }
 
     c_grammar_node_t * child = children[idx];
     if (idx < (size_t)count && child != NULL && child->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
         ast_node->decl_specifiers.typedef_name = children[idx++];
-        ast_node->decl_specifiers.type_specifier = NULL;
-    }
-    else
-    {
-        ast_node->decl_specifiers.typedef_name = NULL;
-        ast_node->decl_specifiers.type_specifier = children[idx++];
     }
 
     if (idx < (size_t)count)
@@ -3190,6 +3208,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER, handle_type_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPEDEF_SPECIFIER, handle_typedef_specifier);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_NAMED_DECL_SPECIFIERS, handle_named_decl_specifiers);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_TYPE_SPECIFIER_LIST, handle_type_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER, handle_pointer);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_POINTER_LIST, handle_pointer_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DIRECT_DECLARATOR, handle_direct_declarator);

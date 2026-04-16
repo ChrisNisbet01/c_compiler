@@ -362,8 +362,8 @@ NamedDeclSpecsRegular = StorageClassSpecifiers TypeQualifierMany FunctionSpecifi
 NamedDeclSpecsTypedef = StorageClassSpecifiers TypeQualifierMany FunctionSpecifier? TypeSpecifierListMany TypedefName TypeQualifierMany @AST_ACTION_NAMED_DECL_SPECIFIERS;
 
 // Wrapper rules to avoid +/* in NamedDeclSpecs
-TypeSpecifierList = NonTypedefTypeSpecifier+;
-TypeSpecifierListMany = NonTypedefTypeSpecifier*;
+TypeSpecifierList = NonTypedefTypeSpecifier+ @AST_ACTION_TYPE_SPECIFIER_LIST;
+TypeSpecifierListMany = NonTypedefTypeSpecifier* @AST_ACTION_TYPE_SPECIFIER_LIST;
 
 NamedDeclarationSpecifiers = NamedDeclSpecsRegular | NamedDeclSpecsTypedef;
 

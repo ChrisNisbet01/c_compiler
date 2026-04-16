@@ -25,6 +25,7 @@ typedef enum
     AST_NODE_STRING_LITERAL,
     AST_NODE_LITERAL_SUFFIX,
     AST_NODE_IDENTIFIER,
+    AST_NODE_TYPE_SPECIFIERS,
     AST_NODE_NAMED_DECL_SPECIFIERS,
     AST_NODE_ASSIGNMENT,
     AST_NODE_TYPE_SPECIFIER,
@@ -315,7 +316,7 @@ typedef struct ast_node_decl_specifiers_t
     c_grammar_node_t const * storage_class;
     c_grammar_node_t const * type_qualifiers;
     c_grammar_node_t const * function_specifier;
-    c_grammar_node_t const * type_specifier;
+    c_grammar_node_t const * type_specifiers;
     c_grammar_node_t const * typedef_name;
     c_grammar_node_t const * trailing_type_qualifiers;
     storage_class_data_t storage;
