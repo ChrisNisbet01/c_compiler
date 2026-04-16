@@ -2674,6 +2674,133 @@ is_a_function_declaration(c_grammar_node_t const * declarator_node)
 }
 
 /**
+ * @brief Create a global variable (static or non-static).
+ *
+ * Handles creation of file-scope global variables including:
+ * - Unsized arrays with string literal initializers
+ * - Zero-initialization for globals without explicit initializers
+ * - Explicit initializer handling (array, struct, expression)
+ *
+ * @param ctx IR generator context
+ * @param var_type LLVM type for the variable
+ * @param var_name Name of the variable
+ * @param is_static Whether this is a static global
+ * @param is_const Whether this is a const global
+ * @param initializer_expr_node Initializer AST node (may be NULL)
+ * @param decl_specifiers Declaration specifiers (for pointee type calculation)
+ * @return Created global variable (always succeeds, never returns NULL)
+ */
+static LLVMValueRef
+create_global_variable(ir_generator_ctx_t *ctx,
+                       LLVMTypeRef var_type,
+                       const char *var_name,
+                       bool is_static,
+                       bool is_const,
+                       c_grammar_node_t const *initializer_expr_node,
+                       c_grammar_node_t const *decl_specifiers)
+{
+    debug_info("Creating global for variable '%s'", var_name);
+
+    /* Handle unsized array with string literal initializer */
+    bool is_unsized_array = (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
+
+    if (is_unsized_array && initializer_expr_node && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
+    {
+        char const *raw_text = initializer_expr_node->text;
+        char const *decoded = decode_string(raw_text);
+        char const *str = decoded ? decoded : raw_text;
+
+        size_t str_len = strlen(str);
+        LLVMTypeRef elem_type = LLVMGetElementType(var_type);
+        var_type = LLVMArrayType(elem_type, (unsigned)(str_len + 1));
+
+        LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+        LLVMSetLinkage(global_var, LLVMInternalLinkage);
+        LLVMSetGlobalConstant(global_var, true);
+        LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
+        add_symbol(ctx, var_name, global_var, var_type, NULL, NULL);
+
+        free((char *)decoded);
+        return global_var;
+    }
+
+    /* Create the global variable */
+    LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+    LLVMSetLinkage(global_var, LLVMInternalLinkage);
+    if (is_const)
+    {
+        LLVMSetGlobalConstant(global_var, true);
+    }
+
+    /* Zero-initialize by default for globals without an explicit initializer */
+    if (var_type != NULL && LLVMGetTypeKind(var_type) != LLVMVoidTypeKind)
+    {
+        LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+    }
+
+    /* Register symbol with pointee type for pointer types */
+    symbol_data_t symbol_data = {.is_const = is_const};
+    LLVMTypeRef pointee_type = NULL;
+    if (var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+    {
+        pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
+    }
+    add_symbol(ctx, var_name, global_var, var_type, pointee_type, &symbol_data);
+
+    /* Handle explicit initializer if present */
+    if (initializer_expr_node)
+    {
+        debug_info(
+            "Initializer expr type: %d (%s), var_type kind: %d",
+            initializer_expr_node->type,
+            get_node_type_name_from_node(initializer_expr_node),
+            LLVMGetTypeKind(var_type)
+        );
+
+        if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+        {
+            LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
+        }
+        else if (LLVMGetTypeKind(var_type) == LLVMStructTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+        {
+            /* Build constant aggregate for struct initializer */
+            LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
+            int current_index = 0;
+
+            for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
+            {
+                c_grammar_node_t const *list_entry = initializer_expr_node->list.children[i];
+                c_grammar_node_t const *element_init = list_entry->initializer_list_entry.initializer;
+
+                /* Unwrap from Initializer wrapper if needed */
+                if (element_init->list.count > 0)
+                {
+                    element_init = element_init->list.children[0];
+                }
+
+                LLVMValueRef elem_value = process_expression(ctx, element_init);
+                if (elem_value)
+                {
+                    const_aggregate = LLVMBuildInsertValue(ctx->builder, const_aggregate, elem_value, current_index, "init_elem");
+                }
+                current_index++;
+            }
+            LLVMSetInitializer(global_var, const_aggregate);
+        }
+        else
+        {
+            LLVMValueRef initializer_value = process_expression(ctx, initializer_expr_node);
+            if (initializer_value)
+            {
+                LLVMSetInitializer(global_var, initializer_value);
+            }
+        }
+    }
+
+    return global_var;
+}
+
+/**
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
  */
