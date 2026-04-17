@@ -211,7 +211,7 @@ extract_pointer_qualifiers(
     {
         if (type_specifiers->decl_specifiers.type.is_const)
         {
-            pq->is_const_on_pointee = true;  // const is on pointee, not on pointer
+            pq->is_const_on_pointee = true; // const is on pointee, not on pointer
         }
         if (type_specifiers->decl_specifiers.type.is_volatile)
         {
@@ -440,9 +440,16 @@ process_array_subscript(
     // Determine element type and build GEP based on whether base is pointer or array
     LLVMTypeRef elem_type = NULL;
     LLVMValueRef elem_ptr = NULL;
+    debug_info(
+        "process_array_subscript: base_type kind=%d (Pointer=%d, Array=%d)",
+        LLVMGetTypeKind(base_type),
+        LLVMPointerTypeKind,
+        LLVMArrayTypeKind
+    );
 
     if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
     {
+        debug_info("process_array_subscript: base_type IS pointer (kind=%d)", LLVMGetTypeKind(base_type));
         // For pointer: load it first, then use single index GEP
         elem_type = get_pointer_element_type(ctx, base_type);
         if (elem_type == NULL)
@@ -455,6 +462,7 @@ process_array_subscript(
     }
     else if (LLVMGetTypeKind(base_type) == LLVMArrayTypeKind)
     {
+        debug_info("process_array_subscript: base_type IS array, using array path");
         // For array: use [0, index] GEP
         elem_type = LLVMGetElementType(base_type);
         if (elem_type == NULL)
@@ -2236,6 +2244,12 @@ map_type_to_llvm_t_wrapped(
         for (size_t i = 0; i < suffix_list->list.count; ++i)
         {
             c_grammar_node_t * suffix = suffix_list->list.children[i];
+            debug_info(
+                "map_type: suffix[%zu] type=%s count=%zu",
+                i,
+                get_node_type_name_from_type(suffix->type),
+                suffix->list.count
+            );
             // Check if this is a function suffix (contains DeclarationSpecifiers for params)
             // vs array suffix (contains IntegerLiteral for size)
             bool has_function_params = false;
@@ -2253,6 +2267,7 @@ map_type_to_llvm_t_wrapped(
             for (size_t j = 0; j < parameter_list->list.count; ++j)
             {
                 c_grammar_node_t * params_child = parameter_list->list.children[j];
+                debug_info("map_type: param[%zu] type=%s", j, get_node_type_name_from_type(params_child->type));
                 if (params_child->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                 {
                     // This is a function parameter type
@@ -2379,19 +2394,24 @@ map_type_to_llvm_t_wrapped(
         return func_ptr_type;
     }
 
-    // Build array types from innermost to outermost
+    // Add pointer types FIRST (before arrays, so for "char * arr[64]" we get [64 x ptr])
     LLVMTypeRef final_type = base_type;
-    debug_info("map_type: array_depth=%zu", array_depth);
+    debug_info(
+        "map_type: array_depth=%zu, pointer_level=%d, base_type kind=%d",
+        array_depth,
+        pointer_level,
+        LLVMGetTypeKind(base_type)
+    );
+    for (int i = 0; i < pointer_level; ++i)
+    {
+        final_type = LLVMPointerType(final_type, 0);
+    }
+
+    // Then build array types from innermost to outermost
     for (int i = (int)array_depth - 1; i >= 0; --i)
     {
         debug_info("map_type: array_size[%d]=%zu", i, array_sizes[i]);
         final_type = LLVMArrayType(final_type, (unsigned)array_sizes[i]);
-    }
-
-    // Add pointer types
-    for (int i = 0; i < pointer_level; ++i)
-    {
-        final_type = LLVMPointerType(final_type, 0);
     }
 
     free(array_sizes);
@@ -2742,9 +2762,33 @@ create_global_variable(
     /* Register symbol with pointee type for pointer types */
     symbol_data_t symbol_data = {.is_const = is_const};
     LLVMTypeRef pointee_type = NULL;
-    if (var_type != NULL && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+    if (var_type != NULL)
     {
-        pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
+        LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+        debug_info(
+            "create_global: var_type kind=%d (ArrayKind=%d, PointerKind=%d) for '%s', type ptr=%p",
+            kind,
+            LLVMArrayTypeKind,
+            LLVMPointerTypeKind,
+            var_name,
+            (void *)var_type
+        );
+        if (kind == LLVMPointerTypeKind)
+        {
+            pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
+            debug_info("create_global: pointer type, pointee_type set");
+        }
+        else if (kind == LLVMArrayTypeKind)
+        {
+            /* For arrays of pointers (e.g., char * arr[64]), get element type directly */
+            LLVMTypeRef elem_type = LLVMGetElementType(var_type);
+            debug_info("create_global: array type, elem_type kind=%d", LLVMGetTypeKind(elem_type));
+            if (elem_type != NULL && LLVMGetTypeKind(elem_type) == LLVMPointerTypeKind)
+            {
+                pointee_type = elem_type; /* Use element type directly, don't re-parse declarator */
+                debug_info("create_global: array of pointers, pointee_type set");
+            }
+        }
     }
     add_symbol(ctx, var_name, global_var, var_type, pointee_type, &symbol_data);
 
@@ -3319,7 +3363,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 }
 
                 LLVMTypeRef var_type = map_type_to_llvm_t(ctx, decl_specifiers, declarator_node);
-                debug_info("Processing declaration for '%s', type %p", var_name ? var_name : "NULL", (void *)var_type);
+                debug_info(
+                    "Processing declaration for '%s', type %p kind=%d",
+                    var_name ? var_name : "NULL",
+                    (void *)var_type,
+                    var_type ? LLVMGetTypeKind(var_type) : -1
+                );
                 if (var_type != NULL)
                 {
                     debug_info("var type is: %d", LLVMGetTypeKind(var_type));
@@ -5668,6 +5717,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     LLVMTypeRef bitfield_struct_type = NULL;
 
     // Check if LHS is a PostfixExpression with array subscript or member access
+    debug_info(
+        "process_assignment: lhs_node type=%d (%s)", lhs_node->type, get_node_type_name_from_type(lhs_node->type)
+    );
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
         c_grammar_node_t const * base_node = lhs_node->postfix_expression.base_expression;
@@ -5676,8 +5728,15 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             char const * base_name = base_node->text;
             LLVMValueRef base_ptr;
             LLVMTypeRef base_type;
+            debug_info("process_assignment: looking up '%s'", base_name);
             if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
             {
+                debug_info(
+                    "process_assignment: found '%s', base_type kind=%d, base_ptr=%p",
+                    base_name,
+                    LLVMGetTypeKind(base_type),
+                    (void *)base_ptr
+                );
                 LLVMValueRef current_ptr = base_ptr;
                 LLVMTypeRef current_type = base_type;
                 c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
@@ -5690,14 +5749,33 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
                         LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
+                        debug_info("process_assignment: subscript returned new_ptr=%p", (void *)new_ptr);
+                        debug_info(
+                            "process_assignment: after subscript, current_type kind=%d", LLVMGetTypeKind(current_type)
+                        );
                         if (new_ptr)
                         {
                             current_ptr = new_ptr;
                             // Update type for next subscript
+                            debug_info(
+                                "process_assignment: before type update, current_type kind=%d",
+                                LLVMGetTypeKind(current_type)
+                            );
                             if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
                                 current_type = get_pointer_element_type(ctx, current_type);
                             else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                                current_type = LLVMGetElementType(current_type);
+                            {
+                                LLVMTypeRef new_elem = LLVMGetElementType(current_type);
+                                debug_info(
+                                    "process_assignment: LLVMGetElementType returned kind=%d",
+                                    LLVMGetElementType(current_type) ? LLVMGetTypeKind(new_elem) : -1
+                                );
+                                current_type = new_elem;
+                            }
+                            debug_info(
+                                "process_assignment: after type update, current_type kind=%d",
+                                LLVMGetTypeKind(current_type)
+                            );
                         }
                     }
                     else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
@@ -5821,6 +5899,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                 lhs_ptr = current_ptr;
                 lhs_type = current_type;
+                debug_info(
+                    "process_assignment: final lhs_ptr=%p, lhs_type kind=%d", (void *)lhs_ptr, LLVMGetTypeKind(lhs_type)
+                );
             }
         }
     }
