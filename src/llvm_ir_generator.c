@@ -3367,7 +3367,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     "Processing declaration for '%s', type %p kind=%d",
                     var_name ? var_name : "NULL",
                     (void *)var_type,
-                    var_type ? LLVMGetTypeKind(var_type) : -1
+                    var_type ? (int)LLVMGetTypeKind(var_type) : -1
                 );
                 if (var_type != NULL)
                 {
@@ -5768,7 +5768,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 LLVMTypeRef new_elem = LLVMGetElementType(current_type);
                                 debug_info(
                                     "process_assignment: LLVMGetElementType returned kind=%d",
-                                    LLVMGetElementType(current_type) ? LLVMGetTypeKind(new_elem) : -1
+                                    LLVMGetElementType(current_type) ? (int)LLVMGetTypeKind(new_elem) : -1
                                 );
                                 current_type = new_elem;
                             }
@@ -6500,10 +6500,20 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     );
 
     LLVMValueRef lhs_val = process_expression(ctx, lhs_node);
+    if (lhs_val == NULL)
+    {
+        ir_gen_error(&ctx->errors, "LHS processing of logical expression failed");
+        return NULL;
+    }
     // Convert to i1
     if (LLVMGetTypeKind(LLVMTypeOf(lhs_val)) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(LLVMTypeOf(lhs_val)) != 1)
     {
         lhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, LLVMConstNull(LLVMTypeOf(lhs_val)), "bool_tmp");
+    }
+    if (lhs_val == NULL)
+    {
+        ir_gen_error(&ctx->errors, "LHS conversion of logical expression failed");
+        return NULL;
     }
 
     aligned_store(ctx->builder, lhs_val, res_alloca);
@@ -6517,11 +6527,25 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     }
 
     LLVMPositionBuilderAtEnd(ctx->builder, rhs_block);
+
     LLVMValueRef rhs_val = process_expression(ctx, rhs_node);
+
+    if (rhs_val == NULL)
+    {
+        ir_gen_error(&ctx->errors, "RHS processing of logical expression failed");
+        return NULL;
+    }
+
     if (LLVMGetTypeKind(LLVMTypeOf(rhs_val)) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(LLVMTypeOf(rhs_val)) != 1)
     {
         rhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_val, LLVMConstNull(LLVMTypeOf(rhs_val)), "bool_tmp");
     }
+    if (rhs_val == NULL)
+    {
+        ir_gen_error(&ctx->errors, "RHS conversion of logical expression failed");
+        return NULL;
+    }
+
     aligned_store(ctx->builder, rhs_val, res_alloca);
     LLVMBuildBr(ctx->builder, merge_block);
 
