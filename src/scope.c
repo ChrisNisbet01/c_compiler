@@ -79,8 +79,9 @@ scope_free(scope_t * scope)
     /* Free all symbol names and struct names in this scope */
     for (size_t i = 0; i < scope->symbol_count; ++i)
     {
-        free(scope->symbols[i].name);
-        free(scope->symbols[i].tag_name);
+        symbol_t * symbol = &scope->symbols[i];
+        free(symbol->name);
+        free(symbol->tag_name);
     }
     free(scope->symbols);
 
