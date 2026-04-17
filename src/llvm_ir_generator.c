@@ -384,6 +384,16 @@ aligned_store(LLVMBuilderRef builder, LLVMValueRef value, LLVMValueRef ptr)
 static LLVMValueRef
 aligned_load(LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name)
 {
+    if (ty == NULL)
+    {
+        debug_error("aligned_load: NULL type passed");
+        return NULL;
+    }
+    if (ptr == NULL)
+    {
+        debug_error("aligned_load: NULL ptr passed");
+        return NULL;
+    }
     debug_info(
         "builder: %p ty: %p, ptr: %p, name: %s (%p)", (void *)builder, (void *)ty, (void *)ptr, name, (void *)name
     );
@@ -5423,16 +5433,13 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             LLVMValueRef sym_ptr = NULL;
                             LLVMTypeRef sym_type = NULL;
                             LLVMTypeRef sym_pointee = NULL;
-                            debug_info("Looking up symbol '%s' for pointee type", base_node->text);
                             if (find_symbol(ctx, base_node->text, &sym_ptr, &sym_type, &sym_pointee))
                             {
                                 debug_info(
-                                    "Found symbol: sym_ptr=%p, sym_type=%p (kind=%d), sym_pointee=%p (kind=%d)",
-                                    (void *)sym_ptr,
-                                    (void *)sym_type,
-                                    sym_type ? (int)LLVMGetTypeKind(sym_type) : -1,
-                                    (void *)sym_pointee,
-                                    sym_pointee ? (int)LLVMGetTypeKind(sym_pointee) : -1
+                                    "Arrow access: found symbol '%s', sym_type kind=%d, sym_pointee=%p",
+                                    base_node->text,
+                                    LLVMGetTypeKind(sym_type),
+                                    (void *)sym_pointee
                                 );
                                 if (sym_pointee != NULL && LLVMGetTypeKind(sym_pointee) == LLVMStructTypeKind)
                                 {
@@ -6763,6 +6770,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             return aligned_load(ctx->builder, elem_type, operand_val, "deref_tmp");
         }
+        // If elem_type is NULL (can't determine), just return the pointer value
         return operand_val;
     }
 
