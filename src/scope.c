@@ -87,12 +87,13 @@ scope_free(scope_t * scope)
     /* Free all local types (structs/unions) in this scope */
     for (size_t i = 0; i < scope->tagged_types.count; ++i)
     {
-        free(scope->tagged_types.entries[i].tag);
-        for (size_t j = 0; j < scope->tagged_types.entries[i].field_count; ++j)
+        type_info_t * entry = &scope->tagged_types.entries[i];
+        free(entry->tag);
+        for (size_t j = 0; j < entry->field_count; ++j)
         {
-            free(scope->tagged_types.entries[i].fields[j].name);
+            free(entry->fields[j].name);
         }
-        free(scope->tagged_types.entries[i].fields);
+        free(entry->fields);
     }
     free(scope->tagged_types.entries);
 
@@ -102,8 +103,9 @@ scope_free(scope_t * scope)
     /* Free all typedefs in this scope */
     for (size_t i = 0; i < scope->typedefs.count; ++i)
     {
-        free(scope->typedefs.entries[i].name);
-        free(scope->typedefs.entries[i].tag);
+        scope_typedef_entry_t * entry = &scope->typedefs.entries[i];
+        free(entry->name);
+        free(entry->tag);
     }
     free(scope->typedefs.entries);
 
@@ -139,18 +141,20 @@ add_info_to_list(scope_types_t * list, type_info_t info)
         /* Check if tag already exists */
         for (size_t i = 0; i < list->count; ++i)
         {
-            if (list->entries[i].tag && strcmp(list->entries[i].tag, info.tag) == 0)
+            type_info_t * entry = &list->entries[i];
+
+            if (entry->tag != NULL && strcmp(entry->tag, info.tag) == 0)
             {
                 /* Same tag exists - check if kind matches */
-                if (list->entries[i].kind != info.kind)
+                if (entry->kind != info.kind)
                 {
                     /* Kind mismatch - silently fail (keep original) */
                     return NULL;
                 }
                 /* Same kind - update the entry */
-                free_type_info(&list->entries[i]);
-                list->entries[i] = info;
-                return &list->entries[i];
+                free_type_info(entry);
+                *entry = info;
+                return entry;
             }
         }
     }
@@ -209,9 +213,11 @@ scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
     {
         for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
-            if (scope->tagged_types.entries[i].tag && strcmp(scope->tagged_types.entries[i].tag, tag) == 0)
+            type_info_t * entry = &scope->tagged_types.entries[i];
+
+            if (entry->tag && strcmp(entry->tag, tag) == 0)
             {
-                return &scope->tagged_types.entries[i];
+                return entry;
             }
         }
         scope = scope->parent;
@@ -320,29 +326,23 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 
         for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
-            debug_info(
-                "scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p",
-                i,
-                (void *)scope->tagged_types.entries[i].type
-            );
-            if (scope->tagged_types.entries[i].type == type)
+            type_info_t * entry = &scope->tagged_types.entries[i];
+            debug_info("scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p", i, (void *)entry->type);
+            if (entry->type == type)
             {
                 debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
-                return &scope->tagged_types.entries[i];
+                return entry;
             }
         }
 
         for (size_t i = 0; i < scope->untagged_types.count; ++i)
         {
-            debug_info(
-                "scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p",
-                i,
-                (void *)scope->untagged_types.entries[i].type
-            );
-            if (scope->untagged_types.entries[i].type == type)
+            type_info_t * entry = &scope->untagged_types.entries[i];
+            debug_info("scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p", i, (void *)entry->type);
+            if (entry->type == type)
             {
                 debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
-                return &scope->untagged_types.entries[i];
+                return entry;
             }
         }
 
@@ -397,9 +397,10 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
     {
         for (size_t i = 0; i < scope->typedefs.count; ++i)
         {
-            if (scope->typedefs.entries[i].name && strcmp(scope->typedefs.entries[i].name, name) == 0)
+            scope_typedef_entry_t * entry = &scope->typedefs.entries[i];
+            if (entry->name && strcmp(entry->name, name) == 0)
             {
-                return &scope->typedefs.entries[i];
+                return entry;
             }
         }
         scope = scope->parent;
@@ -574,9 +575,10 @@ scope_find_symbol_tag_name(scope_t const * scope, char const * name)
 
     for (size_t i = 0; i < scope->symbol_count; ++i)
     {
-        if (scope->symbols[i].name != NULL && strcmp(scope->symbols[i].name, name) == 0)
+        symbol_t * symbol = &scope->symbols[i];
+        if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
         {
-            return scope->symbols[i].tag_name;
+            return symbol->tag_name;
         }
     }
 
@@ -602,15 +604,16 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
         debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
         for (size_t i = scope->symbol_count; i > 0; --i)
         {
-            if (scope->symbols[i - 1].name != NULL && strcmp(scope->symbols[i - 1].name, name) == 0)
+            symbol_t * symbol = &scope->symbols[i - 1];
+            if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
             {
                 debug_info(
                     "Found symbol entry in current scope: name='%s', ptr=%p, type=%p",
                     name,
-                    (void *)scope->symbols[i - 1].ptr,
-                    (void *)scope->symbols[i - 1].type
+                    (void *)symbol->ptr,
+                    (void *)symbol->type
                 );
-                return &scope->symbols[i - 1];
+                return symbol;
             }
         }
         scope = scope->parent;
@@ -769,10 +772,10 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
 
     for (size_t i = 0; i < ctx->function_declarations.count; ++i)
     {
-        if (ctx->function_declarations.entries[i].name != NULL
-            && strcmp(ctx->function_declarations.entries[i].name, name) == 0)
+        struct function_decl_entry * entry = &ctx->function_declarations.entries[i];
+        if (entry->name != NULL && strcmp(entry->name, name) == 0)
         {
-            return &ctx->function_declarations.entries[i];
+            return entry;
         }
     }
 

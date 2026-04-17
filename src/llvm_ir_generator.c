@@ -6728,8 +6728,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_DEREF:
     {
         LLVMValueRef operand_val = process_expression(ctx, operand_node);
-        if (!operand_val)
+        if (operand_val == NULL)
+        {
             return NULL;
+        }
 
         // Try to get the pointee_type from the symbol table if operand is an identifier
         LLVMTypeRef elem_type = NULL;
