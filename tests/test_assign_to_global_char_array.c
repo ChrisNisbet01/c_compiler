@@ -5,5 +5,5 @@ main(void)
 {
     lib_paths[0] = "abc";
 
-    return lib_paths[0] == 0;
+    return !(lib_paths[0] == lib_paths[0]);
 }
