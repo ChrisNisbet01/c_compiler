@@ -384,6 +384,9 @@ aligned_store(LLVMBuilderRef builder, LLVMValueRef value, LLVMValueRef ptr)
 static LLVMValueRef
 aligned_load(LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name)
 {
+    debug_info(
+        "builder: %p ty: %p, ptr: %p, name: %s (%p)", (void *)builder, (void *)ty, (void *)ptr, name, (void *)name
+    );
     LLVMValueRef load = LLVMBuildLoad2(builder, ty, ptr, name);
     unsigned alignment = get_type_alignment(ty);
     LLVMSetAlignment(load, alignment);
@@ -6738,6 +6741,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
         if (operand_node && operand_node->type == AST_NODE_IDENTIFIER)
         {
+            debug_info("looking up identifier: %s", operand_node->text);
             LLVMValueRef var_ptr = NULL;
             LLVMTypeRef var_type = NULL;
             LLVMTypeRef pointee_type = NULL;
@@ -6748,8 +6752,9 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
 
         // If we couldn't get pointee_type from symbol, try the generic approach
-        if (!elem_type)
+        if (elem_type == NULL)
         {
+            debug_info("trying generic approach");
             LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
             elem_type = get_pointer_element_type(ctx, ptr_type);
         }
