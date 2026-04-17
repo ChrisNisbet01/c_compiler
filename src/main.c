@@ -750,7 +750,7 @@ main(int argc, char * argv[])
     }
 
     char const * filename = argv[optind];
-    printf("Attempting to parse C file: %s\n", filename);
+    printf("Parsing: %s\n", filename);
 
     // Handle preprocessing
     bool should_preprocess = preprocess_flag;
