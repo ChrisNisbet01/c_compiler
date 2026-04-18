@@ -10,8 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declare the context structure as it's used before its definition
-// typedef struct ir_generator_ctx ir_generator_ctx_t; // Assuming this is declared in a header or elsewhere
+TypedValue NullTypedValue;
 
 // Forward declarations for functions used before definition
 // Helper to map C types to LLVM types
@@ -430,18 +429,14 @@ get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
 }
 
 // Helper to process array subscript - extracts index and generates GEP
-static LLVMValueRef
+static TypedValue
 process_array_subscript(
-    ir_generator_ctx_t * ctx,
-    c_grammar_node_t const * subscript_node,
-    LLVMValueRef base_ptr,
-    LLVMTypeRef base_type,
-    LLVMTypeRef * out_elem_type
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, LLVMValueRef base_ptr, LLVMTypeRef base_type
 )
 {
     if (ctx == NULL || base_ptr == NULL || base_type == NULL || subscript_node == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
 
     // Extract index from first child of ArraySubscript node
@@ -454,7 +449,7 @@ process_array_subscript(
 
     if (index_val == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
 
     // Determine element type and build GEP based on whether base is pointer or array
@@ -618,7 +613,7 @@ process_array_subscript(
             debug_error(
                 "Cannot determine element type for pointer subscript - pointer type %p is opaque.", (void *)base_type
             );
-            return NULL;
+            return NullTypedValue;
         }
 
         // If element type is i8 (char*), that's valid for string handling
@@ -640,7 +635,7 @@ process_array_subscript(
             && elem_kind != LLVMArrayTypeKind && elem_kind != LLVMFloatTypeKind && elem_kind != LLVMDoubleTypeKind)
         {
             debug_error("Invalid element type kind %d for pointer subscript.", elem_kind);
-            return NULL;
+            return NullTypedValue;
         }
 
         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_val, 1, "arrayidx");
@@ -652,7 +647,7 @@ process_array_subscript(
         elem_type = LLVMGetElementType(base_type);
         if (elem_type == NULL)
         {
-            return NULL;
+            return NullTypedValue;
         }
 
         LLVMValueRef indices[2];
@@ -663,15 +658,10 @@ process_array_subscript(
     else
     {
         debug_error("Invalid type for array subscript.");
-        return NULL;
+        return NullTypedValue;
     }
 
-    if (out_elem_type)
-    {
-        *out_elem_type = elem_type;
-    }
-
-    return elem_ptr;
+    return (TypedValue){.value = elem_ptr, .type = elem_type};
 }
 
 static LLVMValueRef
@@ -746,14 +736,13 @@ process_postfix_suffixes(
         if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
         {
             debug_info("got array subscript at suffix: %u", i);
-            LLVMTypeRef new_type = NULL;
-            LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type, &new_type);
-            if (new_ptr)
+            TypedValue new_typed_value = process_array_subscript(ctx, suffix, current_ptr, current_type);
+            if (new_typed_value.value != NULL)
             {
                 // The result of an array subscript is a pointer to the indexed element.
                 // Keep the type as the pointer type so that subsequent "->" can treat it as a pointer.
-                current_ptr = new_ptr;
-                current_type = new_type;
+                current_ptr = new_typed_value.value;
+                current_type = new_typed_value.type;
                 debug_info("current type now: %u", LLVMGetTypeKind(current_type));
                 current_val = NULL;
             }
@@ -5352,20 +5341,21 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Array subscript: use helper function
             if (have_ptr && current_type)
             {
-                LLVMTypeRef new_type = NULL;
-                LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type, &new_type);
-                debug_info("%s: process_assignment: subscript returned new_ptr=%p", __func__, (void *)new_ptr);
+                TypedValue new_typed_value = process_array_subscript(ctx, suffix, current_ptr, current_type);
+                debug_info(
+                    "%s: process_assignment: subscript returned new_ptr=%p", __func__, (void *)new_typed_value.value
+                );
                 debug_info(
                     "%s: process_assignment: after subscript, current_type kind=%d",
                     __func__,
                     LLVMGetTypeKind(current_type)
                 );
-                if (new_ptr != NULL)
+                if (new_typed_value.value != NULL)
                 {
                     // Update current_ptr for next iteration
-                    current_ptr = new_ptr;
+                    current_ptr = new_typed_value.value;
                     // Update current_type to the element type
-                    current_type = new_type;
+                    current_type = new_typed_value.type;
                     debug_info("current_type kind is: now %u", LLVMGetTypeKind(current_type));
                 }
                 else
@@ -6046,22 +6036,20 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
-                        LLVMTypeRef new_type = NULL;
-                        LLVMValueRef new_ptr
-                            = process_array_subscript(ctx, suffix, current_ptr, current_type, &new_type);
-                        debug_info("process_assignment: subscript returned new_ptr=%p", (void *)new_ptr);
+                        TypedValue new_typed_value = process_array_subscript(ctx, suffix, current_ptr, current_type);
+                        debug_info("process_assignment: subscript returned new_ptr=%p", (void *)new_typed_value.value);
                         debug_info(
                             "process_assignment: after subscript, current_type kind=%d", LLVMGetTypeKind(current_type)
                         );
-                        if (new_ptr)
+                        if (new_typed_value.value != NULL)
                         {
-                            current_ptr = new_ptr;
+                            current_ptr = new_typed_value.value;
                             // Update type for next subscript
                             debug_info(
                                 "process_assignment: before type update, current_type kind=%d",
                                 LLVMGetTypeKind(current_type)
                             );
-                            current_type = new_type;
+                            current_type = new_typed_value.type;
                             debug_info(
                                 "process_assignment: after type update, current_type kind=%d",
                                 LLVMGetTypeKind(current_type)

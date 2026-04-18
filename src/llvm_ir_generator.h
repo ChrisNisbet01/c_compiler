@@ -2,6 +2,7 @@
 
 #include "c_grammar_ast.h"
 #include "ir_gen_error.h"
+#include "llvm_typed_value.h"
 #include "scope.h"
 
 // Include necessary LLVM C API headers.
