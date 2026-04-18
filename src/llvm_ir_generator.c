@@ -5733,50 +5733,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
 
-                /* Fallback for chained arrow access when base_node is not an identifier */
-                if (is_arrow && struct_type == NULL && current_type != NULL
-                    && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
-                {
-                    debug_info("Using fallback");
-                    struct_type = current_type;
-                    struct_val = current_ptr;
-                }
-
-                // Extra fallback: try dereferencing current_ptr to see what struct it points to
-                // This handles cast-based access where we just have a loaded pointer value
-                if (struct_type == NULL && current_ptr != NULL)
-                {
-                    debug_info("extra fallback");
-                    // If we have the address of the pointer variable (not what it points to), load first
-                    LLVMTypeRef current_ptr_type = LLVMTypeOf(current_ptr);
-                    if (current_ptr_type != NULL && LLVMGetTypeKind(current_ptr_type) == LLVMPointerTypeKind)
-                    {
-                        LLVMValueRef loaded_ptr
-                            = aligned_load(ctx->builder, LLVMGetElementType(current_ptr_type), current_ptr, "deref");
-                        if (loaded_ptr != NULL)
-                        {
-                            LLVMTypeRef loaded_type = LLVMTypeOf(loaded_ptr);
-                            type_info_t const * info = scope_find_type_by_llvm_type(ctx->current_scope, loaded_type);
-                            if (info != NULL)
-                            {
-                                struct_type = loaded_type;
-                                struct_val = loaded_ptr;
-                                debug_info("Found struct from loaded type");
-                            }
-                        }
-                    }
-                }
-
-                // Fallback for older LLVM / dot access
-                if (!struct_type)
-                {
-                    debug_info("older LLVM fallback");
-                    if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
-                        struct_type = LLVMGetElementType(base_type);
-                    else
-                        struct_type = base_type;
-                }
-
                 if (!struct_type || LLVMGetTypeKind(struct_type) != LLVMStructTypeKind)
                 {
                     debug_error(
