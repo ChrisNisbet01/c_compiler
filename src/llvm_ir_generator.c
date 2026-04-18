@@ -22,7 +22,7 @@ static LLVMTypeRef map_type_to_llvm_t_wrapped(
 
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
-static LLVMValueRef process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
+static TypedValue process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
 static type_info_t const * register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
@@ -31,12 +31,7 @@ static type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, 
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static LLVMValueRef
 cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
-static LLVMValueRef get_variable_pointer(
-    ir_generator_ctx_t * ctx,
-    c_grammar_node_t const * identifier_node,
-    LLVMTypeRef * out_type,
-    LLVMTypeRef * out_pointee_type
-);
+static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
 static char *
 combine_type_specifiers_text(c_grammar_node_t const * specifier_list)
@@ -4030,8 +4025,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * lhs_node = node->binary_expression.left;
         c_grammar_node_t const * rhs_node = node->binary_expression.right;
 
-        LLVMValueRef lhs_ptr = NULL;
-        LLVMTypeRef lhs_type = NULL;
+        TypedValue lhs_res = NullTypedValue;
 
         // Check if LHS is a PostfixExpression with suffixes (array subscript, member access)
         if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
@@ -4048,37 +4042,35 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
 
                     // Use helper to process all suffixes (array subscript, member access)
-                    process_postfix_suffixes(
-                        ctx, postfix_node, base_ptr, base_type, NULL, base_node, &lhs_ptr, &lhs_type
-                    );
+                    process_postfix_suffixes(ctx, postfix_node, base_ptr, base_type, NULL, base_node);
                 }
             }
         }
         else
         {
             // Simple variable assignment
-            lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type, NULL);
+            lhs_res = get_variable_pointer(ctx, lhs_node);
         }
 
-        if (!lhs_ptr)
+        if (lhs_res.value == NULL)
         {
-            debug_error("Could not get pointer for LHS in assignment.");
+            debug_error("Could not get LHS value in assignment.");
             return;
         }
 
         // Process the RHS expression to get its LLVM ValueRef.
-        LLVMValueRef rhs_value = process_expression(ctx, rhs_node);
-        if (!rhs_value)
+        TypedValue rhs_res = process_expression(ctx, rhs_node);
+        if (rhs_res.value == NULL)
         {
             debug_error("Failed to process RHS expression in assignment.");
             return;
         }
 
         // Convert RHS to LHS type if needed (e.g., i32 literal to i8 char)
-        rhs_value = cast_value_to_type(ctx, rhs_value, lhs_type, false);
+        rhs_res.value = cast_value_to_type(ctx, rhs_res.value, lhs_res.type, false);
 
         // Generate the store instruction.
-        aligned_store(ctx->builder, rhs_value, lhs_ptr);
+        aligned_store(ctx->builder, rhs_res.value, lhs_res.value);
         break;
     }
     case AST_NODE_FOR_STATEMENT:
@@ -4949,18 +4941,13 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
  * @param out_type Pointer to store the found LLVMTypeRef (element type).
  * @return The LLVM ValueRef (pointer) if found, NULL otherwise.
  */
-static LLVMValueRef
-get_variable_pointer(
-    ir_generator_ctx_t * ctx,
-    c_grammar_node_t const * identifier_node,
-    LLVMTypeRef * out_type,
-    LLVMTypeRef * out_pointee_type
-)
+static TypedValue
+get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node)
 {
-    if (!identifier_node || identifier_node->type != AST_NODE_IDENTIFIER || !identifier_node->text)
+    if (identifier_node == NULL || identifier_node->type != AST_NODE_IDENTIFIER || identifier_node->text == NULL)
     {
         debug_error("Invalid identifier node for get_variable_pointer.");
-        return NULL;
+        return NullTypedValue;
     }
     char const * name = identifier_node->text;
 
@@ -4970,39 +4957,10 @@ get_variable_pointer(
 
     if (find_symbol(ctx, name, &var_ptr, &retrieved_type, &pointee_type))
     {
-        /* For global variables (file-scope), the retrieved_type is the element type,
-         * so we need to use it directly (the var_ptr is already the pointer to the global) */
-        /* For local variables, the retrieved_type should be the element type */
-        /* But if pointee_type is set (for pointers), we need to use retrieved_type for loading
-         * the actual value. Pointee_type is only for pointer arithmetic.
-         * Only use pointee_type if it's different from retrieved_type. */
-        LLVMTypeRef element_type = NULL;
-        if (pointee_type != NULL && LLVMGetTypeKind(retrieved_type) == LLVMPointerTypeKind)
-        {
-            /* For pointer variables: use retrieved_type (the pointer type itself) for loading */
-            element_type = retrieved_type;
-        }
-        else if (pointee_type != NULL && pointee_type != retrieved_type)
-        {
-            /* For types where pointee_type is different (actual pointers), use retrieved_type */
-            element_type = retrieved_type;
-        }
-        else
-        {
-            /* Default: use retrieved_type */
-            element_type = retrieved_type;
-        }
+        return (TypedValue){.value = var_ptr, .type = retrieved_type, .pointee_type = pointee_type};
+    }
 
-        if (out_type)
-            *out_type = element_type;
-        if (out_pointee_type)
-            *out_pointee_type = pointee_type;
-        return var_ptr;
-    }
-    else
-    {
-        return NULL;
-    }
+    return NullTypedValue;
 }
 
 static LLVMValueRef
@@ -5987,14 +5945,13 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     return NULL;
 }
 
-static LLVMValueRef
+static TypedValue
 process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * lhs_node = node->binary_expression.left;
     c_grammar_node_t const * rhs_node = node->binary_expression.right;
 
-    LLVMValueRef lhs_ptr = NULL;
-    LLVMTypeRef lhs_type = NULL;
+    TypedValue lhs_res = NullTypedValue;
 
     // Track bitfield assignment info
     bool is_bitfield_assign = false;
@@ -6133,7 +6090,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                                     "count.",
                                                     member_name
                                                 );
-                                                return NULL;
+                                                return NullTypedValue;
                                             }
                                             member_index = j;
                                             storage_index = info->fields[j].storage_index;
@@ -6175,10 +6132,11 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                 }
 
-                lhs_ptr = current_ptr;
-                lhs_type = current_type;
+                lhs_res = (TypedValue){.value = current_ptr, .type = current_type};
                 debug_info(
-                    "process_assignment: final lhs_ptr=%p, lhs_type kind=%d", (void *)lhs_ptr, LLVMGetTypeKind(lhs_type)
+                    "process_assignment: final lhs_ptr=%p, lhs_type kind=%d",
+                    (void *)lhs_res.value,
+                    LLVMGetTypeKind(lhs_res.type)
                 );
             }
         }
@@ -6200,10 +6158,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 {
                     // Load the pointer value (the address)
                     LLVMValueRef addr = aligned_load(ctx->builder, ptr_type, ptr_val, "ptr_load");
-                    // The pointee type is what we assign to
-                    lhs_type = pointee_type;
                     // The address to store to is the loaded address
-                    lhs_ptr = addr;
+                    // The pointee type is what we assign to
+                    lhs_res = (TypedValue){.value = addr, .type = pointee_type};
                 }
             }
         }
@@ -6211,13 +6168,13 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     else
     {
         // Simple variable assignment
-        lhs_ptr = get_variable_pointer(ctx, lhs_node, &lhs_type, NULL);
+        lhs_res = get_variable_pointer(ctx, lhs_node);
     }
 
-    if (!lhs_ptr)
+    if (lhs_res.value == NULL)
     {
         debug_error("Could not get pointer for LHS in assignment.");
-        return NULL;
+        return lhs_res;
     }
 
     // Check const correctness at the target level of assignment
@@ -6314,7 +6271,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             deref_level
                         );
                     }
-                    return NULL;
+                    return NullTypedValue;
                 }
             }
         }
@@ -6326,21 +6283,21 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     bool is_compound = (assign_op_type != ASSIGN_OP_SIMPLE);
 
-    LLVMValueRef rhs_value;
+    TypedValue rhs_res;
 
     if (is_compound)
     {
         // For compound assignment, load current LHS value
-        LLVMValueRef lhs_value = aligned_load(ctx->builder, lhs_type, lhs_ptr, "lhs_load");
-        rhs_value = process_expression(ctx, rhs_node);
-        if (!rhs_value)
+        LLVMValueRef lhs_value = aligned_load(ctx->builder, lhs_res.type, lhs_res.value, "lhs_load");
+        rhs_res = process_expression(ctx, rhs_node);
+        if (rhs_res.value == NULL)
         {
             debug_error("Failed to process RHS expression in compound assignment.");
-            return NULL;
+            return NullTypedValue;
         }
 
         // Determine if this is a floating point operation
-        LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
+        LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_res.type);
         bool is_float = (lhs_kind == LLVMFloatTypeKind || lhs_kind == LLVMDoubleTypeKind);
 
         // Perform the operation
@@ -6350,57 +6307,57 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             /* Do nothing. Shouldn't happen. Avoids compiler warning. */
             break;
         case ASSIGN_OP_ADD:
-            rhs_value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_value, "fadd_tmp")
-                                 : LLVMBuildAdd(ctx->builder, lhs_value, rhs_value, "add_tmp");
+            rhs_res.value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_res.value, "fadd_tmp")
+                                     : LLVMBuildAdd(ctx->builder, lhs_res.value, rhs_res.value, "add_tmp");
             break;
         case ASSIGN_OP_SUB:
-            rhs_value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_value, "fsub_tmp")
-                                 : LLVMBuildSub(ctx->builder, lhs_value, rhs_value, "sub_tmp");
+            rhs_res.value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_res.value, "fsub_tmp")
+                                     : LLVMBuildSub(ctx->builder, lhs_value, rhs_res.value, "sub_tmp");
             break;
         case ASSIGN_OP_MUL:
-            rhs_value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_value, "fmul_tmp")
-                                 : LLVMBuildMul(ctx->builder, lhs_value, rhs_value, "mul_tmp");
+            rhs_res.value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_res.value, "fmul_tmp")
+                                     : LLVMBuildMul(ctx->builder, lhs_value, rhs_res.value, "mul_tmp");
             break;
         case ASSIGN_OP_DIV:
-            rhs_value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_value, "fdiv_tmp")
-                                 : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_value, "div_tmp");
+            rhs_res.value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_res.value, "fdiv_tmp")
+                                     : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_res.value, "div_tmp");
             break;
         case ASSIGN_OP_MOD:
-            rhs_value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_value, "rem_tmp");
+            rhs_res.value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_res.value, "rem_tmp");
             break;
         case ASSIGN_OP_AND:
-            rhs_value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_value, "and_tmp");
+            rhs_res.value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_res.value, "and_tmp");
             break;
         case ASSIGN_OP_OR:
-            rhs_value = LLVMBuildOr(ctx->builder, lhs_value, rhs_value, "or_tmp");
+            rhs_res.value = LLVMBuildOr(ctx->builder, lhs_value, rhs_res.value, "or_tmp");
             break;
         case ASSIGN_OP_XOR:
-            rhs_value = LLVMBuildXor(ctx->builder, lhs_value, rhs_value, "xor_tmp");
+            rhs_res.value = LLVMBuildXor(ctx->builder, lhs_value, rhs_res.value, "xor_tmp");
             break;
         case ASSIGN_OP_SHL:
-            rhs_value = LLVMBuildShl(ctx->builder, lhs_value, rhs_value, "shl_tmp");
+            rhs_res.value = LLVMBuildShl(ctx->builder, lhs_value, rhs_res.value, "shl_tmp");
             break;
         case ASSIGN_OP_SHR:
-            rhs_value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_value, "lshr_tmp");
+            rhs_res.value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_res.value, "lshr_tmp");
             break;
         default:
             debug_error("Unknown compound assignment operator.");
-            return NULL;
+            return NullTypedValue;
         }
     }
     else
     {
         // Process the RHS expression to get its LLVM ValueRef.
-        rhs_value = process_expression(ctx, rhs_node);
-        if (!rhs_value)
+        rhs_res = process_expression(ctx, rhs_node);
+        if (rhs_res.value == NULL)
         {
             debug_error("Failed to process RHS expression in assignment.");
-            return NULL;
+            return rhs_res;
         }
     }
 
     // Generate the store instruction.
-    if (is_bitfield_assign && bitfield_struct_ptr && bitfield_struct_type)
+    if (is_bitfield_assign && bitfield_struct_ptr != NULL && bitfield_struct_type != NULL)
     {
         // For bitfield assignment, we need to:
         // 1. Load the current struct value
@@ -6430,17 +6387,17 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Extend rhs_value to field type if needed and shift to position
         LLVMValueRef shifted;
-        if (LLVMGetTypeKind(LLVMTypeOf(rhs_value)) == LLVMIntegerTypeKind)
+        if (LLVMGetTypeKind(LLVMTypeOf(rhs_res.value)) == LLVMIntegerTypeKind)
         {
             // Zero-extend to field type if needed
-            rhs_value = cast_value_to_type(ctx, rhs_value, field_type, true);
+            rhs_res.value = cast_value_to_type(ctx, rhs_res.value, field_type, true);
             // Shift to bitfield position
             LLVMValueRef shift_amt = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), bitfield_bit_offset, false);
-            shifted = LLVMBuildShl(ctx->builder, rhs_value, shift_amt, "bf_shift");
+            shifted = LLVMBuildShl(ctx->builder, rhs_res.value, shift_amt, "bf_shift");
         }
         else
         {
-            shifted = rhs_value;
+            shifted = rhs_res.value;
         }
 
         // OR to combine
@@ -6455,9 +6412,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     else
     {
-        aligned_store(ctx->builder, rhs_value, lhs_ptr);
+        aligned_store(ctx->builder, rhs_res.value, lhs_res.value);
     }
-    return rhs_value;
+    return rhs_res.value;
 }
 
 static LLVMValueRef
@@ -6476,24 +6433,23 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
     }
 
-    LLVMValueRef var_ptr;
-    LLVMTypeRef element_type;
+    TypedValue var_res;
 
     // Get the variable's pointer and its element type from the symbol table.
-    var_ptr = get_variable_pointer(ctx, node, &element_type, NULL);
+    var_res = get_variable_pointer(ctx, node);
 
-    if (var_ptr && element_type)
+    if (var_res.value && var_res.type)
     {
         // Check if the symbol is an integer constant (like enum values)
         // These are global i32 values, not pointers - we can just return them directly
         // But only for globals that are marked as constants (e.g., enum values, const globals),
         // not for regular static/global variables (which can be modified)
-        if (LLVMGetTypeKind(element_type) == LLVMIntegerTypeKind && LLVMIsAGlobalValue(var_ptr))
+        if (LLVMGetTypeKind(var_res.type) == LLVMIntegerTypeKind && LLVMIsAGlobalValue(var_res.value))
         {
-            LLVMValueRef initializer = LLVMGetInitializer(var_ptr);
+            LLVMValueRef initializer = LLVMGetInitializer(var_res.value);
             // Only return initializer directly for actual constants (LLVMIsGlobalConstant)
             // For non-const globals like "static int x;", we need to load from the global
-            if (initializer != NULL && LLVMIsGlobalConstant(var_ptr))
+            if (initializer != NULL && LLVMIsGlobalConstant(var_res.value))
             {
                 // Return the constant initializer directly
                 return initializer;
@@ -6501,26 +6457,25 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // Check if the type is an array (for file-scope or local arrays)
-        if (LLVMGetTypeKind(element_type) == LLVMArrayTypeKind)
+        if (LLVMGetTypeKind(var_res.type) == LLVMArrayTypeKind)
         {
             LLVMValueRef indices[2];
             indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
             indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-            return LLVMBuildInBoundsGEP2(ctx->builder, element_type, var_ptr, indices, 2, "array_ptr");
+            return LLVMBuildInBoundsGEP2(ctx->builder, var_res.type, var_res.value, indices, 2, "array_ptr");
         }
         // Load the value from the memory address using LLVMBuildLoad2.
-        return aligned_load(ctx->builder, element_type, var_ptr, "load_tmp");
+        return aligned_load(ctx->builder, var_res.type, var_res.value, "load_tmp");
     }
-    else if (var_ptr == NULL)
+    else if (var_res.value == NULL)
     {
         // Check if it's a function name - return the function pointer
         LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->text);
-        if (func_val != NULL)
+        if (func_val == NULL)
         {
-            return func_val;
+            debug_error("Undefined variable '%s' used.", node->text);
         }
-        debug_error("Undefined variable '%s' used.", node->text);
-        return NULL;
+        return func_val;
     }
 
     debug_error("NULL element type for variable '%s'.", node->text);
@@ -6909,7 +6864,7 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     return phi;
 }
 
-static LLVMValueRef
+static TypedValue
 process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Unary structure: [Operator, Operand]
@@ -6927,7 +6882,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             LLVMTypeRef var_type;
             if (find_symbol(ctx, operand_node->text, &var_ptr, &var_type, NULL))
             {
-                return var_ptr;
+                return (TypedValue){.value = var_ptr, .type = var_type};
             }
         }
 
@@ -7068,47 +7023,48 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
     case UNARY_OP_BITNOT:
     {
-        LLVMValueRef operand_val = process_expression(ctx, operand_node);
-        if (!operand_val)
-            return NULL;
-        return LLVMBuildNot(ctx->builder, operand_val, "bitnot_tmp");
+        TypedValue operand_val = process_expression(ctx, operand_node);
+        if (operand_val.value == NULL)
+        {
+            return operand_val;
+        }
+        return LLVMBuildNot(ctx->builder, operand_val.value, "bitnot_tmp");
     }
 
     case UNARY_OP_INC:
     case UNARY_OP_DEC:
     {
-        LLVMValueRef var_ptr = NULL;
-        LLVMTypeRef var_type = NULL;
+        TypedValue var_res = NullTypedValue;
 
-        var_ptr = get_variable_pointer(ctx, operand_node, &var_type, NULL);
+        var_res = get_variable_pointer(ctx, operand_node);
 
-        if (var_ptr && var_type)
+        if (var_res.value != NULL && var_res.type != NULL)
         {
-            LLVMValueRef original_val = aligned_load(ctx->builder, var_type, var_ptr, "orig_val");
+            LLVMValueRef original_val = aligned_load(ctx->builder, var_res.type, var_res.value, "orig_val");
             LLVMValueRef one = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 1, false);
 
             LLVMValueRef new_val;
             if (op->op.unary.op == UNARY_OP_INC)
             {
-                LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
                 if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                    new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "inc_tmp");
+                    new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "inc_tmp");
                 else
                     new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
             }
             else
             {
-                LLVMTypeKind kind = LLVMGetTypeKind(var_type);
+                LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
                 if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                    new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_type, 1.0), "dec_tmp");
+                    new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "dec_tmp");
                 else
                     new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
             }
 
-            aligned_store(ctx->builder, new_val, var_ptr);
-            return original_val;
+            aligned_store(ctx->builder, new_val, var_res.value);
+            return (TypedValue){.value = original_val};
         }
-        return NULL;
+        return NullTypedValue;
     }
 
     case UNARY_OP_PLUS:
@@ -7331,16 +7287,106 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     return NULL; /* Shouldn't happen. */
 }
 
+static TypedValue
+process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // CompoundLiteral: (type){initializer-list}
+    // e.g., (struct Pos){.x = 1, .y = 2} or (union Data){.x = 1}
+    // Structure: TypeName + InitializerList
+    // First child is TypeName, second is InitializerList
+    c_grammar_node_t const * type_name_node = node->compound_literal.type_name;
+    c_grammar_node_t const * init_list_node = node->compound_literal.initializer_list;
+
+    /* Extract type name - check struct/union keyword first, then typedef */
+    char const * type_name = NULL;
+    bool is_typedef = false;
+
+    if (type_name_node->type == AST_NODE_TYPE_NAME)
+    {
+        c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
+
+        for (size_t i = 0; i < qualifier_list->list.count && !type_name; ++i)
+        {
+            c_grammar_node_t const * child = qualifier_list->list.children[i];
+
+            if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
+            {
+                /* Try typedef */
+                type_name = extract_typedef_name(child);
+                if (type_name != NULL)
+                {
+                    is_typedef = true;
+                }
+            }
+            else
+            {
+                /* Try struct/union keyword */
+                type_name = extract_struct_or_union_or_enum_tag(child);
+            }
+        }
+    }
+
+    if (type_name == NULL)
+    {
+        debug_error("Could not extract type name from compound literal");
+        return NullTypedValue;
+    }
+
+    /* Look up the type - struct list or typedef list */
+    LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
+    if (compound_type == NULL)
+    {
+        debug_error("Unknown type '%s' in compound literal", type_name);
+        return NullTypedValue;
+    }
+
+    // Create a temporary local variable (alloca) for the compound literal
+    LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, compound_type, "compound_literal_tmp");
+    if (alloca_inst == NULL)
+    {
+        debug_error("Failed to allocate compound literal");
+        return NullTypedValue;
+    }
+
+    // Initialize using the initializer list
+    if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
+    {
+        int current_index = 0;
+        process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
+    }
+
+    // Load the value from the alloca and return it
+    // This allows passing compound literals to functions expecting struct/union by value
+    LLVMValueRef loaded = aligned_load(ctx->builder, compound_type, alloca_inst, "compound_literal_val");
+    return (TypedValue){.value = loaded, .type = compound_type};
+}
+
+static TypedValue
+process_comma_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    /* Comma expression: evaluate all expressions, return the last value. */
+    TypedValue result = NullTypedValue;
+    for (size_t i = 0; i < node->list.count; ++i)
+    {
+        result = process_expression(ctx, node->list.children[i]);
+        if (result.value == NULL)
+        {
+            return result;
+        }
+    }
+    return result;
+}
+
 /**
  * @brief Processes an expression AST node and returns its LLVM ValueRef.
  * This function recursively handles various expression types.
  */
-static LLVMValueRef
+static TypedValue
 _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (node == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
 
     // fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
@@ -7409,17 +7455,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_COMMA_EXPRESSION:
     {
-        /* Comma expression: evaluate all expressions, return the last value. */
-        LLVMValueRef result = NULL;
-        for (size_t i = 0; i < node->list.count; ++i)
-        {
-            result = process_expression(ctx, node->list.children[i]);
-            if (!result)
-            {
-                return NULL;
-            }
-        }
-        return result;
+        return process_comma_expression(ctx, node);
     }
     case AST_NODE_UNARY_EXPRESSION_PREFIX:
     {
@@ -7434,75 +7470,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_COMPOUND_LITERAL:
     {
-        // CompoundLiteral: (type){initializer-list}
-        // e.g., (struct Pos){.x = 1, .y = 2} or (union Data){.x = 1}
-        // Structure: TypeName + InitializerList
-        // First child is TypeName, second is InitializerList
-        c_grammar_node_t const * type_name_node = node->compound_literal.type_name;
-        c_grammar_node_t const * init_list_node = node->compound_literal.initializer_list;
-
-        /* Extract type name - check struct/union keyword first, then typedef */
-        char const * type_name = NULL;
-        bool is_typedef = false;
-
-        if (type_name_node->type == AST_NODE_TYPE_NAME)
-        {
-            c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
-
-            for (size_t i = 0; i < qualifier_list->list.count && !type_name; ++i)
-            {
-                c_grammar_node_t const * child = qualifier_list->list.children[i];
-
-                if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
-                {
-                    /* Try typedef */
-                    type_name = extract_typedef_name(child);
-                    if (type_name != NULL)
-                    {
-                        is_typedef = true;
-                    }
-                }
-                else
-                {
-                    /* Try struct/union keyword */
-                    type_name = extract_struct_or_union_or_enum_tag(child);
-                }
-            }
-        }
-
-        if (type_name == NULL)
-        {
-            debug_error("Could not extract type name from compound literal");
-            break;
-        }
-
-        /* Look up the type - struct list or typedef list */
-        LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
-        if (compound_type == NULL)
-        {
-            debug_error("Unknown type '%s' in compound literal", type_name);
-            break;
-        }
-
-        // Create a temporary local variable (alloca) for the compound literal
-        LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, compound_type, "compound_literal_tmp");
-        if (alloca_inst == NULL)
-        {
-            debug_error("Failed to allocate compound literal");
-            break;
-        }
-
-        // Initialize using the initializer list
-        if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
-        {
-            int current_index = 0;
-            process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
-        }
-
-        // Load the value from the alloca and return it
-        // This allows passing compound literals to functions expecting struct/union by value
-        LLVMValueRef loaded = aligned_load(ctx->builder, compound_type, alloca_inst, "compound_literal_val");
-        return loaded;
+        return process_compound_literal(ctx, node);
     }
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
@@ -7602,9 +7570,11 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             debug_info("Default processing for list node: %s %u", get_node_type_name_from_type(node->type), node->type);
             for (size_t i = 0; i < node->list.count; ++i)
             {
-                LLVMValueRef res = process_expression(ctx, node->list.children[i]);
-                if (res)
+                TypedValue res = process_expression(ctx, node->list.children[i]);
+                if (res.value != NULL)
+                {
                     return res; // Return the first valid result found.
+                }
             }
         }
         else
@@ -7617,26 +7587,26 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
         break;
     }
-    return NULL; // Return NULL if expression processing failed or not implemented.
+    return NullTypedValue; // Return NULL if expression processing failed or not implemented.
 }
 
-static LLVMValueRef
+static TypedValue
 process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (ctx->errors.fatal)
     {
-        return NULL;
+        return NullTypedValue;
     }
     if (!visit_stack_push(node))
     {
-        return NULL; /* cycle detected */
+        return NullTypedValue; /* cycle detected */
     }
-    LLVMValueRef result = _process_expression(ctx, node);
+    TypedValue result = _process_expression(ctx, node);
     visit_stack_pop(node);
 
     if (ctx->errors.fatal)
     {
-        return NULL;
+        return NullTypedValue;
     }
 
     return result;
