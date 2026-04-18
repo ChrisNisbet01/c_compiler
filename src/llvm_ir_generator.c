@@ -3394,10 +3394,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         }
                     }
                 }
-
-                add_symbol_with_struct(
-                    ctx, param_names[i], alloca_inst, param_types[i], NULL, param_compound_name, NULL
-                );
+                TypedValue p = (TypedValue){.value = alloca_inst, .type = param_types[i]};
+                add_symbol_with_struct(ctx, param_names[i], p, param_compound_name, NULL);
 
                 /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
                 if (type_spec != NULL && type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
@@ -3742,9 +3740,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         // - is_const[0] for data pointed to (can't modify through pointer)
 
                         symbol_data_t symbol_data = {.is_const = symbol_is_const, .pointer_qualifiers = pointer_quals};
-                        add_symbol_with_struct(
-                            ctx, var_name, alloca_inst, var_type, pointee_type, struct_name, &symbol_data
-                        );
+                        TypedValue sym_val
+                            = (TypedValue){.value = alloca_inst, .type = var_type, .pointee_type = pointee_type};
+                        add_symbol_with_struct(ctx, var_name, sym_val, struct_name, &symbol_data);
 
                         // Process initializer if present
                         if (initializer_expr_node)
