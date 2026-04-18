@@ -14,6 +14,8 @@
 
 #pragma once
 
+#include "llvm_typed_value.h"
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -89,14 +91,14 @@ typedef struct scope_typedefs
 typedef struct pointer_qualifiers_t
 {
     unsigned int level;
-    bool is_const[MAX_POINTER_INDIRECTION_LEVELS];       /* const at this level (index = deref level) */
-    bool is_volatile[MAX_POINTER_INDIRECTION_LEVELS];    /* volatile at this level */
-    bool is_const_on_pointee;                             /* true if const is on pointee type (e.g., const char *) */
+    bool is_const[MAX_POINTER_INDIRECTION_LEVELS];    /* const at this level (index = deref level) */
+    bool is_volatile[MAX_POINTER_INDIRECTION_LEVELS]; /* volatile at this level */
+    bool is_const_on_pointee;                         /* true if const is on pointee type (e.g., const char *) */
 } pointer_qualifiers_t;
 
 typedef struct symbol_data_t
 {
-    bool is_const;  /* For non-pointer variables only. For pointers, use pointer_qualifiers. */
+    bool is_const; /* For non-pointer variables only. For pointers, use pointer_qualifiers. */
     bool is_volatile;
     bool is_extern;
     pointer_qualifiers_t pointer_qualifiers;
@@ -106,9 +108,7 @@ typedef struct symbol_data_t
 typedef struct symbol
 {
     char * name;
-    LLVMValueRef ptr;
-    LLVMTypeRef type;
-    LLVMTypeRef pointee_type;
+    TypedValue value;
     char * tag_name;
     symbol_data_t data;
 } symbol_t;
@@ -289,54 +289,29 @@ LLVMTypeRef scope_find_typedef(scope_t const * scope, char const * name);
  * @brief Adds a symbol to a scope with associated struct tag.
  * @param ctx The IR generator context.
  * @param name The symbol name.
- * @param ptr The LLVM value.
- * @param type The LLVM type.
- * @param pointee_type The pointed-to type (for pointers).
+ * @param value The LLVM value metadata.
  * @param tag The struct tag name (or NULL).
  */
 void add_symbol_with_struct(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMValueRef ptr,
-    LLVMTypeRef type,
-    LLVMTypeRef pointee_type,
-    char const * tag,
-    symbol_data_t const * data
+    ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag, symbol_data_t const * data
 );
 
 /**
  * @brief Adds a symbol to a scope.
  * @param ctx The IR generator context.
  * @param name The symbol name.
- * @param ptr The LLVM value.
- * @param type The LLVM type.
- * @param pointee_type The pointed-to type (for pointers).
+ * @param value The LLVM value metadata.
  */
-void add_symbol(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMValueRef ptr,
-    LLVMTypeRef type,
-    LLVMTypeRef pointee_type,
-    symbol_data_t const * data
-);
+void add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, symbol_data_t const * data);
 
 /**
  * @brief Finds a symbol in a scope and returns its pointer and type.
  * @param ctx The IR generator context.
  * @param name The name of the symbol to find.
- * @param out_ptr Pointer to store the found LLVMValueRef.
- * @param out_type Pointer to store the found LLVMTypeRef.
- * @param out_pointee_type Pointer to store the found pointed-to type.
+ * @param out_symbol Pointer to store the found sybol metadata.
  * @return True if the symbol was found, false otherwise.
  */
-bool find_symbol(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMValueRef * out_ptr,
-    LLVMTypeRef * out_type,
-    LLVMTypeRef * out_pointee_type
-);
+bool find_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue * out_symbol);
 
 /**
  * @brief Finds the struct tag name associated with a symbol.

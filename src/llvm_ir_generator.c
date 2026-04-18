@@ -1268,12 +1268,10 @@ evaluate_enum_value_assignment_expression(
     case AST_NODE_IDENTIFIER:
         if (value_node->text != NULL)
         {
-            LLVMValueRef symbol_ptr = NULL;
-            LLVMTypeRef symbol_type = NULL;
-            LLVMTypeRef pointee_type = NULL;
-            if (find_symbol(ctx, value_node->text, &symbol_ptr, &symbol_type, &pointee_type))
+            TypedValue symbol = NullTypedValue;
+            if (find_symbol(ctx, value_node->text, &symbol))
             {
-                LLVMValueRef initializer = LLVMGetInitializer(symbol_ptr);
+                LLVMValueRef initializer = LLVMGetInitializer(symbol.value);
                 if (initializer != NULL && LLVMIsAConstantInt(initializer))
                 {
                     current_value = (int)LLVMConstIntGetZExtValue(initializer);
@@ -1466,7 +1464,8 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             LLVMSetLinkage(global, LLVMInternalLinkage);
 
             // Also add to symbol table for immediate lookup
-            add_symbol(ctx, enum_name, global, LLVMInt32TypeInContext(ctx->context), NULL, NULL);
+            TypedValue val = (TypedValue){.value = global, .type = LLVMInt32TypeInContext(ctx->context)};
+            add_symbol(ctx, enum_name, val, NULL);
 
             current_value++;
         }
@@ -2684,7 +2683,8 @@ ir_generator_init(char const * module_name)
             = {LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false),
                LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false)};
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
-        add_symbol(ctx, "__FILE__", ptr, arr_type, NULL, NULL);
+        TypedValue val = (TypedValue){.value = ptr, .type = arr_type};
+        add_symbol(ctx, "__FILE__", val, NULL);
     }
     if (!ctx->current_scope)
     {
@@ -2859,13 +2859,15 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
         = {LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false),
            LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false)};
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
-    add_symbol(ctx, "__FUNC__", fptr, farr_type, NULL, NULL);
+    TypedValue fval = (TypedValue){.value = fptr, .type = farr_type};
+    add_symbol(ctx, "__FUNC__", fval, NULL);
     // __func__ alias to same value
-    add_symbol(ctx, "__func__", fptr, farr_type, NULL, NULL);
+    add_symbol(ctx, "__func__", fval, NULL);
 
     // __LINE__ as integer constant 0 (i32)
     LLVMValueRef line_const = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-    add_symbol(ctx, "__LINE__", line_const, LLVMInt32TypeInContext(ctx->context), NULL, NULL);
+    TypedValue lval = (TypedValue){.value = line_const, .type = LLVMInt32TypeInContext(ctx->context)};
+    add_symbol(ctx, "__LINE__", lval, NULL);
 }
 
 static bool
@@ -2947,7 +2949,8 @@ create_global_variable(
         LLVMSetLinkage(global_var, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_var, true);
         LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
-        add_symbol(ctx, var_name, global_var, var_type, NULL, NULL);
+        TypedValue val = (TypedValue){.value = global_var, .type = var_type};
+        add_symbol(ctx, var_name, val, NULL);
 
         free((char *)decoded);
         return global_var;
@@ -2998,7 +3001,8 @@ create_global_variable(
             }
         }
     }
-    add_symbol(ctx, var_name, global_var, var_type, pointee_type, &symbol_data);
+    TypedValue val = (TypedValue){.value = global_var, .type = var_type, .pointee_type = pointee_type};
+    add_symbol(ctx, var_name, val, &symbol_data);
 
     /* Handle explicit initializer if present */
     if (initializer_expr_node)
@@ -4035,14 +4039,13 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             if (base_node->type == AST_NODE_IDENTIFIER)
             {
                 char const * base_name = base_node->text;
-                LLVMValueRef base_ptr;
-                LLVMTypeRef base_type;
-                if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
+                TypedValue base;
+                if (find_symbol(ctx, base_name, &base))
                 {
                     c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
 
                     // Use helper to process all suffixes (array subscript, member access)
-                    process_postfix_suffixes(ctx, postfix_node, base_ptr, base_type, NULL, base_node);
+                    process_postfix_suffixes(ctx, postfix_node, base.value, base.type, NULL, base_node);
                 }
             }
         }
@@ -4949,18 +4952,12 @@ get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifi
         debug_error("Invalid identifier node for get_variable_pointer.");
         return NullTypedValue;
     }
-    char const * name = identifier_node->text;
 
-    LLVMValueRef var_ptr;
-    LLVMTypeRef retrieved_type;
-    LLVMTypeRef pointee_type;
+    TypedValue res;
 
-    if (find_symbol(ctx, name, &var_ptr, &retrieved_type, &pointee_type))
-    {
-        return (TypedValue){.value = var_ptr, .type = retrieved_type, .pointee_type = pointee_type};
-    }
+    find_symbol(ctx, identifier_node->text, &res);
 
-    return NullTypedValue;
+    return res;
 }
 
 static LLVMValueRef
@@ -5113,17 +5110,17 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     if (base_node->type == AST_NODE_IDENTIFIER)
     {
         char const * var_name = base_node->text;
-        LLVMValueRef var_ptr;
-        LLVMTypeRef var_type;
-        if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
+        TypedValue var;
+
+        if (find_symbol(ctx, var_name, &var))
         {
-            current_ptr = var_ptr;
-            current_type = var_type;
+            current_ptr = var.value;
+            current_type = var.type;
             have_ptr = true;
 
             // If base is an array type, we'll handle subscript in the loop
             // Don't call process_expression for the base to avoid double GEP
-            if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind)
+            if (LLVMGetTypeKind(var.type) == LLVMArrayTypeKind)
             {
                 base_is_array = true;
             }
@@ -5212,20 +5209,20 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     char const * func_name = base_node->text;
 
                     // First check if it's a variable (function pointer) in the symbol table
-                    LLVMValueRef var_ptr;
-                    LLVMTypeRef var_type;
-                    bool found = find_symbol(ctx, func_name, &var_ptr, &var_type, NULL);
-                    if (found && var_ptr)
+                    TypedValue var;
+                    bool found = find_symbol(ctx, func_name, &var);
+
+                    if (found && var.value != NULL)
                     {
-                        if (LLVMIsAFunction(var_ptr))
+                        if (LLVMIsAFunction(var.value))
                         {
                             /* Direct function (e.g. static forward declaration) - use as-is */
-                            base_val = var_ptr;
+                            base_val = var.value;
                         }
                         else
                         {
                             /* It's a function pointer variable - load the pointer value */
-                            base_val = aligned_load(ctx->builder, var_type, var_ptr, "func_ptr");
+                            base_val = aligned_load(ctx->builder, var.type, var.value, "func_ptr");
                         }
                     }
                     else
@@ -5449,21 +5446,20 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         if (inner != NULL && inner->type == AST_NODE_IDENTIFIER && inner->identifier.identifier != NULL)
                         {
                             char const * var_name = inner->identifier.identifier->text;
-                            LLVMValueRef lookup_ptr = NULL;
-                            LLVMTypeRef lookup_type = NULL;
-                            LLVMTypeRef lookup_pointee = NULL;
+                            TypedValue lookup;
                             debug_info("Looking up '%s' from member access", var_name);
-                            if (find_symbol(ctx, var_name, &lookup_ptr, &lookup_type, &lookup_pointee))
+                            if (find_symbol(ctx, var_name, &lookup))
                             {
                                 debug_info(
                                     "Found: type=%p, pointee=%p (kind=%d)",
-                                    (void *)lookup_type,
-                                    (void *)lookup_pointee,
-                                    lookup_pointee ? (int)LLVMGetTypeKind(lookup_pointee) : -1
+                                    (void *)lookup.type,
+                                    (void *)lookup.pointee_type,
+                                    lookup.pointee_type != NULL ? (int)LLVMGetTypeKind(lookup.pointee_type) : -1
                                 );
-                                if (lookup_pointee != NULL && LLVMGetTypeKind(lookup_pointee) == LLVMStructTypeKind)
+                                if (lookup.pointee_type != NULL
+                                    && LLVMGetTypeKind(lookup.pointee_type) == LLVMStructTypeKind)
                                 {
-                                    struct_type = lookup_pointee;
+                                    struct_type = lookup.pointee_type;
                                     struct_val = current_ptr;
                                     debug_info("Got struct via identifier '%s'", var_name);
                                 }
@@ -5656,20 +5652,19 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         if (should_lookup_pointee)
                         {
                             debug_info("Checking find_symbol for '%s', struct_type is NULL", base_node->text);
-                            LLVMValueRef sym_ptr = NULL;
-                            LLVMTypeRef sym_type = NULL;
-                            LLVMTypeRef sym_pointee = NULL;
-                            if (find_symbol(ctx, base_node->text, &sym_ptr, &sym_type, &sym_pointee))
+                            TypedValue sym;
+
+                            if (find_symbol(ctx, base_node->text, &sym))
                             {
                                 debug_info(
                                     "Arrow access: found symbol '%s', sym_type kind=%d, sym_pointee=%p",
                                     base_node->text,
-                                    LLVMGetTypeKind(sym_type),
-                                    (void *)sym_pointee
+                                    LLVMGetTypeKind(sym.type),
+                                    (void *)sym.pointee_type
                                 );
-                                if (sym_pointee != NULL && LLVMGetTypeKind(sym_pointee) == LLVMStructTypeKind)
+                                if (sym.pointee_type != NULL && LLVMGetTypeKind(sym.pointee_type) == LLVMStructTypeKind)
                                 {
-                                    struct_type = sym_pointee;
+                                    struct_type = sym.pointee_type;
                                     debug_info("Found struct type from pointee!");
                                 }
                             }
@@ -5971,19 +5966,19 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (base_node->type == AST_NODE_IDENTIFIER)
         {
             char const * base_name = base_node->text;
-            LLVMValueRef base_ptr;
-            LLVMTypeRef base_type;
+            TypedValue base;
+
             debug_info("process_assignment: looking up '%s'", base_name);
-            if (find_symbol(ctx, base_name, &base_ptr, &base_type, NULL))
+            if (find_symbol(ctx, base_name, &base))
             {
                 debug_info(
-                    "process_assignment: found '%s', base_type kind=%d, base_ptr=%p",
+                    "process_assignment: found '%s', base.type kind=%d, base.value=%p",
                     base_name,
-                    LLVMGetTypeKind(base_type),
-                    (void *)base_ptr
+                    LLVMGetTypeKind(base.type),
+                    (void *)base.value
                 );
-                LLVMValueRef current_ptr = base_ptr;
-                LLVMTypeRef current_type = base_type;
+                LLVMValueRef current_ptr = base.value;
+                LLVMTypeRef current_type = base.type;
                 c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
 
                 // Process suffixes to handle array subscripts and member access
@@ -6151,16 +6146,14 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             if (operand != NULL && operand->type == AST_NODE_IDENTIFIER)
             {
                 char const * ptr_name = operand->text;
-                LLVMValueRef ptr_val;
-                LLVMTypeRef ptr_type;
-                LLVMTypeRef pointee_type;
-                if (find_symbol(ctx, ptr_name, &ptr_val, &ptr_type, &pointee_type))
+                TypedValue val;
+                if (find_symbol(ctx, ptr_name, &val))
                 {
                     // Load the pointer value (the address)
-                    LLVMValueRef addr = aligned_load(ctx->builder, ptr_type, ptr_val, "ptr_load");
+                    LLVMValueRef addr = aligned_load(ctx->builder, val.type, val.value, "ptr_load");
                     // The address to store to is the loaded address
                     // The pointee type is what we assign to
-                    lhs_res = (TypedValue){.value = addr, .type = pointee_type};
+                    lhs_res = (TypedValue){.value = addr, .type = val.pointee_type};
                 }
             }
         }
@@ -6878,11 +6871,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // For &identifier, return the pointer directly (don't load)
         if (operand_node->type == AST_NODE_IDENTIFIER)
         {
-            LLVMValueRef var_ptr;
-            LLVMTypeRef var_type;
-            if (find_symbol(ctx, operand_node->text, &var_ptr, &var_type, NULL))
+            TypedValue var;
+            if (find_symbol(ctx, operand_node->text, &var))
             {
-                return (TypedValue){.value = var_ptr, .type = var_type};
+                return var;
             }
         }
 
@@ -6972,12 +6964,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_node && operand_node->type == AST_NODE_IDENTIFIER)
         {
             debug_info("looking up identifier: %s", operand_node->text);
-            LLVMValueRef var_ptr = NULL;
-            LLVMTypeRef var_type = NULL;
-            LLVMTypeRef pointee_type = NULL;
-            if (find_symbol(ctx, operand_node->text, &var_ptr, &var_type, &pointee_type))
+            TypedValue var;
+            if (find_symbol(ctx, operand_node->text, &var))
             {
-                elem_type = pointee_type;
+                elem_type = var.pointee_type;
             }
         }
 
@@ -7156,11 +7146,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         else if (operand_node->type == AST_NODE_IDENTIFIER)
         {
             char const * var_name = operand_node->text;
-            LLVMValueRef var_ptr;
-            LLVMTypeRef var_type;
-            if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
+            TypedValue var;
+            if (find_symbol(ctx, var_name, &var))
             {
-                target_type = var_type;
+                target_type = var.type;
             }
         }
         // Otherwise, try processing as expression (for things like sizeof(*ptr))
@@ -7174,20 +7163,18 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 if (deref_operand && deref_operand->type == AST_NODE_IDENTIFIER)
                 {
                     char const * var_name = deref_operand->text;
-                    LLVMValueRef var_ptr;
-                    LLVMTypeRef var_type;
-                    LLVMTypeRef pointee_type;
-                    if (find_symbol(ctx, var_name, &var_ptr, &var_type, &pointee_type))
+                    TypedValue var;
+                    if (find_symbol(ctx, var_name, &var))
                     {
                         // If pointee_type is NULL (due to opaque pointer), compute from var_type manually
-                        if (pointee_type == NULL && var_type != NULL
-                            && LLVMGetTypeKind(var_type) == LLVMPointerTypeKind)
+                        if (var.pointee_type == NULL && var.type != NULL
+                            && LLVMGetTypeKind(var.type) == LLVMPointerTypeKind)
                         {
                             // Try to get the type from the declaration specifiers - look up in struct registry
                             // This is a workaround for opaque pointers
-                            pointee_type = LLVMInt32TypeInContext(ctx->context);
+                            var.pointee_type = LLVMInt32TypeInContext(ctx->context);
                         }
-                        target_type = pointee_type;
+                        target_type = var.pointee_type;
                     }
                 }
             }
@@ -7254,37 +7241,38 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         else if (operand_node->type == AST_NODE_IDENTIFIER)
         {
             char const * var_name = operand_node->text;
-            LLVMValueRef var_ptr;
-            LLVMTypeRef var_type;
-            if (find_symbol(ctx, var_name, &var_ptr, &var_type, NULL))
+            TypedValue var;
+            if (find_symbol(ctx, var_name, &var))
             {
-                target_type = var_type;
+                target_type = var.type;
             }
         }
         else
         {
-            LLVMValueRef expr_val = process_expression(ctx, operand_node);
-            if (expr_val != NULL)
+            TypedValue expr_val = process_expression(ctx, operand_node);
+            if (expr_val.value != NULL)
             {
-                target_type = LLVMTypeOf(expr_val);
+                /* FIXME: Should this be expr_val.type? */
+                target_type = LLVMTypeOf(expr_val.value);
             }
         }
 
         if (target_type != NULL)
         {
             unsigned alignment = get_type_alignment(target_type);
-            return LLVMConstInt(LLVMInt32TypeInContext(ctx->context), alignment, false);
+            LLVMValueRef val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), alignment, false);
+            return (TypedValue){.value = val};
         }
-        return NULL;
+        return NullTypedValue;
     }
     default:
     {
         debug_error("Unknown unary operator %u.", op->op.unary.op);
-        return NULL;
+        return NullTypedValue;
     }
     }
 
-    return NULL; /* Shouldn't happen. */
+    return NullTypedValue; /* Shouldn't happen. */
 }
 
 static TypedValue

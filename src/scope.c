@@ -506,17 +506,13 @@ scope_find_typedef(scope_t const * scope, char const * name)
 
 void
 add_symbol_with_struct(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMValueRef ptr,
-    LLVMTypeRef type,
-    LLVMTypeRef pointee_type,
-    char const * tag,
-    symbol_data_t const * data
+    ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag, symbol_data_t const * data
 )
 {
-    if (!ctx || !name || !ptr || !type || !ctx->current_scope)
+    if (ctx == NULL || name == NULL || value.value == NULL || value.type == NULL || ctx->current_scope == NULL)
+    {
         return;
+    }
 
     scope_t * scope = ctx->current_scope;
 
@@ -532,9 +528,7 @@ add_symbol_with_struct(
     symbol_t * new_symbol = &scope->symbols[scope->symbol_count];
 
     new_symbol->name = strdup(name);
-    new_symbol->ptr = ptr;
-    new_symbol->type = type;
-    new_symbol->pointee_type = pointee_type;
+    new_symbol->value = value;
     new_symbol->tag_name = tag ? strdup(tag) : NULL;
     if (data != NULL)
     {
@@ -544,26 +538,19 @@ add_symbol_with_struct(
     debug_info(
         "Added symbol: name='%s', ptr=%p, type=%d (%p), pointee_type=%d (%p), tag='%s'",
         name,
-        (void *)ptr,
-        LLVMGetTypeKind(type),
-        (void *)type,
-        pointee_type == NULL ? -1 : (int)LLVMGetTypeKind(pointee_type),
-        (void *)pointee_type,
+        (void *)value.value,
+        LLVMGetTypeKind(value.type),
+        (void *)value.type,
+        value.pointee_type == NULL ? -1 : (int)LLVMGetTypeKind(value.pointee_type),
+        (void *)value.pointee_type,
         tag ? tag : "(null)"
     );
 }
 
 void
-add_symbol(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMValueRef ptr,
-    LLVMTypeRef type,
-    LLVMTypeRef pointee_type,
-    symbol_data_t const * data
-)
+add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, symbol_data_t const * data)
 {
-    add_symbol_with_struct(ctx, name, ptr, type, pointee_type, NULL, data);
+    add_symbol_with_struct(ctx, name, value, NULL, data);
 }
 
 static char const *
@@ -635,51 +622,36 @@ find_symbol_entry(ir_generator_ctx_t * ctx, char const * name)
 }
 
 static bool
-scope_find_symbol(
-    scope_t const * scope,
-    char const * name,
-    LLVMValueRef * out_ptr,
-    LLVMTypeRef * out_type,
-    LLVMTypeRef * out_pointee_type
-)
+scope_find_symbol(scope_t const * scope, char const * name, TypedValue * out_symbol)
 {
     symbol_t * symbol = scope_find_symbol_entry(scope, name);
     if (symbol == NULL)
     {
         debug_info("Symbol not found for name: '%s'", name);
+        if (out_symbol != NULL)
+        {
+            *out_symbol = NullTypedValue;
+        }
         return false;
     }
 
-    if (out_ptr != NULL)
+    if (out_symbol != NULL)
     {
-        *out_ptr = symbol->ptr;
-    }
-    if (out_type != NULL)
-    {
-        *out_type = symbol->type;
-    }
-    if (out_pointee_type != NULL)
-    {
-        *out_pointee_type = symbol->pointee_type;
+        *out_symbol = symbol->value;
     }
 
     return true;
 }
 
 bool
-find_symbol(
-    ir_generator_ctx_t * ctx,
-    char const * name,
-    LLVMValueRef * out_ptr,
-    LLVMTypeRef * out_type,
-    LLVMTypeRef * out_pointee_type
-)
+find_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue * out_symbol)
 {
+    // TODO: Refactor so that it returns TypedValue directly.
     if (ctx == NULL)
     {
         return false;
     }
-    return scope_find_symbol(ctx->current_scope, name, out_ptr, out_type, out_pointee_type);
+    return scope_find_symbol(ctx->current_scope, name, out_symbol);
 }
 
 // --- Scope push/pop ---
