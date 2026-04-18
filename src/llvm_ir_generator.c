@@ -382,8 +382,9 @@ aligned_store(LLVMBuilderRef builder, LLVMValueRef value, LLVMValueRef ptr)
 
 // Helper wrapper for LLVMBuildLoad2 with proper alignment
 static LLVMValueRef
-aligned_load(LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name)
+aligned_load_impl(LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name, int line)
 {
+    debug_info("%s: from line: %u", __func__, line);
     if (ty == NULL)
     {
         debug_error("aligned_load: NULL type passed");
@@ -402,6 +403,8 @@ aligned_load(LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char cons
     LLVMSetAlignment(load, alignment);
     return load;
 }
+
+#define aligned_load(b, t, p, n) aligned_load_impl((b), (t), (p), (n), __LINE__)
 
 // Helper function to safely get element type from a pointer, handling opaque pointers
 static LLVMTypeRef
@@ -429,7 +432,11 @@ get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
 // Helper to process array subscript - extracts index and generates GEP
 static LLVMValueRef
 process_array_subscript(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, LLVMValueRef base_ptr, LLVMTypeRef base_type
+    ir_generator_ctx_t * ctx,
+    c_grammar_node_t const * subscript_node,
+    LLVMValueRef base_ptr,
+    LLVMTypeRef base_type,
+    LLVMTypeRef * out_elem_type
 )
 {
     if (ctx == NULL || base_ptr == NULL || base_type == NULL || subscript_node == NULL)
@@ -463,14 +470,179 @@ process_array_subscript(
     if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
     {
         debug_info("process_array_subscript: base_type IS pointer (kind=%d)", LLVMGetTypeKind(base_type));
-        // For pointer: load it first, then use single index GEP
+        LLVMValueRef ptr_val;
+
+        /* Look at the instruction type of base_ptr.
+         * If base_ptr is an Alloca, it's definitely a variable/memory location
+         * that holds our pointer. We must load it.
+         */
+        if (LLVMIsAAllocaInst(base_ptr))
+        {
+            ptr_val = aligned_load(ctx->builder, base_type, base_ptr, "ptr_load");
+            debug_info("process_array_subscript: loaded pointer from alloca");
+        }
+        else
+        {
+            /* * If it's not an alloca (e.g., it's a LoadInst from o.inner),
+             * then base_ptr IS the address we want. Do NOT load again.
+             */
+            ptr_val = base_ptr;
+            debug_info("process_array_subscript: using pointer value directly");
+        }
+
+        // Get the element type using our helper function
         elem_type = get_pointer_element_type(ctx, base_type);
+        debug_info(
+            "process_array_subscript: get_pointer_element_type returned %p (i8=%p)",
+            (void *)elem_type,
+            (void *)LLVMInt8TypeInContext(ctx->context)
+        );
+
+        if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
+        {
+            // Opaque pointer - try to find the struct type via scope
+            // Look up the pointer type in scope to find what it points to
+            type_info_t const * info = scope_find_type_by_llvm_type(ctx->current_scope, base_type);
+            debug_info("process_array_subscript: scope lookup for pointer type returned %p", (void *)info);
+
+            // Try to find struct types that might be the pointee
+            // We'll iterate through known struct types and check if any matches
+            if (info == NULL)
+            {
+                // Try the opposite: look up struct types and check their pointer fields
+                // For now, scan the current scope's untagged_types for struct with pointer field matching our type
+                scope_t const * scope = ctx->current_scope;
+                for (size_t i = 0; i < scope->untagged_types.count; ++i)
+                {
+                    type_info_t const * ti = &scope->untagged_types.entries[i];
+                    for (size_t j = 0; j < ti->field_count; ++j)
+                    {
+                        if (ti->fields[j].type == base_type && ti->fields[j].pointee_struct_type != NULL)
+                        {
+                            elem_type = ti->fields[j].pointee_struct_type;
+                            debug_info("process_array_subscript: found pointee from field %zu of struct %zu", j, i);
+                            break;
+                        }
+                    }
+                    if (elem_type != NULL && elem_type != LLVMInt8TypeInContext(ctx->context))
+                        break;
+                }
+            }
+        }
+
+        // If still i8 or NULL, search through all scopes for a struct with a pointer field of our type
+        if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
+        {
+            debug_info("process_array_subscript: scanning scopes for pointer field");
+            // Search through current and parent scopes
+            scope_t const * scope = ctx->current_scope;
+            while (scope != NULL && (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context)))
+            {
+                // Check tagged types
+                for (size_t i = 0; i < scope->tagged_types.count
+                                   && (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context));
+                     ++i)
+                {
+                    type_info_t const * ti = &scope->tagged_types.entries[i];
+                    for (size_t j = 0; j < ti->field_count; ++j)
+                    {
+                        if (ti->fields[j].type == base_type && ti->fields[j].pointee_struct_type != NULL)
+                        {
+                            elem_type = ti->fields[j].pointee_struct_type;
+                            debug_info(
+                                "process_array_subscript: found pointee from tagged_types[%zu].field[%zu]", i, j
+                            );
+                            break;
+                        }
+                    }
+                }
+                // Check untagged types
+                for (size_t i = 0; i < scope->untagged_types.count
+                                   && (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context));
+                     ++i)
+                {
+                    type_info_t const * ti = &scope->untagged_types.entries[i];
+                    for (size_t j = 0; j < ti->field_count; ++j)
+                    {
+                        if (ti->fields[j].type == base_type && ti->fields[j].pointee_struct_type != NULL)
+                        {
+                            elem_type = ti->fields[j].pointee_struct_type;
+                            debug_info(
+                                "process_array_subscript: found pointee from untagged_types[%zu].field[%zu]", i, j
+                            );
+                            break;
+                        }
+                    }
+                }
+                scope = scope->parent;
+            }
+            if (elem_type != NULL && elem_type != LLVMInt8TypeInContext(ctx->context))
+            {
+                debug_info("process_array_subscript: found pointee through scope scan");
+            }
+        }
+
+        // If elem_type is i8 (char*), check if the actual LLVM pointer's element is valid
+        // This handles char* and other primitive pointer types
+        if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
+        {
+            LLVMTypeRef direct_elem = LLVMGetElementType(base_type);
+            if (direct_elem != NULL && direct_elem != LLVMInt8TypeInContext(ctx->context))
+            {
+                elem_type = direct_elem;
+                debug_info("process_array_subscript: using direct element type from LLVMGetElementType");
+            }
+            else if (direct_elem != NULL && LLVMGetTypeKind(direct_elem) == LLVMIntegerTypeKind)
+            {
+                // For char* and other integer pointers, use the element type directly
+                elem_type = direct_elem;
+                debug_info("process_array_subscript: using integer element type");
+            }
+            else
+            {
+                // For char* specifically, i8 is correct - the issue was we were rejecting it
+                // when the pointer was from a non-struct context. But char* should work.
+                if (direct_elem == LLVMInt8TypeInContext(ctx->context))
+                {
+                    elem_type = direct_elem;
+                    debug_info("process_array_subscript: using i8 for char*");
+                }
+            }
+        }
+
+        // Final fallback - if we still can't find the element type, we can't proceed
+        // But if the element type is i8 (char*), that's valid - allow it
+        // The error case is when we have an opaque struct pointer
         if (elem_type == NULL)
         {
+            debug_error(
+                "Cannot determine element type for pointer subscript - pointer type %p is opaque.", (void *)base_type
+            );
             return NULL;
         }
 
-        LLVMValueRef ptr_val = aligned_load(ctx->builder, base_type, base_ptr, "ptr_load");
+        // If element type is i8 (char*), that's valid for string handling
+        // Only fail for i8 when it's truly an opaque struct pointer context
+        if (elem_type == LLVMInt8TypeInContext(ctx->context))
+        {
+            // Check if this could be a struct pointer by looking at what we have
+            // If we found this pointer in scope as a struct field, we'd have found it above
+            // So if we get here with i8, it's likely a primitive pointer like char*
+            // Allow it to proceed - this handles string subscripting
+            debug_info("process_array_subscript: allowing i8 element type for string/primitive pointer");
+        }
+
+        // Validate element type
+        LLVMTypeKind elem_kind = LLVMGetTypeKind(elem_type);
+        debug_info("process_array_subscript: elem_type kind=%d", elem_kind);
+
+        if (elem_kind != LLVMIntegerTypeKind && elem_kind != LLVMPointerTypeKind && elem_kind != LLVMStructTypeKind
+            && elem_kind != LLVMArrayTypeKind && elem_kind != LLVMFloatTypeKind && elem_kind != LLVMDoubleTypeKind)
+        {
+            debug_error("Invalid element type kind %d for pointer subscript.", elem_kind);
+            return NULL;
+        }
+
         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_val, 1, "arrayidx");
     }
     else if (LLVMGetTypeKind(base_type) == LLVMArrayTypeKind)
@@ -492,6 +664,11 @@ process_array_subscript(
     {
         debug_error("Invalid type for array subscript.");
         return NULL;
+    }
+
+    if (out_elem_type)
+    {
+        *out_elem_type = elem_type;
     }
 
     return elem_ptr;
@@ -550,6 +727,10 @@ process_postfix_suffixes(
     {
         return NULL;
     }
+    debug_info("%s: postfix node: %s", __func__, get_node_type_name_from_node(postfix_node));
+    print_ast(postfix_node);
+    debug_info("%s: base node: %s", __func__, get_node_type_name_from_node(base_node));
+    print_ast(base_node);
 
     LLVMValueRef current_ptr = base_ptr;
     LLVMTypeRef current_type = base_type;
@@ -559,18 +740,21 @@ process_postfix_suffixes(
     {
         c_grammar_node_t * suffix = postfix_node->list.children[i];
 
+        debug_info("Processing node: %s", get_node_type_name_from_node(suffix));
+        print_ast(suffix);
         // Handle ARRAY_SUBSCRIPT
         if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
         {
-            LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
+            debug_info("got array subscript at suffix: %u", i);
+            LLVMTypeRef new_type = NULL;
+            LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type, &new_type);
             if (new_ptr)
             {
+                // The result of an array subscript is a pointer to the indexed element.
+                // Keep the type as the pointer type so that subsequent "->" can treat it as a pointer.
                 current_ptr = new_ptr;
-                if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                    current_type = get_pointer_element_type(ctx, current_type);
-                else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                    current_type = LLVMGetElementType(current_type);
-
+                current_type = new_type;
+                debug_info("current type now: %u", LLVMGetTypeKind(current_type));
                 current_val = NULL;
             }
         }
@@ -633,12 +817,14 @@ process_postfix_suffixes(
         // Handle MEMBER_ACCESS_DOT / MEMBER_ACCESS_ARROW
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
         {
+            debug_info("handling: %s", get_node_type_name_from_node(suffix));
             char const * member_name = suffix->identifier.identifier->text;
             if (member_name == NULL)
             {
                 debug_error("Could not find member name in member access AST node.");
                 continue;
             }
+            debug_info("current_val: %p, current_ptr: %p", (void *)current_val, (void *)current_ptr);
             if (current_val || current_ptr)
             {
                 LLVMTypeRef struct_type = NULL;
@@ -696,21 +882,44 @@ process_postfix_suffixes(
                     indices[0] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
                     indices[1] = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), storage_index, false);
 
-                    if (is_arrow || (current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind))
+                    // Compute address of the member field (or load pointer for arrow)
+                    if (is_arrow)
                     {
-                        if (is_arrow && current_ptr)
-                            current_ptr = aligned_load(ctx->builder, current_type, current_ptr, "arrow_ptr");
-                        else if (current_val)
-                            current_ptr = LLVMBuildInBoundsGEP2(
-                                ctx->builder, current_type, current_val, indices, 2, "memberptr"
-                            );
-                        else if (current_ptr)
-                            /* For assignment targets: compute GEP from current_ptr (which is already a pointer to
-                             * struct) */
-                            current_ptr = LLVMBuildInBoundsGEP2(
-                                ctx->builder, struct_type, current_ptr, indices, 2, "memberptr"
-                            );
+                        // For arrow access, current_ptr is already a pointer to a struct.
+                        // The struct_type should be the element type of current_type.
+                        LLVMTypeRef pointee_struct_type = get_pointer_element_type(ctx, current_type);
+                        if (pointee_struct_type == NULL)
+                        {
+                            debug_error("Arrow access: Could not get pointee struct type for current_type.");
+                            return NULL;
+                        }
+                        // Now, perform GEP on current_ptr (which is the pointer to struct)
+                        current_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, pointee_struct_type, current_ptr, indices, 2, "memberptr"
+                        );
+                        current_type = LLVMStructGetTypeAtIndex(pointee_struct_type, storage_index);
+                        current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
+                        current_val = handle_bitfield_extraction(ctx, current_val, info, member_index);
                     }
+                    // For non-arrow access, or if current_type is not a pointer, proceed with original logic
+                    // if current_type is a pointer, then the GEP should be done on current_ptr, and then loaded
+                    // if current_type is a struct, then current_val would be the struct value, needing alloca/store
+                    // first
+                    else if (current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                    {
+                        LLVMTypeRef pointee_type = get_pointer_element_type(ctx, current_type);
+                        if (pointee_type == NULL)
+                        {
+                            debug_error("Dot access (pointer): Could not get pointee type for current_type.");
+                            return NULL;
+                        }
+                        current_ptr
+                            = LLVMBuildInBoundsGEP2(ctx->builder, pointee_type, current_ptr, indices, 2, "memberptr");
+                        current_type = LLVMStructGetTypeAtIndex(pointee_type, storage_index);
+                        current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
+                        current_val = handle_bitfield_extraction(ctx, current_val, info, member_index);
+                    }
+
                     else if (current_val)
                     {
                         LLVMValueRef struct_ptr = LLVMBuildAlloca_wrapper(ctx->builder, struct_type, "struct_tmp");
@@ -725,7 +934,9 @@ process_postfix_suffixes(
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, current_ptr, indices, 2, "memberptr");
                     }
 
-                    if (current_ptr)
+                    // For normal member access we load the member value. For arrow (->) we have already
+                    // loaded the pointer and updated `current_ptr`/`current_type`, so we skip the extra load.
+                    if (!is_arrow && current_ptr)
                     {
                         current_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
                         current_val = aligned_load(ctx->builder, current_type, current_ptr, "member");
@@ -4935,13 +5146,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 {
     // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
     c_grammar_node_t const * base_node = node->postfix_expression.base_expression;
-    c_grammar_node_t const * postfix_node = node->postfix_expression.postfix_parts;
     LLVMValueRef base_val = NULL;
     LLVMValueRef current_ptr = NULL;
     LLVMTypeRef current_type = NULL;
     bool have_ptr = false;
     bool base_is_array = false;
     bool did_member_access = false; /* tracks whether we've done at least one member access */
+
+    debug_info("%s", __func__);
+    print_ast_with_label(node, "node");
+    print_ast_with_label(base_node, "base");
 
     // Check if base is a symbol (for array access)
     // Do this before process_expression to avoid double GEP for arrays
@@ -4969,6 +5183,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
     }
 
+    c_grammar_node_t const * postfix_parts_node = node->postfix_expression.postfix_parts;
+    print_ast_with_label(postfix_parts_node, "postfix_parts");
+
     // Only process base if it's not an array (arrays need suffix handling for subscript)
     if (!base_val && !base_is_array)
     {
@@ -4976,9 +5193,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         // The function call suffix handling will get the function pointer directly
         bool has_func_call_suffix = false;
 
-        for (size_t i = 0; i < postfix_node->list.count; ++i)
+        for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
         {
-            if (postfix_node->list.children[i]->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
+            if (postfix_parts_node->list.children[i]->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
             {
                 has_func_call_suffix = true;
                 break;
@@ -5013,9 +5230,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
     }
 
-    for (size_t i = 0; i < postfix_node->list.count; ++i)
+    for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
     {
-        c_grammar_node_t * suffix = postfix_node->list.children[i];
+        c_grammar_node_t * suffix = postfix_parts_node->list.children[i];
+        print_ast_with_label(suffix, "suffix");
+
         if (suffix->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
         {
             // Handle function call. Arguments might be children directly or in an ArgumentList
@@ -5133,16 +5352,21 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Array subscript: use helper function
             if (have_ptr && current_type)
             {
-                LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
-                if (new_ptr)
+                LLVMTypeRef new_type = NULL;
+                LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type, &new_type);
+                debug_info("%s: process_assignment: subscript returned new_ptr=%p", __func__, (void *)new_ptr);
+                debug_info(
+                    "%s: process_assignment: after subscript, current_type kind=%d",
+                    __func__,
+                    LLVMGetTypeKind(current_type)
+                );
+                if (new_ptr != NULL)
                 {
-                    // Update current_ptr and current_type for next iteration
+                    // Update current_ptr for next iteration
                     current_ptr = new_ptr;
-                    // Update type for next subscript
-                    if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                        current_type = get_pointer_element_type(ctx, current_type);
-                    else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                        current_type = LLVMGetElementType(current_type);
+                    // Update current_type to the element type
+                    current_type = new_type;
+                    debug_info("current_type kind is: now %u", LLVMGetTypeKind(current_type));
                 }
                 else
                 {
@@ -5165,21 +5389,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             }
 
             debug_info(
-                "Member access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type=%p",
+                "Member access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type=%u",
                 (void *)base_val,
                 have_ptr,
                 (void *)current_ptr,
-                (void *)current_type
+                current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
             );
-
-            if (current_type != NULL)
-            {
-                debug_info("current_type kind at start of member access: %d", (int)LLVMGetTypeKind(current_type));
-            }
-            else
-            {
-                debug_info("current_type is NULL at start of member access");
-            }
 
             LLVMValueRef struct_val = base_val;
             LLVMTypeRef struct_type = NULL;
@@ -5203,6 +5418,46 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     {
                         struct_val = current_ptr;
                         struct_type = elem_type;
+                    }
+                    else if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
+                    {
+                        // Opaque pointer - need to find the pointee struct type via scope
+                        debug_info("Arrow access: pointer element type is opaque, searching scope");
+                        // Search through struct types that have pointer fields matching current_type
+                        // to find what struct they point to
+                        scope_t const * scope = ctx->current_scope;
+                        while (scope != NULL && struct_type == NULL)
+                        {
+                            for (size_t i = 0; i < scope->untagged_types.count && struct_type == NULL; ++i)
+                            {
+                                type_info_t const * ti = &scope->untagged_types.entries[i];
+                                for (size_t j = 0; j < ti->field_count; ++j)
+                                {
+                                    if (ti->fields[j].type == current_type && ti->fields[j].pointee_struct_type != NULL)
+                                    {
+                                        struct_val = current_ptr;
+                                        struct_type = ti->fields[j].pointee_struct_type;
+                                        debug_info("Arrow access: found pointee struct type via scope");
+                                        break;
+                                    }
+                                }
+                            }
+                            for (size_t i = 0; i < scope->tagged_types.count && struct_type == NULL; ++i)
+                            {
+                                type_info_t const * ti = &scope->tagged_types.entries[i];
+                                for (size_t j = 0; j < ti->field_count; ++j)
+                                {
+                                    if (ti->fields[j].type == current_type && ti->fields[j].pointee_struct_type != NULL)
+                                    {
+                                        struct_val = current_ptr;
+                                        struct_type = ti->fields[j].pointee_struct_type;
+                                        debug_info("Arrow access: found pointee struct type via tagged scope");
+                                        break;
+                                    }
+                                }
+                            }
+                            scope = scope->parent;
+                        }
                     }
                 }
                 else if (
@@ -5306,12 +5561,13 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 debug_info(
                     "Checking struct_type after assignment: is_arrow=%d, base_type=%p, struct_type=%p (kind=%d), "
-                    "base_node type=%d",
+                    "base_node type=%d, current_type: %d",
                     is_arrow,
                     (void *)base_type,
                     (void *)struct_type,
                     struct_type ? (int)LLVMGetTypeKind(struct_type) : -1,
-                    base_node ? (int)base_node->type : -1
+                    base_node ? (int)base_node->type : -1,
+                    current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
                 );
 
                 // For arrow access with cast expressions like ((Point *)ptr)->member
@@ -5386,10 +5642,26 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
 
+                debug_info(
+                    "decision: is_arrow=%d, did_member_access: %d, struct_val=%p, struct_type=%d (%p), current_type: "
+                    "%p (%d)",
+                    is_arrow,
+                    did_member_access,
+                    (void *)struct_val,
+                    LLVMGetTypeKind(struct_type),
+                    (void *)struct_type,
+                    current_type,
+                    current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
+                );
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
                 // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
                 // was already set (it might be the pointer type from earlier)
-                if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
+                if (is_arrow && did_member_access && current_type != NULL
+                    && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                {
+                    debug_info("Using existing struct type");
+                }
+                else if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
                 {
                     debug_info(
                         "Arrow access: is_arrow=%d, base_node->type=%d, struct_val=%p, struct_type=%d (%p)",
@@ -5399,11 +5671,17 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         LLVMGetTypeKind(struct_type),
                         (void *)struct_type
                     );
+                    debug_info(
+                        "done_member_access: %d current_type: %u",
+                        did_member_access,
+                        current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
+                    );
                     /* For chained arrow access, current_type was set to the pointee struct
                      * type after the previous member access — use it with priority. */
                     if (did_member_access && current_type != NULL
                         && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
                     {
+                        debug_info("assigning struct type to current type");
                         struct_type = current_type;
                         struct_val = current_ptr;
                     }
@@ -5459,6 +5737,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 if (is_arrow && struct_type == NULL && current_type != NULL
                     && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
                 {
+                    debug_info("Using fallback");
                     struct_type = current_type;
                     struct_val = current_ptr;
                 }
@@ -5467,6 +5746,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // This handles cast-based access where we just have a loaded pointer value
                 if (struct_type == NULL && current_ptr != NULL)
                 {
+                    debug_info("extra fallback");
                     // If we have the address of the pointer variable (not what it points to), load first
                     LLVMTypeRef current_ptr_type = LLVMTypeOf(current_ptr);
                     if (current_ptr_type != NULL && LLVMGetTypeKind(current_ptr_type) == LLVMPointerTypeKind)
@@ -5490,6 +5770,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // Fallback for older LLVM / dot access
                 if (!struct_type)
                 {
+                    debug_info("older LLVM fallback");
                     if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
                         struct_type = LLVMGetElementType(base_type);
                     else
@@ -5562,10 +5843,33 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                     bool struct_val_is_ptr = struct_val_type && LLVMGetTypeKind(struct_val_type) == LLVMPointerTypeKind;
 
-                    if (is_arrow || struct_val_is_ptr)
+                    if (is_arrow)
                     {
-                        // struct_val is a pointer to the struct
-                        // Use struct_type for the GEP, not the pointer type
+                        // KEY FIX: If it's an arrow, struct_val is currently the 'alloca' (the variable's address).
+                        // We need the VALUE stored in that variable to get the actual struct address.
+                        LLVMValueRef actual_struct_addr;
+
+                        if (LLVMIsAAllocaInst(struct_val))
+                        {
+                            // Load the pointer value out of the variable
+                            // We use LLVMTypeOf(struct_val) because we need the pointer's own type to load it
+                            actual_struct_addr
+                                = aligned_load(ctx->builder, LLVMTypeOf(struct_val), struct_val, "ptr_deref");
+                        }
+                        else
+                        {
+                            // It's already a loaded pointer (perhaps from a previous member access)
+                            actual_struct_addr = struct_val;
+                        }
+
+                        // Now GEP into the ACTUAL address
+                        member_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, struct_type, actual_struct_addr, indices, 2, "memberptr"
+                        );
+                    }
+                    else if (struct_val_is_ptr)
+                    {
+                        // This is the 'dot' access on a struct pointer or reference
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_val, indices, 2, "memberptr");
                     }
@@ -5582,16 +5886,24 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     base_val = handle_bitfield_extraction(ctx, base_val, struct_info, member_index);
 
                     /* Track the member's struct type for chained arrow accesses (e.g. a->b->c).
-                     * If the member is a pointer, find what struct it points to. */
+                     * If the member is a pointer, keep pointer type for subscript/arrow access.
+                     * If the member is a struct value, set the struct type. */
                     if (struct_info != NULL && member_index < struct_info->field_count)
                     {
                         LLVMTypeRef field_type = struct_info->fields[member_index].type;
                         if (LLVMGetTypeKind(field_type) == LLVMPointerTypeKind
                             && struct_info->fields[member_index].pointee_struct_type != NULL)
                         {
-                            current_type = struct_info->fields[member_index].pointee_struct_type;
+                            /* For pointer members accessed via dot (like o.inner where inner is Inner*),
+                             * we need to keep both the pointer type for dereferencing and the pointee
+                             * struct type for proper subscript/arrow access. Store the pointee type
+                             * so that subscript operations can find the correct element type. */
+                            current_type = field_type;
                             current_ptr = base_val;
                             have_ptr = true;
+
+                            /* Also track the pointee type for subscript handling */
+                            /* We'll need to look this up during subscript processing */
                         }
                         else if (LLVMGetTypeKind(field_type) == LLVMStructTypeKind)
                         {
@@ -5649,7 +5961,27 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     // load the value from the pointer
     if (!base_val && have_ptr && current_ptr && current_type)
     {
-        base_val = aligned_load(ctx->builder, current_type, current_ptr, "load_tmp");
+        // If current_type is a pointer, we may have already subscripted the pointer
+        // and current_ptr now points to the element. We need to load the element type.
+        if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+        {
+            LLVMTypeRef elem_type = LLVMGetElementType(current_type);
+            // Handle opaque pointers (elem_type is NULL) and char* (elem_type is i8)
+            if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
+            {
+                // For char* or opaque pointers from subscript, load as i8
+                base_val = aligned_load(ctx->builder, LLVMInt8TypeInContext(ctx->context), current_ptr, "load_tmp");
+            }
+            else
+            {
+                // Valid element type - load the element
+                base_val = aligned_load(ctx->builder, elem_type, current_ptr, "load_tmp");
+            }
+        }
+        else
+        {
+            base_val = aligned_load(ctx->builder, current_type, current_ptr, "load_tmp");
+        }
     }
 
     return base_val;
@@ -5758,7 +6090,9 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                     if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
                     {
-                        LLVMValueRef new_ptr = process_array_subscript(ctx, suffix, current_ptr, current_type);
+                        LLVMTypeRef new_type = NULL;
+                        LLVMValueRef new_ptr
+                            = process_array_subscript(ctx, suffix, current_ptr, current_type, &new_type);
                         debug_info("process_assignment: subscript returned new_ptr=%p", (void *)new_ptr);
                         debug_info(
                             "process_assignment: after subscript, current_type kind=%d", LLVMGetTypeKind(current_type)
@@ -5771,17 +6105,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 "process_assignment: before type update, current_type kind=%d",
                                 LLVMGetTypeKind(current_type)
                             );
-                            if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                                current_type = get_pointer_element_type(ctx, current_type);
-                            else if (LLVMGetTypeKind(current_type) == LLVMArrayTypeKind)
-                            {
-                                LLVMTypeRef new_elem = LLVMGetElementType(current_type);
-                                debug_info(
-                                    "process_assignment: LLVMGetElementType returned kind=%d",
-                                    LLVMGetElementType(current_type) ? (int)LLVMGetTypeKind(new_elem) : -1
-                                );
-                                current_type = new_elem;
-                            }
+                            current_type = new_type;
                             debug_info(
                                 "process_assignment: after type update, current_type kind=%d",
                                 LLVMGetTypeKind(current_type)

@@ -12,8 +12,13 @@ typedef struct
 int
 main(void)
 {
-    Inner inner = {0};
+    Inner inner[2] = {0};
+    inner[0].value = 10;
+
+    // Create
     Outer o;
-    o.inner = &inner;
-    return o.inner->value; // Arrow access
+    o.inner = inner;
+    int v = o.inner[0]->value;
+
+    return v - 10; // Arrow access
 }

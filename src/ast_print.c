@@ -48,3 +48,10 @@ print_ast(c_grammar_node_t const * node)
     fprintf(stderr, "AST:\n");
     print_ast_internal(node, 0);
 }
+
+void
+print_ast_with_label(c_grammar_node_t const * node, char const * label)
+{
+    fprintf(stderr, "AST: %s:\n", label);
+    print_ast_internal(node, 0);
+}
