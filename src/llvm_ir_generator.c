@@ -6299,7 +6299,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             break;
         case ASSIGN_OP_ADD:
             rhs_res.value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_res.value, "fadd_tmp")
-                                     : LLVMBuildAdd(ctx->builder, lhs_res.value, rhs_res.value, "add_tmp");
+                                     : LLVMBuildAdd(ctx->builder, lhs_value, rhs_res.value, "add_tmp");
             break;
         case ASSIGN_OP_SUB:
             rhs_res.value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_res.value, "fsub_tmp")
@@ -6405,7 +6405,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         aligned_store(ctx->builder, rhs_res.value, lhs_res.value);
     }
-    return rhs_res.value;
+
+    return rhs_res;
 }
 
 static LLVMValueRef
@@ -6940,61 +6941,52 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             }
 
             // Return the pointer to the alloca (not the loaded value)
-            return alloca_inst;
+            return (TypedValue){.value = alloca_inst};
         }
 
         // For &member or &array[i], process the expression which returns a pointer
-        LLVMValueRef ptr_val = process_expression(ctx, operand_node);
-        return ptr_val;
+        return process_expression(ctx, operand_node);
     }
 
     case UNARY_OP_DEREF:
     {
-        LLVMValueRef operand_val = process_expression(ctx, operand_node);
-        if (operand_val == NULL)
+        TypedValue operand_res = process_expression(ctx, operand_node);
+        if (operand_res.value == NULL)
         {
-            return NULL;
+            debug_info("operand dereference failed");
+            return operand_res;
         }
 
-        // Try to get the pointee_type from the symbol table if operand is an identifier
-        LLVMTypeRef elem_type = NULL;
-
-        if (operand_node && operand_node->type == AST_NODE_IDENTIFIER)
+        if (operand_res.pointee_type == NULL)
         {
-            debug_info("looking up identifier: %s", operand_node->text);
-            TypedValue var;
-            if (find_symbol(ctx, operand_node->text, &var))
-            {
-                elem_type = var.pointee_type;
-            }
+            if_gen_error(ctx, "Error: Dereference operand is not a pointer\n");
+            return NullTypedValue;
         }
 
-        // If we couldn't get pointee_type from symbol, try the generic approach
-        if (elem_type == NULL)
-        {
-            debug_info("trying generic approach");
-            LLVMTypeRef ptr_type = LLVMTypeOf(operand_val);
-            elem_type = get_pointer_element_type(ctx, ptr_type);
-        }
+        return (TypedValue){
+            .value = aligned_load(ctx->builder, operand_res.pointee_type, operand_val, "deref_tmp")..type
+            = operand_res.pointee_type
+        };
 
-        if (elem_type)
-        {
-            return aligned_load(ctx->builder, elem_type, operand_val, "deref_tmp");
-        }
         // If elem_type is NULL (can't determine), just return the pointer value
-        return operand_val;
+        // FIXME: Should this be an error?
+        return operand_res;
     }
 
     case UNARY_OP_MINUS:
     {
-        LLVMValueRef operand_val = process_expression(ctx, operand_node);
-        if (!operand_val)
-            return NULL;
-        LLVMTypeRef op_type = LLVMTypeOf(operand_val);
+        TypedValue operand_res = process_expression(ctx, operand_node);
+        if (operand_res.value == NULL)
+        {
+            return NullTypedValue;
+        }
+        LLVMTypeRef op_type = operand_res.type;
         if (op_type
             && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
-            return LLVMBuildFNeg(ctx->builder, operand_val, "fneg_tmp");
-        return LLVMBuildNeg(ctx->builder, operand_val, "neg_tmp");
+            return (TypedValue){.value = LLVMBuildFNeg(ctx->builder, operand_res.value, "fneg_tmp")};
+        return (TypedValue){
+            .value = LLVMBuildNeg(ctx->builder, operand_res.value, "neg_tmp"), .type = operand_res.type
+        };
     }
 
     case UNARY_OP_NOT:
@@ -7192,7 +7184,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             return get_type_size(ctx, target_type);
         }
-        return NULL;
+        return NullTypedValue;
     }
     case UNARY_OP_ALIGNOF:
     {
