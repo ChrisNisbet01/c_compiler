@@ -5,7 +5,7 @@
 
 typedef struct
 {
-    bool is_rvalue;
+    bool is_lvalue;
     LLVMValueRef value;
     LLVMTypeRef type;         // The actual type (e.g., i32, struct.foo)
     LLVMTypeRef pointee_type; // If it's a pointer, what does it point to?

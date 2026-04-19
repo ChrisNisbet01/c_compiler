@@ -536,14 +536,15 @@ add_symbol_with_struct(
     }
     scope->symbol_count++;
     debug_info(
-        "Added symbol: name='%s', ptr=%p, type=%d (%p), pointee_type=%d (%p), tag='%s'",
+        "Added symbol: name='%s', ptr=%p, type=%d (%p), pointee_type=%d (%p), tag='%s', is_lvalue: %d",
         name,
         (void *)value.value,
         LLVMGetTypeKind(value.type),
         (void *)value.type,
         value.pointee_type == NULL ? -1 : (int)LLVMGetTypeKind(value.pointee_type),
         (void *)value.pointee_type,
-        tag ? tag : "(null)"
+        tag ? tag : "(null)",
+        value.is_lvalue
     );
 }
 

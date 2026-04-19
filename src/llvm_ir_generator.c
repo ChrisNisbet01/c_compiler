@@ -36,6 +36,20 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
+static void
+dump_typed_value(char const * label, TypedValue v)
+{
+    fprintf(stderr, "TypedValue: %s\n", label);
+    if (v.value != NULL)
+    {
+        fprintf(stderr, "has value: %p\n", (void *)v.value);
+    }
+    if (v.type != NULL)
+    {
+        fprintf(stderr, "has type: %p (%u)\n", (void *)v.type, LLVMGetTypeKind(v.type));
+    }
+}
+
 static char *
 combine_type_specifiers_text(c_grammar_node_t const * specifier_list)
 {
@@ -889,7 +903,9 @@ process_postfix_suffixes(
             }
         }
     }
+
     TypedValue res = {.value = current_val, .type = current_type};
+    dump_typed_value("XXX - process_postfix_suffixes", res);
 
     return res;
 }
@@ -2720,7 +2736,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         LLVMValueRef indices[2]
             = {LLVMConstInt(ctx->ref_type.i32, 0, false), LLVMConstInt(ctx->ref_type.i32, 0, false)};
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
-        TypedValue val = (TypedValue){.value = ptr, .type = arr_type, .is_rvalue = true};
+        TypedValue val = (TypedValue){.value = ptr, .type = arr_type};
         add_symbol(ctx, "__FILE__", val, NULL);
     }
 
@@ -2730,7 +2746,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         LLVMTypeRef null_type = LLVMPointerTypeInContext(ctx->context, 0);
         LLVMValueRef null_const = LLVMConstPointerNull(null_type);
         LLVMSetGlobalConstant(null_const, true);
-        TypedValue null_val = (TypedValue){.value = null_const, .type = null_type, .is_rvalue = true};
+        TypedValue null_val = (TypedValue){.value = null_const, .type = null_type};
         add_symbol(ctx, "NULL", null_val, NULL);
     }
 
@@ -2981,7 +2997,11 @@ create_global_variable(
         LLVMSetLinkage(global_var, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_var, true);
         LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
-        TypedValue val = (TypedValue){.value = global_var, .type = var_type};
+        TypedValue val = (TypedValue){
+            .value = global_var,
+            .type = var_type,
+            .is_lvalue = true,
+        };
         add_symbol(ctx, var_name, val, NULL);
 
         free((char *)decoded);
@@ -3033,7 +3053,12 @@ create_global_variable(
             }
         }
     }
-    TypedValue val = (TypedValue){.value = global_var, .type = var_type, .pointee_type = pointee_type};
+    TypedValue val = (TypedValue){
+        .value = global_var,
+        .type = var_type,
+        .pointee_type = pointee_type,
+        .is_lvalue = true,
+    };
     add_symbol(ctx, var_name, val, &symbol_data);
 
     /* Handle explicit initializer if present */
@@ -3425,7 +3450,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         }
                     }
                 }
-                TypedValue p = (TypedValue){.value = alloca_inst, .type = param_types[i]};
+                TypedValue p = (TypedValue){
+                    .value = alloca_inst,
+                    .type = param_types[i],
+                    .is_lvalue = true,
+                };
                 add_symbol_with_struct(ctx, param_names[i], p, param_compound_name, NULL);
 
                 /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
@@ -3771,8 +3800,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         // - is_const[0] for data pointed to (can't modify through pointer)
 
                         symbol_data_t symbol_data = {.is_const = symbol_is_const, .pointer_qualifiers = pointer_quals};
-                        TypedValue sym_val
-                            = (TypedValue){.value = alloca_inst, .type = var_type, .pointee_type = pointee_type};
+                        TypedValue sym_val = (TypedValue){
+                            .value = alloca_inst,
+                            .type = var_type,
+                            .pointee_type = pointee_type,
+                            .is_lvalue = true,
+                        };
                         add_symbol_with_struct(ctx, var_name, sym_val, struct_name, &symbol_data);
 
                         // Process initializer if present
@@ -4992,12 +5025,12 @@ get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifi
     }
 
     TypedValue res;
-
+    debug_info("%s: %s", __func__, identifier_node->text);
     find_symbol(ctx, identifier_node->text, &res);
 
     if (strcmp(identifier_node->text, "NULL") == 0)
     {
-        debug_info("NULL is rvalue: %u", res.is_rvalue);
+        debug_info("NULL is lvalue: %u", res.is_lvalue);
     }
 
     return res;
@@ -5887,7 +5920,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 aligned_store(ctx, ctx->builder, new_val, current_value.type, current_value.value);
 
                 // Postfix returns the original value (current_val)
-                base_value = current_value;
+                debug_info("current_value.value %p, curent_val: %p", (void *)current_value.value, (void *)current_val);
+                base_value.value = current_val;
+                base_value.type = current_value.type;
+                base_value.pointee_type = current_value.pointee_type;
             }
         }
         else
@@ -5925,6 +5961,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             base_value.type = current_value.type;
         }
     }
+    dump_typed_value("XXX - process_postfix_expression", base_value);
 
     return base_value;
 }
@@ -6453,8 +6490,9 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (var_res.value != NULL && var_res.type != NULL)
     {
-        if (var_res.is_rvalue)
+        if (!var_res.is_lvalue)
         {
+            debug_info("returning variable directly");
             return var_res;
         }
         // Check if the symbol is an integer constant (like enum values)
@@ -6488,6 +6526,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             };
         }
         // Load the value from the memory address using LLVMBuildLoad2.
+        debug_info("loading from memory address");
         return (TypedValue){
             .value = aligned_load(ctx, ctx->builder, var_res.type, var_res.value, "load_tmp"),
             .type = var_res.type,
