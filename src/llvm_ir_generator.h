@@ -11,6 +11,7 @@
 #include <llvm-c/ExecutionEngine.h> // Potentially useful for JIT or engine operations
 #include <llvm-c/Target.h>          // For target initialization, etc.
 #include <llvm-c/TargetMachine.h>
+#include <stdbool.h>
 
 // Define LLVM types for convenience
 typedef LLVMContextRef LLVMContextRef;
@@ -38,10 +39,16 @@ struct function_decls
     size_t capacity;
 };
 
+typedef struct
+{
+    bool generate_default_variables; /* Generate values for NULL etc when not preprocessing.*/
+} ir_generation_flags;
+
 // Structure to hold the context for LLVM IR generation.
 // This includes LLVM's core objects and potentially symbol table management.
 typedef struct ir_generator_ctx
 {
+    ir_generation_flags generation_flags;
     LLVMContextRef context;
     LLVMModuleRef module;
     LLVMBuilderRef builder;
@@ -82,7 +89,7 @@ typedef struct ir_generator_ctx
  * This involves creating an LLVM context, module, and builder.
  * @return A pointer to the initialized ir_generator_ctx_t, or NULL on failure.
  */
-ir_generator_ctx_t * ir_generator_init(char const * module_name);
+ir_generator_ctx_t * ir_generator_init(char const * module_name, ir_generation_flags flags);
 
 /**
  * @brief Generates LLVM IR from the provided Abstract Syntax Tree (AST).

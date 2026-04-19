@@ -520,7 +520,9 @@ generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
 {
     bool success = true;
     debug_info("Starting LLVM IR Generation...");
-    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename);
+    ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
+    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags);
+
     if (ir_ctx == NULL)
     {
         debug_error("Failed to initialize LLVM IR generator.");

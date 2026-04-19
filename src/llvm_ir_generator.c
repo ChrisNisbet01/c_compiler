@@ -2601,7 +2601,7 @@ map_type_to_llvm_t_wrapped(
  * Creates LLVM context, module, and builder.
  */
 ir_generator_ctx_t *
-ir_generator_init(char const * module_name)
+ir_generator_init(char const * module_name, ir_generation_flags flags)
 {
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
@@ -2609,6 +2609,7 @@ ir_generator_init(char const * module_name)
         debug_error("Failed to allocate memory for context.");
         return NULL;
     }
+    ctx->generation_flags = flags;
 
     ctx->context = LLVMContextCreate();
     if (!ctx->context)
@@ -2644,22 +2645,6 @@ ir_generator_init(char const * module_name)
 
     // Initialize with global scope
     ctx->current_scope = scope_create(NULL); // NULL parent = global scope
-    // Add built-in macro __FILE__ as a string constant in the global scope
-    {
-        char const * file_name = module_name ? module_name : "";
-        size_t len = strlen(file_name);
-        LLVMTypeRef arr_type = LLVMArrayType(ctx->ref_type.i8, (unsigned)(len + 1));
-        LLVMValueRef global = LLVMAddGlobal(ctx->module, arr_type, "__FILE__");
-        LLVMSetLinkage(global, LLVMPrivateLinkage);
-        LLVMSetGlobalConstant(global, true);
-        LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, file_name, (unsigned)len, false));
-        // Store pointer to the first element as the macro value
-        LLVMValueRef indices[2]
-            = {LLVMConstInt(ctx->ref_type.i32, 0, false), LLVMConstInt(ctx->ref_type.i32, 0, false)};
-        LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
-        TypedValue val = (TypedValue){.value = ptr, .type = arr_type};
-        add_symbol(ctx, "__FILE__", val, NULL);
-    }
     if (!ctx->current_scope)
     {
         debug_error("Failed to create global scope.");
@@ -2674,6 +2659,34 @@ ir_generator_init(char const * module_name)
     ctx->label_capacity = 16;
     ctx->labels = calloc(ctx->label_capacity, sizeof(label_t));
     ctx->label_count = 0;
+
+    // Add built-in macro __FILE__ as a string constant in the global scope
+    {
+        char const * file_name = module_name ? module_name : "";
+        size_t len = strlen(file_name);
+        LLVMTypeRef arr_type = LLVMArrayType(ctx->ref_type.i8, (unsigned)(len + 1));
+        LLVMValueRef global = LLVMAddGlobal(ctx->module, arr_type, "__FILE__");
+        LLVMSetLinkage(global, LLVMPrivateLinkage);
+        LLVMSetGlobalConstant(global, true);
+        LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, file_name, (unsigned)len, false));
+
+        // Store pointer to the first element as the macro value
+        LLVMValueRef indices[2]
+            = {LLVMConstInt(ctx->ref_type.i32, 0, false), LLVMConstInt(ctx->ref_type.i32, 0, false)};
+        LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
+        TypedValue val = (TypedValue){.value = ptr, .type = arr_type, .is_rvalue = true};
+        add_symbol(ctx, "__FILE__", val, NULL);
+    }
+
+    if (ctx->generation_flags.generate_default_variables)
+    {
+        /* Create a replacement for NULL, which won't be available if not preprocessing. */
+        LLVMTypeRef null_type = LLVMPointerTypeInContext(ctx->context, 0);
+        LLVMValueRef null_const = LLVMConstPointerNull(null_type);
+        LLVMSetGlobalConstant(null_const, true);
+        TypedValue null_val = (TypedValue){.value = null_const, .type = null_type, .is_rvalue = true};
+        add_symbol(ctx, "NULL", null_val, NULL);
+    }
 
     // Initialize error collection (any error will be fatal since max_errors=1)
     ir_gen_error_collection_init(&ctx->errors, 10);
@@ -4936,6 +4949,11 @@ get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifi
 
     find_symbol(ctx, identifier_node->text, &res);
 
+    if (strcmp(identifier_node->text, "NULL") == 0)
+    {
+        debug_info("NULL is rvalue: %u", res.is_rvalue);
+    }
+
     return res;
 }
 
@@ -6389,6 +6407,10 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (var_res.value != NULL && var_res.type != NULL)
     {
+        if (var_res.is_rvalue)
+        {
+            return var_res;
+        }
         // Check if the symbol is an integer constant (like enum values)
         // These are global i32 values, not pointers - we can just return them directly
         // But only for globals that are marked as constants (e.g., enum values, const globals),
