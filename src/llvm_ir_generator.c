@@ -219,8 +219,10 @@ extract_pointer_qualifiers(
 static unsigned
 get_type_alignment(LLVMTypeRef type)
 {
-    if (!type || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
+    if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
+    {
         return 1;
+    }
 
     // LLVMAlignOf returns an LLVMValueRef (a constant expression)
     LLVMValueRef align_val = LLVMAlignOf(type);
@@ -251,6 +253,11 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
         .value = truncated_size,
         .type = size_type,
     };
+}
+
+static TypedValue
+get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
+{
 }
 
 // Helper wrapper for LLVMBuildStore with proper alignment
@@ -2793,9 +2800,10 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     LLVMSetLinkage(fglobal, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(fglobal, true);
     LLVMSetInitializer(fglobal, LLVMConstStringInContext(ctx->context, func_name_macro, (unsigned)flen, false));
-    LLVMValueRef findices[2]
-        = {LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false),
-           LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false)};
+
+    LLVMTypeRef i32_type = LLVMInt32TypeInContext(ctx->context);
+
+    LLVMValueRef findices[2] = {LLVMConstInt(i32_type, 0, false), LLVMConstInt(i32_type, 0, false)};
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
     TypedValue fval = (TypedValue){.value = fptr, .type = farr_type};
     add_symbol(ctx, "__FUNC__", fval, NULL);
@@ -2803,8 +2811,8 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     add_symbol(ctx, "__func__", fval, NULL);
 
     // __LINE__ as integer constant 0 (i32)
-    LLVMValueRef line_const = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), 0, false);
-    TypedValue lval = (TypedValue){.value = line_const, .type = LLVMInt32TypeInContext(ctx->context)};
+    LLVMValueRef line_const = LLVMConstInt(i32_type, 0, false);
+    TypedValue lval = (TypedValue){.value = line_const, .type = i32_type};
     add_symbol(ctx, "__LINE__", lval, NULL);
 }
 
@@ -7176,11 +7184,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             }
         }
 
-        if (target_type != NULL)
-        {
-            return get_type_size(ctx, target_type);
-        }
-        return NullTypedValue;
+        return get_type_size(ctx, target_type);
     }
     case UNARY_OP_ALIGNOF:
     {
@@ -7238,18 +7242,15 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             TypedValue expr_val = process_expression(ctx, operand_node);
             if (expr_val.value != NULL)
             {
-                /* FIXME: Should this be expr_val.type? */
                 target_type = expr_val.type;
             }
         }
 
-        if (target_type != NULL)
-        {
-            unsigned alignment = get_type_alignment(target_type);
-            LLVMValueRef val = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), alignment, false);
-            return (TypedValue){.value = val};
-        }
-        return NullTypedValue;
+        unsigned alignment = get_type_alignment(target_type);
+        LLVMTypeRef i32_type = LLVMInt32TypeInContext(ctx->context);
+        LLVMValueRef val = LLVMConstInt(i32_type, alignment, false);
+
+        return (TypedValue){.value = val, .type = i32_type};
     }
     default:
     {
