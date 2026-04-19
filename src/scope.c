@@ -513,7 +513,7 @@ add_symbol_with_struct(
     {
         return;
     }
-
+    debug_info("%s: name: %s, tag: %s", __func__, name, tag);
     scope_t * scope = ctx->current_scope;
 
     if (scope->symbol_count >= scope->symbol_capacity)
