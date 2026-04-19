@@ -1900,6 +1900,33 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
     return -1;
 }
 
+static unsigned
+get_fp_width(LLVMTypeRef type)
+{
+    LLVMTypeKind kind = LLVMGetTypeKind(type);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-enum"
+
+    switch (kind)
+    {
+    case LLVMHalfTypeKind:
+        return 16;
+    case LLVMFloatTypeKind:
+        return 32;
+    case LLVMDoubleTypeKind:
+        return 64;
+    case LLVMX86_FP80TypeKind:
+        return 80;
+    case LLVMFP128TypeKind:
+        return 128;
+    default:
+        return 0; // Not a floating-point type
+    }
+
+#pragma GCC diagnostic pop
+}
+
 static TypedValue
 cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool is_src_signed)
 {
@@ -1934,6 +1961,25 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
             return (TypedValue){.value = new_value, .type = target_type};
         }
         return src_value;
+    }
+
+    unsigned float_src_bits = get_fp_width(src_type);
+    unsigned float_target_bits = get_fp_width(target_type);
+    if (float_src_bits > 0 && float_target_bits > 0)
+    {
+        debug_info("FP bits differ src %u, target: %u", float_src_bits, float_target_bits);
+
+        if (float_src_bits > float_target_bits)
+            return (TypedValue){
+                .value = LLVMBuildFPTrunc(ctx->builder, value, target_type, "cast_fptrunc"),
+                .type = target_type,
+            };
+        if (float_src_bits < float_target_bits)
+            return (TypedValue){
+                .value = LLVMBuildFPExt(ctx->builder, value, target_type, "cast_fpext"),
+                .type = target_type,
+            };
+        return src_value; // Same width, do nothing
     }
 
     // 2. Integer to Floating Point
