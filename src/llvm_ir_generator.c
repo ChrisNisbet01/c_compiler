@@ -4087,7 +4087,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             // Convert condition to bool (i1) if it's not already.
             LLVMTypeRef cond_type = cond_res.type;
-            if (cond_type != LLVMInt1TypeInContext(ctx->context))
+            if (LLVMGetTypeKind(cond_type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(cond_type) != 1)
             {
                 LLVMValueRef zero = LLVMConstNull(cond_type);
                 cond_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_res.value, zero, "for_cond_bool");
@@ -4158,7 +4158,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Convert condition to bool (i1) if it's not already.
         LLVMTypeRef cond_type = condition_res.type;
-        if (cond_type != LLVMInt1TypeInContext(ctx->context))
+        if (LLVMGetTypeKind(cond_type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(cond_type) != 1)
         {
             LLVMValueRef zero = LLVMConstNull(cond_type);
             condition_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_res.value, zero, "cond_bool");
@@ -4233,7 +4233,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Convert condition to bool (i1) if it's not already.
         LLVMTypeRef cond_type = condition_res.type;
-        if (cond_type != LLVMInt1TypeInContext(ctx->context))
+        if (LLVMGetTypeKind(cond_type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(cond_type) != 1)
         {
             LLVMValueRef zero = LLVMConstNull(cond_type);
             condition_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_res.value, zero, "do_cond_bool");
@@ -4495,6 +4495,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_IF_STATEMENT:
     {
+        debug_info("XXX");
         // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
         c_grammar_node_t const * condition_node = node->if_statement.condition;
         c_grammar_node_t const * then_node = node->if_statement.then_statement;
@@ -4514,13 +4515,24 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             = else_node != NULL ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
         LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "if_merge");
 
+        // If it's an i32, we need to check if it's != 0 to get an i1
+        debug_info(
+            "IF type: %d width: %u", LLVMGetTypeKind(condition_val.type), LLVMGetIntTypeWidth(condition_val.type)
+        );
+        LLVMValueRef cond_val = condition_val.value;
+        if (LLVMGetTypeKind(condition_val.type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(condition_val.type) != 1)
+        {
+            debug_info("converting to bool");
+            LLVMValueRef zero = LLVMConstNull(condition_val.type);
+            cond_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val.value, zero, "if_cond_bool");
+        }
         if (else_node)
         {
-            LLVMBuildCondBr(ctx->builder, condition_val.value, then_block, else_block);
+            LLVMBuildCondBr(ctx->builder, cond_val, then_block, else_block);
         }
         else
         {
-            LLVMBuildCondBr(ctx->builder, condition_val.value, then_block, merge_block);
+            LLVMBuildCondBr(ctx->builder, cond_val, then_block, merge_block);
         }
 
         // --- Emit 'then' block ---
@@ -6688,7 +6700,7 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     c_grammar_node_t const * op_node = node->binary_expression.op;
     equality_operator_type_t operator= op_node->op.eq.op;
 
-    TypedValue res = {.type = lhs_type};
+    TypedValue res = {.type = LLVMInt1TypeInContext(ctx->context)};
     switch (operator)
     {
     case EQ_OP_EQ:
@@ -6725,48 +6737,48 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         ctx->context, LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder)), "logical_merge"
     );
 
-    TypedValue lval = process_expression(ctx, lhs_node);
-    LLVMValueRef lhs_val = lval.value;
-    if (lhs_val == NULL)
+    TypedValue lhs_res = process_expression(ctx, lhs_node);
+    if (lhs_res.value == NULL)
     {
         ir_gen_error(&ctx->errors, "LHS processing of logical expression failed");
         return NullTypedValue;
     }
     // Convert to i1
-    if (LLVMGetTypeKind(lval.type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(lval.type) != 1)
+    if (LLVMGetTypeKind(lhs_res.type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(lhs_res.type) != 1)
     {
         // This handles ints (is x != 0?), pointers (is ptr != null?), etc.
-        lhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, LLVMConstNull(lval.type), "to_bool");
+        LLVMValueRef zero = LLVMConstNull(lhs_res.type);
+        lhs_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_res.value, zero, "to_bool");
     }
 
-    aligned_store(ctx, ctx->builder, lhs_val, i1_type, res_alloca);
+    aligned_store(ctx, ctx->builder, lhs_res.value, i1_type, res_alloca);
     if (is_or)
     {
-        LLVMBuildCondBr(ctx->builder, lhs_val, merge_block, rhs_block);
+        LLVMBuildCondBr(ctx->builder, lhs_res.value, merge_block, rhs_block);
     }
     else
     {
-        LLVMBuildCondBr(ctx->builder, lhs_val, rhs_block, merge_block);
+        LLVMBuildCondBr(ctx->builder, lhs_res.value, rhs_block, merge_block);
     }
 
     LLVMPositionBuilderAtEnd(ctx->builder, rhs_block);
 
-    TypedValue rval = process_expression(ctx, rhs_node);
-    LLVMValueRef rhs_val = rval.value;
+    TypedValue rhs_res = process_expression(ctx, rhs_node);
 
-    if (rhs_val == NULL)
+    if (rhs_res.value == NULL)
     {
         ir_gen_error(&ctx->errors, "RHS processing of logical expression failed");
         return NullTypedValue;
     }
 
-    if (LLVMGetTypeKind(lval.type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(lval.type) != 1)
+    if (LLVMGetTypeKind(lhs_res.type) != LLVMIntegerTypeKind || LLVMGetIntTypeWidth(lhs_res.type) != 1)
     {
         // This handles ints (is x != 0?), pointers (is ptr != null?), etc.
-        rhs_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_val, LLVMConstNull(rval.type), "to_bool");
+        LLVMValueRef zero = LLVMConstNull(rhs_res.type);
+        rhs_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_res.value, zero, "to_bool");
     }
 
-    aligned_store(ctx, ctx->builder, rhs_val, i1_type, res_alloca);
+    aligned_store(ctx, ctx->builder, rhs_res.value, i1_type, res_alloca);
     LLVMBuildBr(ctx->builder, merge_block);
 
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
@@ -7008,8 +7020,8 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
 
         // 1. Comparison produces an i1 (1-bit integer)
-        LLVMValueRef is_zero
-            = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, LLVMConstNull(operand_res.type), "is_zero_tmp");
+        LLVMValueRef zero = LLVMConstNull(operand_res.type);
+        LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, zero, "is_zero_tmp");
 
         // 2. Cast that i1 back to your standard integer type (e.g., i32)
         // This turns a 'true' into 1 and 'false' into 0
