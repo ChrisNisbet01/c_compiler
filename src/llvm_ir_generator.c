@@ -3768,11 +3768,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             );
                                         }
                                     }
+                                    TypedValue new_value
+                                        = (TypedValue){.value = initializer_value, .type = initializer_res.type};
+                                    TypedValue cast_value = cast_value_to_type(ctx, new_value, var_type, false);
 
-                                    // Handle integer type conversion (e.g., i32 literal to i8 char)
-                                    TypedValue cast_value = cast_value_to_type(ctx, initializer_value, var_type, false);
-
-                                    aligned_store(ctx->builder, initializer_value, var_type, alloca_inst);
+                                    aligned_store(ctx->builder, cast_value.value, cast_value.type, alloca_inst);
                                 }
                             }
                         }
@@ -4003,10 +4003,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // Convert RHS to LHS type if needed (e.g., i32 literal to i8 char)
-        rhs_res.value = cast_value_to_type(ctx, rhs_res.value, lhs_res.type, false);
+        rhs_res = cast_value_to_type(ctx, rhs_res, lhs_res.type, false);
 
         // Generate the store instruction.
-        aligned_store(ctx->builder, rhs_res.value, lhs_res.type, lhs_res.value);
+        aligned_store(ctx->builder, rhs_res.value, rhs_res.type, lhs_res.value);
         break;
     }
     case AST_NODE_FOR_STATEMENT:
@@ -4040,22 +4040,22 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // 2. Emit Cond block
         LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
-        LLVMValueRef cond_val = process_expression(ctx, cond_node);
+        TypedValue cond_res = process_expression(ctx, cond_node);
         if (ctx->errors.fatal)
         {
             return;
         }
 
-        if (cond_val)
+        if (cond_res.value != NULL)
         {
             // Convert condition to bool (i1) if it's not already.
-            LLVMTypeRef cond_type = LLVMTypeOf(cond_val);
+            LLVMTypeRef cond_type = cond_res.type;
             if (cond_type != LLVMInt1TypeInContext(ctx->context))
             {
                 LLVMValueRef zero = LLVMConstNull(cond_type);
-                cond_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_val, zero, "for_cond_bool");
+                cond_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_res.value, zero, "for_cond_bool");
             }
-            LLVMBuildCondBr(ctx->builder, cond_val, body_block, after_block);
+            LLVMBuildCondBr(ctx->builder, cond_res.value, body_block, after_block);
         }
         else
         {
@@ -4112,22 +4112,22 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // --- Emit condition block ---
         LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
-        LLVMValueRef condition_val = process_expression(ctx, condition_node);
-        if (!condition_val)
+        TypedValue condition_res = process_expression(ctx, condition_node);
+        if (condition_res.value == NULL)
         {
             debug_error("Failed to process condition for WhileStatement.");
             return;
         }
 
         // Convert condition to bool (i1) if it's not already.
-        LLVMTypeRef cond_type = LLVMTypeOf(condition_val);
+        LLVMTypeRef cond_type = condition_res.type;
         if (cond_type != LLVMInt1TypeInContext(ctx->context))
         {
             LLVMValueRef zero = LLVMConstNull(cond_type);
-            condition_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val, zero, "cond_bool");
+            condition_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_res.value, zero, "cond_bool");
         }
 
-        LLVMBuildCondBr(ctx->builder, condition_val, body_block, after_block);
+        LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
 
         // --- Emit body block ---
         LLVMPositionBuilderAtEnd(ctx->builder, body_block);
@@ -4187,22 +4187,22 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // --- Emit condition block ---
         LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
-        LLVMValueRef condition_val = process_expression(ctx, condition_node);
-        if (!condition_val)
+        TypedValue condition_res = process_expression(ctx, condition_node);
+        if (condition_res.value == NULL)
         {
             debug_error("Failed to process condition for DoWhileStatement.");
             return;
         }
 
         // Convert condition to bool (i1) if it's not already.
-        LLVMTypeRef cond_type = LLVMTypeOf(condition_val);
+        LLVMTypeRef cond_type = condition_res.type;
         if (cond_type != LLVMInt1TypeInContext(ctx->context))
         {
             LLVMValueRef zero = LLVMConstNull(cond_type);
-            condition_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_val, zero, "do_cond_bool");
+            condition_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_res.value, zero, "do_cond_bool");
         }
 
-        LLVMBuildCondBr(ctx->builder, condition_val, body_block, after_block);
+        LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
 
         // Restore old break/continue targets
         ctx->break_target = old_break_target;
@@ -4519,21 +4519,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * expr_node = node->return_statement.expression;
         if (expr_node != NULL)
         {
-            LLVMValueRef return_value = process_expression(ctx, expr_node);
+            TypedValue return_value = process_expression(ctx, expr_node);
 
-            if (return_value)
-            {
-                LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-                LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
-
-                return_value = cast_value_to_type(ctx, return_value, func_ret_type, true);
-
-                LLVMBuildRet(ctx->builder, return_value);
-            }
-            else
+            if (return_value.value == NULL)
             {
                 debug_error("Failed to process return expression.");
+                return return_value;
             }
+            LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+            LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
+
+            return_value = cast_value_to_type(ctx, return_value, func_ret_type, true);
+
+            LLVMBuildRet(ctx->builder, return_value.value);
         }
         else
         {
@@ -5018,14 +5016,13 @@ process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
     return LLVMConstInt(LLVMInt8TypeInContext(ctx->context), value, false);
 }
 
-static LLVMValueRef
+static TypedValue
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
     c_grammar_node_t const * base_node = node->postfix_expression.base_expression;
-    LLVMValueRef base_val = NULL;
-    LLVMValueRef current_ptr = NULL;
-    LLVMTypeRef current_type = NULL;
+    TypedValue base_value = NullTypedValue;
+    TypedValue current_value = NullTypedValue;
     bool have_ptr = false;
     bool base_is_array = false;
     bool did_member_access = false; /* tracks whether we've done at least one member access */
@@ -5047,8 +5044,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
         if (find_symbol(ctx, var_name, &var))
         {
-            current_ptr = var.value;
-            current_type = var.type;
+            current_value = var;
             have_ptr = true;
 
             // If base is an array type, we'll handle subscript in the loop
@@ -5064,7 +5060,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     print_ast_with_label(postfix_parts_node, "postfix_parts");
 
     // Only process base if it's not an array (arrays need suffix handling for subscript)
-    if (!base_val && !base_is_array)
+    if (base_value.value == NULL && !base_is_array)
     {
         // For function calls, don't call process_expression on the identifier
         // The function call suffix handling will get the function pointer directly
@@ -5080,28 +5076,23 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
         if (!has_func_call_suffix)
         {
-            base_val = process_expression(ctx, base_node);
+            base_value = process_expression(ctx, base_node);
         }
 
         // If base_val is a pointer type and have_ptr is false, set up current_ptr for member access
         // This handles cases like ((Point *)ptr)->member where base is a cast expression
-        if (!have_ptr && base_val)
+        if (!have_ptr && base_value.value != NULL)
         {
-            LLVMTypeRef base_type = LLVMTypeOf(base_val);
+            LLVMTypeRef base_type = base_value.type;
             if (base_type && LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
             {
-                current_ptr = base_val;
+                current_value = base_value;
                 // For member access, we need the pointee type, not the pointer type
                 // For non-opaque, LLVMGetElementType works. For opaque, leave current_type as NULL
-                current_type = LLVMGetElementType(base_type);
-                if (!current_type)
-                {
-                    debug_info("LLVMGetElementType returned NULL for opaque pointer");
-                }
                 have_ptr = true;
                 debug_info(
                     "Set current_ptr from base_val pointer for member access, current_type kind=%d",
-                    LLVMGetTypeKind(current_type)
+                    LLVMGetTypeKind(current_value.type)
                 );
             }
         }
@@ -5116,7 +5107,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         {
             // Handle function call. Arguments might be children directly or in an ArgumentList
             size_t num_args = 0;
-            LLVMValueRef * args = NULL;
+            TypedValue * args = NULL;
 
             if (suffix->list.count > 0)
             {
@@ -5128,14 +5119,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
             }
 
-            if (!base_val)
+            if (base_value.value == NULL)
             {
                 // Check if we have a current_ptr from array subscript or other suffix
                 // This handles cases like ops[0](...) where current_ptr points to the function pointer element
-                if (have_ptr && current_ptr && current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                if (have_ptr && current_value.value && current_value.type
+                    && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
                 {
                     // Load the function pointer from the element pointer
-                    base_val = aligned_load(ctx->builder, current_type, current_ptr, "func_ptr");
+                    base_value.value = aligned_load(ctx->builder, current_value.type, current_value.value, "func_ptr");
+                    base_value.type = current_value.type;
                 }
                 else if (base_node->type == AST_NODE_IDENTIFIER)
                 {
@@ -5150,25 +5143,27 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         if (LLVMIsAFunction(var.value))
                         {
                             /* Direct function (e.g. static forward declaration) - use as-is */
-                            base_val = var.value;
+                            base_value = var;
                         }
                         else
                         {
                             /* It's a function pointer variable - load the pointer value */
-                            base_val = aligned_load(ctx->builder, var.type, var.value, "func_ptr");
+                            base_value.value = aligned_load(ctx->builder, var.type, var.value, "func_ptr");
+                            base_value.type = var.type;
                         }
                     }
                     else
                     {
                         // Not a variable, try to get as a named function
-                        base_val = LLVMGetNamedFunction(ctx->module, func_name);
-                        if (!base_val)
+                        base_value.value = LLVMGetNamedFunction(ctx->module, func_name);
+                        if (base_value.value == NULL)
                         {
                             // For undeclared functions like printf, auto-declare as variadic returning i32
                             // with no required arguments to support different call patterns
                             LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
                             LLVMTypeRef func_type = LLVMFunctionType(ret_type, NULL, 0, true);
-                            base_val = LLVMAddFunction(ctx->module, func_name, func_type);
+                            base_value.value = LLVMAddFunction(ctx->module, func_name, func_type);
+                            base_value.type = func_type;
                         }
                     }
                 }
@@ -5176,15 +5171,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 {
                     debug_error("Could not resolve function for call.");
                     free(args);
-                    return NULL;
+                    return NullTypedValue;
                 }
 
                 LLVMTypeRef func_type;
 
                 // Check if this is a global function or an indirect call (function pointer)
-                if (LLVMIsAGlobalValue(base_val))
+                if (LLVMIsAGlobalValue(base_value.value))
                 {
-                    func_type = LLVMGlobalGetValueType(base_val);
+                    func_type = LLVMGlobalGetValueType(base_value.value);
                 }
                 else
                 {
@@ -5193,16 +5188,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     LLVMTypeRef * param_types = NULL;
                     if (num_args > 0)
                     {
-                        param_types = malloc(num_args * sizeof(LLVMTypeRef));
+                        param_types = malloc(num_args * sizeof(*param_types));
                         for (size_t j = 0; j < num_args; ++j)
                         {
-                            param_types[j] = LLVMTypeOf(args[j]);
+                            param_types[j] = args[j].type;
                         }
                     }
                     LLVMTypeRef ret_type = LLVMInt32TypeInContext(ctx->context);
                     func_type = LLVMFunctionType(ret_type, param_types, (unsigned)num_args, true);
-                    if (param_types)
-                        free(param_types);
+                    free(param_types);
                 }
 
                 char const * call_name = "";
@@ -5213,7 +5207,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 // For zero-argument calls, pass NULL for args (per LLVM C API docs)
                 LLVMValueRef * call_args = (num_args > 0) ? args : NULL;
-                base_val = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
+                base_value.value
+                    = LLVMBuildCall2(ctx->builder, func_type, base_val, call_args, (unsigned)num_args, call_name);
+                base_value.type = func_type;
 
                 // For void functions, set base_val to NULL (void calls don't produce values)
                 if (LLVMGetReturnType(func_type) == LLVMVoidTypeInContext(ctx->context))
@@ -5227,32 +5223,23 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
         {
             // Array subscript: use helper function
-            if (have_ptr && current_type)
+            if (have_ptr && current_value.type != NULL)
             {
-                TypedValue new_typed_value = process_array_subscript(ctx, suffix, current_ptr, current_type);
-                debug_info(
-                    "%s: process_assignment: subscript returned new_ptr=%p", __func__, (void *)new_typed_value.value
-                );
-                debug_info(
-                    "%s: process_assignment: after subscript, current_type kind=%d",
-                    __func__,
-                    LLVMGetTypeKind(current_type)
-                );
-                if (new_typed_value.value != NULL)
+                TypedValue new_value = process_array_subscript(ctx, suffix, current_value.value, current_value.type);
+                debug_info("%s: process_assignment: subscript returned new_ptr=%p", __func__, (void *)new_value.value);
+                if (new_value.value != NULL)
                 {
                     // Update current_ptr for next iteration
-                    current_ptr = new_typed_value.value;
-                    // Update current_type to the element type
-                    current_type = new_typed_value.type;
-                    debug_info("current_type kind is: now %u", LLVMGetTypeKind(current_type));
+                    current_value = new_value;
+                    debug_info("current_type kind is: now %u", LLVMGetTypeKind(current_value.type));
                 }
                 else
                 {
                     debug_error("Could not process array subscript.");
-                    return NULL;
+                    return NullTypedValue;
                 }
                 // Clear base_val so final load uses the correct element type
-                base_val = NULL;
+                base_value = NullTypedValue;
             }
         }
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
@@ -5263,39 +5250,38 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             if (member_name == NULL)
             {
                 debug_error("Could not find member name in member access AST node.");
-                return NULL;
+                return NullTypedValue;
             }
 
             debug_info(
                 "Member access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type=%u",
-                (void *)base_val,
+                (void *)base_value.value,
                 have_ptr,
-                (void *)current_ptr,
-                current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
+                (void *)current_value.value,
+                current_value.type != NULL ? (int)LLVMGetTypeKind(current_vaslue.type) : -1
             );
 
-            LLVMValueRef struct_val = base_val;
-            LLVMTypeRef struct_type = NULL;
+            TypedValue struct_value = base_value;
             bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
 
             // Handle case where base_val is NULL but we have current_ptr from array subscript
             // OR for arrow access where current_ptr is set
-            if ((!struct_val && have_ptr && current_ptr && current_type) || (is_arrow && have_ptr && current_ptr))
+            if ((struct_value.value == NULL && have_ptr && current_vaslue.value && current_value.type)
+                || (is_arrow && have_ptr && current_value.value != NULL))
             {
                 // current_ptr points to the element, current_type is its type
-                LLVMTypeKind type_kind = current_type ? LLVMGetTypeKind(current_type) : 0;
+                LLVMTypeKind type_kind = current_value.type ? LLVMGetTypeKind(current_value.type) : 0;
                 if (type_kind == LLVMStructTypeKind)
                 {
-                    struct_val = current_ptr;
-                    struct_type = current_type;
+                    struct_value = current_value;
                 }
                 else if (type_kind == LLVMPointerTypeKind)
                 {
-                    LLVMTypeRef elem_type = LLVMGetElementType(current_type);
+                    LLVMTypeRef elem_type = LLVMGetElementType(current_value.type);
                     if (elem_type && LLVMGetTypeKind(elem_type) == LLVMStructTypeKind)
                     {
-                        struct_val = current_ptr;
-                        struct_type = elem_type;
+                        struct_value.value = current_value.value;
+                        struct_value.type = elem_type;
                     }
                     else if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
                     {
@@ -5304,31 +5290,33 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         // Search through struct types that have pointer fields matching current_type
                         // to find what struct they point to
                         scope_t const * scope = ctx->current_scope;
-                        while (scope != NULL && struct_type == NULL)
+                        while (scope != NULL && struct_value.type == NULL)
                         {
-                            for (size_t i = 0; i < scope->untagged_types.count && struct_type == NULL; ++i)
+                            for (size_t i = 0; i < scope->untagged_types.count && struct_value.type == NULL; ++i)
                             {
                                 type_info_t const * ti = &scope->untagged_types.entries[i];
                                 for (size_t j = 0; j < ti->field_count; ++j)
                                 {
-                                    if (ti->fields[j].type == current_type && ti->fields[j].pointee_struct_type != NULL)
+                                    if (ti->fields[j].type == current_value.type
+                                        && ti->fields[j].pointee_struct_type != NULL)
                                     {
-                                        struct_val = current_ptr;
-                                        struct_type = ti->fields[j].pointee_struct_type;
+                                        struct_value.value = current_value.value;
+                                        struct_value.type = ti->fields[j].pointee_struct_type;
                                         debug_info("Arrow access: found pointee struct type via scope");
                                         break;
                                     }
                                 }
                             }
-                            for (size_t i = 0; i < scope->tagged_types.count && struct_type == NULL; ++i)
+                            for (size_t i = 0; i < scope->tagged_types.count && struct_value.type == NULL; ++i)
                             {
                                 type_info_t const * ti = &scope->tagged_types.entries[i];
                                 for (size_t j = 0; j < ti->field_count; ++j)
                                 {
-                                    if (ti->fields[j].type == current_type && ti->fields[j].pointee_struct_type != NULL)
+                                    if (ti->fields[j].type == current_value.type
+                                        && ti->fields[j].pointee_struct_type != NULL)
                                     {
-                                        struct_val = current_ptr;
-                                        struct_type = ti->fields[j].pointee_struct_type;
+                                        struct_value.value = current_value.value;
+                                        struct_value.type = ti->fields[j].pointee_struct_type;
                                         debug_info("Arrow access: found pointee struct type via tagged scope");
                                         break;
                                     }
@@ -5339,15 +5327,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
                 else if (
-                    have_ptr && current_ptr && (type_kind == 0 || type_kind == 1)
-                    && LLVMGetTypeKind(LLVMTypeOf(current_ptr)) == LLVMPointerTypeKind
+                    have_ptr && current_value.value != NULL
+                    && (LLVMVoidTypeKind == 0 || LLVMHalfTypeKind == 1) /* FIXME */
+                    && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind
                 )
                 {
                     // current_type is NULL or void but current_ptr is a valid pointer - try to get struct via
                     // identifier
                     debug_info("current_type is invalid (%d) but current_ptr is set - try symbol lookup", type_kind);
                     debug_info(
-                        "current_ptr type kind: %d", current_ptr ? (int)LLVMGetTypeKind(LLVMTypeOf(current_ptr)) : 0
+                        "current_ptr type kind: %d", current_value.type ? (int)LLVMGetTypeKind(current_value.type) : 0
                     );
 
                     // Extract identifier from base expression for symbol lookup
@@ -5392,8 +5381,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                                 if (lookup.pointee_type != NULL
                                     && LLVMGetTypeKind(lookup.pointee_type) == LLVMStructTypeKind)
                                 {
-                                    struct_type = lookup.pointee_type;
-                                    struct_val = current_ptr;
+                                    struct_value.type = lookup.pointee_type;
+                                    struct_value.value = current_value.value;
                                     debug_info("Got struct via identifier '%s'", var_name);
                                 }
                             }
@@ -5406,63 +5395,42 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
             }
 
-            if (struct_val)
+            if (struct_value.value != NULL)
             {
                 // Get the struct type
-                LLVMTypeRef base_type;
-                if (struct_type)
+                if (struct_value.type == NULL)
                 {
-                    base_type = struct_type;
-                    debug_info(
-                        "Using provided struct_type=%p (kind=%d)",
-                        (void *)struct_type,
-                        (int)LLVMGetTypeKind(struct_type)
-                    );
-                }
-                else
-                {
-                    base_type = LLVMTypeOf(struct_val);
-                    debug_info(
-                        "Using type of struct_val=%p (kind=%d)", (void *)struct_val, (int)LLVMGetTypeKind(base_type)
-                    );
-                }
-                if (!base_type)
-                {
-                    debug_error("NULL type for member access base.");
+                    debug_error("NULL type for member access.");
                     continue;
-                }
-                if (!struct_type)
-                {
-                    struct_type = base_type;
                 }
 
                 debug_info(
-                    "Checking struct_type after assignment: is_arrow=%d, base_type=%p, struct_type=%p (kind=%d), "
+                    "Checking struct_type after assignment: is_arrow=%d, struct_type=%p (kind=%d), "
                     "base_node type=%d, current_type: %d",
                     is_arrow,
-                    (void *)base_type,
-                    (void *)struct_type,
-                    struct_type ? (int)LLVMGetTypeKind(struct_type) : -1,
+                    (void *)struct_value.type,
+                    struct_value.type ? (int)LLVMGetTypeKind(struct_value.type) : -1,
                     base_node ? (int)base_node->type : -1,
-                    current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
+                    current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1
                 );
 
                 // For arrow access with cast expressions like ((Point *)ptr)->member
                 // if current_type is already the struct type, use it directly
                 // OR if base is a cast expression, get type from the cast's target type
-                if (is_arrow && current_type && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                if (is_arrow && current_value.type && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
                 {
-                    LLVMTypeRef pointee = LLVMGetElementType(current_type);
+                    LLVMTypeRef pointee = LLVMGetElementType(current_value.type);
                     if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
                     {
-                        struct_type = pointee;
-                        struct_val = current_ptr;
+                        struct_value.type = pointee;
+                        struct_value.value = current_value.value;
                     }
                 }
-                else if (is_arrow && current_type != NULL && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
+                else if (
+                    is_arrow && current_value.type != NULL && LLVMGetTypeKind(current_value.type) == LLVMStructTypeKind
+                )
                 {
-                    struct_type = current_type;
-                    struct_val = current_ptr;
+                    struct_value = current_value;
                 }
                 else if (is_arrow && base_node && base_node->type == AST_NODE_CAST_EXPRESSION)
                 {
@@ -5488,8 +5456,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                                 debug_info("Found typedef '%s' for cast: %p", typedef_name, (void *)typedef_type);
                                 if (typedef_type != NULL && LLVMGetTypeKind(typedef_type) == LLVMStructTypeKind)
                                 {
-                                    struct_type = typedef_type;
-                                    struct_val = current_ptr;
+                                    struct_value.type = typedef_type;
+                                    struct_value.value = current_value.value;
                                     debug_info("Using typedef struct type from cast!");
                                 }
                                 else if (typedef_type != NULL && LLVMGetTypeKind(typedef_type) == LLVMPointerTypeKind)
@@ -5497,8 +5465,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                                     LLVMTypeRef pointee = LLVMGetElementType(typedef_type);
                                     if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
                                     {
-                                        struct_type = pointee;
-                                        struct_val = current_ptr;
+                                        struct_value.type = pointee;
+                                        struct_value.value = current_value.value;
                                         debug_info("Using pointee from typedef!");
                                     }
                                     else
@@ -5508,8 +5476,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                                             = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
                                         if (info != NULL)
                                         {
-                                            struct_type = info->type;
-                                            struct_val = current_ptr;
+                                            struct_value.type = info->type;
+                                            struct_value.value = current_value.value;
                                             debug_info("Found struct via scope lookup!");
                                         }
                                     }
@@ -5524,17 +5492,17 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     "%p (%d)",
                     is_arrow,
                     did_member_access,
-                    (void *)struct_val,
-                    LLVMGetTypeKind(struct_type),
-                    (void *)struct_type,
-                    current_type,
-                    current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
+                    (void *)struct_value.value,
+                    LLVMGetTypeKind(struct_value.type),
+                    (void *)struct_value.type,
+                    current_value.type,
+                    current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1
                 );
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
                 // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
                 // was already set (it might be the pointer type from earlier)
-                if (is_arrow && did_member_access && current_type != NULL
-                    && LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+                if (is_arrow && did_member_access && current_value.type != NULL
+                    && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
                 {
                     debug_info("Using existing struct type");
                 }
@@ -5544,23 +5512,22 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         "Arrow access: is_arrow=%d, base_node->type=%d, struct_val=%p, struct_type=%d (%p)",
                         is_arrow,
                         base_node->type,
-                        (void *)struct_val,
-                        LLVMGetTypeKind(struct_type),
-                        (void *)struct_type
+                        (void *)struct_value.value,
+                        struct_value.type != NULL ? (int)LLVMGetTypeKind(struct_value.type) : -1,
+                        (void *)struct_value.type
                     );
                     debug_info(
                         "done_member_access: %d current_type: %u",
                         did_member_access,
-                        current_type != NULL ? (int)LLVMGetTypeKind(current_type) : -1
+                        current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1
                     );
                     /* For chained arrow access, current_type was set to the pointee struct
                      * type after the previous member access — use it with priority. */
-                    if (did_member_access && current_type != NULL
+                    if (did_member_access && current_value.type != NULL
                         && LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
                     {
                         debug_info("assigning struct type to current type");
-                        struct_type = current_type;
-                        struct_val = current_ptr;
+                        struct_value = current_value;
                     }
                     else
                     {
@@ -5568,15 +5535,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         debug_info("Looking up struct type by tag '%s' for opaque pointer.", tag ? tag : "NULL");
                         if (tag != NULL)
                         {
-                            struct_type = find_type_by_tag(ctx, tag);
+                            struct_value.type = find_type_by_tag(ctx, tag);
                         }
 
                         /* For anonymous struct typedefs (tag not in tagged list), use pointee_type from symbol */
                         // Even if struct_type is not NULL, for arrow access we need to check if it's a pointer type
                         // and if so, use the pointee type instead
-                        bool should_lookup_pointee = (struct_type == NULL);
-                        if (!should_lookup_pointee && is_arrow && struct_type != NULL
-                            && LLVMGetTypeKind(struct_type) == LLVMPointerTypeKind)
+                        bool should_lookup_pointee = struct_value.type == NULL;
+                        if (!should_lookup_pointee && is_arrow && struct_value.type != NULL
+                            && LLVMGetTypeKind(struct_value.type) == LLVMPointerTypeKind)
                         {
                             should_lookup_pointee = true;
                             debug_info("struct_type is pointer, need to lookup pointee for arrow access");
@@ -5597,7 +5564,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                                 );
                                 if (sym.pointee_type != NULL && LLVMGetTypeKind(sym.pointee_type) == LLVMStructTypeKind)
                                 {
-                                    struct_type = sym.pointee_type;
+                                    struct_value.type = sym.pointee_type;
                                     debug_info("Found struct type from pointee!");
                                 }
                             }
@@ -5609,7 +5576,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
 
-                if (!struct_type || LLVMGetTypeKind(struct_type) != LLVMStructTypeKind)
+                if (struct_value.type == NULL || LLVMGetTypeKind(struct_value.type) != LLVMStructTypeKind)
                 {
                     debug_error(
                         "Could not find struct type for member access of '%s' on '%s'.",
@@ -5620,7 +5587,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
 
                 // Find the member index by name
-                unsigned num_elements = LLVMCountStructElementTypes(struct_type);
+                unsigned num_elements = LLVMCountStructElementTypes(struct_value.type);
                 unsigned member_index = 0;
                 unsigned storage_index = 0;
                 bool found = false;
@@ -5669,11 +5636,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     LLVMValueRef member_ptr;
                     // Check if struct_val (which could be base_val or current_ptr) is a pointer
                     LLVMTypeRef struct_val_type = NULL;
-                    if (struct_val)
+                    if (struct_value.type != NULL)
                     {
-                        struct_val_type = LLVMTypeOf(struct_val);
+                        struct_val_type = struct_value.type;
                     }
-                    bool struct_val_is_ptr = struct_val_type && LLVMGetTypeKind(struct_val_type) == LLVMPointerTypeKind;
+                    bool struct_val_is_ptr
+                        = struct_val_type != NULL && LLVMGetTypeKind(struct_val_type) == LLVMPointerTypeKind;
 
                     if (is_arrow)
                     {
@@ -5681,17 +5649,17 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         // We need the VALUE stored in that variable to get the actual struct address.
                         LLVMValueRef actual_struct_addr;
 
-                        if (LLVMIsAAllocaInst(struct_val))
+                        if (LLVMIsAAllocaInst(struct_value.value))
                         {
                             // Load the pointer value out of the variable
                             // We use LLVMTypeOf(struct_val) because we need the pointer's own type to load it
                             actual_struct_addr
-                                = aligned_load(ctx->builder, LLVMTypeOf(struct_val), struct_val, "ptr_deref");
+                                = aligned_load(ctx->builder, struct_value.type, struct_value.value, "ptr_deref");
                         }
                         else
                         {
                             // It's already a loaded pointer (perhaps from a previous member access)
-                            actual_struct_addr = struct_val;
+                            actual_struct_addr = struct_value.value;
                         }
 
                         // Now GEP into the ACTUAL address
@@ -5702,20 +5670,21 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     else if (struct_val_is_ptr)
                     {
                         // This is the 'dot' access on a struct pointer or reference
-                        member_ptr
-                            = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_val, indices, 2, "memberptr");
+                        member_ptr = LLVMBuildInBoundsGEP2(
+                            ctx->builder, struct_type, struct_value.value, indices, 2, "memberptr"
+                        );
                     }
                     else
                     {
                         // For value types (struct passed by value), we need to get the pointer
                         LLVMValueRef struct_ptr = LLVMBuildAlloca_wrapper(ctx->builder, struct_type, "struct_tmp");
-                        aligned_store(ctx->builder, struct_val, struct_type, struct_ptr);
+                        aligned_store(ctx->builder, struct_value.value, struct_type, struct_ptr);
                         member_ptr
                             = LLVMBuildInBoundsGEP2(ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr");
                     }
                     LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
-                    base_val = aligned_load(ctx->builder, member_type, member_ptr, "member");
-                    base_val = handle_bitfield_extraction(ctx, base_val, struct_info, member_index);
+                    base_value.value = aligned_load(ctx->builder, member_type, member_ptr, "member");
+                    base_value.value = handle_bitfield_extraction(ctx, base_value.value, struct_info, member_index);
 
                     /* Track the member's struct type for chained arrow accesses (e.g. a->b->c).
                      * If the member is a pointer, keep pointer type for subscript/arrow access.
@@ -5730,8 +5699,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                              * we need to keep both the pointer type for dereferencing and the pointee
                              * struct type for proper subscript/arrow access. Store the pointee type
                              * so that subscript operations can find the correct element type. */
-                            current_type = field_type;
-                            current_ptr = base_val;
+                            current_value.type = field_type;
+                            current_value, value = base_value.value;
                             have_ptr = true;
 
                             /* Also track the pointee type for subscript handling */
@@ -5739,7 +5708,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         }
                         else if (LLVMGetTypeKind(field_type) == LLVMStructTypeKind)
                         {
-                            current_type = field_type;
+                            current_value.type = field_type;
                         }
                     }
                     did_member_access = true;
@@ -5749,19 +5718,20 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         else if (suffix->type == AST_NODE_POSTFIX_OPERATOR)
         {
             // Handle postfix increment/decrement: i++ or i--
-            if (have_ptr && current_ptr && current_type)
+            if (have_ptr && current_value.value && current_value.type)
             {
                 // Load current value
-                LLVMValueRef current_val = aligned_load(ctx->builder, current_type, current_ptr, "postfix_val");
+                LLVMValueRef current_val
+                    = aligned_load(ctx->builder, current_value.type, current_value.value, "postfix_val");
 
                 // Create increment/decrement value
-                LLVMTypeKind kind = LLVMGetTypeKind(current_type);
+                LLVMTypeKind kind = LLVMGetTypeKind(current_value.type);
                 LLVMValueRef one;
                 LLVMValueRef new_val;
 
                 if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
                 {
-                    one = LLVMConstReal(current_type, 1.0);
+                    one = LLVMConstReal(current_value.type, 1.0);
                     if (suffix->op.postfix.op == POSTFIX_OP_INC)
                         new_val = LLVMBuildFAdd(ctx->builder, current_val, one, "postfix_inc");
                     else
@@ -5777,10 +5747,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 }
 
                 // Store the new value
-                aligned_store(ctx->builder, new_val, current_type, current_ptr);
+                aligned_store(ctx->builder, new_val, current_value.type, current_value.value);
 
                 // Postfix returns the original value (current_val)
-                base_val = current_val;
+                base_value = current_value;
             }
         }
         else
@@ -5791,35 +5761,39 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
     // If base_val is NULL but we have a pointer (from array subscript or member access),
     // load the value from the pointer
-    if (!base_val && have_ptr && current_ptr && current_type)
+    if (base_value.value == NULL && have_ptr && current_value.value && current_value.type)
     {
         // If current_type is a pointer, we may have already subscripted the pointer
         // and current_ptr now points to the element. We need to load the element type.
-        if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
+        if (LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
         {
-            LLVMTypeRef elem_type = LLVMGetElementType(current_type);
+            LLVMTypeRef elem_type = LLVMGetElementType(current_value.type);
             // Handle opaque pointers (elem_type is NULL) and char* (elem_type is i8)
             if (elem_type == NULL || elem_type == LLVMInt8TypeInContext(ctx->context))
             {
                 // For char* or opaque pointers from subscript, load as i8
-                base_val = aligned_load(ctx->builder, LLVMInt8TypeInContext(ctx->context), current_ptr, "load_tmp");
+                LLVMTypeRef i8_type = LLVMInt8TypeInContext(ctx->context);
+                base_value.value = aligned_load(ctx->builder, i8_type, current_value.value, "load_tmp");
+                base_value.type = i8_type;
             }
             else
             {
                 // Valid element type - load the element
-                base_val = aligned_load(ctx->builder, elem_type, current_ptr, "load_tmp");
+                base_value.value = aligned_load(ctx->builder, elem_type, current_value.value, "load_tmp");
+                base_value.type = elem_type;
             }
         }
         else
         {
-            base_val = aligned_load(ctx->builder, current_type, current_ptr, "load_tmp");
+            base_value.value = aligned_load(ctx->builder, current_value.type, current_value.value, "load_tmp");
+            base_value.type = current_value.type;
         }
     }
 
-    return base_val;
+    return base_value;
 }
 
-static LLVMValueRef
+static TypedValue
 process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // AST structure for CastExpression: [TypeName, CastExpression]
@@ -5832,45 +5806,11 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     c_grammar_node_t const * abstract_decl = type_name_node->type_name.abstract_declarator;
 
     LLVMTypeRef target_type = map_type_to_llvm_t(ctx, spec_qual, abstract_decl);
-    LLVMValueRef val_to_cast = process_expression(ctx, inner_expr_node);
+    TypedValue val_to_cast = process_expression(ctx, inner_expr_node);
 
-    if (val_to_cast && target_type)
-    {
-        LLVMTypeRef src_type = LLVMTypeOf(val_to_cast);
-        if (LLVMGetTypeKind(target_type) == LLVMIntegerTypeKind
-            && (LLVMGetTypeKind(src_type) == LLVMFloatTypeKind || LLVMGetTypeKind(src_type) == LLVMDoubleTypeKind))
-        {
-            return LLVMBuildFPToSI(ctx->builder, val_to_cast, target_type, "casttmp");
-        }
-        else if (
-            (LLVMGetTypeKind(target_type) == LLVMFloatTypeKind || LLVMGetTypeKind(target_type) == LLVMDoubleTypeKind)
-            && LLVMGetTypeKind(src_type) == LLVMIntegerTypeKind
-        )
-        {
-            return LLVMBuildSIToFP(ctx->builder, val_to_cast, target_type, "casttmp");
-        }
-        else if (
-            LLVMGetTypeKind(target_type) == LLVMPointerTypeKind && LLVMGetTypeKind(src_type) == LLVMPointerTypeKind
-        )
-        {
-            return LLVMBuildBitCast(ctx->builder, val_to_cast, target_type, "casttmp");
-        }
-        else
-        {
-            debug_warning(
-                "need support for target type: %d and src_type %d",
-                LLVMGetTypeKind(target_type),
-                LLVMGetTypeKind(src_type)
-            );
-        }
-        // Add more cast types as needed (bitcast, pointer casts, etc.)
-        return val_to_cast; // Fallback
-    }
-    else
-    {
-        debug_warning("%s: missing val: %p or target type: %p", __func__, val_to_cast, target_type);
-    }
-    return NULL;
+    val_to_cast = cast_value_to_type(ctx, val_to_cast, target_type, false);
+
+    return val_to_cast;
 }
 
 static TypedValue
@@ -6313,10 +6253,10 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Extend rhs_value to field type if needed and shift to position
         LLVMValueRef shifted;
-        if (LLVMGetTypeKind(LLVMTypeOf(rhs_res.value)) == LLVMIntegerTypeKind)
+        if (LLVMGetTypeKind(rhs_res.type) == LLVMIntegerTypeKind)
         {
             // Zero-extend to field type if needed
-            rhs_res.value = cast_value_to_type(ctx, rhs_res.value, field_type, true);
+            rhs_res = cast_value_to_type(ctx, rhs_res, field_type, true);
             // Shift to bitfield position
             LLVMValueRef shift_amt = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), bitfield_bit_offset, false);
             shifted = LLVMBuildShl(ctx->builder, rhs_res.value, shift_amt, "bf_shift");
@@ -6409,20 +6349,22 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     return NULL;
 }
 
-static LLVMValueRef
+static TypedValue
 process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
-    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
-    if (lhs_val == NULL || rhs_val == NULL)
+    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (lhs_res.value == NULL || rhs_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
-    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeRef lhs_type = lhs_res.type;
+    LLVMTypeRef rhs_type = rhs_res.type;
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
     LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
+
+    TypedValue res = lhs_res;
 
     // Handle type promotion for integer operands - both sides must match
     if (!(lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind)
@@ -6432,13 +6374,19 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
         if (lhs_bits > rhs_bits)
         {
-            rhs_val = LLVMBuildZExt(ctx->builder, rhs_val, lhs_type, "promote_rhs");
-            rhs_type = lhs_type;
+            rhs_res.value = LLVMBuildZExt(ctx->builder, rhs_res.value, lhs_res.type, "promote_rhs");
+            rhs_res.type = lhs_res.type;
+            res.type = lhs_res.type;
+            /* Default to lhs value just so a value is always assigned.*/
+            res.value = lhs_res.value;
         }
         else if (rhs_bits > lhs_bits)
         {
-            lhs_val = LLVMBuildZExt(ctx->builder, lhs_val, rhs_type, "promote_lhs");
-            lhs_type = rhs_type;
+            lhs_res.value = LLVMBuildZExt(ctx->builder, lhs_res.value, rhs_res.type, "promote_lhs");
+            lhs_res.type = rhs_res.type;
+            res.type = rhs_res.type;
+            /* Default to rhs value just so a value is always assigned.*/
+            res.value = rhs_res.value;
         }
     }
 
@@ -6448,44 +6396,47 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     switch (operator)
     {
     case BITWISE_OP_AND:
-        return LLVMBuildAnd(ctx->builder, lhs_val, rhs_val, "and_tmp");
+        res.value = LLVMBuildAnd(ctx->builder, lhs_res.value, rhs_res.value, "and_tmp");
     case BITWISE_OP_OR:
-        return LLVMBuildOr(ctx->builder, lhs_val, rhs_val, "or_tmp");
+        res.value = LLVMBuildOr(ctx->builder, lhs_res.value, rhs_res.value, "or_tmp");
     case BITWISE_OP_XOR:
-        return LLVMBuildXor(ctx->builder, lhs_val, rhs_val, "xor_tmp");
+        res.value = LLVMBuildXor(ctx->builder, lhs_res.value, rhs_res.value, "xor_tmp");
     }
 
-    return NULL; /* Shouldn't happen. */
+    return res; /* Shouldn't happen. */
 }
 
-static LLVMValueRef
+static TypedValue
 process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
-    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
-    if (lhs_val == NULL || rhs_val == NULL)
+    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (lhs_res.value == NULL || rhs_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
 
     // Ensure shift amount has same integer width as lhs
-    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeRef lhs_type = lhs_res.type;
     LLVMTypeKind lhs_kind = LLVMGetTypeKind(lhs_type);
-    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeRef rhs_type = rhs_res.type;
     LLVMTypeKind rhs_kind = LLVMGetTypeKind(rhs_type);
+
+    TypedValue res = lhs_res; /* Default to LHS value so something is always assigned. */
+
     if (lhs_kind == LLVMIntegerTypeKind && rhs_kind == LLVMIntegerTypeKind)
     {
         unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
         unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
         if (lhs_bits > rhs_bits)
         {
-            rhs_val = LLVMBuildZExt(ctx->builder, rhs_val, lhs_type, "promote_shift_rhs");
+            rhs_res.value = LLVMBuildZExt(ctx->builder, rhs_res.value, lhs_type, "promote_shift_rhs");
         }
         else if (rhs_bits > lhs_bits)
         {
             // Shift amount larger than lhs width: truncate to lhs width
-            rhs_val = LLVMBuildTrunc(ctx->builder, rhs_val, lhs_type, "trunc_shift_rhs");
+            rhs_res.value = LLVMBuildTrunc(ctx->builder, rhs_res.value, lhs_type, "trunc_shift_rhs");
         }
     }
 
@@ -6495,44 +6446,47 @@ process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     switch (operator)
     {
     case SHIFT_OP_LL:
-        return LLVMBuildShl(ctx->builder, lhs_val, rhs_val, "shl_tmp");
+        res.value = LLVMBuildShl(ctx->builder, lhs_res.value, rhs_res.value, "shl_tmp");
     case SHIFT_OP_AR:
-        return LLVMBuildAShr(ctx->builder, lhs_val, rhs_val, "ashr_tmp");
+        res.value = LLVMBuildAShr(ctx->builder, lhs_res.value, rhs_res.value, "ashr_tmp");
     }
-    return NULL;
+
+    return res;
 }
 
-static LLVMValueRef
+static TypedValue
 process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
-    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
-    if (lhs_val == NULL || rhs_val == NULL)
+    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (lhs_res.value == NULL || rhs_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
-    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeRef lhs_type = lhs_res.type;
+    LLVMTypeRef rhs_type = rhs_res.type;
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
     LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
     bool is_float_op = (lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind);
 
     // Handle type promotion for integer operands
     // If lhs is wider than rhs (e.g., long vs int), promote rhs to match
+    TypedValue res = lhs_res;
+
     if (!is_float_op && lhs_type_kind == LLVMIntegerTypeKind && rhs_type_kind == LLVMIntegerTypeKind)
     {
         unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
         unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
         if (lhs_bits > rhs_bits)
         {
-            rhs_val = LLVMBuildSExt(ctx->builder, rhs_val, lhs_type, "promote_rhs");
-            rhs_type = lhs_type;
+            rhs_res.value = LLVMBuildSExt(ctx->builder, rhs_res.val, lhs_res.type, "promote_rhs");
+            rhs_res.type = lhs_res.type;
         }
         else if (rhs_bits > lhs_bits)
         {
-            lhs_val = LLVMBuildSExt(ctx->builder, lhs_val, rhs_type, "promote_lhs");
-            lhs_type = rhs_type;
+            lhs_res.value = LLVMBuildSExt(ctx->builder, lhs_res.val, rhs_res.type, "promote_lhs");
+            lhs_res.type = rhs_res.type;
         }
     }
     c_grammar_node_t const * op_node = node->binary_expression.op;
@@ -6541,21 +6495,22 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     switch (operator)
     {
     case ARITH_OP_ADD:
-        return is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_val, rhs_val, "fadd_tmp")
-                           : LLVMBuildAdd(ctx->builder, lhs_val, rhs_val, "add_tmp");
+        res.value = is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_res.value, rhs_res.value, "fadd_tmp")
+                                : LLVMBuildAdd(ctx->builder, lhs_res.value, rhs_res.value, "add_tmp");
     case ARITH_OP_SUB:
-        return is_float_op ? LLVMBuildFSub(ctx->builder, lhs_val, rhs_val, "fsub_tmp")
-                           : LLVMBuildSub(ctx->builder, lhs_val, rhs_val, "sub_tmp");
+        res.value = is_float_op ? LLVMBuildFSub(ctx->builder, lhs_res.value, rhs_res.value, "fsub_tmp")
+                                : LLVMBuildSub(ctx->builder, lhs_res.value, rhs_res.value, "sub_tmp");
     case ARITH_OP_MUL:
-        return is_float_op ? LLVMBuildFMul(ctx->builder, lhs_val, rhs_val, "fmul_tmp")
-                           : LLVMBuildMul(ctx->builder, lhs_val, rhs_val, "mul_tmp");
+        res.value = is_float_op ? LLVMBuildFMul(ctx->builder, lhs_res.value, rhs_res.value, "fmul_tmp")
+                                : LLVMBuildMul(ctx->builder, lhs_res.value, rhs_res.value, "mul_tmp");
     case ARITH_OP_DIV:
-        return is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_val, rhs_val, "fdiv_tmp")
-                           : LLVMBuildSDiv(ctx->builder, lhs_val, rhs_val, "div_tmp");
+        res.value = is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_res.value, rhs_res.value, "fdiv_tmp")
+                                : LLVMBuildSDiv(ctx->builder, lhs_res.value, rhs_res.value, "div_tmp");
     case ARITH_OP_MOD:
-        return LLVMBuildSRem(ctx->builder, lhs_val, rhs_val, "rem_tmp");
+        res.value = LLVMBuildSRem(ctx->builder, lhs_res.value, rhs_res.value, "rem_tmp");
     }
-    return NULL; /* Shouldn't happen. */
+
+    return res; /* Shouldn't happen. */
 }
 
 static LLVMValueRef
