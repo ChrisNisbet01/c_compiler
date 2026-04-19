@@ -5652,7 +5652,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         if (LLVMIsAAllocaInst(struct_value.value))
                         {
                             // Load the pointer value out of the variable
-                            // We use LLVMTypeOf(struct_val) because we need the pointer's own type to load it
                             actual_struct_addr
                                 = aligned_load(ctx->builder, struct_value.type, struct_value.value, "ptr_deref");
                         }
@@ -6245,10 +6244,11 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Clear the bits at bitfield position
         // Create mask: ~(((1 << width) - 1) << offset)
-        unsigned long long mask = ((1ULL << bitfield_bit_width) - 1) << bitfield_bit_offset;
+        unsigned long long width_mask = (bitfield_bit_width == 64) ? ~0ULL : (1ULL << bitfield_bit_width) - 1;
+        unsigned long long mask = width_mask << bitfield_bit_offset;
         unsigned long long saved_bits_mask = ~mask;
 
-        LLVMValueRef saved_bits_mask_val = LLVMConstInt(LLVMTypeOf(current_field), saved_bits_mask, false);
+        LLVMValueRef saved_bits_mask_val = LLVMConstInt(field_type, saved_bits_mask, false);
         LLVMValueRef cleared = LLVMBuildAnd(ctx->builder, current_field, saved_bits_mask_val, "bf_clear");
 
         // Extend rhs_value to field type if needed and shift to position
@@ -6259,7 +6259,11 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             rhs_res = cast_value_to_type(ctx, rhs_res, field_type, true);
             // Shift to bitfield position
             LLVMValueRef shift_amt = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), bitfield_bit_offset, false);
-            shifted = LLVMBuildShl(ctx->builder, rhs_res.value, shift_amt, "bf_shift");
+
+            // Mask the shifted value so it only affects the intended bits
+            LLVMValueRef val_mask = LLVMConstInt(field_type, (1ULL << bitfield_bit_width) - 1, false);
+            LLVMValueRef masked_rhs = LLVMBuildAnd(ctx->builder, rhs_res.value, val_mask, "bf_rhs_mask");
+            shifted = LLVMBuildShl(ctx->builder, masked_rhs, shift_amt, "bf_shift");
         }
         else
         {
@@ -6274,7 +6278,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             = LLVMBuildInsertValue(ctx->builder, current_struct, new_field, bitfield_storage_idx, "bf_insert_struct");
 
         // Store back
-        aligned_store(ctx->builder, new_struct, bitfield_struct_ptr, bitfield_struct_ptr);
+        aligned_store(ctx->builder, new_struct, bitfield_struct_type, bitfield_struct_ptr);
     }
     else
     {
@@ -6397,13 +6401,16 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     {
     case BITWISE_OP_AND:
         res.value = LLVMBuildAnd(ctx->builder, lhs_res.value, rhs_res.value, "and_tmp");
+        break;
     case BITWISE_OP_OR:
         res.value = LLVMBuildOr(ctx->builder, lhs_res.value, rhs_res.value, "or_tmp");
+        break;
     case BITWISE_OP_XOR:
         res.value = LLVMBuildXor(ctx->builder, lhs_res.value, rhs_res.value, "xor_tmp");
+        break;
     }
 
-    return res; /* Shouldn't happen. */
+    return res;
 }
 
 static TypedValue
@@ -6447,8 +6454,10 @@ process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     {
     case SHIFT_OP_LL:
         res.value = LLVMBuildShl(ctx->builder, lhs_res.value, rhs_res.value, "shl_tmp");
+        break;
     case SHIFT_OP_AR:
         res.value = LLVMBuildAShr(ctx->builder, lhs_res.value, rhs_res.value, "ashr_tmp");
+        break;
     }
 
     return res;
@@ -6468,6 +6477,7 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     LLVMTypeRef rhs_type = rhs_res.type;
     LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
     LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
+
     bool is_float_op = (lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind);
 
     // Handle type promotion for integer operands
@@ -6480,12 +6490,12 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
         unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
         if (lhs_bits > rhs_bits)
         {
-            rhs_res.value = LLVMBuildSExt(ctx->builder, rhs_res.val, lhs_res.type, "promote_rhs");
+            rhs_res.value = LLVMBuildSExt(ctx->builder, rhs_res.value, lhs_res.type, "promote_rhs");
             rhs_res.type = lhs_res.type;
         }
         else if (rhs_bits > lhs_bits)
         {
-            lhs_res.value = LLVMBuildSExt(ctx->builder, lhs_res.val, rhs_res.type, "promote_lhs");
+            lhs_res.value = LLVMBuildSExt(ctx->builder, lhs_res.value, rhs_res.type, "promote_lhs");
             lhs_res.type = rhs_res.type;
         }
     }
@@ -6497,104 +6507,118 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     case ARITH_OP_ADD:
         res.value = is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_res.value, rhs_res.value, "fadd_tmp")
                                 : LLVMBuildAdd(ctx->builder, lhs_res.value, rhs_res.value, "add_tmp");
+        break;
     case ARITH_OP_SUB:
         res.value = is_float_op ? LLVMBuildFSub(ctx->builder, lhs_res.value, rhs_res.value, "fsub_tmp")
                                 : LLVMBuildSub(ctx->builder, lhs_res.value, rhs_res.value, "sub_tmp");
+        break;
     case ARITH_OP_MUL:
         res.value = is_float_op ? LLVMBuildFMul(ctx->builder, lhs_res.value, rhs_res.value, "fmul_tmp")
                                 : LLVMBuildMul(ctx->builder, lhs_res.value, rhs_res.value, "mul_tmp");
+        break;
     case ARITH_OP_DIV:
         res.value = is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_res.value, rhs_res.value, "fdiv_tmp")
                                 : LLVMBuildSDiv(ctx->builder, lhs_res.value, rhs_res.value, "div_tmp");
+        break;
     case ARITH_OP_MOD:
         res.value = LLVMBuildSRem(ctx->builder, lhs_res.value, rhs_res.value, "rem_tmp");
+        break;
     }
 
-    return res; /* Shouldn't happen. */
+    return res;
 }
 
-static LLVMValueRef
+static TypedValue
 process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
-    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
-    if (lhs_val == NULL || rhs_val == NULL)
+    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (lhs_res.value == NULL || rhs_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
-    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
+    LLVMTypeRef lhs_type = lhs_res.type;
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
+    res = cast_value_to_type(ctx, res, lhs_res.type, false);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
 
     c_grammar_node_t const * op_node = node->binary_expression.op;
     relational_operator_type_t operator= op_node->op.rel.op;
 
+    TypedValue res = {0};
     switch (operator)
     {
     case REL_OP_LT:
-        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_val, rhs_val, "flt_tmp")
-                           : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_val, rhs_val, "lt_tmp");
+        res.value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_res.value, rhs_res.value, "flt_tmp")
+                                : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_res.value, rhs_res.value, "lt_tmp");
+        break;
     case REL_OP_GT:
-        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_val, rhs_val, "fgt_tmp")
-                           : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_val, rhs_val, "gt_tmp");
+        res.value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_res.value, rhs_res.value, "fgt_tmp")
+                                : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_res.value, rhs_res.value, "gt_tmp");
+        break;
     case REL_OP_LE:
-        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_val, rhs_val, "fle_tmp")
-                           : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_val, rhs_val, "le_tmp");
+        res.value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_res.value, rhs_res.value, "fle_tmp")
+                                : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_res.value, rhs_res.value, "le_tmp");
+        break;
     case REL_OP_GE:
-        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_val, rhs_val, "fge_tmp")
-                           : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_val, rhs_val, "ge_tmp");
+        res.value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_res.value, rhs_res.value, "fge_tmp")
+                                : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_res.value, rhs_res.value, "ge_tmp");
+        break;
+    default:
+        ir_gen_error(&ctx->errors, "Unknown relational operator");
+        return NullTypedValue;
     }
 
-    return NULL; /* Shouldn't happen. */
+    LLVMTypeRef i32_type = LLVMInt32TypeInContext(ctx->context);
+
+    // Convert the i1 result to i32
+    res.value = LLVMBuildZExt(ctx->builder, res.value, i32_type, "bool_to_int");
+    res.type = i32_type;
+
+    return res;
 }
 
-static LLVMValueRef
+static TypedValue
 process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Standard binary ops: [LHS, OP, RHS]
-    LLVMValueRef lhs_val = process_expression(ctx, node->binary_expression.left);
-    LLVMValueRef rhs_val = process_expression(ctx, node->binary_expression.right);
-    if (lhs_val == NULL || rhs_val == NULL)
+    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (lhs_res.value == NULL || rhs_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
-    LLVMTypeRef lhs_type = LLVMTypeOf(lhs_val);
-    LLVMTypeRef rhs_type = LLVMTypeOf(rhs_val);
+    LLVMTypeRef lhs_type = lhs_res.type;
+    LLVMTypeRef rhs_type = rhs_res.type;
     LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
     bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
-
     // Handle type promotion for integer operands - both sides must match
     if (!is_float_op && type_kind == LLVMIntegerTypeKind && LLVMGetTypeKind(rhs_type) == LLVMIntegerTypeKind)
     {
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type);
-        if (lhs_bits > rhs_bits)
-        {
-            rhs_val = LLVMBuildSExt(ctx->builder, rhs_val, lhs_type, "promote_rhs");
-            rhs_type = lhs_type;
-        }
-        else if (rhs_bits > lhs_bits)
-        {
-            lhs_val = LLVMBuildSExt(ctx->builder, lhs_val, rhs_type, "promote_lhs");
-            lhs_type = rhs_type;
-        }
+        rhs_res = cast_value_to_type(ctx, rhs_res, lhs_type, true);
     }
 
     c_grammar_node_t const * op_node = node->binary_expression.op;
     equality_operator_type_t operator= op_node->op.eq.op;
 
+    TypedValue res = {.type = lhs_type};
     switch (operator)
     {
     case EQ_OP_EQ:
-        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
-                           : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+        res.value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_val, rhs_val, "feq_tmp")
+                                : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_val, rhs_val, "eq_tmp");
+        break;
     case EQ_OP_NE:
-        return is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
-                           : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+        res.value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_val, rhs_val, "fne_tmp")
+                                : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_val, rhs_val, "ne_tmp");
+        break;
+    default:
+        ir_gen_error(&ctx->errors, "Unsupported equality operator");
+        return NullTypedValue;
     }
 
-    return NULL; /* Shouldn't happen. */
+    return res;
 }
 
 static TypedValue
@@ -6669,7 +6693,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     return;
 }
 
-static LLVMValueRef
+static TypedValue
 process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Conditional expression: condition ? true_expr : false_expr
@@ -6692,28 +6716,29 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "cond_merge");
 
     // Evaluate condition
-    LLVMValueRef cond_val = process_expression(ctx, condition_node);
-    if (!cond_val)
+    TypedValue cond_res = process_expression(ctx, condition_node);
+    if (cond_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
 
     // Convert condition to i1 if needed
-    LLVMTypeRef cond_type = LLVMTypeOf(cond_val);
+    LLVMTypeRef cond_type = cond_res.type;
     if (LLVMGetTypeKind(cond_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(cond_type) != 1)
     {
-        cond_val = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_val, LLVMConstNull(cond_type), "cond_bool");
+        LLVMValueRef zero = LLVMConstNull(cond_type);
+        cond_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_res.value, zero, "cond_bool");
     }
 
     // Branch to then or else
-    LLVMBuildCondBr(ctx->builder, cond_val, then_block, else_block);
+    LLVMBuildCondBr(ctx->builder, cond_res.value, then_block, else_block);
 
     // Generate then block
     LLVMPositionBuilderAtEnd(ctx->builder, then_block);
-    LLVMValueRef true_val = process_expression(ctx, true_expr_node);
-    if (!true_val)
+    TypedValue true_res = process_expression(ctx, true_expr_node);
+    if (true_res.value == NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
     // After processing true_expr (which might be a nested ternary), the builder
     // is positioned at the nested ternary's merge block. Save this block
@@ -6723,10 +6748,10 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     // Generate else block
     LLVMPositionBuilderAtEnd(ctx->builder, else_block);
-    LLVMValueRef false_val = process_expression(ctx, false_expr_node);
-    if (!false_val)
+    TypedValue false_res = process_expression(ctx, false_expr_node);
+    if (false_res.value = NULL)
     {
-        return NULL;
+        return NullTypedValue;
     }
     // After processing false_expr (which might be a nested ternary), the builder
     // is positioned at the nested ternary's merge block. Save this block
@@ -6737,12 +6762,14 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Merge and create phi node
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
 
-    LLVMTypeRef result_type = LLVMTypeOf(true_val);
-    LLVMValueRef phi = LLVMBuildPhi(ctx->builder, result_type, "cond_result");
+    TypedValue res = {
+        .value = LLVMBuildPhi(ctx->builder, true_res.type, "cond_result"),
+        .type = true_res.type,
+    };
 
     // Add phi operands using the actual blocks where the expressions ended
-    LLVMAddIncoming(phi, &true_val, &true_block, 1);
-    LLVMAddIncoming(phi, &false_val, &false_block, 1);
+    LLVMAddIncoming(res.value, &true_res.value, &true_block, 1);
+    LLVMAddIncoming(res.value, &false_res.value, &false_block, 1);
 
     return phi;
 }
@@ -7153,7 +7180,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             if (expr_val.value != NULL)
             {
                 /* FIXME: Should this be expr_val.type? */
-                target_type = LLVMTypeOf(expr_val.value);
+                target_type = expr_val.type;
             }
         }
 
