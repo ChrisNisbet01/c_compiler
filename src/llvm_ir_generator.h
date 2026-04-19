@@ -65,6 +65,13 @@ typedef struct ir_generator_ctx
     // --- Function declaration tracking ---
     struct function_decls function_declarations;
 
+    struct
+    {
+        LLVMTypeRef i1;
+        LLVMTypeRef i8;
+        LLVMTypeRef i32;
+    } ref_type;
+
     // Pseudo-code for your Compiler State
     int anon_counter;
 
