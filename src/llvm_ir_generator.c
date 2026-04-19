@@ -29,8 +29,9 @@ static type_info_t const * register_tagged_struct_or_union_definition(
 );
 static type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
-static LLVMValueRef
-cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend);
+static TypedValue
+cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool zero_extend);
+
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
 static char *
@@ -1051,8 +1052,8 @@ process_initializer_list(
                         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
                     }
 
-                    LLVMValueRef value = cast_value_to_type(ctx, tvalue.value, final_type, false);
-                    aligned_store(ctx->builder, value, final_type, elem_ptr);
+                    TypedValue cast_value = cast_value_to_type(ctx, tvalue, final_type, false);
+                    aligned_store(ctx->builder, cast_value.value, cast_value.type, elem_ptr);
                 }
             }
 
@@ -1112,8 +1113,9 @@ process_initializer_list(
                     LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(element_type, (unsigned)local_index);
                     if (member_type)
                     {
-                        value = cast_value_to_type(ctx, value, member_type, false);
-                        final_type = member_type;
+                        TypedValue cast_value = cast_value_to_type(ctx, tvalue, member_type, false);
+                        value = cast_value.value;
+                        final_type = cast_value.type;
                     }
                 }
 
@@ -1856,35 +1858,79 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
     return -1;
 }
 
-static LLVMValueRef
-cast_value_to_type(ir_generator_ctx_t * ctx, LLVMValueRef value, LLVMTypeRef target_type, bool zero_extend)
+static TypedValue
+cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool is_src_signed)
 {
-    if (!value || !target_type)
-        return value;
+    LLVMValueRef value = src_value.value;
+    LLVMTypeRef src_type = src_value.type;
 
-    LLVMTypeRef value_type = LLVMTypeOf(value);
-    LLVMTypeKind value_kind = LLVMGetTypeKind(value_type);
-    LLVMTypeKind target_kind = LLVMGetTypeKind(target_type);
-
-    // Only handle integer to integer conversions
-    if (value_kind == LLVMIntegerTypeKind && target_kind == LLVMIntegerTypeKind)
+    if (value == NULL || target_type == NULL || src_type == target_type)
     {
-        unsigned value_bits = LLVMGetIntTypeWidth(value_type);
-        unsigned target_bits = LLVMGetIntTypeWidth(target_type);
-
-        if (target_bits < value_bits)
-            return LLVMBuildTrunc(ctx->builder, value, target_type, "trunc_val");
-        else if (target_bits > value_bits)
-        {
-            if (zero_extend)
-            {
-                return LLVMBuildZExt(ctx->builder, value, target_type, "zext_val");
-            }
-            return LLVMBuildSExt(ctx->builder, value, target_type, "sext_val");
-        }
+        return src_value;
     }
 
-    return value;
+    LLVMTypeKind src_kind = LLVMGetTypeKind(src_type);
+    LLVMTypeKind target_kind = LLVMGetTypeKind(target_type);
+
+    // 1. Integer to Integer (Truncate, ZExt, or SExt)
+    if (src_kind == LLVMIntegerTypeKind && target_kind == LLVMIntegerTypeKind)
+    {
+        unsigned src_bits = LLVMGetIntTypeWidth(src_type);
+        unsigned target_bits = LLVMGetIntTypeWidth(target_type);
+
+        if (target_bits < src_bits)
+        {
+            return (TypedValue){
+                .value = LLVMBuildTrunc(ctx->builder, value, target_type, "cast_trunc"),
+                .type = target_type,
+            };
+        }
+        if (target_bits > src_bits)
+        {
+            LLVMValueRef new_value = is_src_signed ? LLVMBuildSExt(ctx->builder, value, target_type, "cast_sext")
+                                                   : LLVMBuildZExt(ctx->builder, value, target_type, "cast_zext");
+            return (TypedValue){.value = new_value, .type = target_type};
+        }
+        return src_value;
+    }
+
+    // 2. Integer to Floating Point
+    if (src_kind == LLVMIntegerTypeKind && (target_kind == LLVMFloatTypeKind || target_kind == LLVMDoubleTypeKind))
+    {
+        LLVMValueRef new_value = is_src_signed ? LLVMBuildSIToFP(ctx->builder, value, target_type, "cast_sitofp")
+                                               : LLVMBuildUIToFP(ctx->builder, value, target_type, "cast_uitofp");
+        return (TypedValue){.value = new_value, .type = target_type};
+    }
+
+    // 3. Floating Point to Integer
+    if ((src_kind == LLVMFloatTypeKind || src_kind == LLVMDoubleTypeKind) && target_kind == LLVMIntegerTypeKind)
+    {
+        // Note: Floating point to int usually truncates the fractional part in C
+        LLVMValueRef new_value = is_src_signed ? LLVMBuildFPToSI(ctx->builder, value, target_type, "cast_fptosi")
+                                               : LLVMBuildFPToUI(ctx->builder, value, target_type, "cast_fptoui");
+        return (TypedValue){.value = new_value, .type = target_type};
+    }
+
+    // 4. Pointer to Pointer (BitCast)
+    if (src_kind == LLVMPointerTypeKind && target_kind == LLVMPointerTypeKind)
+    {
+        LLVMValueRef new_value = LLVMBuildBitCast(ctx->builder, value, target_type, "cast_bitcast");
+        return (TypedValue){.value = new_value, .type = target_type};
+    }
+
+    // 5. Pointer to Integer / Integer to Pointer
+    if (src_kind == LLVMPointerTypeKind && target_kind == LLVMIntegerTypeKind)
+    {
+        LLVMValueRef new_value = LLVMBuildPtrToInt(ctx->builder, value, target_type, "cast_ptrtoint");
+        return (TypedValue){.value = new_value, .type = target_type};
+    }
+    if (src_kind == LLVMIntegerTypeKind && target_kind == LLVMPointerTypeKind)
+    {
+        LLVMValueRef new_value = LLVMBuildIntToPtr(ctx->builder, value, target_type, "cast_inttoptr");
+        return (TypedValue){.value = new_value, .type = target_type};
+    }
+
+    return src_value;
 }
 
 static char const *
@@ -3691,7 +3737,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             }
                             else
                             {
-                                Typedvalue initializer_res = process_expression(ctx, initializer_expr_node);
+                                TypedValue initializer_res = process_expression(ctx, initializer_expr_node);
                                 LLVMValueRef initializer_value = initializer_res.value;
                                 if (initializer_value != NULL)
                                 {
@@ -3724,7 +3770,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     }
 
                                     // Handle integer type conversion (e.g., i32 literal to i8 char)
-                                    initializer_value = cast_value_to_type(ctx, initializer_value, var_type, false);
+                                    TypedValue cast_value = cast_value_to_type(ctx, initializer_value, var_type, false);
 
                                     aligned_store(ctx->builder, initializer_value, var_type, alloca_inst);
                                 }
