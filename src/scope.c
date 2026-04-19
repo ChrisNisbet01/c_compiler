@@ -598,8 +598,8 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
                 debug_info(
                     "Found symbol entry in current scope: name='%s', ptr=%p, type=%p",
                     name,
-                    (void *)symbol->ptr,
-                    (void *)symbol->type
+                    (void *)symbol->value.value,
+                    (void *)symbol->value.type
                 );
                 return symbol;
             }
