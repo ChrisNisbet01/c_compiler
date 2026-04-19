@@ -6644,7 +6644,8 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     c_grammar_node_t const * op_node = node->binary_expression.op;
     relational_operator_type_t operator= op_node->op.rel.op;
 
-    TypedValue res = {0};
+    LLVMTypeRef i1_type = LLVMInt1TypeInContext(ctx->context);
+    TypedValue res = {.type = i1_type};
     switch (operator)
     {
     case REL_OP_LT:
@@ -6667,12 +6668,13 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
         ir_gen_error(&ctx->errors, "Unknown relational operator");
         return NullTypedValue;
     }
-
+#if 0
     LLVMTypeRef i32_type = LLVMInt32TypeInContext(ctx->context);
 
     // Convert the i1 result to i32
     res.value = LLVMBuildZExt(ctx->builder, res.value, i32_type, "bool_to_int");
     res.type = i32_type;
+#endif
 
     return res;
 }
@@ -6700,7 +6702,8 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     c_grammar_node_t const * op_node = node->binary_expression.op;
     equality_operator_type_t operator= op_node->op.eq.op;
 
-    TypedValue res = {.type = LLVMInt1TypeInContext(ctx->context)};
+    LLVMTypeRef i1_type = LLVMInt1TypeInContext(ctx->context);
+    TypedValue res = {.type = i1_type};
     switch (operator)
     {
     case EQ_OP_EQ:
@@ -6784,12 +6787,14 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
 
     LLVMValueRef v = aligned_load(ctx, ctx->builder, i1_type, res_alloca, "logical_final");
-
+#if 0
     /* Upcast to i32. */
     LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context);
     LLVMValueRef result_val = LLVMBuildZExt(ctx->builder, v, int_type, "logical_final_i32");
-
     return (TypedValue){.value = result_val, .type = int_type};
+#else
+    return (TypedValue){.value = v, .type = i1_type};
+#endif
 }
 
 static TypedValue
@@ -7023,6 +7028,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         LLVMValueRef zero = LLVMConstNull(operand_res.type);
         LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, zero, "is_zero_tmp");
 
+#if 0
         // 2. Cast that i1 back to your standard integer type (e.g., i32)
         // This turns a 'true' into 1 and 'false' into 0
         LLVMTypeRef int_type = LLVMInt32TypeInContext(ctx->context); // Or get from your type cache
@@ -7032,6 +7038,13 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             .value = result_val,
             .type = int_type, // It's definitely an int now
         };
+#else
+        LLVMTypeRef i1_type = LLVMInt1TypeInContext(ctx->context);
+        return (TypedValue){
+            .value = is_zero,
+            .type = i1_type,
+        };
+#endif
     }
 
     case UNARY_OP_BITNOT:
