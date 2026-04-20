@@ -102,7 +102,7 @@ build_type_specifier(c_grammar_node_t const * specifier_list)
         }
         else if (strcmp(child->text, "bool") == 0 || strcmp(child->text, "_Bool") == 0)
         {
-            spec.is_double = true;
+            spec.is_bool = true;
         }
         else if (strcmp(child->text, "void") == 0)
         {
@@ -1984,19 +1984,23 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
     LLVMValueRef value = src_value.value;
     LLVMTypeRef src_type = src_value.type;
 
-    if (value == NULL || target_type == NULL || src_type == target_type)
+    if (0 && (value == NULL || target_type == NULL || src_type == target_type))
     {
+        debug_info("value: %p target_type: %p src_type: %p", (void *)value, (void *)target_type, (void *)src_type);
         return src_value;
     }
 
     LLVMTypeKind src_kind = LLVMGetTypeKind(src_type);
     LLVMTypeKind target_kind = LLVMGetTypeKind(target_type);
 
+    debug_info("%s: target_kind: %u, src_kind: %u", __func__, target_kind, src_kind);
     // 1. Integer to Integer (Truncate, ZExt, or SExt)
     if (src_kind == LLVMIntegerTypeKind && target_kind == LLVMIntegerTypeKind)
     {
         unsigned src_bits = LLVMGetIntTypeWidth(src_type);
         unsigned target_bits = LLVMGetIntTypeWidth(target_type);
+
+        debug_info("%s target bits: %u, src_bits: %u", __func__, target_bits, src_bits);
 
         if (target_bits < src_bits)
         {
@@ -6771,14 +6775,15 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
         if (lhs_bits > rhs_bits)
         {
             rhs_res.value = LLVMBuildSExt(ctx->builder, rhs_res.value, lhs_res.type, "promote_rhs");
-            rhs_res.type = lhs_res.type;
+            res.type = lhs_res.type;
         }
         else if (rhs_bits > lhs_bits)
         {
             lhs_res.value = LLVMBuildSExt(ctx->builder, lhs_res.value, rhs_res.type, "promote_lhs");
-            lhs_res.type = rhs_res.type;
+            res.type = rhs_res.type;
         }
     }
+    debug_info("result bit width: %u", LLVMGetIntTypeWidth(lhs_type));
     c_grammar_node_t const * op_node = node->binary_expression.op;
     arithmetic_operator_type_t operator= op_node->op.arith.op;
 

@@ -334,7 +334,7 @@ UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;
 EnumTypeRef = KwEnum AttributeList Identifier @AST_ACTION_ENUM_TYPE_REF;
 
 
-NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | (KwLong KwInt) | (KwLong KwLong) | (KwLong KwDouble) | KwLong
+NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned                         
                          | KwBool | KwBoolBuiltin | KwComplex | KwImaginary
                          | StructDefinition
