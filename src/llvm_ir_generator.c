@@ -58,60 +58,11 @@ typedef struct
     bool is_bool;
     bool is_short;
     bool is_char;
+    bool is_int;
     bool is_float;
     bool is_double;
     // ... etc
 } TypeSpecifier;
-
-static TypeSpecifier
-build_type_specifier(c_grammar_node_t const * specifier_list)
-{
-    TypeSpecifier spec = {0};
-
-    for (size_t i = 0; i < specifier_list->list.count; ++i)
-    {
-        c_grammar_node_t * child = specifier_list->list.children[i];
-        if (child->text == NULL)
-        {
-            continue;
-        }
-
-        if (strcmp(child->text, "unsigned") == 0)
-        {
-            spec.is_unsigned = true;
-        }
-        else if (strcmp(child->text, "long") == 0)
-        {
-            spec.long_count++;
-        }
-        else if (strcmp(child->text, "short") == 0)
-        {
-            spec.is_short = true;
-        }
-        else if (strcmp(child->text, "char") == 0)
-        {
-            spec.is_char = true;
-        }
-        else if (strcmp(child->text, "float") == 0)
-        {
-            spec.is_float = true;
-        }
-        else if (strcmp(child->text, "double") == 0)
-        {
-            spec.is_double = true;
-        }
-        else if (strcmp(child->text, "bool") == 0 || strcmp(child->text, "_Bool") == 0)
-        {
-            spec.is_bool = true;
-        }
-        else if (strcmp(child->text, "void") == 0)
-        {
-            spec.is_void = true;
-        }
-    }
-
-    return spec;
-}
 
 static char const *
 search_for_identifier(c_grammar_node_t const * node)
@@ -189,11 +140,13 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
 static char const *
 extract_typedef_name(c_grammar_node_t const * type_spec_node)
 {
-    if (type_spec_node == NULL || type_spec_node->type != AST_NODE_TYPEDEF_SPECIFIER || type_spec_node->list.count == 0)
+    if (type_spec_node == NULL || type_spec_node->type != AST_NODE_TYPEDEF_SPECIFIER
+        || type_spec_node->identifier.identifier == NULL)
     {
+        debug_info("%s: no name", __func__);
         return NULL;
     }
-
+    debug_info("%s got name: %s", __func__, type_spec_node->identifier.identifier->text);
     return type_spec_node->identifier.identifier->text;
 }
 
@@ -305,7 +258,7 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
     // Get the size in bytes as a standard C integer
     LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
     unsigned size_in_bytes = LLVMABISizeOfType(data_layout, type);
-    debug_info("type size: %u alignment: %u", size_in_bytes, get_type_alignment(ctx, type));
+    debug_info("type size: %u", size_in_bytes);
     return (TypedValue){
         .value = LLVMConstInt(ctx->ref_type.i32, size_in_bytes, false),
         .type = ctx->ref_type.i32,
@@ -1984,7 +1937,7 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
     LLVMValueRef value = src_value.value;
     LLVMTypeRef src_type = src_value.type;
 
-    if (0 && (value == NULL || target_type == NULL || src_type == target_type))
+    if (value == NULL || target_type == NULL || src_type == target_type)
     {
         debug_info("value: %p target_type: %p src_type: %p", (void *)value, (void *)target_type, (void *)src_type);
         return src_value;
@@ -2174,44 +2127,124 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     return NULL;
 }
 
+static void
+dump_type_specifier(TypeSpecifier spec)
+{
+    fprintf(
+        stderr,
+        "unsigned: %d, long: %u, int %d, void %d, bool %d, short %d, char %d, float %d, double %d\n",
+        spec.is_unsigned,
+        spec.long_count,
+        spec.is_int,
+        spec.is_void,
+        spec.is_bool,
+        spec.is_short,
+        spec.is_char,
+        spec.is_float,
+        spec.is_double
+    );
+}
+
+static TypeSpecifier
+build_type_specifier(c_grammar_node_t const * spec_list)
+{
+    TypeSpecifier spec = {0};
+
+    debug_info("%s count %u", __func__, spec_list->list.count);
+    for (size_t i = 0; i < spec_list->list.count; ++i)
+    {
+        c_grammar_node_t * child = spec_list->list.children[i];
+        if (child->text == NULL)
+        {
+            continue;
+        }
+        debug_info("   item %u: %s", i, child->text);
+        if (strcmp(child->text, "unsigned") == 0)
+        {
+            spec.is_unsigned = true;
+        }
+        else if (strcmp(child->text, "int") == 0)
+        {
+            spec.is_int = true;
+        }
+        else if (strcmp(child->text, "long") == 0)
+        {
+            spec.long_count++;
+        }
+        else if (strcmp(child->text, "short") == 0)
+        {
+            spec.is_short = true;
+        }
+        else if (strcmp(child->text, "char") == 0)
+        {
+            spec.is_char = true;
+        }
+        else if (strcmp(child->text, "float") == 0)
+        {
+            spec.is_float = true;
+        }
+        else if (strcmp(child->text, "double") == 0)
+        {
+            spec.is_double = true;
+        }
+        else if (strcmp(child->text, "bool") == 0 || strcmp(child->text, "_Bool") == 0)
+        {
+            spec.is_bool = true;
+        }
+        else if (strcmp(child->text, "void") == 0)
+        {
+            spec.is_void = true;
+        }
+    }
+
+    debug_info("%s", __func__);
+    dump_type_specifier(spec);
+
+    return spec;
+}
+
 static TypedValue
-get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const specifier)
+get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
 {
     debug_info("%s", __func__);
+    dump_type_specifier(spec);
 
-    TypedValue res = {.is_unsigned = specifier.is_unsigned};
+    TypedValue res = {.is_unsigned = spec.is_unsigned};
     LLVMTypeRef type_ref = NULL;
 
     /* TODO: Check for illegal combinations. */
-    if (specifier.is_double)
+    if (spec.is_double)
     {
         res.is_unsigned = false;
-        type_ref
-            = specifier.long_count > 0 ? LLVMX86FP80TypeInContext(ctx->context) : LLVMDoubleTypeInContext(ctx->context);
+        type_ref = spec.long_count > 0 ? LLVMX86FP80TypeInContext(ctx->context) : LLVMDoubleTypeInContext(ctx->context);
     }
-    else if (specifier.is_float)
+    else if (spec.is_float)
     {
         res.is_unsigned = false;
         type_ref = LLVMFloatTypeInContext(ctx->context);
     }
-    else if (specifier.long_count > 0)
+    else if (spec.long_count > 0)
     {
-        type_ref = (sizeof(long) == 8 || specifier.long_count > 1) ? LLVMInt64TypeInContext(ctx->context)
-                                                                   : LLVMInt32TypeInContext(ctx->context);
+        type_ref = (sizeof(long) == 8 || spec.long_count > 1) ? LLVMInt64TypeInContext(ctx->context)
+                                                              : LLVMInt32TypeInContext(ctx->context);
     }
-    else if (specifier.is_char)
+    else if (spec.is_int)
+    {
+        type_ref = ctx->ref_type.i32;
+    }
+    else if (spec.is_char)
     {
         type_ref = ctx->ref_type.i8;
     }
-    else if (specifier.is_void)
+    else if (spec.is_void)
     {
         type_ref = LLVMVoidTypeInContext(ctx->context);
     }
-    else if (specifier.is_short)
+    else if (spec.is_short)
     {
         type_ref = LLVMInt16TypeInContext(ctx->context);
     }
-    else if (specifier.is_bool)
+    else if (spec.is_bool)
     {
         type_ref = LLVMInt1TypeInContext(ctx->context);
     }
@@ -2220,6 +2253,8 @@ get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const speci
     {
         debug_info("got type kind: %d", LLVMGetTypeKind(type_ref));
     }
+
+    // TODO: deal with unsigned.
 
     res.type = type_ref;
 
@@ -2423,16 +2458,17 @@ map_type_to_llvm_t_wrapped(
             // Check type specifier
             else if (specifier_list->list.count > 0)
             {
-                c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
-
                 TypeSpecifier type_spec = build_type_specifier(specifier_list);
                 TypedValue type_data = get_type_from_type_specifier(ctx, type_spec);
                 if (type_data.type != NULL)
                 {
+                    debug_info("and got type kind: %d", LLVMGetTypeKind(type_data.type));
                     base_type = type_data.type;
                 }
                 if (base_type == NULL)
                 {
+                    c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
+
                     // Handle case where type_spec_node is AST_NODE_TYPE_SPECIFIER with text (terminal)
                     if (type_spec_node->text != NULL)
                     {
@@ -6875,18 +6911,32 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         return NullTypedValue;
     }
+
+#if 1
+    char * val_str = LLVMPrintValueToString(lhs_res.value);
+    debug_info("LHS Value %p contents: %s", (void *)lhs_res.value, val_str);
+    LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
+    val_str = LLVMPrintValueToString(rhs_res.value);
+    debug_info("RHS Value %p contents: %s", (void *)rhs_res.value, val_str);
+    LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
+#endif
+
     LLVMTypeRef lhs_type = lhs_res.type;
     LLVMTypeRef rhs_type = rhs_res.type;
-    LLVMTypeKind type_kind = LLVMGetTypeKind(lhs_type);
-    bool is_float_op = (type_kind == LLVMFloatTypeKind || type_kind == LLVMDoubleTypeKind);
+    LLVMTypeKind lhs_type_kind = LLVMGetTypeKind(lhs_type);
+    LLVMTypeKind rhs_type_kind = LLVMGetTypeKind(rhs_type);
+
+    bool is_float_op = (lhs_type_kind == LLVMFloatTypeKind || lhs_type_kind == LLVMDoubleTypeKind);
+
     // Handle type promotion for integer operands - both sides must match
-    if (!is_float_op && type_kind == LLVMIntegerTypeKind && LLVMGetTypeKind(rhs_type) == LLVMIntegerTypeKind)
+    if (!is_float_op && lhs_type_kind == LLVMIntegerTypeKind && rhs_type_kind == LLVMIntegerTypeKind)
     {
         rhs_res = cast_value_to_type(ctx, rhs_res, lhs_type, true);
     }
 
     c_grammar_node_t const * op_node = node->binary_expression.op;
     equality_operator_type_t operator= op_node->op.eq.op;
+    debug_info("%s: now comparing results operator %d", __func__, operator);
 
     TypedValue res = {.type = ctx->ref_type.i1};
     switch (operator)
@@ -6904,6 +6954,7 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         return NullTypedValue;
     }
 
+    debug_info("%s result: %p", __func__, res.value);
     return res;
 }
 
@@ -7065,8 +7116,8 @@ static TypedValue
 process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Unary structure: [Operator, Operand]
-    c_grammar_node_t const * operand_node = node->unary_expression_prefix.operand;
     c_grammar_node_t const * op = node->unary_expression_prefix.op;
+    c_grammar_node_t const * operand_node = node->unary_expression_prefix.operand;
 
     switch (op->op.unary.op)
     {
@@ -7296,6 +7347,8 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             {
                 c_grammar_node_t * child = qualifier_list->list.children[i];
 
+                debug_info("qualifier list child type: %s", get_node_type_name_from_node(child));
+
                 // Handle terminal type specifier (e.g., "int", "char")
                 if (child->type == AST_NODE_TYPE_SPECIFIER)
                 {
@@ -7321,9 +7374,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     }
                 }
                 // Handle TypedefSpecifier (typedef name in sizeof(MyType))
-                else if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
+                else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
                 {
-                    char const * typedef_name = extract_typedef_name(child);
+                    c_grammar_node_t const * specifier = child->typedef_specifier_qualifier.typedef_specifier;
+                    debug_info("XXXXXXXXXXXXXXXX");
+                    char const * typedef_name = extract_typedef_name(specifier);
                     if (typedef_name != NULL)
                     {
                         LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
@@ -7410,8 +7465,15 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 }
             }
         }
-
-        return get_type_size(ctx, target_type);
+        debug_info("unary operator getting size of type: %p", target_type);
+        TypedValue v = get_type_size(ctx, target_type);
+        if (v.value != NULL)
+        {
+            char * val_str = LLVMPrintValueToString(v.value);
+            debug_info("Type (%p) size contents: %s", v.value, val_str);
+            LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
+        }
+        return v;
     }
     case UNARY_OP_ALIGNOF:
     {

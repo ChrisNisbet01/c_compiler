@@ -9,10 +9,7 @@ main()
     int result = 0;
 
     if (sizeof(MyInt) != sizeof(int))
-        result = 1;
-
-    if (sizeof(x) != sizeof(int))
-        result = 2;
+        result = 100 + sizeof(MyInt);
 
     return result;
 }
