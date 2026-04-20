@@ -5,6 +5,9 @@
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
 #include "debug.h"
 
+// Helper function to get natural alignment for a type
+#include <llvm-c/Target.h>
+#include <llvm-c/TargetMachine.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -220,10 +223,6 @@ extract_pointer_qualifiers(
         }
     }
 }
-
-// Helper function to get natural alignment for a type
-#include <llvm-c/Target.h>
-#include <llvm-c/TargetMachine.h>
 
 static unsigned long long
 get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
@@ -2145,6 +2144,54 @@ dump_type_specifier(TypeSpecifier spec)
     );
 }
 
+static void
+type_specifier_process_name(TypeSpecifier * spec, char const * name)
+{
+    if (name == NULL)
+    {
+        return;
+    }
+    /* TODO: Check for illegal combinations. */
+
+    if (strcmp(name, "unsigned") == 0)
+    {
+        spec->is_unsigned = true;
+        spec->is_int = true;
+    }
+    else if (strcmp(name, "int") == 0)
+    {
+        spec->is_int = true;
+    }
+    else if (strcmp(name, "long") == 0)
+    {
+        spec->long_count++;
+    }
+    else if (strcmp(name, "short") == 0)
+    {
+        spec->is_short = true;
+    }
+    else if (strcmp(name, "char") == 0)
+    {
+        spec->is_char = true;
+    }
+    else if (strcmp(name, "float") == 0)
+    {
+        spec->is_float = true;
+    }
+    else if (strcmp(name, "double") == 0)
+    {
+        spec->is_double = true;
+    }
+    else if (strcmp(name, "bool") == 0 || strcmp(name, "_Bool") == 0)
+    {
+        spec->is_bool = true;
+    }
+    else if (strcmp(name, "void") == 0)
+    {
+        spec->is_void = true;
+    }
+}
+
 static TypeSpecifier
 build_type_specifier(c_grammar_node_t const * spec_list)
 {
@@ -2154,47 +2201,7 @@ build_type_specifier(c_grammar_node_t const * spec_list)
     for (size_t i = 0; i < spec_list->list.count; ++i)
     {
         c_grammar_node_t * child = spec_list->list.children[i];
-        if (child->text == NULL)
-        {
-            continue;
-        }
-        debug_info("   item %u: %s", i, child->text);
-        if (strcmp(child->text, "unsigned") == 0)
-        {
-            spec.is_unsigned = true;
-        }
-        else if (strcmp(child->text, "int") == 0)
-        {
-            spec.is_int = true;
-        }
-        else if (strcmp(child->text, "long") == 0)
-        {
-            spec.long_count++;
-        }
-        else if (strcmp(child->text, "short") == 0)
-        {
-            spec.is_short = true;
-        }
-        else if (strcmp(child->text, "char") == 0)
-        {
-            spec.is_char = true;
-        }
-        else if (strcmp(child->text, "float") == 0)
-        {
-            spec.is_float = true;
-        }
-        else if (strcmp(child->text, "double") == 0)
-        {
-            spec.is_double = true;
-        }
-        else if (strcmp(child->text, "bool") == 0 || strcmp(child->text, "_Bool") == 0)
-        {
-            spec.is_bool = true;
-        }
-        else if (strcmp(child->text, "void") == 0)
-        {
-            spec.is_void = true;
-        }
+        type_specifier_process_name(&spec, child->text);
     }
 
     debug_info("%s", __func__);
@@ -2213,6 +2220,7 @@ get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
     LLVMTypeRef type_ref = NULL;
 
     /* TODO: Check for illegal combinations. */
+
     if (spec.is_double)
     {
         res.is_unsigned = false;
@@ -2251,7 +2259,7 @@ get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
 
     if (type_ref != NULL)
     {
-        debug_info("got type kind: %d", LLVMGetTypeKind(type_ref));
+        debug_info("%s: got type kind: %d", __func__, LLVMGetTypeKind(type_ref));
     }
 
     // TODO: deal with unsigned.
@@ -2299,6 +2307,17 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
     }
 
     return type_ref;
+}
+
+static void
+dump_llvm_type(char const * label, LLVMTypeRef type)
+{
+    debug_info("%s %s (%p):", __func__, label, type);
+    if (type == NULL)
+    {
+        return;
+    }
+    debug_info("type kind: %u", LLVMGetTypeKind(type));
 }
 
 /*
@@ -2550,7 +2569,7 @@ map_type_to_llvm_t_wrapped(
             }
         }
     }
-
+    debug_info("check declarator");
     // 2. Process Declarator (extract pointers and arrays)
     bool is_function_pointer = false;
     LLVMTypeRef func_ptr_param_types[16];
@@ -2560,6 +2579,7 @@ map_type_to_llvm_t_wrapped(
     if (declarator && declarator->type == AST_NODE_DECLARATOR)
     {
         pointer_level = declarator->declarator.pointer_list->list.count;
+        debug_info("is declarator and pointer level %u", pointer_level);
         {
             c_grammar_node_t const * direct_decl = declarator->declarator.direct_declarator;
             // Check inside DirectDeclarator for pointers and arrays
@@ -2675,6 +2695,7 @@ map_type_to_llvm_t_wrapped(
     // Handle Abstract Declarator (used in type names, e.g., cast expressions)
     if (declarator && declarator->type == AST_NODE_ABSTRACT_DECLARATOR)
     {
+        debug_info("is abstract delcarator");
         // AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixList
         // The children can be: [PointerList?, DeclaratorSuffixList?]
 
@@ -2762,6 +2783,7 @@ map_type_to_llvm_t_wrapped(
         pointer_level,
         LLVMGetTypeKind(base_type)
     );
+    debug_info("now making a pointer: level %u", pointer_level);
     for (int i = 0; i < pointer_level; ++i)
     {
         final_type = LLVMPointerType(final_type, 0);
@@ -2776,6 +2798,9 @@ map_type_to_llvm_t_wrapped(
 
     free(array_sizes);
     map_type_depth--;
+
+    dump_llvm_type(__func__, final_type);
+
     return final_type;
 }
 
@@ -3576,9 +3601,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     .type = param_types[i],
                     .is_lvalue = true,
                 };
-                add_symbol_with_struct(ctx, param_names[i], p, param_compound_name, NULL);
 
                 /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
+                /* Moved from below the add_symbol_with_struct() call. */
                 if (type_spec != NULL && type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
                 {
                     char const * typedef_name = extract_typedef_name(type_spec);
@@ -3589,14 +3614,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             && LLVMGetTypeKind(param_types[i]) == LLVMPointerTypeKind)
                         {
                             /* Update the symbol's pointee_type */
-                            symbol_t * sym = (symbol_t *)find_symbol_entry(ctx, param_names[i]);
-                            if (sym != NULL)
-                            {
-                                sym->value.pointee_type = base;
-                            }
+                            p.pointee_type = base;
                         }
                     }
                 }
+
+                add_symbol_with_struct(ctx, param_names[i], p, param_compound_name, NULL);
             }
         }
 
@@ -3760,12 +3783,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     (void *)var_type,
                     var_type ? (int)LLVMGetTypeKind(var_type) : -1
                 );
-                if (var_type != NULL)
+                if (var_type == NULL)
                 {
-                    debug_info("var type is: %d", LLVMGetTypeKind(var_type));
-                }
-                else
-                {
+                    debug_info("NO VAR TYPE FOUND for var: %s", var_name);
                     continue;
                 }
                 c_grammar_node_t const * init_decl_initializer = init_decl_node->init_declarator.initializer;
@@ -3774,7 +3794,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     initializer_expr_node = init_decl_initializer->list.children[0];
                 }
 
-                if (var_name)
+                if (var_name != NULL)
                 {
                     debug_info("got var name: %s", var_name);
                     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
@@ -3883,18 +3903,21 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         // Compute pointee_type for pointer variables
                         // We need to compute this BEFORE map_type adds pointer types, because
                         // LLVMGetElementType returns NULL/invalid for opaque pointers
+                        debug_info("computing pointee type decl specs: %p", decl_specifiers);
                         LLVMTypeRef pointee_type = NULL;
-                        if (decl_specifiers)
+                        if (decl_specifiers != NULL)
                         {
                             // Get the base type from specifiers
                             pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
                             // If there's a declarator with pointers, this is the pointee type
-                            if (pointee_type && declarator_node)
+                            dump_llvm_type("Node declaration pointee type", pointee_type);
+                            if (pointee_type != NULL && declarator_node != NULL)
                             {
                                 // Check if there are pointers in the declarator
                                 bool has_pointer = declarator_node->declarator.pointer_list->list.count > 0;
                                 if (!has_pointer)
                                 {
+                                    debug_info("no pointee type");
                                     pointee_type = NULL;
                                 }
                             }
@@ -3927,6 +3950,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             .pointee_type = pointee_type,
                             .is_lvalue = true,
                         };
+                        debug_info(
+                            "node decl adding symbol %s type %p, pointee_tpye %p",
+                            var_name,
+                            (void *)var_type,
+                            (void *)pointee_type
+                        );
                         add_symbol_with_struct(ctx, var_name, sym_val, struct_name, &symbol_data);
 
                         // Process initializer if present
@@ -5149,11 +5178,6 @@ get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifi
     debug_info("%s: %s", __func__, identifier_node->text);
     find_symbol(ctx, identifier_node->text, &res);
 
-    if (strcmp(identifier_node->text, "NULL") == 0)
-    {
-        debug_info("NULL is lvalue: %u", res.is_lvalue);
-    }
-
     return res;
 }
 
@@ -6042,9 +6066,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
                 // Postfix returns the original value (current_val)
                 debug_info("current_value.value %p, curent_val: %p", (void *)current_value.value, (void *)current_val);
-                base_value.value = current_val;
-                base_value.type = current_value.type;
-                base_value.pointee_type = current_value.pointee_type;
+                base_value = (TypedValue){
+                    .value = current_val,
+                    .type = current_value.type,
+                    .pointee_type = current_value.pointee_type,
+                };
             }
         }
         else
@@ -6321,7 +6347,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     LLVMValueRef addr = aligned_load(ctx, ctx->builder, val.type, val.value, "ptr_load");
                     // The address to store to is the loaded address
                     // The pointee type is what we assign to
-                    lhs_res = (TypedValue){.value = addr, .type = val.pointee_type};
+                    lhs_res = (TypedValue){.value = addr, .type = val.pointee_type, .is_lvalue = true};
                 }
             }
         }
@@ -6650,10 +6676,9 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // Load the value from the memory address using LLVMBuildLoad2.
         debug_info("loading from memory address");
-        return (TypedValue){
-            .value = aligned_load(ctx, ctx->builder, var_res.type, var_res.value, "load_tmp"),
-            .type = var_res.type,
-        };
+        var_res.value = aligned_load(ctx, ctx->builder, var_res.type, var_res.value, "load_tmp");
+
+        return var_res;
     }
     else if (var_res.value == NULL)
     {
@@ -7129,6 +7154,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             TypedValue var;
             if (find_symbol(ctx, operand_node->text, &var))
             {
+                var.is_lvalue = false;
                 return var;
             }
         }
@@ -7199,9 +7225,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             // Return the pointer to the alloca (not the loaded value)
             return (TypedValue){.value = alloca_inst, .type = compound_type};
         }
+        TypedValue v = process_expression(ctx, operand_node);
 
+        v.is_lvalue = false;
         // For &member or &array[i], process the expression which returns a pointer
-        return process_expression(ctx, operand_node);
+        return v;
     }
 
     case UNARY_OP_DEREF:
@@ -7215,14 +7243,16 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
         if (operand_res.pointee_type == NULL)
         {
-            ir_gen_error(&ctx->errors, "Error: Dereference operand is not a pointer\n");
+            ir_gen_error(
+                &ctx->errors, "Error: Dereference operand is not a pointer (value: %p)\n", (void *)operand_res.value
+            );
             return NullTypedValue;
         }
 
-        return (TypedValue){
-            .value = aligned_load(ctx, ctx->builder, operand_res.pointee_type, operand_res.value, "deref_tmp"),
-            .type = operand_res.pointee_type,
-        };
+        operand_res.value = aligned_load(ctx, ctx->builder, operand_res.pointee_type, operand_res.value, "deref_tmp");
+        operand_res.is_lvalue = true;
+
+        return operand_res;
     }
 
     case UNARY_OP_MINUS:
@@ -7232,28 +7262,25 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             return NullTypedValue;
         }
-        LLVMTypeRef op_type = operand_res.type;
-        if (op_type != NULL
-            && (LLVMGetTypeKind(op_type) == LLVMFloatTypeKind || LLVMGetTypeKind(op_type) == LLVMDoubleTypeKind))
-            return (TypedValue){
-                .value = LLVMBuildFNeg(ctx->builder, operand_res.value, "fneg_tmp"),
-                .type = operand_res.type,
-            };
-        return (TypedValue){
-            .value = LLVMBuildNeg(ctx->builder, operand_res.value, "neg_tmp"),
-            .type = operand_res.type,
-        };
+        if (operand_res.type != NULL
+            && (LLVMGetTypeKind(operand_res.type) == LLVMFloatTypeKind
+                || LLVMGetTypeKind(operand_res.type) == LLVMDoubleTypeKind))
+        {
+            operand_res.value = LLVMBuildFNeg(ctx->builder, operand_res.value, "fneg_tmp");
+        }
+        else
+        {
+            operand_res.value = LLVMBuildNeg(ctx->builder, operand_res.value, "neg_tmp");
+        }
+        operand_res.is_lvalue = false;
+
+        return operand_res;
     }
 
     case UNARY_OP_NOT:
     {
         TypedValue operand_res = process_expression(ctx, operand_node);
-        if (operand_res.value == NULL)
-        {
-            return operand_res;
-        }
-        LLVMTypeRef op_type = operand_res.type;
-        if (op_type == NULL)
+        if (operand_res.value == NULL || operand_res.type == NULL)
         {
             return NullTypedValue;
         }
@@ -7281,56 +7308,59 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
     case UNARY_OP_BITNOT:
     {
-        TypedValue operand_val = process_expression(ctx, operand_node);
-        if (operand_val.value == NULL)
+        TypedValue operand_res = process_expression(ctx, operand_node);
+        if (operand_res.value == NULL)
         {
-            return operand_val;
+            return operand_res;
         }
-
-        return (TypedValue){
-            .value = LLVMBuildNot(ctx->builder, operand_val.value, "bitnot_tmp"),
-            .type = operand_val.type,
-        };
+        operand_res.value = LLVMBuildNot(ctx->builder, operand_res.value, "bitnot_tmp");
+        return operand_res;
     }
 
     case UNARY_OP_INC:
     case UNARY_OP_DEC:
     {
         // FIXME: Should this be a process_expression() call?
-        TypedValue var_res = get_variable_pointer(ctx, operand_node);
+        TypedValue var_res = process_expression(ctx, operand_node);
 
-        if (var_res.value != NULL && var_res.type != NULL)
+        if (var_res.value == NULL || var_res.type == NULL)
         {
-            LLVMValueRef original_val = aligned_load(ctx, ctx->builder, var_res.type, var_res.value, "orig_val");
-            LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32, 1, false);
-
-            LLVMValueRef new_val;
-            if (op->op.unary.op == UNARY_OP_INC)
-            {
-                LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
-                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                    new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "inc_tmp");
-                else
-                    new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
-            }
-            else
-            {
-                LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
-                if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                    new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "dec_tmp");
-                else
-                    new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
-            }
-
-            aligned_store(ctx, ctx->builder, new_val, var_res.type, var_res.value);
-            return var_res;
+            return NullTypedValue;
         }
-        return NullTypedValue;
+
+        LLVMValueRef original_val = aligned_load(ctx, ctx->builder, var_res.type, var_res.value, "orig_val");
+        LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32, 1, false);
+
+        LLVMValueRef new_val;
+        if (op->op.unary.op == UNARY_OP_INC)
+        {
+            LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
+            if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "inc_tmp");
+            else
+                new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
+        }
+        else
+        {
+            LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
+            if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
+                new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "dec_tmp");
+            else
+                new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
+        }
+        aligned_store(ctx, ctx->builder, new_val, var_res.type, var_res.value);
+        var_res.value = new_val;
+        var_res.is_lvalue = false;
+
+        return var_res;
     }
 
     case UNARY_OP_PLUS:
     {
-        return process_expression(ctx, operand_node);
+        TypedValue var_res = process_expression(ctx, operand_node);
+        var_res.is_lvalue = false;
+
+        return var_res;
     }
 
     case UNARY_OP_SIZEOF:
@@ -7473,6 +7503,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             debug_info("Type (%p) size contents: %s", v.value, val_str);
             LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
         }
+
         return v;
     }
     case UNARY_OP_ALIGNOF:

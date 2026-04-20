@@ -1723,7 +1723,7 @@ handle_cast_expression(
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "%s expected 4 or 5 children but got %u", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR), count
+            ctx, "%s expected 2 children but got %u", get_node_type_name_from_type(AST_NODE_CAST_EXPRESSION), count
         );
         return;
     }
