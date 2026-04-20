@@ -50,30 +50,67 @@ dump_typed_value(char const * label, TypedValue v)
     }
 }
 
-static char *
-combine_type_specifiers_text(c_grammar_node_t const * specifier_list)
+typedef struct
 {
-    char * type_specs_str = NULL;
+    bool is_unsigned;
+    int long_count; // 0 = int, 1 = long, 2 = long long
+    bool is_void;
+    bool is_bool;
+    bool is_short;
+    bool is_char;
+    bool is_float;
+    bool is_double;
+    // ... etc
+} TypeSpecifier;
+
+static TypeSpecifier
+build_type_specifier(c_grammar_node_t const * specifier_list)
+{
+    TypeSpecifier spec = {0};
+
     for (size_t i = 0; i < specifier_list->list.count; ++i)
     {
         c_grammar_node_t * child = specifier_list->list.children[i];
-        if (child->text != NULL)
+        if (child->text == NULL)
         {
-            if (type_specs_str == NULL)
-            {
-                type_specs_str = strdup(child->text);
-            }
-            else
-            {
-                char * new_type_specs_str = NULL;
-                int ret = asprintf(&new_type_specs_str, "%s %s", type_specs_str, child->text);
-                (void)ret;
-                free(type_specs_str);
-                type_specs_str = new_type_specs_str;
-            }
+            continue;
+        }
+
+        if (strcmp(child->text, "unsigned") == 0)
+        {
+            spec.is_unsigned = true;
+        }
+        else if (strcmp(child->text, "long") == 0)
+        {
+            spec.long_count++;
+        }
+        else if (strcmp(child->text, "short") == 0)
+        {
+            spec.is_short = true;
+        }
+        else if (strcmp(child->text, "char") == 0)
+        {
+            spec.is_char = true;
+        }
+        else if (strcmp(child->text, "float") == 0)
+        {
+            spec.is_float = true;
+        }
+        else if (strcmp(child->text, "double") == 0)
+        {
+            spec.is_double = true;
+        }
+        else if (strcmp(child->text, "bool") == 0 || strcmp(child->text, "_Bool") == 0)
+        {
+            spec.is_double = true;
+        }
+        else if (strcmp(child->text, "void") == 0)
+        {
+            spec.is_void = true;
         }
     }
-    return type_specs_str;
+
+    return spec;
 }
 
 static char const *
@@ -265,14 +302,12 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
         return (TypedValue){.value = LLVMConstInt(ctx->ref_type.i32, 0, false), .type = ctx->ref_type.i32};
     }
 
-    // LLVM handles all the math, padding, and nested structs here:
-    LLVMValueRef size_val = LLVMSizeOf(type);
-
-    // LLVMSizeOf returns an i64 usually, so we cast it to your size_type (i32)
-    LLVMValueRef truncated_size = LLVMConstTruncOrBitCast(size_val, ctx->ref_type.i32);
-
+    // Get the size in bytes as a standard C integer
+    LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
+    unsigned size_in_bytes = LLVMABISizeOfType(data_layout, type);
+    debug_info("type size: %u alignment: %u", size_in_bytes, get_type_alignment(ctx, type));
     return (TypedValue){
-        .value = truncated_size,
+        .value = LLVMConstInt(ctx->ref_type.i32, size_in_bytes, false),
         .type = ctx->ref_type.i32,
     };
 }
@@ -2135,6 +2170,58 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     return NULL;
 }
 
+static TypedValue
+get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const specifier)
+{
+    debug_info("%s", __func__);
+
+    TypedValue res = {.is_unsigned = specifier.is_unsigned};
+    LLVMTypeRef type_ref = NULL;
+
+    /* TODO: Check for illegal combinations. */
+    if (specifier.is_double)
+    {
+        res.is_unsigned = false;
+        type_ref
+            = specifier.long_count > 0 ? LLVMX86FP80TypeInContext(ctx->context) : LLVMDoubleTypeInContext(ctx->context);
+    }
+    else if (specifier.is_float)
+    {
+        res.is_unsigned = false;
+        type_ref = LLVMFloatTypeInContext(ctx->context);
+    }
+    else if (specifier.long_count > 0)
+    {
+        type_ref = (sizeof(long) == 8 || specifier.long_count > 1) ? LLVMInt64TypeInContext(ctx->context)
+                                                                   : LLVMInt32TypeInContext(ctx->context);
+    }
+    else if (specifier.is_char)
+    {
+        type_ref = ctx->ref_type.i8;
+    }
+    else if (specifier.is_void)
+    {
+        type_ref = LLVMVoidTypeInContext(ctx->context);
+    }
+    else if (specifier.is_short)
+    {
+        type_ref = LLVMInt16TypeInContext(ctx->context);
+    }
+    else if (specifier.is_bool)
+    {
+        type_ref = LLVMInt1TypeInContext(ctx->context);
+    }
+
+    if (type_ref != NULL)
+    {
+        debug_info("got type kind: %d", LLVMGetTypeKind(type_ref));
+    }
+
+    res.type = type_ref;
+
+    return res;
+}
+
 static LLVMTypeRef
 get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
 {
@@ -2333,18 +2420,12 @@ map_type_to_llvm_t_wrapped(
             else if (specifier_list->list.count > 0)
             {
                 c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
-                debug_info(
-                    "processing first child of specifier list, which is type %s",
-                    get_node_type_name_from_node(type_spec_node)
-                );
-                if (specifier_list->list.count > 1)
-                {
-                    /* Likely something like "unsigned", "int" */
-                    debug_info("multiple type specifiers: %u", specifier_list->list.count);
-                    char * type_specs_str = combine_type_specifiers_text(specifier_list);
-                    base_type = get_type_from_name(ctx, type_specs_str);
 
-                    free(type_specs_str);
+                TypeSpecifier type_spec = build_type_specifier(specifier_list);
+                TypedValue type_data = get_type_from_type_specifier(ctx, type_spec);
+                if (type_data.type != NULL)
+                {
+                    base_type = type_data.type;
                 }
                 if (base_type == NULL)
                 {
@@ -2355,7 +2436,7 @@ map_type_to_llvm_t_wrapped(
 
                         // First check for typedef
                         LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
-                        if (typedef_type)
+                        if (typedef_type != NULL)
                         {
                             base_type = typedef_type;
                         }
@@ -6490,11 +6571,6 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (var_res.value != NULL && var_res.type != NULL)
     {
-        if (!var_res.is_lvalue)
-        {
-            debug_info("returning variable directly");
-            return var_res;
-        }
         // Check if the symbol is an integer constant (like enum values)
         // These are global i32 values, not pointers - we can just return them directly
         // But only for globals that are marked as constants (e.g., enum values, const globals),
@@ -6525,6 +6601,13 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 .type = var_res.type,
             };
         }
+
+        if (!var_res.is_lvalue)
+        {
+            debug_info("returning variable directly");
+            return var_res;
+        }
+
         // Load the value from the memory address using LLVMBuildLoad2.
         debug_info("loading from memory address");
         return (TypedValue){
