@@ -1953,7 +1953,7 @@ static TypedValue
 cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool is_src_signed)
 {
     debug_info("%s: in", __func__);
-    ensure_rvalue(ctx, "cast_rval", src_value);
+    src_value = ensure_rvalue(ctx, "cast_rval", src_value);
 
     LLVMValueRef value = src_value.value;
     LLVMTypeRef src_type = src_value.type;
@@ -6178,7 +6178,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     // Track bitfield assignment info
     bool is_bitfield_assign = false;
-    unsigned bitfield_storage_idx = 0;
     unsigned bitfield_bit_offset = 0;
     unsigned bitfield_bit_width = 0;
     LLVMValueRef bitfield_struct_ptr = NULL;
@@ -6340,7 +6339,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     {
                                         // For bitfield assignment, track the metadata
                                         is_bitfield_assign = true;
-                                        bitfield_storage_idx = storage_index;
                                         bitfield_bit_offset = field->bit_offset;
                                         bitfield_bit_width = field->bit_width;
                                         bitfield_struct_ptr = struct_ptr;
@@ -6588,66 +6586,48 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Generate the store instruction.
-    if (is_bitfield_assign && bitfield_struct_ptr != NULL && bitfield_struct_type != NULL)
+    if (is_bitfield_assign && bitfield_struct_ptr != NULL)
     {
-        // For bitfield assignment, we need to:
-        // 1. Load the current struct value
-        // 2. Clear the bits at bitfield position
-        // 3. Shift new value to correct position
-        // 4. OR to combine
-        // 5. Store back
+        /* * 1. Target the storage unit.
+         * bitfield_struct_ptr is the GEP result (the address of the i32/i64).
+         * bitfield_struct_type is the type of that storage unit (e.g., i32).
+         */
+        LLVMTypeRef storage_type = bitfield_struct_type;
 
-        // Load current struct value
-        LLVMValueRef current_struct
-            = aligned_load(ctx, ctx->builder, bitfield_struct_type, bitfield_struct_ptr, "bf_struct_load");
+        // 2. LOAD only the affected storage unit
+        LLVMValueRef current_val = aligned_load(ctx, ctx->builder, storage_type, bitfield_struct_ptr, "bf_unit_load");
 
-        // Get the field type
-        LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(bitfield_struct_type, bitfield_storage_idx);
-
-        // Extract current field value using LLVM 20 API (index as unsigned)
-        LLVMValueRef current_field
-            = LLVMBuildExtractValue(ctx->builder, current_struct, bitfield_storage_idx, "bf_extract");
-
-        // Clear the bits at bitfield position
-        // Create mask: ~(((1 << width) - 1) << offset)
+        // 3. PREPARE MASKS
+        // width_mask: (1 << width) - 1
         unsigned long long width_mask = (bitfield_bit_width == 64) ? ~0ULL : (1ULL << bitfield_bit_width) - 1;
-        unsigned long long mask = width_mask << bitfield_bit_offset;
-        unsigned long long saved_bits_mask = ~mask;
+        // clear_mask: ~ (width_mask << offset)
+        unsigned long long clear_mask = ~(width_mask << bitfield_bit_offset);
 
-        LLVMValueRef saved_bits_mask_val = LLVMConstInt(field_type, saved_bits_mask, false);
-        LLVMValueRef cleared = LLVMBuildAnd(ctx->builder, current_field, saved_bits_mask_val, "bf_clear");
+        LLVMValueRef llvm_clear_mask = LLVMConstInt(storage_type, clear_mask, false);
+        LLVMValueRef llvm_width_mask = LLVMConstInt(storage_type, width_mask, false);
+        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32, bitfield_bit_offset, false);
 
-        // Extend rhs_value to field type if needed and shift to position
-        LLVMValueRef shifted;
-        if (LLVMGetTypeKind(rhs_res.type) == LLVMIntegerTypeKind)
-        {
-            // Zero-extend to field type if needed
-            rhs_res = cast_value_to_type(ctx, rhs_res, field_type, true);
-            // Shift to bitfield position
-            LLVMValueRef shift_amt = LLVMConstInt(ctx->ref_type.i32, bitfield_bit_offset, false);
+        // 4. MODIFY
+        // Clear the old bits
+        LLVMValueRef cleared = LLVMBuildAnd(ctx->builder, current_val, llvm_clear_mask, "bf_clear");
 
-            // Mask the shifted value so it only affects the intended bits
-            LLVMValueRef val_mask = LLVMConstInt(field_type, (1ULL << bitfield_bit_width) - 1, false);
-            LLVMValueRef masked_rhs = LLVMBuildAnd(ctx->builder, rhs_res.value, val_mask, "bf_rhs_mask");
-            shifted = LLVMBuildShl(ctx->builder, masked_rhs, shift_amt, "bf_shift");
-        }
-        else
-        {
-            shifted = rhs_res.value;
-        }
+        // Mask the RHS value to ensure it doesn't overflow its width
+        TypedValue casted_rhs = cast_value_to_type(ctx, rhs_res, storage_type, true);
+        LLVMValueRef masked_rhs = LLVMBuildAnd(ctx->builder, casted_rhs.value, llvm_width_mask, "bf_rhs_clip");
 
-        // OR to combine
-        LLVMValueRef new_field = LLVMBuildOr(ctx->builder, cleared, shifted, "bf_insert");
+        // Shift new value into position
+        LLVMValueRef shifted_rhs = LLVMBuildShl(ctx->builder, masked_rhs, llvm_offset, "bf_shift");
 
-        // Insert back into struct using LLVM 20 API
-        LLVMValueRef new_struct
-            = LLVMBuildInsertValue(ctx->builder, current_struct, new_field, bitfield_storage_idx, "bf_insert_struct");
+        // Combine
+        LLVMValueRef final_val = LLVMBuildOr(ctx->builder, cleared, shifted_rhs, "bf_merge");
 
-        // Store back
-        aligned_store(ctx, ctx->builder, new_struct, bitfield_struct_type, bitfield_struct_ptr);
+        // 5. STORE only the affected storage unit back
+        aligned_store(ctx, ctx->builder, final_val, storage_type, bitfield_struct_ptr);
     }
     else
     {
+        // Ensure the RHS is cast to the LHS type before storing
+        rhs_res = cast_value_to_type(ctx, rhs_res, lhs_res.type, true);
         aligned_store(ctx, ctx->builder, rhs_res.value, lhs_res.type, lhs_res.value);
     }
 
