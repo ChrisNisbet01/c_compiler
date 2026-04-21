@@ -594,11 +594,12 @@ process_array_subscript(
     return (TypedValue){.value = elem_ptr, .type = elem_type};
 }
 
-static LLVMValueRef
-handle_bitfield_extraction(
-    ir_generator_ctx_t * ctx, LLVMValueRef current_val, type_info_t const * info, size_t member_index
-)
+static TypedValue
+handle_bitfield_extraction(ir_generator_ctx_t * ctx, TypedValue tval, type_info_t const * info, size_t member_index)
 {
+    TypedValue tval_rval = ensure_rvalue(ctx, tval);
+    LLVMValueRef current_val = tval_rval.value;
+
     if (info && info->fields && member_index < info->field_count)
     {
         struct_field_t const * field = &info->fields[member_index];
@@ -607,12 +608,13 @@ handle_bitfield_extraction(
             // Extract: (storage >> bit_offset) & mask
             LLVMValueRef bit_offset_val = LLVMConstInt(ctx->ref_type.i32, field->bit_offset, false);
             LLVMValueRef mask_val = LLVMConstInt(ctx->ref_type.i32, (1ULL << field->bit_width) - 1, false);
-            LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, current_val, bit_offset_val, "bf_shift");
-            current_val = LLVMBuildAnd(ctx->builder, shifted, mask_val, "bf_mask");
+            LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, tval_rval.value, bit_offset_val, "bf_shift");
+            tval_rval.value = LLVMBuildAnd(ctx->builder, shifted, mask_val, "bf_mask");
+            tval_rval.is_lvalue = true;
         }
     }
 
-    return current_val;
+    return tval;
 }
 
 LLVMValueRef
@@ -5932,6 +5934,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 {
                     struct_type = struct_value.pointee_type;
                 }
+
                 if (struct_type == NULL)
                 {
                     debug_error(
@@ -5989,7 +5992,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
                     indices[1] = LLVMConstInt(ctx->ref_type.i32, storage_index, false);
 
-                    LLVMValueRef member_ptr;
                     // Check if struct_val (which could be base_val or current_ptr) is a pointer
                     // Now GEP into the ACTUAL address
                     TypedValue loaded_struct_value = struct_value;
@@ -6005,13 +6007,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             "have pointer and loaded struct type: %d", LLVMGetTypeKind(loaded_struct_value.type)
                         );
                     }
-                    member_ptr = LLVMBuildInBoundsGEP2(
-                        ctx->builder, struct_type, loaded_struct_value.value, indices, 2, "memberptr"
-                    );
 
-                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
-                    base_value.value = aligned_load(ctx, ctx->builder, member_type, member_ptr, "member");
-                    base_value.value = handle_bitfield_extraction(ctx, base_value.value, struct_info, member_index);
+                    base_value = (TypedValue){
+                        .value = LLVMBuildInBoundsGEP2(
+                            ctx->builder, struct_type, loaded_struct_value.value, indices, 2, "memberptr"
+                        ),
+                        .type = LLVMStructGetTypeAtIndex(struct_type, storage_index),
+                        .is_lvalue = true,
+                    };
+
+                    base_value = handle_bitfield_extraction(ctx, base_value, struct_info, member_index);
 
                     /* Track the member's struct type for chained arrow accesses (e.g. a->b->c).
                      * If the member is a pointer, keep pointer type for subscript/arrow access.
