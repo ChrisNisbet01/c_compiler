@@ -696,6 +696,7 @@ process_postfix_suffixes(
                 for (size_t j = 0; j < num_args; ++j)
                 {
                     args[j] = process_expression(ctx, suffix->list.children[j]);
+                    args[j] = ensure_rvalue(ctx, args[j]);
                 }
             }
 
@@ -4556,6 +4557,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * body_stmt = node->switch_statement.body;
 
         TypedValue switch_val = process_expression(ctx, switch_expr);
+        switch_val = ensure_rvalue(ctx, switch_val);
         if (switch_val.value == NULL)
         {
             debug_error("Failed to process switch expression.");
@@ -4691,6 +4693,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 if (child->list.count >= 1)
                 {
                     TypedValue case_val = process_expression(ctx, child->list.children[0]);
+                    case_val = ensure_rvalue(ctx, case_val);
                     LLVMAddCase(
                         switch_inst, case_val.value, items[i].body_block ? items[i].body_block : fallthrough_target
                     );
@@ -5406,6 +5409,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         if (!has_func_call_suffix)
         {
             base_value = process_expression(ctx, base_node);
+            base_value = ensure_rvalue(ctx, base_value);
         }
 
         // If base_val is a pointer type and have_ptr is false, set up current_ptr for member access
@@ -5445,6 +5449,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 for (size_t j = 0; j < num_args; ++j)
                 {
                     args[j] = process_expression(ctx, suffix->list.children[j]);
+                    args[j] = ensure_rvalue(ctx, args[j]);
                 }
             }
 
