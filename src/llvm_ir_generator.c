@@ -46,6 +46,9 @@ dump_typed_value(char const * label, TypedValue v)
     if (v.value != NULL)
     {
         fprintf(stderr, "has value: %p, is_lvalue: %d\n", (void *)v.value, v.is_lvalue);
+        char * val_str = LLVMPrintValueToString(v.value);
+        debug_info("Type contents: %s", val_str);
+        LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
     }
     if (v.type != NULL)
     {
@@ -251,7 +254,7 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
 {
     if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
     {
-        return (TypedValue){.value = LLVMConstInt(ctx->ref_type.i32, 0, false), .type = ctx->ref_type.i32};
+        return (TypedValue){.value = LLVMConstInt(ctx->ref_type.i64, 0, false), .type = ctx->ref_type.i64};
     }
 
     // Get the size in bytes as a standard C integer
@@ -259,8 +262,8 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
     unsigned size_in_bytes = LLVMABISizeOfType(data_layout, type);
     debug_info("type size: %u", size_in_bytes);
     return (TypedValue){
-        .value = LLVMConstInt(ctx->ref_type.i32, size_in_bytes, false),
-        .type = ctx->ref_type.i32,
+        .value = LLVMConstInt(ctx->ref_type.i64, size_in_bytes, false),
+        .type = ctx->ref_type.i64,
     };
 }
 
@@ -599,7 +602,7 @@ process_array_subscript(
         return NullTypedValue;
     }
 
-    return (TypedValue){.value = elem_ptr, .type = elem_type};
+    return (TypedValue){.value = elem_ptr, .type = elem_type, .is_lvalue = true};
 }
 
 static TypedValue
@@ -2886,6 +2889,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     ctx->ref_type.i1 = LLVMInt1TypeInContext(ctx->context);
     ctx->ref_type.i8 = LLVMInt8TypeInContext(ctx->context);
     ctx->ref_type.i32 = LLVMInt32TypeInContext(ctx->context);
+    ctx->ref_type.i64 = LLVMInt64TypeInContext(ctx->context);
 
     // Initialize with global scope
     ctx->current_scope = scope_create(NULL); // NULL parent = global scope
@@ -5589,6 +5593,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 {
                     // Update current_ptr for next iteration
                     current_value = new_value;
+                    base_value = current_value;
                     debug_info("current_type kind is: now %u", LLVMGetTypeKind(current_value.type));
                 }
                 else
@@ -5596,8 +5601,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     debug_error("Could not process array subscript.");
                     return NullTypedValue;
                 }
-                // Clear base_val so final load uses the correct element type
-                base_value = NullTypedValue;
             }
         }
         else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
@@ -7542,12 +7545,6 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
         debug_info("unary operator getting size of type: %p", target_type);
         TypedValue v = get_type_size(ctx, target_type);
-        if (v.value != NULL)
-        {
-            char * val_str = LLVMPrintValueToString(v.value);
-            debug_info("Type (%p) size contents: %s", v.value, val_str);
-            LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
-        }
 
         return v;
     }
@@ -7611,10 +7608,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             }
         }
 
-        unsigned alignment = get_type_alignment(ctx, target_type);
-        LLVMValueRef val = LLVMConstInt(ctx->ref_type.i32, alignment, false);
+        unsigned long long alignment = get_type_alignment(ctx, target_type);
+        LLVMValueRef val = LLVMConstInt(ctx->ref_type.i64, alignment, false);
 
-        return (TypedValue){.value = val, .type = ctx->ref_type.i32};
+        return (TypedValue){.value = val, .type = ctx->ref_type.i64};
     }
     default:
     {
