@@ -56,20 +56,6 @@ dump_typed_value(char const * label, TypedValue v)
     }
 }
 
-typedef struct
-{
-    bool is_unsigned;
-    int long_count; // 0 = int, 1 = long, 2 = long long
-    bool is_void;
-    bool is_bool;
-    bool is_short;
-    bool is_char;
-    bool is_int;
-    bool is_float;
-    bool is_double;
-    // ... etc
-} TypeSpecifier;
-
 static char const *
 search_for_identifier(c_grammar_node_t const * node)
 {
@@ -338,7 +324,13 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
         container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
     }
 
-    return (TypedValue){.value = container, .type = val.type, .is_lvalue = false};
+    return (TypedValue){
+        .value = container,
+        .type = val.type,
+        .is_lvalue = false,
+        .pointee_type = val.pointee_type,
+        .specifiers = val.specifiers,
+    };
 }
 #define ensure_rvalue(c, l, v) ensure_rvalue_impl((c), (l), (v), __LINE__)
 
@@ -368,6 +360,54 @@ get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
 }
 
 // Helper to process array subscript - extracts index and generates GEP
+#if 0
+static TypedValue
+process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, TypedValue base_tv)
+{
+    // 1. Get the Index (always an Rvalue)
+    c_grammar_node_t * index_node = subscript_node->list.children[0];
+    TypedValue index_res = process_expression(ctx, index_node);
+    index_res = ensure_rvalue(ctx, "subscript_index", index_res);
+
+    LLVMValueRef elem_ptr = NULL;
+    LLVMTypeRef elem_type = NULL;
+    LLVMTypeRef base_llvm_type = base_tv.type;
+
+    // 2. Resolve the Pointer (if it's an Lvalue pointer variable, we must load the address)
+    TypedValue base_rval = ensure_rvalue(ctx, "array_base_load", base_tv);
+
+    if (LLVMGetTypeKind(base_llvm_type) == LLVMPointerTypeKind)
+    {
+        // Use the pointee_type we stored when the variable was first looked up
+        elem_type = base_tv.pointee_type;
+
+        // If we don't have a pointee_type, fallback to i8 (char*) for string literals
+        if (elem_type == NULL)
+        {
+            debug_info("%s: pointee type not available!", __func__);
+            elem_type = ctx->ref_type.i8;
+        }
+
+        // C Rule: ptr[i] is a 1-index GEP
+        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, base_rval.value, &index_res.value, 1, "arrayidx");
+    }
+    else if (LLVMGetTypeKind(base_llvm_type) == LLVMArrayTypeKind)
+    {
+        elem_type = LLVMGetElementType(base_llvm_type);
+
+        // C Rule: array[i] is a 2-index GEP [0, i]
+        LLVMValueRef indices[2] = {LLVMConstInt(ctx->ref_type.i32, 0, false), index_res.value};
+        // Note: For arrays, we use the LVALUE address (the alloca), not a loaded value
+        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, base_llvm_type, base_tv.value, indices, 2, "arrayidx");
+    }
+
+    return (TypedValue){
+        .value = elem_ptr,
+        .type = elem_type,
+        .is_lvalue = true // Result of subscript is always an address you can read/write
+    };
+}
+#else
 static TypedValue
 process_array_subscript(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, LLVMValueRef base_ptr, LLVMTypeRef base_type
@@ -590,6 +630,7 @@ process_array_subscript(
         {
             return NullTypedValue;
         }
+        index_res = ensure_rvalue(ctx, "array_index", index_res);
 
         LLVMValueRef indices[2];
         indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
@@ -604,6 +645,7 @@ process_array_subscript(
 
     return (TypedValue){.value = elem_ptr, .type = elem_type, .is_lvalue = true};
 }
+#endif
 
 static TypedValue
 handle_bitfield_extraction(TypedValue tval, type_info_t const * info, size_t member_index)
@@ -6183,8 +6225,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     bool is_bitfield_assign = false;
     unsigned bitfield_bit_offset = 0;
     unsigned bitfield_bit_width = 0;
-    LLVMValueRef bitfield_struct_ptr = NULL;
-    LLVMTypeRef bitfield_struct_type = NULL;
+    LLVMValueRef bitfield_storage_unit_ptr = NULL;
+    LLVMTypeRef bitfield_storage_unit_type = NULL;
 
     // Check if LHS is a PostfixExpression with array subscript or member access
     debug_info(
@@ -6344,8 +6386,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                         is_bitfield_assign = true;
                                         bitfield_bit_offset = field->bit_offset;
                                         bitfield_bit_width = field->bit_width;
-                                        bitfield_struct_ptr = struct_ptr;
-                                        bitfield_struct_type = struct_type;
+                                        bitfield_storage_unit_type = current_type;
+                                        bitfield_storage_unit_ptr = current_ptr;
 
                                         // Point to struct for load/modify/store
                                         current_ptr = struct_ptr;
@@ -6589,16 +6631,17 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Generate the store instruction.
-    if (is_bitfield_assign && bitfield_struct_ptr != NULL)
+    if (is_bitfield_assign && bitfield_storage_unit_type != NULL)
     {
         /* * 1. Target the storage unit.
-         * bitfield_struct_ptr is the GEP result (the address of the i32/i64).
-         * bitfield_struct_type is the type of that storage unit (e.g., i32).
+         * bitfield_storage_unit_ptr is the GEP result (the address of the i32/i64).
+         * bitfield_storage_unit_type is the type of that storage unit (e.g., i32).
          */
-        LLVMTypeRef storage_type = bitfield_struct_type;
+        LLVMTypeRef storage_type = bitfield_storage_unit_type;
 
         // 2. LOAD only the affected storage unit
-        LLVMValueRef current_val = aligned_load(ctx, ctx->builder, storage_type, bitfield_struct_ptr, "bf_unit_load");
+        LLVMValueRef current_val
+            = aligned_load(ctx, ctx->builder, storage_type, bitfield_storage_unit_ptr, "bf_unit_load");
 
         // 3. PREPARE MASKS
         // width_mask: (1 << width) - 1
@@ -6625,7 +6668,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef final_val = LLVMBuildOr(ctx->builder, cleared, shifted_rhs, "bf_merge");
 
         // 5. STORE only the affected storage unit back
-        aligned_store(ctx, ctx->builder, final_val, storage_type, bitfield_struct_ptr);
+        aligned_store(ctx, ctx->builder, final_val, storage_type, bitfield_storage_unit_ptr);
     }
     else
     {
@@ -7293,9 +7336,14 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             );
             return NullTypedValue;
         }
+        operand_res = ensure_rvalue(ctx, "un_op_deref", operand_res);
 
-        operand_res.value = aligned_load(ctx, ctx->builder, operand_res.pointee_type, operand_res.value, "deref_tmp");
-        operand_res.is_lvalue = true;
+        return (TypedValue){
+            .value = operand_res.value,
+            .type = operand_res.pointee_type,
+            .pointee_type = NULL,
+            .is_lvalue = true,
+        };
 
         return operand_res;
     }
