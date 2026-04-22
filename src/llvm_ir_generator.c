@@ -48,12 +48,15 @@ dump_typed_value(char const * label, TypedValue v)
         fprintf(stderr, "has value: %p, is_lvalue: %d\n", (void *)v.value, v.is_lvalue);
         char * val_str = LLVMPrintValueToString(v.value);
         debug_info("Type contents: %s", val_str);
-        LLVMDisposeMessage(val_str); // CRITICAL: You must free this string!
+        LLVMDisposeMessage(val_str);
     }
-    if (v.type != NULL)
-    {
-        fprintf(stderr, "has type: %p (%u)\n", (void *)v.type, LLVMGetTypeKind(v.type));
-    }
+    fprintf(stderr, "type: %p (%d)\n", (void *)v.type, (v.type != NULL) ? (int)LLVMGetTypeKind(v.type) : -1);
+    fprintf(
+        stderr,
+        "pointee type: %p (%d)\n",
+        (void *)v.pointee_type,
+        (v.pointee_type != NULL) ? (int)LLVMGetTypeKind(v.pointee_type) : -1
+    );
 }
 
 static char const *
@@ -1501,6 +1504,7 @@ typedef struct
 static struct_or_union_members_st
 extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
+    debug_info("%s:", __func__);
     struct_or_union_members_st object_members = {0};
 
     if (type_child == NULL
@@ -1837,6 +1841,7 @@ register_untagged_struct_or_union_definition(
 )
 {
     struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
+    debug_info("%s: num_members: %zu", __func__, members.num_members);
 
     if (members.num_members > 0)
     {
@@ -5657,20 +5662,39 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             }
 
             debug_info(
-                "Member access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type=%u",
+                "\n\n\n\nMember access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type= %p (%u) "
+                "current_pointee_type: %p "
+                "(%u)",
                 (void *)base_value.value,
                 have_ptr,
                 (void *)current_value.value,
-                current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1
+                current_value.type,
+                current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1,
+                current_value.pointee_type,
+                current_value.pointee_type != NULL ? (int)LLVMGetTypeKind(current_value.pointee_type) : -1
             );
 
-            TypedValue struct_value = base_value;
             bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+
+            if (is_arrow)
+            {
+                // base_value is currently the result of the PREVIOUS step (e.g., &o.inr)
+                // We load it to get the address of the 'Inner' struct
+                base_value = ensure_rvalue(ctx, "arrow_base_load", base_value);
+
+                // Now swap the type so the member lookup looks at 'Inner', not 'ptr'
+                if (base_value.pointee_type)
+                {
+                    base_value.type = base_value.pointee_type;
+                }
+            }
+            TypedValue struct_value = base_value;
+            dump_typed_value("new struct value", struct_value);
 
             // Handle case where base_val is NULL but we have current_ptr from array subscript
             // OR for arrow access where current_ptr is set
-            if (current_value.value != NULL
-                && ((struct_value.value == NULL && have_ptr && current_value.type != NULL) || (is_arrow && have_ptr)))
+            if (current_value.value != NULL && have_ptr
+                && ((struct_value.value == NULL && current_value.type != NULL) || is_arrow))
             {
                 // current_ptr points to the element, current_type is its type
                 LLVMTypeKind type_kind = current_value.type ? LLVMGetTypeKind(current_value.type) : 0;
@@ -5980,25 +6004,14 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                 }
                 LLVMTypeRef struct_type = NULL;
-                if (struct_value.type != NULL && LLVMGetTypeKind(struct_value.type) == LLVMStructTypeKind)
-                {
-                    struct_type = struct_value.type;
-                }
-                else if (
-                    is_arrow && struct_value.pointee_type != NULL
-                    && LLVMGetTypeKind(struct_value.pointee_type) == LLVMStructTypeKind
-                )
-                {
-                    struct_type = struct_value.pointee_type;
-                }
+                debug_info("assign struct type");
+                dump_typed_value("struct value", struct_value);
+                dump_typed_value("current value", current_value);
+                struct_type = struct_value.type;
 
                 if (struct_type == NULL)
                 {
-                    debug_error(
-                        "Could not find struct type for member access of '%s' on '%s'.",
-                        member_name,
-                        (base_node && base_node->text) ? base_node->text : "?"
-                    );
+                    debug_error("Could not find struct type for member access of '%s'.", member_name);
                     continue;
                 }
 
@@ -6011,8 +6024,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // Look up the struct info to find the member by name
                 type_info_t const * struct_info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
                 debug_info(
-                    "Looking up struct info for member access. Struct type: %p, found info: %s",
+                    "Looking up struct info for member access by type. Struct type: %p (%u), found info: %s",
                     (void *)struct_value.type,
+                    struct_value.type != NULL ? (int)LLVMGetTypeKind(struct_value.type) : -1,
                     struct_info ? "yes" : "no"
                 );
                 if (struct_info && struct_info->fields)
@@ -6022,8 +6036,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0
                             && struct_info->fields[j].storage_index < num_elements)
                         {
+                            struct_field_t const * field = &struct_info->fields[j];
                             member_index = j;
-                            storage_index = struct_info->fields[j].storage_index;
+                            storage_index = field->storage_index;
+                            current_value.type = field->type;
+                            current_value.pointee_type = field->pointee_struct_type;
                             found = true;
                             break;
                         }
@@ -6035,12 +6052,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     found = true;
                 }
                 debug_info(
-                    "Member '%s' access - found: %s, member_index: %u, storage_index: %u, num_elements: %u",
+                    "Member '%s' access - found: %s, member_index: %u, storage_index: %u, num_elements: %u, "
+                    "current_val pointee_type: %p (%u)",
                     member_name,
                     found ? "yes" : "no",
                     member_index,
                     storage_index,
-                    num_elements
+                    num_elements,
+                    current_value.pointee_type,
+                    current_value.pointee_type != NULL ? (int)LLVMGetTypeKind(current_value.pointee_type) : -1
                 );
                 if (found || num_elements > 0)
                 {
@@ -6056,12 +6076,23 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     {
                         loaded_struct_value = ensure_rvalue(ctx, "postfix_struct_rval", struct_value);
                         debug_info("loaded struct pointer and type: %d", LLVMGetTypeKind(loaded_struct_value.type));
+                        if (current_value.pointee_type != NULL)
+                        {
+                            debug_info("have pointee type!!");
+                            struct_value.value = current_value.value;
+                            struct_value.type = current_value.pointee_type;
+                            struct_type = struct_value.type;
+                        }
                     }
                     else
                     {
                         loaded_struct_value = struct_value;
                         debug_info(
-                            "have pointer and loaded struct type: %d", LLVMGetTypeKind(loaded_struct_value.type)
+                            "have pointer and loaded struct type: %p (%u) struct type %p (%u)",
+                            loaded_struct_value.type,
+                            LLVMGetTypeKind(loaded_struct_value.type),
+                            struct_type,
+                            struct_type != NULL ? (int)LLVMGetTypeKind(struct_type) : -1
                         );
                     }
 
@@ -6069,12 +6100,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         .value = LLVMBuildInBoundsGEP2(
                             ctx->builder, struct_type, loaded_struct_value.value, indices, 2, "memberptr"
                         ),
-                        .type = LLVMStructGetTypeAtIndex(struct_type, storage_index),
+                        .type = struct_info->fields[member_index].type,
+                        .pointee_type = struct_info->fields[member_index].pointee_struct_type,
                         .is_lvalue = true,
                     };
 
                     base_value = handle_bitfield_extraction(base_value, struct_info, member_index);
 
+#if 1
+                    current_value = base_value;
+#else
                     /* Track the member's struct type for chained arrow accesses (e.g. a->b->c).
                      * If the member is a pointer, keep pointer type for subscript/arrow access.
                      * If the member is a struct value, set the struct type. */
@@ -6091,15 +6126,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             current_value.type = field_type;
                             current_value.value = base_value.value;
                             have_ptr = true;
-
                             /* Also track the pointee type for subscript handling */
                             /* We'll need to look this up during subscript processing */
+                            current_value.pointee_type = struct_info->fields[member_index].pointee_struct_type;
                         }
                         else if (LLVMGetTypeKind(field_type) == LLVMStructTypeKind)
                         {
                             current_value.type = field_type;
                         }
                     }
+#endif
                     did_member_access = true;
                 }
             }

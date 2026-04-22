@@ -2,6 +2,5 @@ Failed tests:
 ../tests/test_anon_struct_arrow.c
 ../tests/test_arrow_access.c
 ../tests/test_arrow_struct_ptr.c
-../tests/test_bitfields.c
 ../tests/test_compound_literal_pointer.c
 ../tests/test_function_pointers.c
