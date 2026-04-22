@@ -5316,6 +5316,16 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Array subscript: use helper function
             if (have_ptr && current_value.type != NULL)
             {
+                if (LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
+                {
+                    dump_typed_value("prior to process_array_subscript - ensuring rvalue", current_value);
+                    // We are holding the address of a pointer variable (e.g., &o.inner).
+                    // We need the ACTUAL address stored there (e.g., the value of inner).
+                    current_value = ensure_rvalue(ctx, "subscript_ptr_load", current_value);
+                    // FIXME - This should be inside process_array_subscript, but need to refactor to pass TypedValue
+                    // first.
+                }
+
                 TypedValue new_value = process_array_subscript(ctx, suffix, current_value.value, current_value.type);
                 debug_info(
                     "%s: process_array_subscript: subscript returned new_ptr=%p", __func__, (void *)new_value.value

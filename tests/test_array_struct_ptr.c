@@ -1,3 +1,4 @@
+
 // Minimal test case that should trigger arrow access
 typedef struct
 {
@@ -19,6 +20,6 @@ main(void)
     Outer o;
     o.inner = inner;
     int v = o.inner[0].value;
-
+    printf("v: %d\n", v);
     return v - 10; // array access
 }
