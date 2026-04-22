@@ -6348,22 +6348,24 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
          * bitfield_storage_unit_ptr is the GEP result (the address of the i32/i64).
          * bitfield_storage_unit_type is the type of that storage unit (e.g., i32).
          */
-        TypedValue lhs_res_rval = ensure_rvalue(ctx, "assign_bitfield_lhs_rval", lhs_res);
+        // TypedValue lhs_res_rval = ensure_rvalue(ctx, "assign_bitfield_lhs_rval", lhs_res);
+        LLVMValueRef container
+            = aligned_load(ctx, ctx->builder, lhs_res.type, lhs_res.value, "assign_bitfield_lhs_rval");
 
-        LLVMTypeRef storage_type = lhs_res_rval.type;
+        LLVMTypeRef storage_type = lhs_res.type;
 
         // 2. LOAD only the affected storage unit
-        LLVMValueRef current_val = lhs_res_rval.value;
+        LLVMValueRef current_val = container;
 
         // 3. PREPARE MASKS
         // width_mask: (1 << width) - 1
-        unsigned long long width_mask = (lhs_res_rval.bit_width == 64) ? ~0ULL : (1ULL << lhs_res_rval.bit_width) - 1;
+        unsigned long long width_mask = (lhs_res.bit_width == 64) ? ~0ULL : (1ULL << lhs_res.bit_width) - 1;
         // clear_mask: ~ (width_mask << offset)
-        unsigned long long clear_mask = ~(width_mask << lhs_res_rval.bit_offset);
+        unsigned long long clear_mask = ~(width_mask << lhs_res.bit_offset);
 
         LLVMValueRef llvm_clear_mask = LLVMConstInt(storage_type, clear_mask, false);
         LLVMValueRef llvm_width_mask = LLVMConstInt(storage_type, width_mask, false);
-        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32, lhs_res_rval.bit_offset, false);
+        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32, lhs_res.bit_offset, false);
 
         // 4. MODIFY
         // Clear the old bits
