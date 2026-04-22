@@ -30,3 +30,5 @@ typedef struct
 } TypedValue;
 
 extern TypedValue NullTypedValue;
+
+void dump_typed_value(char const * label, TypedValue v);

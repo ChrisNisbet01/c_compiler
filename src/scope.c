@@ -14,6 +14,7 @@
 
 // Include the full definition from the header to get ir_generator_ctx_t
 #include "llvm_ir_generator.h"
+#include "llvm_typed_value.h"
 
 // --- Scope lifecycle ---
 
@@ -744,37 +745,42 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
     {
         return NULL;
     }
+    debug_info("%s: %s", __func__, name);
 
     for (size_t i = 0; i < ctx->function_declarations.count; ++i)
     {
         struct function_decl_entry * entry = &ctx->function_declarations.entries[i];
         if (entry->name != NULL && strcmp(entry->name, name) == 0)
         {
+            debug_info("found");
             return entry;
         }
     }
 
+    debug_info("not found");
     return NULL;
 }
 
 bool
-add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef type, bool has_definition)
+add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition)
 {
-    if (ctx == NULL || name == NULL || type == NULL)
+    if (ctx == NULL || name == NULL || func.value == NULL || func.type == NULL || func.pointee_type == NULL)
     {
+        debug_error("%s: Invalid arguments", __func__);
+
         return false;
     }
 
-    debug_info(
-        "Adding function declaration: name='%s', type=%p, has_definition=%d", name, (void *)type, has_definition
-    );
+    debug_info("Adding function declaration: name='%s' has_definition=%d", name, has_definition);
+    dump_typed_value("func", func);
+
     // Check if function already exists
     struct function_decl_entry * existing = find_function_declaration(ctx, name);
 
     if (existing != NULL)
     {
         // Function already declared - check for signature mismatch
-        if (!function_signatures_match(existing->type, type))
+        if (!function_signatures_match(existing->func.pointee_type, func.pointee_type))
         {
             return true; // Conflict detected
         }
@@ -809,7 +815,7 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRe
     }
 
     ctx->function_declarations.entries[ctx->function_declarations.count].name = strdup(name);
-    ctx->function_declarations.entries[ctx->function_declarations.count].type = type;
+    ctx->function_declarations.entries[ctx->function_declarations.count].func = func;
     ctx->function_declarations.entries[ctx->function_declarations.count].has_definition = has_definition;
     ctx->function_declarations.count++;
 

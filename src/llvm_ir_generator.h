@@ -28,7 +28,7 @@ typedef struct label
 struct function_decl_entry
 {
     char * name;
-    LLVMTypeRef type;
+    TypedValue func;
     bool has_definition; // true if we've seen a function body
 };
 
@@ -78,6 +78,7 @@ typedef struct ir_generator_ctx
         LLVMTypeRef i8;
         LLVMTypeRef i32;
         LLVMTypeRef i64;
+        LLVMTypeRef ptr;
     } ref_type;
 
     // Pseudo-code for your Compiler State

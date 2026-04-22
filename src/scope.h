@@ -379,7 +379,7 @@ scope_typedef_entry_t * scope_lookup_typedef_entry_by_name(scope_t const * scope
  * @param has_definition True if this includes a function body.
  * @return true if a conflict was detected, false otherwise.
  */
-bool add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRef type, bool has_definition);
+bool add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition);
 
 /**
  * @brief Finds a function declaration by name.

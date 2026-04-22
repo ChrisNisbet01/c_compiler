@@ -1,21 +1,25 @@
 #include <stdio.h>
 
-int add(int a, int b)
+int
+add(int a, int b)
 {
     return a + b;
 }
 
-int subtract(int a, int b)
+int
+subtract(int a, int b)
 {
     return a - b;
 }
 
-int apply(int (*func)(int, int), int x, int y)
+int
+apply(int (*func)(int, int), int x, int y)
 {
     return func(x, y);
 }
 
-int main()
+int
+main()
 {
     int (*operation)(int, int);
 
@@ -32,7 +36,7 @@ int main()
         return 2;
 
     /* Direct function pointer call */
-    int (*fp)(int, int) = &add;
+    int (*fp)(int, int) = add;
     int result3 = fp(10, 20);
     printf("fp(10, 20) = %d\n", result3);
     if (result3 != 30)

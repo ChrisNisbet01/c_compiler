@@ -39,30 +39,6 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
-static void
-dump_typed_value(char const * label, TypedValue v)
-{
-    fprintf(stderr, "\n\n--------------------\n");
-    fprintf(stderr, "TypedValue: %s\n", label);
-    if (v.value != NULL)
-    {
-        fprintf(stderr, "has value: %p, is_lvalue: %d\n", (void *)v.value, v.is_lvalue);
-        char * val_str = LLVMPrintValueToString(v.value);
-        debug_info("Type contents: %s", val_str);
-        LLVMDisposeMessage(val_str);
-    }
-    fprintf(stderr, "type: %p (%d)\n", (void *)v.type, (v.type != NULL) ? (int)LLVMGetTypeKind(v.type) : -1);
-    fprintf(
-        stderr,
-        "pointee type: %p (%d)\n",
-        (void *)v.pointee_type,
-        (v.pointee_type != NULL) ? (int)LLVMGetTypeKind(v.pointee_type) : -1
-    );
-    fprintf(stderr, "bit width: %u\n", v.bit_width);
-    fprintf(stderr, "bit offset: %u\n", v.bit_offset);
-    fprintf(stderr, "--------------------\n\n");
-}
-
 static char const *
 search_for_identifier(c_grammar_node_t const * node)
 {
@@ -1740,6 +1716,8 @@ static TypedValue
 cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool is_src_signed)
 {
     debug_info("%s: in", __func__);
+    dump_typed_value("pre-cast", src_value);
+
     src_value = ensure_rvalue(ctx, "cast_rval", src_value);
 
     LLVMValueRef value = src_value.value;
@@ -1781,7 +1759,7 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
                                                    : LLVMBuildZExt(ctx->builder, value, target_type, "cast_zext");
             return (TypedValue){.value = new_value, .type = target_type};
         }
-        debug_info("%s: out", __func__);
+        dump_typed_value("post-cast", src_value);
         return src_value;
     }
 
@@ -1801,7 +1779,7 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
                 .value = LLVMBuildFPExt(ctx->builder, value, target_type, "cast_fpext"),
                 .type = target_type,
             };
-        debug_info("%s: out", __func__);
+        dump_typed_value("post-cast", src_value);
         return src_value; // Same width, do nothing
     }
 
@@ -1810,7 +1788,10 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
     {
         LLVMValueRef new_value = is_src_signed ? LLVMBuildSIToFP(ctx->builder, value, target_type, "cast_sitofp")
                                                : LLVMBuildUIToFP(ctx->builder, value, target_type, "cast_uitofp");
-        return (TypedValue){.value = new_value, .type = target_type};
+        TypedValue res = {.value = new_value, .type = target_type};
+        dump_typed_value("post-cast", res);
+
+        return res;
     }
 
     // 3. Floating Point to Integer
@@ -1820,8 +1801,10 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
         LLVMValueRef new_value = is_src_signed ? LLVMBuildFPToSI(ctx->builder, value, target_type, "cast_fptosi")
                                                : LLVMBuildFPToUI(ctx->builder, value, target_type, "cast_fptoui");
 
-        debug_info("%s: out", __func__);
-        return (TypedValue){.value = new_value, .type = target_type};
+        TypedValue res = {.value = new_value, .type = target_type};
+        dump_typed_value("post-cast", res);
+
+        return res;
     }
 
     // 4. Pointer to Pointer (BitCast)
@@ -1829,25 +1812,33 @@ cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef t
     {
         LLVMValueRef new_value = LLVMBuildBitCast(ctx->builder, value, target_type, "cast_bitcast");
 
-        debug_info("%s: out", __func__);
-        return (TypedValue){.value = new_value, .type = target_type};
+        TypedValue res = {.value = new_value, .type = target_type};
+        dump_typed_value("post-cast", res);
+
+        return res;
     }
 
     // 5. Pointer to Integer / Integer to Pointer
     if (src_kind == LLVMPointerTypeKind && target_kind == LLVMIntegerTypeKind)
     {
         LLVMValueRef new_value = LLVMBuildPtrToInt(ctx->builder, value, target_type, "cast_ptrtoint");
-        debug_info("%s: out", __func__);
-        return (TypedValue){.value = new_value, .type = target_type};
+
+        TypedValue res = {.value = new_value, .type = target_type};
+        dump_typed_value("post-cast", res);
+
+        return res;
     }
     if (src_kind == LLVMIntegerTypeKind && target_kind == LLVMPointerTypeKind)
     {
         LLVMValueRef new_value = LLVMBuildIntToPtr(ctx->builder, value, target_type, "cast_inttoptr");
-        debug_info("%s: out", __func__);
-        return (TypedValue){.value = new_value, .type = target_type};
+
+        TypedValue res = {.value = new_value, .type = target_type};
+        dump_typed_value("post-cast", res);
+
+        return res;
     }
 
-    debug_info("%s: out", __func__);
+    dump_typed_value("post-cast", src_value);
     return src_value;
 }
 
@@ -2674,6 +2665,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     ctx->ref_type.i8 = LLVMInt8TypeInContext(ctx->context);
     ctx->ref_type.i32 = LLVMInt32TypeInContext(ctx->context);
     ctx->ref_type.i64 = LLVMInt64TypeInContext(ctx->context);
+    ctx->ref_type.ptr = LLVMPointerTypeInContext(ctx->context, 0);
 
     // Initialize with global scope
     ctx->current_scope = scope_create(NULL); // NULL parent = global scope
@@ -2713,7 +2705,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     if (ctx->generation_flags.generate_default_variables)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
-        LLVMTypeRef null_type = LLVMPointerTypeInContext(ctx->context, 0);
+        LLVMTypeRef null_type = ctx->ref_type.ptr;
         LLVMValueRef null_const = LLVMConstPointerNull(null_type);
         LLVMSetGlobalConstant(null_const, true);
         TypedValue null_val = (TypedValue){.value = null_const, .type = null_type};
@@ -3090,6 +3082,341 @@ create_global_variable(
     return global_var;
 }
 
+static void
+process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Check if we've already encountered a fatal error
+    if (ctx->errors.fatal)
+    {
+        return;
+    }
+
+    clear_labels(ctx);
+
+    // Create function scope for parameters and body
+    scope_push(ctx);
+    // --- Handle Function Definition ---
+    c_grammar_node_t const * decl_specifiers_node = node->function_definition.declaration_specifiers;
+    c_grammar_node_t const * declarator_node = node->function_definition.declarator;
+    c_grammar_node_t const * compound_stmt_node = node->function_definition.body;
+
+    if (decl_specifiers_node == NULL || declarator_node == NULL || compound_stmt_node == NULL)
+    {
+        debug_error("Function definition is missing declaration specifiers, declarator, or body.");
+        scope_pop(ctx);
+        return;
+    }
+
+    // --- Extract Function Name ---
+    char const * func_name = NULL;
+    c_grammar_node_t const * suffix_node = NULL;
+    c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
+
+    if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
+    {
+        func_name = direct_decl->list.children[0]->text;
+    }
+    if (func_name == NULL)
+    {
+        func_name = "unknown_function";
+    }
+    add_function_scope_builtin_macros(ctx, func_name);
+
+    // Find parameter suffix list
+    c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
+    if (suffix_list != NULL && suffix_list->list.count > 0)
+    {
+        suffix_node = suffix_list->list.children[0];
+    }
+
+    c_grammar_node_t const * params_list = NULL;
+    if (suffix_node->list.count > 0)
+    {
+        params_list = suffix_node->list.children[0];
+        if (params_list->type != AST_NODE_PARAMETER_LIST)
+        {
+            params_list = NULL;
+        }
+    }
+    // --- Extract Parameters ---
+    size_t num_params = 0;
+    LLVMTypeRef * param_types = NULL;
+    char const ** param_names = NULL;
+    LLVMTypeRef empty_params[1];
+
+    if (params_list && params_list->list.count > 0)
+    {
+        // Each parameter typically has [KwExtension, TypeSpecifier, Declarator]
+        num_params = params_list->list.count / 3;
+        param_types = calloc(num_params, sizeof(*param_types));
+        param_names = calloc(num_params, sizeof(*param_names));
+
+        for (size_t i = 0; i < num_params; ++i)
+        {
+            c_grammar_node_t const * p_spec = params_list->list.children[i * 3 + 1];
+            c_grammar_node_t const * p_decl = params_list->list.children[i * 3 + 2];
+
+            param_types[i] = map_type_to_llvm_t(ctx, p_spec, p_decl);
+
+            c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
+            if (p_direct && p_direct->list.count > 0)
+            {
+                c_grammar_node_t const * first_child = p_direct->list.children[0];
+                if (first_child->type == AST_NODE_IDENTIFIER)
+                {
+                    param_names[i] = first_child->text;
+                }
+                else if (first_child->type == AST_NODE_DECLARATOR)
+                {
+                    // Nested declarator (e.g., for function pointers like *name)
+                    // Find the DirectDeclarator inside and get the Identifier
+                    c_grammar_node_t const * nested_direct = first_child->declarator.direct_declarator;
+                    if (nested_direct && nested_direct->list.count > 0
+                        && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
+                    {
+                        param_names[i] = nested_direct->list.children[0]->text;
+                    }
+                }
+                else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                {
+                    // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
+                    char const * id = first_child->function_pointer_declarator.identifier->text;
+                    if (id != NULL)
+                    {
+                        param_names[i] = id;
+                    }
+                }
+            }
+        }
+    }
+
+    LLVMTypeRef return_type = map_type_to_llvm_t(ctx, decl_specifiers_node, NULL);
+    LLVMTypeRef func_type
+        = LLVMFunctionType(return_type, num_params > 0 ? param_types : empty_params, (unsigned)num_params, false);
+
+    // Check for function redeclaration or signature mismatch
+    LLVMValueRef existing = LLVMGetNamedFunction(ctx->module, func_name);
+    if (existing != NULL)
+    {
+        struct function_decl_entry * decl = find_function_declaration(ctx, func_name);
+
+        /* Only check signature mismatch for tracked declarations (not forward decls from our static handling) */
+        if (decl != NULL)
+        {
+            LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
+            if (!function_signatures_match(existing_type, func_type))
+            {
+                ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
+                free(param_types);
+                free(param_names);
+                scope_pop(ctx);
+                return;
+            }
+
+            if (decl->has_definition)
+            {
+                ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
+                free(param_types);
+                free(param_names);
+                scope_pop(ctx);
+                return;
+            }
+
+            decl->has_definition = true;
+        }
+        else
+        {
+            /* Forward declaration not tracked — register it now */
+            TypedValue decl = {
+                .value = existing,
+                .type = ctx->ref_type.ptr,
+                .pointee_type = func_type,
+            };
+            add_function_declaration(ctx, func_name, decl, false);
+        }
+    }
+    else
+    {
+        // New function - add to tracking
+        TypedValue decl = {
+            .type = ctx->ref_type.ptr,
+            .pointee_type = func_type,
+        };
+        add_function_declaration(ctx, func_name, decl, true);
+    }
+
+    /* Reuse existing declaration if already added (e.g. from a forward declaration),
+     * but only if the type matches. If it was an auto-declared stub with wrong type,
+     * delete it and recreate with the correct type. */
+    LLVMValueRef func = LLVMGetNamedFunction(ctx->module, func_name);
+    if (func != NULL)
+    {
+        LLVMTypeRef existing_type = LLVMGlobalGetValueType(func);
+        if (!function_signatures_match(existing_type, func_type))
+        {
+            /* Replace the stub: redirect all uses to a new function then delete the old one */
+            LLVMValueRef new_func = LLVMAddFunction(ctx->module, "", func_type);
+            LLVMReplaceAllUsesWith(func, new_func);
+            LLVMDeleteFunction(func);
+            LLVMSetValueName(new_func, func_name);
+            func = new_func;
+        }
+        /* Verify param count matches before proceeding */
+        if (LLVMCountParams(func) != (unsigned)num_params)
+        {
+            debug_error(
+                "Function '%s': param count mismatch after setup (%u vs %zu), skipping.",
+                func_name,
+                LLVMCountParams(func),
+                num_params
+            );
+            free(param_types);
+            free(param_names);
+            scope_pop(ctx);
+            return;
+        }
+    }
+    else
+    {
+        func = LLVMAddFunction(ctx->module, func_name, func_type);
+    }
+
+    // Create a basic block for the function's entry point.
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
+    LLVMPositionBuilderAtEnd(ctx->builder, entry_block);
+
+    /* Add inlinehint attribute if function has inline specifier */
+    if (decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS
+        && decl_specifiers_node->decl_specifiers.function_specifier != NULL)
+    {
+        LLVMAttributeRef attr
+            = LLVMCreateEnumAttribute(ctx->context, LLVMGetEnumAttributeKindForName("inlinehint", 10), 0);
+        LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attr);
+    }
+
+    // --- Handle function parameters: allocate space and store arguments ---
+    for (size_t i = 0; i < num_params; ++i)
+    {
+        LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
+        LLVMValueRef alloca_inst
+            = LLVMBuildAlloca_wrapper(ctx->builder, param_types[i], param_names[i] ? param_names[i] : "");
+        aligned_store(ctx, ctx->builder, param_val, param_types[i], alloca_inst);
+        if (param_names[i] != NULL)
+        {
+            // Extract struct/union name from parameter specifiers for pointer-to-compound types
+            char const * param_compound_name = NULL;
+            c_grammar_node_t * p_spec = params_list->list.children[i * 3 + 1];
+
+            // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
+            c_grammar_node_t * type_spec = NULL;
+            if (p_spec && p_spec->list.count > 0)
+            {
+                if (p_spec->type == AST_NODE_TYPE_SPECIFIER || p_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
+                {
+                    type_spec = (c_grammar_node_t *)p_spec;
+                }
+                else if (p_spec->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+                {
+                    // Use structured fields
+                    if (p_spec->decl_specifiers.typedef_name != NULL)
+                    {
+                        type_spec = (c_grammar_node_t *)p_spec->decl_specifiers.typedef_name;
+                    }
+                    else
+                    {
+                        c_grammar_node_t const * specifier_list = p_spec->decl_specifiers.type_specifiers;
+                        if (specifier_list->list.count > 0)
+                        {
+                            type_spec = specifier_list->list.children[0];
+                        }
+                    }
+                }
+            }
+
+            /* Use helper to extract type name - check struct/union keyword first, then typedef */
+            if (type_spec)
+            {
+                if (type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
+                {
+                    /* Is a typedef name - get the underlying struct tag from the typedef entry */
+                    char const * typedef_name = extract_typedef_name(type_spec);
+                    if (typedef_name != NULL)
+                    {
+                        scope_typedef_entry_t const * entry
+                            = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+                        if (entry != NULL && entry->tag != NULL)
+                        {
+                            param_compound_name = entry->tag;
+                        }
+                    }
+                }
+                else
+                {
+                    char const * tag = extract_struct_or_union_or_enum_tag(type_spec);
+                    if (tag != NULL)
+                    {
+                        param_compound_name = tag;
+                    }
+                }
+            }
+            TypedValue p = (TypedValue){
+                .value = alloca_inst,
+                .type = param_types[i],
+                .is_lvalue = true,
+            };
+
+            /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
+            /* Moved from below the add_symbol_with_struct() call. */
+            if (type_spec != NULL && type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
+            {
+                char const * typedef_name = extract_typedef_name(type_spec);
+                if (typedef_name != NULL)
+                {
+                    LLVMTypeRef base = find_typedef_type(ctx, typedef_name);
+                    if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind
+                        && LLVMGetTypeKind(param_types[i]) == LLVMPointerTypeKind)
+                    {
+                        /* Update the symbol's pointee_type */
+                        p.pointee_type = base;
+                    }
+                }
+            }
+
+            add_symbol_with_struct(ctx, param_names[i], p, param_compound_name, NULL);
+        }
+    }
+
+    free(param_types);
+    free(param_names);
+
+    // Process the compound statement (function body).
+    process_ast_node(ctx, compound_stmt_node);
+    if (ctx->errors.fatal)
+    {
+        return;
+    }
+
+    // --- Add a default return if the function doesn't end with one ---
+    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    {
+        if (LLVMGetTypeKind(return_type) == LLVMVoidTypeKind)
+        {
+            LLVMBuildRetVoid(ctx->builder);
+        }
+        else
+        {
+            LLVMBuildRet(ctx->builder, LLVMConstInt(ctx->ref_type.i32, 0, false));
+        }
+    }
+
+    // Pop function scope
+    scope_pop(ctx);
+
+    /* Clear the builder insert point so subsequent declarations don't
+     * mistakenly think we're inside a function body. */
+    LLVMClearInsertionPosition(ctx->builder);
+}
+
 /**
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
@@ -3157,328 +3484,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_FUNCTION_DEFINITION:
     {
-        // Check if we've already encountered a fatal error
-        if (ctx->errors.fatal)
-        {
-            return;
-        }
-
-        clear_labels(ctx);
-
-        // Create function scope for parameters and body
-        scope_push(ctx);
-        // --- Handle Function Definition ---
-        c_grammar_node_t const * decl_specifiers_node = node->function_definition.declaration_specifiers;
-        c_grammar_node_t const * declarator_node = node->function_definition.declarator;
-        c_grammar_node_t const * compound_stmt_node = node->function_definition.body;
-
-        if (decl_specifiers_node == NULL || declarator_node == NULL || compound_stmt_node == NULL)
-        {
-            debug_error("Function definition is missing declaration specifiers, declarator, or body.");
-            scope_pop(ctx);
-            return;
-        }
-
-        // --- Extract Function Name ---
-        char const * func_name = NULL;
-        c_grammar_node_t const * suffix_node = NULL;
-        c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
-
-        if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
-        {
-            func_name = direct_decl->list.children[0]->text;
-        }
-        if (func_name == NULL)
-        {
-            func_name = "unknown_function";
-        }
-        add_function_scope_builtin_macros(ctx, func_name);
-
-        // Find parameter suffix list
-        c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
-        if (suffix_list != NULL && suffix_list->list.count > 0)
-        {
-            suffix_node = suffix_list->list.children[0];
-        }
-
-        c_grammar_node_t const * params_list = NULL;
-        if (suffix_node->list.count > 0)
-        {
-            params_list = suffix_node->list.children[0];
-            if (params_list->type != AST_NODE_PARAMETER_LIST)
-            {
-                params_list = NULL;
-            }
-        }
-        // --- Extract Parameters ---
-        size_t num_params = 0;
-        LLVMTypeRef * param_types = NULL;
-        char const ** param_names = NULL;
-        LLVMTypeRef empty_params[1];
-
-        if (params_list && params_list->list.count > 0)
-        {
-            // Each parameter typically has [KwExtension, TypeSpecifier, Declarator]
-            num_params = params_list->list.count / 3;
-            param_types = calloc(num_params, sizeof(*param_types));
-            param_names = calloc(num_params, sizeof(*param_names));
-
-            for (size_t i = 0; i < num_params; ++i)
-            {
-                c_grammar_node_t const * p_spec = params_list->list.children[i * 3 + 1];
-                c_grammar_node_t const * p_decl = params_list->list.children[i * 3 + 2];
-
-                param_types[i] = map_type_to_llvm_t(ctx, p_spec, p_decl);
-
-                c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
-                if (p_direct && p_direct->list.count > 0)
-                {
-                    c_grammar_node_t const * first_child = p_direct->list.children[0];
-                    if (first_child->type == AST_NODE_IDENTIFIER)
-                    {
-                        param_names[i] = first_child->text;
-                    }
-                    else if (first_child->type == AST_NODE_DECLARATOR)
-                    {
-                        // Nested declarator (e.g., for function pointers like *name)
-                        // Find the DirectDeclarator inside and get the Identifier
-                        c_grammar_node_t const * nested_direct = first_child->declarator.direct_declarator;
-                        if (nested_direct && nested_direct->list.count > 0
-                            && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
-                        {
-                            param_names[i] = nested_direct->list.children[0]->text;
-                        }
-                    }
-                    else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
-                    {
-                        // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
-                        char const * id = first_child->function_pointer_declarator.identifier->text;
-                        if (id != NULL)
-                        {
-                            param_names[i] = id;
-                        }
-                    }
-                }
-            }
-        }
-
-        LLVMTypeRef return_type = map_type_to_llvm_t(ctx, decl_specifiers_node, NULL);
-        LLVMTypeRef func_type
-            = LLVMFunctionType(return_type, num_params > 0 ? param_types : empty_params, (unsigned)num_params, false);
-
-        // Check for function redeclaration or signature mismatch
-        LLVMValueRef existing = LLVMGetNamedFunction(ctx->module, func_name);
-        if (existing != NULL)
-        {
-            struct function_decl_entry * decl = find_function_declaration(ctx, func_name);
-
-            /* Only check signature mismatch for tracked declarations (not forward decls from our static handling) */
-            if (decl != NULL)
-            {
-                LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
-                if (!function_signatures_match(existing_type, func_type))
-                {
-                    ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
-                    free(param_types);
-                    free(param_names);
-                    scope_pop(ctx);
-                    return;
-                }
-
-                if (decl->has_definition)
-                {
-                    ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
-                    free(param_types);
-                    free(param_names);
-                    scope_pop(ctx);
-                    return;
-                }
-
-                decl->has_definition = true;
-            }
-            else
-            {
-                /* Forward declaration not tracked — register it now */
-                add_function_declaration(ctx, func_name, func_type, true);
-            }
-        }
-        else
-        {
-            // New function - add to tracking
-            add_function_declaration(ctx, func_name, func_type, true);
-        }
-
-        /* Reuse existing declaration if already added (e.g. from a forward declaration),
-         * but only if the type matches. If it was an auto-declared stub with wrong type,
-         * delete it and recreate with the correct type. */
-        LLVMValueRef func = LLVMGetNamedFunction(ctx->module, func_name);
-        if (func != NULL)
-        {
-            LLVMTypeRef existing_type = LLVMGlobalGetValueType(func);
-            if (!function_signatures_match(existing_type, func_type))
-            {
-                /* Replace the stub: redirect all uses to a new function then delete the old one */
-                LLVMValueRef new_func = LLVMAddFunction(ctx->module, "", func_type);
-                LLVMReplaceAllUsesWith(func, new_func);
-                LLVMDeleteFunction(func);
-                LLVMSetValueName(new_func, func_name);
-                func = new_func;
-            }
-            /* Verify param count matches before proceeding */
-            if (LLVMCountParams(func) != (unsigned)num_params)
-            {
-                debug_error(
-                    "Function '%s': param count mismatch after setup (%u vs %zu), skipping.",
-                    func_name,
-                    LLVMCountParams(func),
-                    num_params
-                );
-                free(param_types);
-                free(param_names);
-                scope_pop(ctx);
-                return;
-            }
-        }
-        else
-        {
-            func = LLVMAddFunction(ctx->module, func_name, func_type);
-        }
-
-        // Create a basic block for the function's entry point.
-        LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
-        LLVMPositionBuilderAtEnd(ctx->builder, entry_block);
-
-        /* Add inlinehint attribute if function has inline specifier */
-        if (decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS
-            && decl_specifiers_node->decl_specifiers.function_specifier != NULL)
-        {
-            LLVMAttributeRef attr
-                = LLVMCreateEnumAttribute(ctx->context, LLVMGetEnumAttributeKindForName("inlinehint", 10), 0);
-            LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attr);
-        }
-
-        // --- Handle function parameters: allocate space and store arguments ---
-        for (size_t i = 0; i < num_params; ++i)
-        {
-            LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
-            LLVMValueRef alloca_inst
-                = LLVMBuildAlloca_wrapper(ctx->builder, param_types[i], param_names[i] ? param_names[i] : "");
-            aligned_store(ctx, ctx->builder, param_val, param_types[i], alloca_inst);
-            if (param_names[i] != NULL)
-            {
-                // Extract struct/union name from parameter specifiers for pointer-to-compound types
-                char const * param_compound_name = NULL;
-                c_grammar_node_t * p_spec = params_list->list.children[i * 3 + 1];
-
-                // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
-                c_grammar_node_t * type_spec = NULL;
-                if (p_spec && p_spec->list.count > 0)
-                {
-                    if (p_spec->type == AST_NODE_TYPE_SPECIFIER || p_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
-                    {
-                        type_spec = (c_grammar_node_t *)p_spec;
-                    }
-                    else if (p_spec->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-                    {
-                        // Use structured fields
-                        if (p_spec->decl_specifiers.typedef_name != NULL)
-                        {
-                            type_spec = (c_grammar_node_t *)p_spec->decl_specifiers.typedef_name;
-                        }
-                        else
-                        {
-                            c_grammar_node_t const * specifier_list = p_spec->decl_specifiers.type_specifiers;
-                            if (specifier_list->list.count > 0)
-                            {
-                                type_spec = specifier_list->list.children[0];
-                            }
-                        }
-                    }
-                }
-
-                /* Use helper to extract type name - check struct/union keyword first, then typedef */
-                if (type_spec)
-                {
-                    if (type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
-                    {
-                        /* Is a typedef name - get the underlying struct tag from the typedef entry */
-                        char const * typedef_name = extract_typedef_name(type_spec);
-                        if (typedef_name != NULL)
-                        {
-                            scope_typedef_entry_t const * entry
-                                = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
-                            if (entry != NULL && entry->tag != NULL)
-                            {
-                                param_compound_name = entry->tag;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        char const * tag = extract_struct_or_union_or_enum_tag(type_spec);
-                        if (tag != NULL)
-                        {
-                            param_compound_name = tag;
-                        }
-                    }
-                }
-                TypedValue p = (TypedValue){
-                    .value = alloca_inst,
-                    .type = param_types[i],
-                    .is_lvalue = true,
-                };
-
-                /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
-                /* Moved from below the add_symbol_with_struct() call. */
-                if (type_spec != NULL && type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
-                {
-                    char const * typedef_name = extract_typedef_name(type_spec);
-                    if (typedef_name != NULL)
-                    {
-                        LLVMTypeRef base = find_typedef_type(ctx, typedef_name);
-                        if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind
-                            && LLVMGetTypeKind(param_types[i]) == LLVMPointerTypeKind)
-                        {
-                            /* Update the symbol's pointee_type */
-                            p.pointee_type = base;
-                        }
-                    }
-                }
-
-                add_symbol_with_struct(ctx, param_names[i], p, param_compound_name, NULL);
-            }
-        }
-
-        free(param_types);
-        free(param_names);
-
-        // Process the compound statement (function body).
-        process_ast_node(ctx, compound_stmt_node);
-        if (ctx->errors.fatal)
-        {
-            return;
-        }
-
-        // --- Add a default return if the function doesn't end with one ---
-        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-        {
-            if (LLVMGetTypeKind(return_type) == LLVMVoidTypeKind)
-            {
-                LLVMBuildRetVoid(ctx->builder);
-            }
-            else
-            {
-                LLVMBuildRet(ctx->builder, LLVMConstInt(ctx->ref_type.i32, 0, false));
-            }
-        }
-
-        // Pop function scope
-        scope_pop(ctx);
-
-        /* Clear the builder insert point so subsequent declarations don't
-         * mistakenly think we're inside a function body. */
-        LLVMClearInsertionPosition(ctx->builder);
-
+        process_function_definition(ctx, node);
         break;
     }
     case AST_NODE_COMPOUND_STATEMENT:
@@ -3810,13 +3816,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                             if (tvalue.value != NULL)
                                             {
                                                 // FIXME: lvalues must be loaded first!
-#if 0                                                
-                                                // If the expression returned an lvalue (a variable), we must load it first!
-                                                if (tvalue.is_lvalue) {
-                                                    tvalue.value = aligned_load(ctx, ctx->builder, tvalue.type, tvalue.value, "init_load");
-                                                    tvalue.is_lvalue = false;
-                                                }
-#endif
+                                                ensure_rvalue(ctx, "init_elem_ptr", tvalue);
+
                                                 // Create GEP to element
                                                 LLVMValueRef indices[2];
                                                 indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
@@ -3852,22 +3853,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                 LLVMValueRef initializer_value = initializer_res.value;
                                 if (initializer_value != NULL)
                                 {
-                                    debug_info("casting");
-                                    debug_info(
-                                        "casting value %p, type: (%u) %p",
-                                        (void *)initializer_res.value,
-                                        (unsigned)LLVMGetTypeKind(initializer_res.type),
-                                        (void *)initializer_res.type
-                                    );
-
                                     TypedValue cast_value = cast_value_to_type(ctx, initializer_res, var_type, false);
-                                    debug_info(
-                                        "cast value %p, type: (%u) %p",
-                                        (void *)cast_value.value,
-                                        (unsigned)LLVMGetTypeKind(cast_value.type),
-                                        (void *)cast_value.type
-                                    );
-
                                     aligned_store(ctx, ctx->builder, cast_value.value, cast_value.type, alloca_inst);
                                     debug_info("stored");
                                 }
@@ -6474,17 +6460,6 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 .type = var_res.type,
             };
         }
-#if 0
-        if (!var_res.is_lvalue)
-        {
-            debug_info("not l_value - returning variable directly");
-            return var_res;
-        }
-
-        // Load the value from the memory address using LLVMBuildLoad2.
-        debug_info("loading from memory address");
-        var_res.value = aligned_load(ctx, ctx->builder, var_res.type, var_res.value, "load_tmp");
-#endif
 
         return var_res;
     }
@@ -6492,36 +6467,36 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         debug_info("%s: no symbol found - check functions for %s", __func__, node->text);
         // Check if it's a function name - return the function pointer
-        LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->text);
-        if (func_val == NULL)
+        TypedValue func;
+        struct function_decl_entry * decl_entry = find_function_declaration(ctx, node->text);
+        if (decl_entry != NULL)
         {
-            debug_error("Undefined variable '%s' used.", node->text);
+            dump_typed_value("existing_func", decl_entry->func);
+            func = decl_entry->func;
         }
-        else
+        if (func.value == NULL)
         {
-            debug_info("%s found function", __func__);
-            struct function_decl_entry * decl_entry = find_function_declaration(ctx, node->text);
+            /* FIXME - For now, drop back to the old way if not found in the table. */
+            debug_info("not found in table");
+            LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->text);
+            if (func_val == NULL)
             {
-                if (decl_entry != NULL)
-                {
-                    debug_info(
-                        "found decl entry: type %p (%p)",
-                        decl_entry->type,
-                        decl_entry->type != NULL ? (int)LLVMGetTypeKind(decl_entry->type) : -1
-                    );
-                }
+                debug_info("did not find symbol '%' in LLVMGetNamedFunction", node->text);
+                return NullTypedValue;
             }
-            LLVMTypeRef func_type = LLVMGlobalGetValueType(func_val);
-            TypedValue func = {
+            func = (TypedValue){
                 .value = func_val,
-                .type = func_type,
+                .type = ctx->ref_type.ptr,
+                .pointee_type = LLVMGlobalGetValueType(func_val),
             };
-            dump_typed_value("func", func);
-            return func;
+            dump_typed_value("func from LLVM", func);
         }
+
+        return func;
     }
 
     debug_error("NULL element type for variable '%s'.", node->text);
+
     return NullTypedValue;
 }
 
