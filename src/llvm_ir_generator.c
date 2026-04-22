@@ -6095,7 +6095,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             struct_type != NULL ? (int)LLVMGetTypeKind(struct_type) : -1
                         );
                     }
-
                     base_value = (TypedValue){
                         .value = LLVMBuildInBoundsGEP2(
                             ctx->builder, struct_type, loaded_struct_value.value, indices, 2, "memberptr"
@@ -6106,7 +6105,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     };
 
                     base_value = handle_bitfield_extraction(base_value, struct_info, member_index);
-
 #if 1
                     current_value = base_value;
 #else

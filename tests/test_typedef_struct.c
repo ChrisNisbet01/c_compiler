@@ -8,7 +8,7 @@ typedef struct AStruct_st
 int
 main()
 {
-    struct AStruct_t s;
+    struct AStruct_st s;
     s.i = 0;
     return s.i;
 }
