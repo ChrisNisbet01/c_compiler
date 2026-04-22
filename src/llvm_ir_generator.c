@@ -5108,7 +5108,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     TypedValue base_value = NullTypedValue;
     TypedValue current_value = NullTypedValue;
     bool have_ptr = false;
-    bool base_is_array = false;
     bool did_member_access = false; /* tracks whether we've done at least one member access */
 
     debug_info("%s", __func__);
@@ -5129,22 +5128,14 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         if (find_symbol(ctx, var_name, &var))
         {
             current_value = var;
+            dump_typed_value("initial current value from identifier", current_value);
             have_ptr = true;
-
-            // If base is an array type, we'll handle subscript in the loop
-            // Don't call process_expression for the base to avoid double GEP
-            if (LLVMGetTypeKind(var.type) == LLVMArrayTypeKind)
-            {
-                base_is_array = true;
-            }
         }
     }
 
     c_grammar_node_t const * postfix_parts_node = node->postfix_expression.postfix_parts;
     print_ast_with_label(postfix_parts_node, "postfix_parts");
 
-    // Only process base if it's not an array (arrays need suffix handling for subscript)
-    if (base_value.value == NULL && !base_is_array)
     {
         // For function calls, don't call process_expression on the identifier
         // The function call suffix handling will get the function pointer directly
@@ -5160,17 +5151,20 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         }
         if (!has_func_call_suffix)
         {
+            debug_info("processing base node");
             base_value = process_expression(ctx, base_node);
+            dump_typed_value("base value post processing base AST node", base_value);
         }
 
         // If base_val is a pointer type and have_ptr is false, set up current_ptr for member access
         // This handles cases like ((Point *)ptr)->member where base is a cast expression
-        if (!have_ptr && base_value.value != NULL)
+        if (/*!have_ptr && */ base_value.value != NULL && base_value.type != NULL)
         {
             LLVMTypeRef base_type = base_value.type;
-            if (base_type && LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
+
+            current_value = base_value;
+            if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
             {
-                current_value = base_value;
                 // For member access, we need the pointee type, not the pointer type
                 // For non-opaque, LLVMGetElementType works. For opaque, leave current_type as NULL
                 have_ptr = true;
@@ -5178,6 +5172,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     "Set current_ptr from base_val pointer for member access, current_type kind=%d",
                     LLVMGetTypeKind(current_value.type)
                 );
+                dump_typed_value("current and base values from process_expression", current_value);
             }
         }
     }
@@ -5215,6 +5210,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     base_value.value
                         = aligned_load(ctx, ctx->builder, current_value.type, current_value.value, "func_ptr");
                     base_value.type = current_value.type;
+                    dump_typed_value("Yikes - assigned base from current value - and did aligned load", base_value);
                 }
                 else if (base_node->type == AST_NODE_IDENTIFIER)
                 {
@@ -5808,6 +5804,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     dump_typed_value("end_of_block_base_value", base_value);
 #if 1
                     current_value = base_value;
+                    dump_typed_value("end_of_block_current_value", current_value);
 #else
                     /* Track the member's struct type for chained arrow accesses (e.g. a->b->c).
                      * If the member is a pointer, keep pointer type for subscript/arrow access.

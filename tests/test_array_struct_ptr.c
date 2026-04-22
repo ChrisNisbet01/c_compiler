@@ -18,7 +18,7 @@ main(void)
     // Create
     Outer o;
     o.inner = inner;
-    int v = o.inner->value;
+    int v = o.inner[0].value;
 
-    return v - 10; // Arrow access
+    return v - 10; // array access
 }
