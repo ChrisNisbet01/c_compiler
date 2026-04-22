@@ -11,7 +11,8 @@ typedef struct
     int count;
 } collection_t;
 
-int main(void)
+int
+main(void)
 {
     point_t p;
     p.x = 3;

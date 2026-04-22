@@ -42,6 +42,7 @@ static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_
 static void
 dump_typed_value(char const * label, TypedValue v)
 {
+    fprintf(stderr, "\n\n--------------------\n");
     fprintf(stderr, "TypedValue: %s\n", label);
     if (v.value != NULL)
     {
@@ -57,6 +58,9 @@ dump_typed_value(char const * label, TypedValue v)
         (void *)v.pointee_type,
         (v.pointee_type != NULL) ? (int)LLVMGetTypeKind(v.pointee_type) : -1
     );
+    fprintf(stderr, "bit width: %u\n", v.bit_width);
+    fprintf(stderr, "bit offset: %u\n", v.bit_offset);
+    fprintf(stderr, "--------------------\n\n");
 }
 
 static char const *
@@ -333,6 +337,8 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
         .is_lvalue = false,
         .pointee_type = val.pointee_type,
         .specifiers = val.specifiers,
+        .bit_width = val.bit_width,
+        .bit_offset = val.bit_offset,
     };
 }
 #define ensure_rvalue(c, l, v) ensure_rvalue_impl((c), (l), (v), __LINE__)
@@ -653,8 +659,13 @@ process_array_subscript(
 static TypedValue
 handle_bitfield_extraction(TypedValue tval, type_info_t const * info, size_t member_index)
 {
-    if (info == NULL || info->fields == NULL || member_index >= info->field_count
-        || info->fields[member_index].bit_width == 0)
+    if (info == NULL || info->fields == NULL)
+    {
+        debug_info("%s no info to extract bit_width", __func__);
+        return tval;
+    }
+
+    if (member_index >= info->field_count || info->fields[member_index].bit_width == 0)
     {
         return tval;
     }
@@ -663,7 +674,7 @@ handle_bitfield_extraction(TypedValue tval, type_info_t const * info, size_t mem
 
     tval.bit_width = field->bit_width;
     tval.bit_offset = field->bit_offset;
-
+    debug_info("%s: bitfield width: %u offset: %u", __func__, tval.bit_width, tval.bit_offset);
     return tval;
 }
 
@@ -5308,7 +5319,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             if (have_ptr && current_value.type != NULL)
             {
                 TypedValue new_value = process_array_subscript(ctx, suffix, current_value.value, current_value.type);
-                debug_info("%s: process_assignment: subscript returned new_ptr=%p", __func__, (void *)new_value.value);
+                debug_info(
+                    "%s: process_array_subscript: subscript returned new_ptr=%p", __func__, (void *)new_value.value
+                );
                 if (new_value.value != NULL)
                 {
                     // Update current_ptr for next iteration
@@ -5928,18 +5941,17 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     TypedValue lhs_res = NullTypedValue;
 
-    // Track bitfield assignment info
-    bool is_bitfield_assign = false;
-    unsigned bitfield_bit_offset = 0;
-    unsigned bitfield_bit_width = 0;
-    LLVMValueRef bitfield_storage_unit_ptr = NULL;
-    LLVMTypeRef bitfield_storage_unit_type = NULL;
-
     // Check if LHS is a PostfixExpression with array subscript or member access
     debug_info(
         "process_assignment: lhs_node type=%d (%s)", lhs_node->type, get_node_type_name_from_type(lhs_node->type)
     );
-    if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
+    bool do_process_expression = true;
+    if (do_process_expression && lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
+    {
+        lhs_res = process_expression(ctx, lhs_node);
+        dump_typed_value("assignment_lhs", lhs_res);
+    }
+    else if (!do_process_expression && lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
         c_grammar_node_t const * base_node = lhs_node->postfix_expression.base_expression;
         if (base_node->type == AST_NODE_IDENTIFIER)
@@ -6090,12 +6102,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                                     if (field->bit_width > 0)
                                     {
                                         // For bitfield assignment, track the metadata
-                                        is_bitfield_assign = true;
-                                        bitfield_bit_offset = field->bit_offset;
-                                        bitfield_bit_width = field->bit_width;
-                                        bitfield_storage_unit_type = current_type;
-                                        bitfield_storage_unit_ptr = current_ptr;
-
                                         // Point to struct for load/modify/store
                                         current_ptr = struct_ptr;
                                         current_type = struct_type;
@@ -6334,27 +6340,30 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // Generate the store instruction.
-    if (is_bitfield_assign && bitfield_storage_unit_type != NULL)
+    // if (is_bitfield_assign && bitfield_storage_unit_type != NULL)
+    if (lhs_res.bit_width > 0)
     {
+        debug_info("assigning to bitfield");
         /* * 1. Target the storage unit.
          * bitfield_storage_unit_ptr is the GEP result (the address of the i32/i64).
          * bitfield_storage_unit_type is the type of that storage unit (e.g., i32).
          */
-        LLVMTypeRef storage_type = bitfield_storage_unit_type;
+        TypedValue lhs_res_rval = ensure_rvalue(ctx, "assign_bitfield_lhs_rval", lhs_res);
+
+        LLVMTypeRef storage_type = lhs_res_rval.type;
 
         // 2. LOAD only the affected storage unit
-        LLVMValueRef current_val
-            = aligned_load(ctx, ctx->builder, storage_type, bitfield_storage_unit_ptr, "bf_unit_load");
+        LLVMValueRef current_val = lhs_res_rval.value;
 
         // 3. PREPARE MASKS
         // width_mask: (1 << width) - 1
-        unsigned long long width_mask = (bitfield_bit_width == 64) ? ~0ULL : (1ULL << bitfield_bit_width) - 1;
+        unsigned long long width_mask = (lhs_res_rval.bit_width == 64) ? ~0ULL : (1ULL << lhs_res_rval.bit_width) - 1;
         // clear_mask: ~ (width_mask << offset)
-        unsigned long long clear_mask = ~(width_mask << bitfield_bit_offset);
+        unsigned long long clear_mask = ~(width_mask << lhs_res_rval.bit_offset);
 
         LLVMValueRef llvm_clear_mask = LLVMConstInt(storage_type, clear_mask, false);
         LLVMValueRef llvm_width_mask = LLVMConstInt(storage_type, width_mask, false);
-        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32, bitfield_bit_offset, false);
+        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32, lhs_res_rval.bit_offset, false);
 
         // 4. MODIFY
         // Clear the old bits
@@ -6371,7 +6380,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef final_val = LLVMBuildOr(ctx->builder, cleared, shifted_rhs, "bf_merge");
 
         // 5. STORE only the affected storage unit back
-        aligned_store(ctx, ctx->builder, final_val, storage_type, bitfield_storage_unit_ptr);
+        aligned_store(ctx, ctx->builder, final_val, storage_type, lhs_res.value);
     }
     else
     {
