@@ -765,6 +765,9 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, LLVMTypeRe
         return false;
     }
 
+    debug_info(
+        "Adding function declaration: name='%s', type=%p, has_definition=%d", name, (void *)type, has_definition
+    );
     // Check if function already exists
     struct function_decl_entry * existing = find_function_declaration(ctx, name);
 

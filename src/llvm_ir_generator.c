@@ -2721,7 +2721,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     }
 
     // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 10);
+    ir_gen_error_collection_init(&ctx->errors, 1);
 
     // Initialize function declarations tracking
     ctx->function_declarations.entries = NULL;
@@ -2891,6 +2891,8 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
 static bool
 is_a_function_declaration(c_grammar_node_t const * declarator_node)
 {
+    debug_info("%s node type: %s", __func__, get_node_type_name_from_node(declarator_node));
+
     if (declarator_node == NULL)
     {
         return false;
@@ -3591,7 +3593,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
                     {
-                        // FunctionPointerDeclarator contains Pointer, Identifier, DeclaratorSuffix*
+                        // FunctionPointerDeclarator contains Pointer, Identifier, DeclaratorSuffixList
                         char const * id = first_child->function_pointer_declarator.identifier->text;
                         if (id != NULL)
                         {
@@ -3775,7 +3777,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             .is_lvalue = true,
                         };
                         debug_info(
-                            "node decl adding symbol %s type %p, pointee_tpye %p",
+                            "node decl adding symbol %s type %p, pointee_type %p",
                             var_name,
                             (void *)var_type,
                             (void *)pointee_type
@@ -4809,7 +4811,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return; /* Stop processing if a fatal error has occurred */
     }
-    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
+    debug_info("%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
     print_ast_with_label(node, "process_ast");
 
     _process_ast_node(ctx, node);
@@ -5615,6 +5617,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 // For LLVM 18+ opaque pointers, use struct name from symbol table
                 // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
                 // was already set (it might be the pointer type from earlier)
+                bool do_symbol_lookup_using_pointee_type = false;
                 if (is_arrow && did_member_access && current_value.type != NULL
                     && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
                 {
@@ -5671,15 +5674,17 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             if (find_symbol(ctx, base_node->text, &sym))
                             {
                                 debug_info(
-                                    "Arrow access: found symbol '%s', sym_type kind=%d, sym_pointee=%p",
+                                    "Arrow access: found symbol '%s', sym_type kind=%d, sym_pointee=%p (%d)",
                                     base_node->text,
                                     LLVMGetTypeKind(sym.type),
-                                    (void *)sym.pointee_type
+                                    (void *)sym.pointee_type,
+                                    sym.pointee_type != NULL ? (int)LLVMGetTypeKind(sym.pointee_type) : -1
                                 );
                                 if (sym.pointee_type != NULL && LLVMGetTypeKind(sym.pointee_type) == LLVMStructTypeKind)
                                 {
-                                    struct_value = sym;
                                     debug_info("Found struct type from pointee!");
+                                    struct_value = sym;
+                                    do_symbol_lookup_using_pointee_type = true;
                                 }
                             }
                             else
@@ -5689,11 +5694,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         }
                     }
                 }
-                LLVMTypeRef struct_type = NULL;
                 debug_info("assign struct type");
                 dump_typed_value("struct value", struct_value);
                 dump_typed_value("current value", current_value);
-                struct_type = struct_value.type;
+                LLVMTypeRef struct_type
+                    = do_symbol_lookup_using_pointee_type ? struct_value.pointee_type : struct_value.type;
 
                 if (struct_type == NULL)
                 {
@@ -5781,6 +5786,14 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                             struct_type != NULL ? (int)LLVMGetTypeKind(struct_type) : -1
                         );
                     }
+
+                    debug_info("end of block and struct info: %p", (void *)struct_info);
+                    if (struct_info == NULL)
+                    {
+                        debug_error("have no struct_info - bailing out!");
+                        ir_gen_error(&ctx->errors, "Compiler error: have no struct_info - bailing out!");
+                        return NullTypedValue;
+                    }
                     base_value = (TypedValue){
                         .value = LLVMBuildInBoundsGEP2(
                             ctx->builder, struct_type, loaded_struct_value.value, indices, 2, "memberptr"
@@ -5790,7 +5803,9 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                         .is_lvalue = true,
                     };
 
+                    dump_typed_value("end_of_block_pre_bitfield_extraction_base_value", base_value);
                     base_value = handle_bitfield_extraction(base_value, struct_info, member_index);
+                    dump_typed_value("end_of_block_base_value", base_value);
 #if 1
                     current_value = base_value;
 #else
@@ -6468,16 +6483,35 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     else if (var_res.value == NULL)
     {
+        debug_info("%s: no symbol found - check functions for %s", __func__, node->text);
         // Check if it's a function name - return the function pointer
         LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->text);
         if (func_val == NULL)
         {
             debug_error("Undefined variable '%s' used.", node->text);
         }
-        return (TypedValue){
-            .value = func_val,
-            .type = LLVMGlobalGetValueType(func_val),
-        };
+        else
+        {
+            debug_info("%s found function", __func__);
+            struct function_decl_entry * decl_entry = find_function_declaration(ctx, node->text);
+            {
+                if (decl_entry != NULL)
+                {
+                    debug_info(
+                        "found decl entry: type %p (%p)",
+                        decl_entry->type,
+                        decl_entry->type != NULL ? (int)LLVMGetTypeKind(decl_entry->type) : -1
+                    );
+                }
+            }
+            LLVMTypeRef func_type = LLVMGlobalGetValueType(func_val);
+            TypedValue func = {
+                .value = func_val,
+                .type = func_type,
+            };
+            dump_typed_value("func", func);
+            return func;
+        }
     }
 
     debug_error("NULL element type for variable '%s'.", node->text);
