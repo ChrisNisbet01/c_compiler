@@ -13,7 +13,7 @@ subtract(int a, int b)
 }
 
 int
-apply(int (*func)(int, int), int x, int y)
+apply_fn(int (*func)(int, int), int x, int y)
 {
     return func(x, y);
 }
@@ -24,13 +24,13 @@ main()
     int (*operation)(int, int);
 
     operation = add;
-    int result1 = apply(operation, 5, 3);
+    int result1 = apply_fn(operation, 5, 3);
     printf("add(5, 3) = %d\n", result1);
     if (result1 != 8)
         return 1;
 
     operation = subtract;
-    int result2 = apply(operation, 5, 3);
+    int result2 = apply_fn(operation, 5, 3);
     printf("subtract(5, 3) = %d\n", result2);
     if (result2 != 2)
         return 2;

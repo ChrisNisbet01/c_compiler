@@ -258,8 +258,6 @@ type_info_t const * scope_find_untagged_enum(scope_t const * scope, int index);
  */
 type_info_t * scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type);
 
-symbol_t * scope_find_symbol_data_by_llvm_value(scope_t const * scope, LLVMValueRef value);
-
 // --- Typedef management ---
 
 /**

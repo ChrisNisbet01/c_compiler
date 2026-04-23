@@ -356,32 +356,6 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
     return NULL;
 }
 
-symbol_t *
-scope_find_symbol_data_by_llvm_value(scope_t const * scope, LLVMValueRef value)
-{
-    while (scope != NULL && value != NULL)
-    {
-        debug_info("%s: Searching for LLVMTypeRef %p", __func__, (void *)value);
-
-        for (size_t i = 0; i < scope->symbol_count; i++)
-        {
-            symbol_t * entry = &scope->symbols[i];
-
-            if (entry->value.value == value)
-            {
-                debug_info("%s: Found match in tagged_types.", __func__);
-                return entry;
-            }
-        }
-
-        debug_info("%s: Searching in parent scope.", __func__);
-        scope = scope->parent;
-    }
-
-    debug_info("%s: Type %p not found in any scope.", __func__, (void *)value);
-    return NULL;
-}
-
 // --- Typedef management ---
 
 void
