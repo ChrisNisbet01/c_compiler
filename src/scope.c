@@ -549,21 +549,26 @@ add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, symbol
 static char const *
 scope_find_symbol_tag_name(scope_t const * scope, char const * name)
 {
-    if (scope == NULL || name == NULL)
+    if (name == NULL)
     {
         return NULL;
     }
 
-    for (size_t i = 0; i < scope->symbol_count; ++i)
+    while (scope != NULL)
     {
-        symbol_t * symbol = &scope->symbols[i];
-        if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
+        for (size_t i = 0; i < scope->symbol_count; ++i)
         {
-            return symbol->tag_name;
+            symbol_t * symbol = &scope->symbols[i];
+            if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
+            {
+                return symbol->tag_name;
+            }
         }
+
+        scope = scope->parent;
     }
 
-    return scope_find_symbol_tag_name(scope->parent, name);
+    return NULL;
 }
 
 char const *
