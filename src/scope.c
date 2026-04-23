@@ -764,7 +764,7 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
 bool
 add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition)
 {
-    if (ctx == NULL || name == NULL || func.value == NULL || func.type == NULL || func.pointee_type == NULL)
+    if (ctx == NULL || name == NULL || func.type == NULL || func.pointee_type == NULL)
     {
         debug_error("%s: Invalid arguments", __func__);
 

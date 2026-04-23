@@ -3239,6 +3239,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         // New function - add to tracking
         TypedValue decl = {
+            /* NB: No value! */
             .type = ctx->ref_type.ptr,
             .pointee_type = func_type,
         };
@@ -3783,10 +3784,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             .is_lvalue = true,
                         };
                         debug_info(
-                            "node decl adding symbol %s type %p, pointee_type %p",
+                            "node decl adding symbol %s type %p (%d), pointee_type %p (%d)",
                             var_name,
                             (void *)var_type,
-                            (void *)pointee_type
+                            var_type != NULL ? (int)LLVMGetTypeKind(var_type) : -1,
+                            (void *)pointee_type,
+                            pointee_type != NULL ? (int)LLVMGetTypeKind(pointee_type) : -1
                         );
                         add_symbol_with_struct(ctx, var_name, sym_val, struct_name, &symbol_data);
 
@@ -6474,7 +6477,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             dump_typed_value("existing_func", decl_entry->func);
             func = decl_entry->func;
         }
-        if (func.value == NULL)
+        if (func.type == NULL)
         {
             /* FIXME - For now, drop back to the old way if not found in the table. */
             debug_info("not found in table");
