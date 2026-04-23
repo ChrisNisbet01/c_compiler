@@ -102,6 +102,7 @@ typedef struct symbol_data_t
     bool is_volatile;
     bool is_extern;
     pointer_qualifiers_t pointer_qualifiers;
+    LLVMTypeRef function_signature; /* Used with function pointers. */
 } symbol_data_t;
 
 // --- Symbol Table Management ---
@@ -256,6 +257,8 @@ type_info_t const * scope_find_untagged_enum(scope_t const * scope, int index);
  * @return Pointer to the type info, or NULL if not found.
  */
 type_info_t * scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type);
+
+symbol_t * scope_find_symbol_data_by_llvm_value(scope_t const * scope, LLVMValueRef value);
 
 // --- Typedef management ---
 

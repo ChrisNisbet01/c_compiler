@@ -356,6 +356,32 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
     return NULL;
 }
 
+symbol_t *
+scope_find_symbol_data_by_llvm_value(scope_t const * scope, LLVMValueRef value)
+{
+    while (scope != NULL && value != NULL)
+    {
+        debug_info("%s: Searching for LLVMTypeRef %p", __func__, (void *)value);
+
+        for (size_t i = 0; i < scope->symbol_count; i++)
+        {
+            symbol_t * entry = &scope->symbols[i];
+
+            if (entry->value.value == value)
+            {
+                debug_info("%s: Found match in tagged_types.", __func__);
+                return entry;
+            }
+        }
+
+        debug_info("%s: Searching in parent scope.", __func__);
+        scope = scope->parent;
+    }
+
+    debug_info("%s: Type %p not found in any scope.", __func__, (void *)value);
+    return NULL;
+}
+
 // --- Typedef management ---
 
 void
@@ -536,17 +562,8 @@ add_symbol_with_struct(
         new_symbol->data = *data;
     }
     scope->symbol_count++;
-    debug_info(
-        "Added symbol: name='%s', ptr=%p, type=%d (%p), pointee_type=%d (%p), tag='%s', is_lvalue: %d",
-        name,
-        (void *)value.value,
-        LLVMGetTypeKind(value.type),
-        (void *)value.type,
-        value.pointee_type == NULL ? -1 : (int)LLVMGetTypeKind(value.pointee_type),
-        (void *)value.pointee_type,
-        tag ? tag : "(null)",
-        value.is_lvalue
-    );
+    debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
+    dump_typed_value("added symbol value", value);
 }
 
 void
