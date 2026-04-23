@@ -6982,67 +6982,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // The compound literal code returns a loaded value, but we need the pointer
         if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
         {
-            c_grammar_node_t const * type_name_node = operand_node->compound_literal.type_name;
-            c_grammar_node_t const * init_list_node = operand_node->compound_literal.initializer_list;
+            TypedValue compound_res = process_compound_literal(ctx, operand_node);
 
-            /* Extract type name - check typedef, then struct/union keyword */
-            char const * type_name = NULL;
-            bool is_typedef = false;
-            if (type_name_node->type == AST_NODE_TYPE_NAME)
-            {
-                c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
-
-                for (size_t i = 0; i < qualifier_list->list.count && type_name == NULL; ++i)
-                {
-                    c_grammar_node_t const * child = qualifier_list->list.children[i];
-                    if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
-                    {
-                        /* Try typedef */
-                        type_name = extract_typedef_name(child);
-                        if (type_name != NULL)
-                        {
-                            is_typedef = true;
-                        }
-                    }
-                    else
-                    {
-                        /* Try struct/union keyword first */
-                        type_name = extract_struct_or_union_or_enum_tag(child);
-                    }
-                }
-            }
-
-            if (type_name == NULL)
-            {
-                debug_error("Could not extract type name from compound literal in unary &");
-                break;
-            }
-
-            LLVMTypeRef compound_type
-                = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
-            if (compound_type == NULL)
-            {
-                debug_error("Unknown type '%s' in compound literal in unary &", type_name);
-                break;
-            }
-
-            // Create a temporary local variable (alloca) for the compound literal
-            LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, compound_type, "compound_literal_tmp");
-            if (alloca_inst == NULL)
-            {
-                debug_error("Failed to allocate compound literal for unary &");
-                break;
-            }
-
-            // Initialize using the initializer list
-            if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
-            {
-                int current_index = 0;
-                process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
-            }
-
-            // Return the pointer to the alloca (not the loaded value)
-            return (TypedValue){.value = alloca_inst, .type = compound_type};
+            compound_res.is_lvalue = false;
+            compound_res.type = ctx->ref_type.ptr;
+            return compound_res;
         }
         TypedValue v = process_expression(ctx, operand_node);
 
