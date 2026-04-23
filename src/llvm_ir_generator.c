@@ -6845,6 +6845,7 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Generate then block
     LLVMPositionBuilderAtEnd(ctx->builder, then_block);
     TypedValue true_res = process_expression(ctx, true_expr_node);
+    true_res = ensure_rvalue(ctx, "conditional_then", true_res);
     if (true_res.value == NULL)
     {
         return NullTypedValue;
@@ -6858,6 +6859,7 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Generate else block
     LLVMPositionBuilderAtEnd(ctx->builder, else_block);
     TypedValue false_res = process_expression(ctx, false_expr_node);
+    false_res = ensure_rvalue(ctx, "conditional_else", false_res);
     if (false_res.value == NULL)
     {
         return false_res;
@@ -6951,7 +6953,7 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
     }
 
-    return (TypedValue){.value = alloca_inst, .type = compound_type};
+    return (TypedValue){.value = alloca_inst, .type = compound_type, .pointee_type = compound_type, .is_lvalue = true};
 }
 
 static TypedValue
@@ -7509,12 +7511,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_COMPOUND_LITERAL:
     {
-        TypedValue res = process_compound_literal(ctx, node);
-
-        // Load the value from the alloca and return it
-        // This allows passing compound literals to functions expecting struct/union by value
-        res.value = aligned_load(ctx, ctx->builder, res.type, res.value, "compound_literal_val");
-        return res;
+        return process_compound_literal(ctx, node);
     }
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
