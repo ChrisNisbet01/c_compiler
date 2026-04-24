@@ -16,6 +16,7 @@ add_executable(${app}
   debug.c
   hash_table.c
   ir_gen_error.c
+  labels.c
   llvm_ir_generator.c
   llvm_typed_value.c
   scope.c

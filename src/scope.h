@@ -14,6 +14,7 @@
 
 #pragma once
 
+#include "labels.h"
 #include "llvm_typed_value.h"
 
 #include <stdarg.h>
@@ -117,6 +118,8 @@ typedef struct symbol
 // --- Scope structure for hierarchical symbol tables ---
 typedef struct scope
 {
+    LLVMContextRef context;
+    LLVMBuilderRef builder;
     symbol_t * symbols;
     size_t symbol_count;
     size_t symbol_capacity;
@@ -124,6 +127,9 @@ typedef struct scope
     scope_types_t tagged_types;   // Tagged struct/union/enum types
     scope_types_t untagged_types; // Anonymous struct/union/enum types
     scope_typedefs_t typedefs;    // Typedef names
+
+    // --- Label management for goto statements ---
+    label_list_t * labels; /* Only present in function blocks. get calls will find the nearest scope with a list. */
 
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
@@ -138,7 +144,7 @@ typedef struct ir_generator_ctx ir_generator_ctx_t;
  * @param parent The parent scope (NULL for global scope).
  * @return A new scope, or NULL on failure.
  */
-scope_t * scope_create(scope_t * parent);
+scope_t * scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder);
 
 /**
  * @brief Frees a scope and all its contents.
@@ -397,3 +403,5 @@ struct function_decl_entry * find_function_declaration(ir_generator_ctx_t * ctx,
  * @return true if signatures match, false otherwise.
  */
 bool function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2);
+
+LLVMBasicBlockRef scope_get_or_create_label(scope_t const * scope, char const * label_name);

@@ -19,13 +19,15 @@
 // --- Scope lifecycle ---
 
 scope_t *
-scope_create(scope_t * parent)
+scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 {
     scope_t * scope = calloc(1, sizeof(*scope));
     if (scope == NULL)
     {
         return NULL;
     }
+    scope->context = context;
+    scope->builder = builder;
 
     scope->symbol_capacity = 16;
     scope->symbols = calloc(scope->symbol_capacity, sizeof(*scope->symbols));
@@ -34,6 +36,9 @@ scope_create(scope_t * parent)
         free(scope);
         return NULL;
     }
+
+    // Initialize label management
+    scope->labels = labels_list_create(scope->context, scope->builder);
 
     scope->tagged_types.capacity = 4;
     scope->tagged_types.entries = calloc(scope->tagged_types.capacity, sizeof(*scope->tagged_types.entries));
@@ -110,6 +115,8 @@ scope_free(scope_t * scope)
         free(entry->tag);
     }
     free(scope->typedefs.entries);
+
+    labels_list_destroy(scope->labels);
 
     free(scope);
 }
@@ -661,7 +668,7 @@ scope_push(ir_generator_ctx_t * ctx)
     if (!ctx)
         return;
 
-    scope_t * new_scope = scope_create(ctx->current_scope);
+    scope_t * new_scope = scope_create(ctx->current_scope, ctx->context, ctx->builder);
     if (new_scope)
     {
         ctx->current_scope = new_scope;
@@ -772,4 +779,18 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
     ctx->function_declarations.count++;
 
     return false;
+}
+
+LLVMBasicBlockRef
+scope_get_or_create_label(scope_t const * scope, char const * label_name)
+{
+    while (scope != NULL && scope->labels == NULL)
+    {
+        scope = scope->parent;
+    }
+    if (scope == NULL)
+    {
+        return NULL;
+    }
+    return labels_get_or_create_label(scope->labels, label_name);
 }

@@ -264,11 +264,9 @@ aligned_store(
 
 // Helper wrapper for LLVMBuildLoad2 with proper alignment
 static LLVMValueRef
-aligned_load_impl(
-    ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name, int line
-)
+aligned_load(ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name)
 {
-    debug_info("%s: from line: %u", __func__, line);
+    debug_info("%s", __func__);
     if (ty == NULL)
     {
         debug_error("aligned_load: NULL type passed");
@@ -288,12 +286,10 @@ aligned_load_impl(
     return load;
 }
 
-#define aligned_load(c, b, t, p, n) aligned_load_impl((c), (b), (t), (p), (n), __LINE__)
-
 static TypedValue
-ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val, int line)
+ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
 {
-    debug_info("%s: from line: %u is %s, lvalue: %d", __func__, line, label, val.is_lvalue);
+    debug_info("%s: is %s, lvalue: %d", __func__, label, val.is_lvalue);
     if (val.value == NULL)
     {
         return val;
@@ -324,7 +320,6 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
         .bit_offset = val.bit_offset,
     };
 }
-#define ensure_rvalue(c, l, v) ensure_rvalue_impl((c), (l), (v), __LINE__)
 
 static TypedValue
 process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, TypedValue base)
@@ -588,59 +583,6 @@ handle_bitfield_extraction(TypedValue tval, type_info_t const * info, size_t mem
     tval.bit_offset = field->bit_offset;
     debug_info("%s: bitfield width: %u offset: %u", __func__, tval.bit_width, tval.bit_offset);
     return tval;
-}
-
-// Label management functions
-static LLVMBasicBlockRef
-get_or_create_label(ir_generator_ctx_t * ctx, label_list_t * labels, char const * name)
-{
-    if (labels == NULL || name == NULL)
-    {
-        return NULL;
-    }
-
-    for (size_t i = 0; i < labels->count; i++)
-    {
-        if (labels->label[i].name != NULL && strcmp(labels->label[i].name, name) == 0)
-        {
-            return labels->label[i].block;
-        }
-    }
-
-    if (labels->count >= labels->capacity)
-    {
-        size_t new_cap = labels->capacity == 0 ? 16 : labels->capacity * 2;
-        label_t * new_labels = realloc(labels->label, new_cap * sizeof(label_t));
-        if (new_labels == NULL)
-        {
-            return NULL;
-        }
-        labels->label = new_labels;
-        labels->capacity = new_cap;
-    }
-
-    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-    LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx->context, current_func, name);
-
-    labels->label[labels->count].name = strdup(name);
-    labels->label[labels->count].block = block;
-    labels->count++;
-
-    return block;
-}
-
-static void
-clear_labels(label_list_t * labels)
-{
-    if (labels == NULL)
-    {
-        return;
-    }
-    for (size_t i = 0; i < labels->count; i++)
-    {
-        free(labels->label[i].name);
-    }
-    labels->count = 0;
 }
 
 static void
@@ -2615,7 +2557,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     builtins_create_builtin(ctx->builtins, "void", ctx->ref_type.void_type);
 
     // Initialize with global scope
-    ctx->current_scope = scope_create(NULL); // NULL parent = global scope
+    ctx->current_scope = scope_create(NULL, ctx->context, ctx->builder); // NULL parent = global scope
     if (!ctx->current_scope)
     {
         debug_error("Failed to create global scope.");
@@ -2625,12 +2567,6 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         free(ctx);
         return NULL;
     }
-
-    // Initialize label management
-    label_list_t * labels = &ctx->labels;
-    labels->capacity = 16;
-    labels->label = calloc(labels->capacity, sizeof(*labels->label));
-    labels->count = 0;
 
     // Add built-in macro __FILE__ as a string constant in the global scope
     {
@@ -2675,34 +2611,18 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
  * @brief Frees the symbol table memory (all scopes in the chain).
  */
 static void
-free_symbol_table(ir_generator_ctx_t * ctx)
+pop_all_scopes(ir_generator_ctx_t * ctx)
 {
-    if (!ctx)
+    if (ctx == NULL)
+    {
         return;
+    }
 
     // Free all scopes in the chain
     while (ctx->current_scope)
     {
         scope_pop(ctx);
     }
-}
-
-static void
-free_labels(label_list_t * labels)
-{
-    if (labels == NULL || labels->label == NULL)
-    {
-        return;
-    }
-
-    for (size_t i = 0; i < labels->count; i++)
-    {
-        free(labels->label[i].name);
-    }
-    free(labels->label);
-    labels->label = NULL;
-    labels->count = 0;
-    labels->capacity = 0;
 }
 
 /**
@@ -2716,8 +2636,7 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
         return;
     }
 
-    free_symbol_table(ctx); // Free symbol table first (includes local types)
-    free_labels(&ctx->labels);
+    pop_all_scopes(ctx); // Free symbol table first (includes local types)
 
     // Free error collection
     ir_gen_error_collection_free(&ctx->errors);
@@ -3463,8 +3382,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         return;
     }
-
-    clear_labels(&ctx->labels);
 
     // Create function scope for parameters and body
     scope_push(ctx);
@@ -4696,7 +4613,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_GOTO_STATEMENT:
     {
         char const * label_name = node->goto_statement.label->text;
-        LLVMBasicBlockRef target = get_or_create_label(ctx, &ctx->labels, label_name);
+        LLVMBasicBlockRef target = scope_get_or_create_label(ctx->current_scope, label_name);
         LLVMBuildBr(ctx->builder, target);
 
         // Start a new basic block for any code after goto (which is technically unreachable
@@ -4715,7 +4632,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * statement_node = node->labeled_statement.statement;
 
         char const * label_name = label_node->text;
-        LLVMBasicBlockRef label_block = get_or_create_label(ctx, &ctx->labels, label_name);
+        LLVMBasicBlockRef label_block = scope_get_or_create_label(ctx->current_scope, label_name);
 
         // If the current block doesn't have a terminator, branch to the label block
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
