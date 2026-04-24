@@ -4098,6 +4098,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         process_ast_node(ctx, init_node);
         if (ctx->errors.fatal)
         {
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4109,6 +4111,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         TypedValue cond_res = process_expression(ctx, cond_node);
         if (ctx->errors.fatal)
         {
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4135,6 +4139,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         process_ast_node(ctx, body_node);
         if (ctx->errors.fatal)
         {
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4184,6 +4190,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (condition_res.value == NULL)
         {
             debug_error("Failed to process condition for WhileStatement.");
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4202,6 +4210,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         process_ast_node(ctx, body_node);
         if (ctx->errors.fatal)
         {
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4244,6 +4254,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         process_ast_node(ctx, body_node);
         if (ctx->errors.fatal)
         {
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4259,6 +4271,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (condition_res.value == NULL)
         {
             debug_error("Failed to process condition for DoWhileStatement.");
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
             return;
         }
 
@@ -4269,13 +4283,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             LLVMValueRef zero = LLVMConstNull(cond_type);
             condition_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, condition_res.value, zero, "do_cond_bool");
         }
-
-        LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
-
         // Restore old break/continue targets
         ctx->break_target = old_break_target;
         ctx->continue_target = old_continue_target;
 
+        LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
         // --- Continue from after block ---
         LLVMPositionBuilderAtEnd(ctx->builder, after_block);
         break;
