@@ -691,7 +691,7 @@ function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2)
     {
         return false;
     }
-
+    return type1 == type2;
     // Check return type
     LLVMTypeRef return1 = LLVMGetReturnType(type1);
     LLVMTypeRef return2 = LLVMGetReturnType(type2);

@@ -323,7 +323,6 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
         .type = val.type,
         .is_lvalue = false,
         .pointee_type = val.pointee_type,
-        .specifiers = val.specifiers,
         .bit_width = val.bit_width,
         .bit_offset = val.bit_offset,
     };
