@@ -14,12 +14,13 @@ add_executable(${app}
   ast_print.c
   c_grammar_ast_actions.c
   debug.c
+  hash_table.c
   ir_gen_error.c
   llvm_ir_generator.c
   llvm_typed_value.c
   scope.c
   symbol_table.c
-  hash_table.c
+  type_descriptors.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)

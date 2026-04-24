@@ -4,6 +4,7 @@
 #include "ir_gen_error.h"
 #include "llvm_typed_value.h"
 #include "scope.h"
+#include "type_descriptors.h"
 
 // Include necessary LLVM C API headers.
 // These require LLVM to be installed and its include paths configured in CMake.

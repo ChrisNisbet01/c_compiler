@@ -14,8 +14,13 @@ typedef struct
     bool is_int;
     bool is_float;
     bool is_double;
-    // ... etc
 } TypeSpecifier;
+
+typedef struct
+{
+    bool is_const;
+    bool is_volatile;
+} TypeQualifier;
 
 typedef struct
 {
