@@ -25,11 +25,9 @@ typedef struct
 
 // Forward declarations for functions used before definition
 // Helper to map C types to LLVM types
-static LLVMTypeRef map_type_to_llvm_t_wrapped(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator, int line
+static LLVMTypeRef map_type_to_llvm_t(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
 );
-
-#define map_type_to_llvm_t(c, s, d) map_type_to_llvm_t_wrapped((c), (s), (d), __LINE__)
 
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
@@ -590,74 +588,57 @@ handle_bitfield_extraction(TypedValue tval, type_info_t const * info, size_t mem
     return tval;
 }
 
-LLVMValueRef
-LLVMBuildAlloca_wrapped(LLVMBuilderRef ref, LLVMTypeRef Ty, char const * Name, int line)
-{
-    if (Ty == NULL || Name == NULL)
-    {
-        debug_error(
-            "%s: line: %u passed NULL type %p or name%p: %s",
-            __func__,
-            (void *)Ty,
-            (void *)Name,
-            Name == NULL ? "" : Name
-        );
-        return NULL;
-    }
-    debug_info("LLVMBuildAlloca: %u type: %p name %s", line, (void *)Ty, Name);
-    LLVMValueRef vref = LLVMBuildAlloca(ref, Ty, Name);
-
-    debug_info("%s: result: %p", __func__, vref);
-
-    return vref;
-}
-#define LLVMBuildAlloca_wrapper(ref, Ty, Name) LLVMBuildAlloca_wrapped((ref), (Ty), (Name), __LINE__)
-
 // Label management functions
 static LLVMBasicBlockRef
-get_or_create_label(ir_generator_ctx_t * ctx, char const * name)
+get_or_create_label(ir_generator_ctx_t * ctx, label_list_t * labels, char const * name)
 {
-    if (!ctx || !name)
-        return NULL;
-
-    for (size_t i = 0; i < ctx->label_count; i++)
+    if (labels == NULL || name == NULL)
     {
-        if (ctx->labels[i].name && strcmp(ctx->labels[i].name, name) == 0)
+        return NULL;
+    }
+
+    for (size_t i = 0; i < labels->count; i++)
+    {
+        if (labels->label[i].name != NULL && strcmp(labels->label[i].name, name) == 0)
         {
-            return ctx->labels[i].block;
+            return labels->label[i].block;
         }
     }
 
-    if (ctx->label_count >= ctx->label_capacity)
+    if (labels->count >= labels->capacity)
     {
-        size_t new_cap = ctx->label_capacity == 0 ? 16 : ctx->label_capacity * 2;
-        label_t * new_labels = realloc(ctx->labels, new_cap * sizeof(label_t));
-        if (!new_labels)
+        size_t new_cap = labels->capacity == 0 ? 16 : labels->capacity * 2;
+        label_t * new_labels = realloc(labels->label, new_cap * sizeof(label_t));
+        if (new_labels == NULL)
+        {
             return NULL;
-        ctx->labels = new_labels;
-        ctx->label_capacity = new_cap;
+        }
+        labels->label = new_labels;
+        labels->capacity = new_cap;
     }
 
     LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
     LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(ctx->context, current_func, name);
 
-    ctx->labels[ctx->label_count].name = strdup(name);
-    ctx->labels[ctx->label_count].block = block;
-    ctx->label_count++;
+    labels->label[labels->count].name = strdup(name);
+    labels->label[labels->count].block = block;
+    labels->count++;
 
     return block;
 }
 
 static void
-clear_labels(ir_generator_ctx_t * ctx)
+clear_labels(label_list_t * labels)
 {
-    if (!ctx)
-        return;
-    for (size_t i = 0; i < ctx->label_count; i++)
+    if (labels == NULL)
     {
-        free(ctx->labels[i].name);
+        return;
     }
-    ctx->label_count = 0;
+    for (size_t i = 0; i < labels->count; i++)
+    {
+        free(labels->label[i].name);
+    }
+    labels->count = 0;
 }
 
 static void
@@ -2087,11 +2068,11 @@ dump_llvm_type(char const * label, LLVMTypeRef type)
  *   An LLVMTypeRef representing the equivalent C type.
  */
 static LLVMTypeRef
-map_type_to_llvm_t_wrapped(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator, int line
+map_type_to_llvm_t(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
 )
 {
-    debug_info("%s: specifier_type: %s, line %u", __func__, get_node_type_name_from_node(specifiers), line);
+    debug_info("%s: specifier_type: %s, line %u", __func__, get_node_type_name_from_node(specifiers));
     static int map_type_depth = 0;
     if (map_type_depth > 64)
     {
@@ -2616,9 +2597,10 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     }
 
     // Initialize label management
-    ctx->label_capacity = 16;
-    ctx->labels = calloc(ctx->label_capacity, sizeof(label_t));
-    ctx->label_count = 0;
+    label_list_t * labels = &ctx->labels;
+    labels->capacity = 16;
+    labels->label = calloc(labels->capacity, sizeof(*labels->label));
+    labels->count = 0;
 
     // Add built-in macro __FILE__ as a string constant in the global scope
     {
@@ -2676,19 +2658,21 @@ free_symbol_table(ir_generator_ctx_t * ctx)
 }
 
 static void
-free_labels(ir_generator_ctx_t * ctx)
+free_labels(label_list_t * labels)
 {
-    if (!ctx || !ctx->labels)
-        return;
-
-    for (size_t i = 0; i < ctx->label_count; i++)
+    if (labels == NULL || labels->label == NULL)
     {
-        free(ctx->labels[i].name);
+        return;
     }
-    free(ctx->labels);
-    ctx->labels = NULL;
-    ctx->label_count = 0;
-    ctx->label_capacity = 0;
+
+    for (size_t i = 0; i < labels->count; i++)
+    {
+        free(labels->label[i].name);
+    }
+    free(labels->label);
+    labels->label = NULL;
+    labels->count = 0;
+    labels->capacity = 0;
 }
 
 /**
@@ -2697,11 +2681,13 @@ free_labels(ir_generator_ctx_t * ctx)
 void
 ir_generator_dispose(ir_generator_ctx_t * ctx)
 {
-    if (!ctx)
+    if (ctx == NULL)
+    {
         return;
+    }
 
     free_symbol_table(ctx); // Free symbol table first (includes local types)
-    free_labels(ctx);
+    free_labels(&ctx->labels);
 
     // Free error collection
     ir_gen_error_collection_free(&ctx->errors);
@@ -3169,7 +3155,7 @@ process_declarator(
         else
         {
             // Inside a function - use stack allocation
-            LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, var_type, var_name);
+            LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, var_type, var_name);
 
             // Find struct name for pointer-to-struct types
             char const * struct_name = NULL;
@@ -3444,7 +3430,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         return;
     }
 
-    clear_labels(ctx);
+    clear_labels(&ctx->labels);
 
     // Create function scope for parameters and body
     scope_push(ctx);
@@ -3600,7 +3586,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
         LLVMValueRef alloca_inst
-            = LLVMBuildAlloca_wrapper(ctx->builder, params.types[i], params.names[i] ? params.names[i] : "");
+            = LLVMBuildAlloca(ctx->builder, params.types[i], params.names[i] ? params.names[i] : "");
         aligned_store(ctx, ctx->builder, param_val, params.types[i], alloca_inst);
         if (params.names[i] != NULL)
         {
@@ -4676,7 +4662,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_GOTO_STATEMENT:
     {
         char const * label_name = node->goto_statement.label->text;
-        LLVMBasicBlockRef target = get_or_create_label(ctx, label_name);
+        LLVMBasicBlockRef target = get_or_create_label(ctx, &ctx->labels, label_name);
         LLVMBuildBr(ctx->builder, target);
 
         // Start a new basic block for any code after goto (which is technically unreachable
@@ -4695,7 +4681,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * statement_node = node->labeled_statement.statement;
 
         char const * label_name = label_node->text;
-        LLVMBasicBlockRef label_block = get_or_create_label(ctx, label_name);
+        LLVMBasicBlockRef label_block = get_or_create_label(ctx, &ctx->labels, label_name);
 
         // If the current block doesn't have a terminator, branch to the label block
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
@@ -6464,7 +6450,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         lhs_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_res.value, zero, "to_bool");
     }
 
-    LLVMValueRef res_alloca = LLVMBuildAlloca_wrapper(ctx->builder, ctx->ref_type.i1, "logical_res");
+    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, ctx->ref_type.i1, "logical_res");
 
     aligned_store(ctx, ctx->builder, lhs_res.value, ctx->ref_type.i1, res_alloca);
     if (is_or)
@@ -6646,7 +6632,7 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
 
     // Create a temporary local variable (alloca) for the compound literal
-    LLVMValueRef alloca_inst = LLVMBuildAlloca_wrapper(ctx->builder, compound_type, "compound_literal_tmp");
+    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
     if (alloca_inst == NULL)
     {
         debug_error("Failed to allocate compound literal");

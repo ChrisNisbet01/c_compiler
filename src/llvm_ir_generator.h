@@ -44,6 +44,13 @@ typedef struct
     bool generate_default_variables; /* Generate values for NULL etc when not preprocessing.*/
 } ir_generation_flags;
 
+typedef struct
+{
+    label_t * label;
+    size_t count;
+    size_t capacity;
+} label_list_t;
+
 // Structure to hold the context for LLVM IR generation.
 // This includes LLVM's core objects and potentially symbol table management.
 typedef struct ir_generator_ctx
@@ -57,9 +64,7 @@ typedef struct ir_generator_ctx
     scope_t * current_scope; // Innermost active scope
 
     // --- Label management for goto statements ---
-    label_t * labels;
-    size_t label_count;
-    size_t label_capacity;
+    label_list_t labels;
 
     // --- Break target for switch and loops ---
     LLVMBasicBlockRef break_target;
