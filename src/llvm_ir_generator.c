@@ -330,24 +330,6 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
 }
 #define ensure_rvalue(c, l, v) ensure_rvalue_impl((c), (l), (v), __LINE__)
 
-// Helper function to safely get element type from a pointer, handling opaque pointers
-static LLVMTypeRef
-get_pointer_element_type(ir_generator_ctx_t * ctx, TypedValue v)
-{
-    if (v.type == NULL || LLVMGetTypeKind(v.type) != LLVMPointerTypeKind)
-    {
-        return NULL;
-    }
-
-    LLVMTypeRef elem_type = LLVMGetElementType(v.type);
-    if (elem_type == NULL)
-    {
-        return ctx->ref_type.i8;
-    }
-
-    return elem_type;
-}
-
 static TypedValue
 process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, TypedValue base)
 {
@@ -402,7 +384,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
         }
 
         // Get the element type.
-        elem_type = get_pointer_element_type(ctx, base);
+        elem_type = base.pointee_type;
         debug_info(
             "%s: get_pointer_element_type returned %p (i8=%p)", __func__, (void *)elem_type, (void *)ctx->ref_type.i8
         );
@@ -5774,24 +5756,19 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
     {
-        // Pointer dereference: *ptr = value
         c_grammar_node_t const * op_node = lhs_node->unary_expression_prefix.op;
         if (op_node != NULL && op_node->op.unary.op == UNARY_OP_DEREF)
         {
-            c_grammar_node_t const * operand = lhs_node->unary_expression_prefix.operand;
-            if (operand != NULL && operand->type == AST_NODE_IDENTIFIER)
-            {
-                char const * ptr_name = operand->text;
-                TypedValue val;
-                if (find_symbol(ctx, ptr_name, &val))
-                {
-                    // Load the pointer value (the address)
-                    LLVMValueRef addr = aligned_load(ctx, ctx->builder, val.type, val.value, "ptr_load");
-                    // The address to store to is the loaded address
-                    // The pointee type is what we assign to
-                    lhs_res = (TypedValue){.value = addr, .type = val.pointee_type, .is_lvalue = true};
-                }
-            }
+            TypedValue ptr_val = process_expression(ctx, lhs_node->unary_expression_prefix.operand);
+            // ptr_val.value is the address of the pointer
+            // We load it to get the address of the target
+            LLVMValueRef target_addr = aligned_load(ctx, ctx->builder, ptr_val.type, ptr_val.value, "ptr_deref");
+
+            lhs_res = (TypedValue){
+                .value = target_addr,
+                .type = ptr_val.pointee_type, // Use the metadata!
+                .is_lvalue = true
+            };
         }
     }
     else
