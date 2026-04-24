@@ -687,51 +687,7 @@ scope_pop(ir_generator_ctx_t * ctx)
 bool
 function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2)
 {
-    if (type1 == NULL || type2 == NULL)
-    {
-        return false;
-    }
     return type1 == type2;
-    // Check return type
-    LLVMTypeRef return1 = LLVMGetReturnType(type1);
-    LLVMTypeRef return2 = LLVMGetReturnType(type2);
-    if (LLVMGetTypeKind(return1) != LLVMGetTypeKind(return2))
-    {
-        return false;
-    }
-
-    // Check parameter count
-    unsigned param_count1 = LLVMCountParamTypes(type1);
-    unsigned param_count2 = LLVMCountParamTypes(type2);
-    if (param_count1 != param_count2)
-    {
-        return false;
-    }
-
-    // Check parameter types
-    if (param_count1 > 0)
-    {
-        LLVMTypeRef * params1 = malloc(param_count1 * sizeof(LLVMTypeRef));
-        LLVMTypeRef * params2 = malloc(param_count2 * sizeof(LLVMTypeRef));
-        if (params1 != NULL && params2 != NULL)
-        {
-            LLVMGetParamTypes(type1, params1);
-            LLVMGetParamTypes(type2, params2);
-            for (unsigned i = 0; i < param_count1; ++i)
-            {
-                if (LLVMGetTypeKind(params1[i]) != LLVMGetTypeKind(params2[i]))
-                {
-                    free(params1);
-                    free(params2);
-                    return false;
-                }
-            }
-        }
-        free(params1);
-        free(params2);
-    }
-
-    return true;
 }
 
 struct function_decl_entry *
