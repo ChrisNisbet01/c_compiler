@@ -1,5 +1,6 @@
 #pragma once
 
+#include "builtin_types.h"
 #include "c_grammar_ast.h"
 #include "ir_gen_error.h"
 #include "llvm_typed_value.h"
@@ -80,12 +81,19 @@ typedef struct ir_generator_ctx
 
     struct
     {
-        LLVMTypeRef i1;
-        LLVMTypeRef i8;
-        LLVMTypeRef i32;
-        LLVMTypeRef i64;
-        LLVMTypeRef ptr;
+        LLVMTypeRef i1_type;
+        LLVMTypeRef i8_type;
+        LLVMTypeRef i32_type;
+        LLVMTypeRef i64_type;
+        LLVMTypeRef ptr_type;
+        LLVMTypeRef float_type;
+        LLVMTypeRef double_type;
+        LLVMTypeRef long_double_type;
+        LLVMTypeRef void_type;
     } ref_type;
+
+    TypeDescriptors * type_descriptors;
+    Builtins * builtins;
 
     // Pseudo-code for your Compiler State
     int anon_counter;

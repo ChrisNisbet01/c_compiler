@@ -21,6 +21,7 @@ add_executable(${app}
   scope.c
   symbol_table.c
   type_descriptors.c
+  builtin_types.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)

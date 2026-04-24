@@ -25,9 +25,8 @@ typedef struct
 
 // Forward declarations for functions used before definition
 // Helper to map C types to LLVM types
-static LLVMTypeRef map_type_to_llvm_t(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
-);
+static LLVMTypeRef
+map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
 
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
@@ -232,7 +231,7 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
 {
     if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
     {
-        return (TypedValue){.value = LLVMConstInt(ctx->ref_type.i64, 0, false), .type = ctx->ref_type.i64};
+        return (TypedValue){.value = LLVMConstInt(ctx->ref_type.i64_type, 0, false), .type = ctx->ref_type.i64_type};
     }
 
     // Get the size in bytes as a standard C integer
@@ -240,8 +239,8 @@ get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
     unsigned size_in_bytes = LLVMABISizeOfType(data_layout, type);
     debug_info("type size: %u", size_in_bytes);
     return (TypedValue){
-        .value = LLVMConstInt(ctx->ref_type.i64, size_in_bytes, false),
-        .type = ctx->ref_type.i64,
+        .value = LLVMConstInt(ctx->ref_type.i64_type, size_in_bytes, false),
+        .type = ctx->ref_type.i64_type,
     };
 }
 
@@ -310,8 +309,8 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
     // 2. If it's a bitfield, extract the bits
     if (val.bit_width > 0)
     {
-        LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32, val.bit_offset, false);
-        LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32, (1ULL << val.bit_width) - 1, false);
+        LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, val.bit_offset, false);
+        LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << val.bit_width) - 1, false);
         LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, container, offset, "bf_extract");
         container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
     }
@@ -383,10 +382,13 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
         // Get the element type.
         elem_type = base.pointee_type;
         debug_info(
-            "%s: get_pointer_element_type returned %p (i8=%p)", __func__, (void *)elem_type, (void *)ctx->ref_type.i8
+            "%s: get_pointer_element_type returned %p (i8=%p)",
+            __func__,
+            (void *)elem_type,
+            (void *)ctx->ref_type.i8_type
         );
 
-        if (elem_type == NULL || elem_type == ctx->ref_type.i8)
+        if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
         {
             // Opaque pointer - try to find the struct type via scope
             // Look up the pointer type in scope to find what it points to
@@ -412,7 +414,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
                             break;
                         }
                     }
-                    if (elem_type != NULL && elem_type != ctx->ref_type.i8)
+                    if (elem_type != NULL && elem_type != ctx->ref_type.i8_type)
                     {
                         break;
                     }
@@ -421,16 +423,16 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
         }
 
         // If still i8 or NULL, search through all scopes for a struct with a pointer field of our type
-        if (elem_type == NULL || elem_type == ctx->ref_type.i8)
+        if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
         {
             debug_info("%s: scanning scopes for pointer field", __func__);
             // Search through current and parent scopes
             scope_t const * scope = ctx->current_scope;
-            while (scope != NULL && (elem_type == NULL || elem_type == ctx->ref_type.i8))
+            while (scope != NULL && (elem_type == NULL || elem_type == ctx->ref_type.i8_type))
             {
                 // Check tagged types
                 for (size_t i = 0;
-                     i < scope->tagged_types.count && (elem_type == NULL || elem_type == ctx->ref_type.i8);
+                     i < scope->tagged_types.count && (elem_type == NULL || elem_type == ctx->ref_type.i8_type);
                      ++i)
                 {
                     type_info_t const * ti = &scope->tagged_types.entries[i];
@@ -446,7 +448,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
                 }
                 // Check untagged types
                 for (size_t i = 0;
-                     i < scope->untagged_types.count && (elem_type == NULL || elem_type == ctx->ref_type.i8);
+                     i < scope->untagged_types.count && (elem_type == NULL || elem_type == ctx->ref_type.i8_type);
                      ++i)
                 {
                     type_info_t const * ti = &scope->untagged_types.entries[i];
@@ -462,7 +464,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
                 }
                 scope = scope->parent;
             }
-            if (elem_type != NULL && elem_type != ctx->ref_type.i8)
+            if (elem_type != NULL && elem_type != ctx->ref_type.i8_type)
             {
                 debug_info("%s: found pointee through scope scan", __func__);
             }
@@ -470,10 +472,10 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
 
         // If elem_type is i8 (char*), check if the actual LLVM pointer's element is valid
         // This handles char* and other primitive pointer types
-        if (elem_type == NULL || elem_type == ctx->ref_type.i8)
+        if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
         {
             LLVMTypeRef direct_elem = LLVMGetElementType(base_type);
-            if (direct_elem != NULL && direct_elem != ctx->ref_type.i8)
+            if (direct_elem != NULL && direct_elem != ctx->ref_type.i8_type)
             {
                 elem_type = direct_elem;
                 debug_info("%s: using direct element type from LLVMGetElementType", __func__);
@@ -488,7 +490,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
             {
                 // For char* specifically, i8 is correct - the issue was we were rejecting it
                 // when the pointer was from a non-struct context. But char* should work.
-                if (direct_elem == ctx->ref_type.i8)
+                if (direct_elem == ctx->ref_type.i8_type)
                 {
                     elem_type = direct_elem;
                     debug_info("%s: using i8 for char*", __func__);
@@ -509,7 +511,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
 
         // If element type is i8 (char*), that's valid for string handling
         // Only fail for i8 when it's truly an opaque struct pointer context
-        if (elem_type == ctx->ref_type.i8)
+        if (elem_type == ctx->ref_type.i8_type)
         {
             // Check if this could be a struct pointer by looking at what we have
             // If we found this pointer in scope as a struct field, we'd have found it above
@@ -544,7 +546,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
         index_res = ensure_rvalue(ctx, "array_index", index_res);
 
         LLVMValueRef indices[2];
-        indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
+        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
         indices[1] = index_res.value;
         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, base_type, base_ptr, indices, 2, "arrayidx");
 
@@ -662,7 +664,7 @@ process_initializer_list(
     if (kind == LLVMStructTypeKind)
     {
         LLVMValueRef size = LLVMSizeOf(element_type);
-        LLVMValueRef zero = LLVMConstNull(ctx->ref_type.i8);
+        LLVMValueRef zero = LLVMConstNull(ctx->ref_type.i8_type);
         LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, get_type_alignment(ctx, element_type));
     }
 
@@ -724,8 +726,8 @@ process_initializer_list(
                             {
                                 // More fields coming - navigate to nested struct
                                 LLVMValueRef indices[2];
-                                indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                                indices[1] = LLVMConstInt(ctx->ref_type.i32, field_idx, false);
+                                indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                                indices[1] = LLVMConstInt(ctx->ref_type.i32_type, field_idx, false);
                                 current_ptr = LLVMBuildInBoundsGEP2(
                                     ctx->builder, current_type, current_ptr, indices, 2, "nested_ptr"
                                 );
@@ -753,8 +755,8 @@ process_initializer_list(
                 if (field_count > 0 && final_local_index >= 0)
                 {
                     LLVMValueRef indices[2];
-                    indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                    indices[1] = LLVMConstInt(ctx->ref_type.i32, final_local_index, false);
+                    indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                    indices[1] = LLVMConstInt(ctx->ref_type.i32_type, final_local_index, false);
                     current_ptr = LLVMBuildInBoundsGEP2(
                         ctx->builder, element_type, current_ptr, indices, 2, "nested_init_field_ptr"
                     );
@@ -778,8 +780,8 @@ process_initializer_list(
                         // Nested field - current_ptr already points to the parent struct's field
                         // We need to get element 0 of that nested struct (since it's the final target)
                         LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                        indices[1] = LLVMConstInt(ctx->ref_type.i32, final_local_index, false);
+                        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                        indices[1] = LLVMConstInt(ctx->ref_type.i32_type, final_local_index, false);
                         elem_ptr = LLVMBuildInBoundsGEP2(
                             ctx->builder, current_type, current_ptr, indices, 2, "nested_init_ptr"
                         );
@@ -788,8 +790,8 @@ process_initializer_list(
                     {
                         // Single field
                         LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                        indices[1] = LLVMConstInt(ctx->ref_type.i32, final_local_index, false);
+                        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                        indices[1] = LLVMConstInt(ctx->ref_type.i32_type, final_local_index, false);
                         elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
                     }
 
@@ -811,8 +813,8 @@ process_initializer_list(
         {
             LLVMTypeRef nested_element = LLVMGetElementType(element_type);
             LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-            indices[1] = LLVMConstInt(ctx->ref_type.i32, local_index, false);
+            indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+            indices[1] = LLVMConstInt(ctx->ref_type.i32_type, local_index, false);
             LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "elem_ptr");
             process_initializer_list(ctx, elem_ptr, nested_element, value_node, NULL);
             local_index++;
@@ -828,8 +830,8 @@ process_initializer_list(
         {
             LLVMTypeRef nested_element = LLVMGetElementType(element_type);
             LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-            indices[1] = LLVMConstInt(ctx->ref_type.i32, local_index, false);
+            indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+            indices[1] = LLVMConstInt(ctx->ref_type.i32_type, local_index, false);
             LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
             process_initializer_list(ctx, elem_ptr, nested_element, value_node, &local_index);
         }
@@ -842,8 +844,8 @@ process_initializer_list(
             if (tvalue.value != NULL)
             {
                 LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                indices[1] = LLVMConstInt(ctx->ref_type.i32, local_index, false);
+                indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                indices[1] = LLVMConstInt(ctx->ref_type.i32_type, local_index, false);
 
                 LLVMValueRef elem_ptr
                     = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
@@ -1082,15 +1084,15 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             }
 
             // Create a global constant for this enum value
-            LLVMValueRef const_val = LLVMConstInt(ctx->ref_type.i32, current_value, true);
+            LLVMValueRef const_val = LLVMConstInt(ctx->ref_type.i32_type, current_value, true);
 
-            LLVMValueRef global = LLVMAddGlobal(ctx->module, ctx->ref_type.i32, enum_name);
+            LLVMValueRef global = LLVMAddGlobal(ctx->module, ctx->ref_type.i32_type, enum_name);
             LLVMSetInitializer(global, const_val);
             LLVMSetGlobalConstant(global, true);
             LLVMSetLinkage(global, LLVMInternalLinkage);
 
             // Also add to symbol table for immediate lookup
-            TypedValue val = (TypedValue){.value = global, .type = ctx->ref_type.i32};
+            TypedValue val = (TypedValue){.value = global, .type = ctx->ref_type.i32_type};
             add_symbol(ctx, enum_name, val, NULL);
 
             current_value++;
@@ -1118,7 +1120,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
     enum_info.tag = strdup(tag);
     enum_info.kind = TYPE_KIND_ENUM;
-    enum_info.type = ctx->ref_type.i32;
+    enum_info.type = ctx->ref_type.i32_type;
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1500,7 +1502,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     type_info_t enum_info = {0};
 
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
-    enum_info.type = ctx->ref_type.i32;
+    enum_info.type = ctx->ref_type.i32_type;
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1969,11 +1971,11 @@ get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
     }
     else if (spec.is_int)
     {
-        type_ref = ctx->ref_type.i32;
+        type_ref = ctx->ref_type.i32_type;
     }
     else if (spec.is_char)
     {
-        type_ref = ctx->ref_type.i8;
+        type_ref = ctx->ref_type.i8_type;
     }
     else if (spec.is_void)
     {
@@ -2014,9 +2016,9 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
     }
     // Then check for basic types
     else if (strncmp(type_name, "int", 3) == 0)
-        type_ref = ctx->ref_type.i32;
+        type_ref = ctx->ref_type.i32_type;
     else if (strncmp(type_name, "char", 4) == 0)
-        type_ref = ctx->ref_type.i8;
+        type_ref = ctx->ref_type.i8_type;
     else if (strncmp(type_name, "void", 4) == 0)
         type_ref = LLVMVoidTypeInContext(ctx->context);
     else if (strncmp(type_name, "float", 5) == 0)
@@ -2068,16 +2070,14 @@ dump_llvm_type(char const * label, LLVMTypeRef type)
  *   An LLVMTypeRef representing the equivalent C type.
  */
 static LLVMTypeRef
-map_type_to_llvm_t(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
-)
+map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
     debug_info("%s: specifier_type: %s, line %u", __func__, get_node_type_name_from_node(specifiers));
     static int map_type_depth = 0;
     if (map_type_depth > 64)
     {
         debug_error("map_type: recursion depth exceeded");
-        return ctx->ref_type.i32;
+        return ctx->ref_type.i32_type;
     }
     map_type_depth++;
     LLVMTypeRef base_type = NULL;
@@ -2089,7 +2089,7 @@ map_type_to_llvm_t(
     if (array_sizes == NULL)
     {
         map_type_depth--;
-        return ctx->ref_type.i32;
+        return ctx->ref_type.i32_type;
     }
 
     // 1. Process Specifiers (extract base type and any pointers in specifiers)
@@ -2484,13 +2484,13 @@ map_type_to_llvm_t(
 
     if (base_type == NULL)
     {
-        base_type = ctx->ref_type.i32;
+        base_type = ctx->ref_type.i32_type;
     }
 
     // Handle function pointer - return pointer type (possibly wrapped in array)
     if (is_function_pointer)
     {
-        LLVMTypeRef func_ptr_type = LLVMPointerType(ctx->ref_type.i8, 0);
+        LLVMTypeRef func_ptr_type = LLVMPointerType(ctx->ref_type.i8_type, 0);
 
         // If there are array sizes, this is an array of function pointers
         if (array_depth > 0)
@@ -2550,6 +2550,22 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     }
     ctx->generation_flags = flags;
 
+    ctx->type_descriptors = type_descriptors_create_list();
+    if (ctx->type_descriptors == NULL)
+    {
+        free(ctx);
+        return NULL;
+    }
+    ctx->builtins = builtins_create(ctx->type_descriptors);
+    if (ctx->builtins == NULL)
+    {
+        free(ctx->type_descriptors);
+        free(ctx);
+        return NULL;
+    }
+
+    // Initialize LLVM
+
     ctx->context = LLVMContextCreate();
     if (!ctx->context)
     {
@@ -2578,11 +2594,25 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     }
 
     /* Cache some LLVM ref types that are frequently needed. */
-    ctx->ref_type.i1 = LLVMInt1TypeInContext(ctx->context);
-    ctx->ref_type.i8 = LLVMInt8TypeInContext(ctx->context);
-    ctx->ref_type.i32 = LLVMInt32TypeInContext(ctx->context);
-    ctx->ref_type.i64 = LLVMInt64TypeInContext(ctx->context);
-    ctx->ref_type.ptr = LLVMPointerTypeInContext(ctx->context, 0);
+    ctx->ref_type.i1_type = LLVMInt1TypeInContext(ctx->context);
+    ctx->ref_type.i8_type = LLVMInt8TypeInContext(ctx->context);
+    ctx->ref_type.i32_type = LLVMInt32TypeInContext(ctx->context);
+    ctx->ref_type.i64_type = LLVMInt64TypeInContext(ctx->context);
+    ctx->ref_type.ptr_type = LLVMPointerTypeInContext(ctx->context, 0);
+    ctx->ref_type.float_type = LLVMFloatTypeInContext(ctx->context);
+    ctx->ref_type.double_type = LLVMDoubleTypeInContext(ctx->context);
+    ctx->ref_type.long_double_type = LLVMX86FP80TypeInContext(ctx->context);
+    ctx->ref_type.void_type = LLVMVoidTypeInContext(ctx->context);
+
+    builtins_create_builtin(ctx->builtins, "bool", ctx->ref_type.i1_type);
+    builtins_create_builtin(ctx->builtins, "char", ctx->ref_type.i8_type);
+    builtins_create_builtin(ctx->builtins, "int", ctx->ref_type.i32_type);
+    builtins_create_builtin(ctx->builtins, "long", ctx->ref_type.i64_type);
+    builtins_create_builtin(ctx->builtins, "pointer", ctx->ref_type.ptr_type);
+    builtins_create_builtin(ctx->builtins, "float", ctx->ref_type.float_type);
+    builtins_create_builtin(ctx->builtins, "double", ctx->ref_type.double_type);
+    builtins_create_builtin(ctx->builtins, "fp80", ctx->ref_type.long_double_type);
+    builtins_create_builtin(ctx->builtins, "void", ctx->ref_type.void_type);
 
     // Initialize with global scope
     ctx->current_scope = scope_create(NULL); // NULL parent = global scope
@@ -2606,7 +2636,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     {
         char const * file_name = module_name ? module_name : "";
         size_t len = strlen(file_name);
-        LLVMTypeRef arr_type = LLVMArrayType(ctx->ref_type.i8, (unsigned)(len + 1));
+        LLVMTypeRef arr_type = LLVMArrayType(ctx->ref_type.i8_type, (unsigned)(len + 1));
         LLVMValueRef global = LLVMAddGlobal(ctx->module, arr_type, "__FILE__");
         LLVMSetLinkage(global, LLVMPrivateLinkage);
         LLVMSetGlobalConstant(global, true);
@@ -2614,7 +2644,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
 
         // Store pointer to the first element as the macro value
         LLVMValueRef indices[2]
-            = {LLVMConstInt(ctx->ref_type.i32, 0, false), LLVMConstInt(ctx->ref_type.i32, 0, false)};
+            = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
         TypedValue val = (TypedValue){.value = ptr, .type = arr_type};
         add_symbol(ctx, "__FILE__", val, NULL);
@@ -2623,7 +2653,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     if (ctx->generation_flags.generate_default_variables)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
-        LLVMTypeRef null_type = ctx->ref_type.ptr;
+        LLVMTypeRef null_type = ctx->ref_type.ptr_type;
         LLVMValueRef null_const = LLVMConstPointerNull(null_type);
         LLVMSetGlobalConstant(null_const, true);
         TypedValue null_val = (TypedValue){.value = null_const, .type = null_type};
@@ -2707,6 +2737,9 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
     if (ctx->context)
         LLVMContextDispose(ctx->context);
 
+    builtins_destroy(ctx->builtins);
+    type_descriptors_destroy_list(ctx->type_descriptors);
+
     free(ctx);
 }
 
@@ -2783,13 +2816,14 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     // __FUNC__ and __func__ as string constants of the function name
     char const * func_name_macro = func_name;
     size_t flen = strlen(func_name_macro);
-    LLVMTypeRef farr_type = LLVMArrayType(ctx->ref_type.i8, (unsigned)(flen + 1));
+    LLVMTypeRef farr_type = LLVMArrayType(ctx->ref_type.i8_type, (unsigned)(flen + 1));
     LLVMValueRef fglobal = LLVMAddGlobal(ctx->module, farr_type, "__FUNC__");
     LLVMSetLinkage(fglobal, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(fglobal, true);
     LLVMSetInitializer(fglobal, LLVMConstStringInContext(ctx->context, func_name_macro, (unsigned)flen, false));
 
-    LLVMValueRef findices[2] = {LLVMConstInt(ctx->ref_type.i32, 0, false), LLVMConstInt(ctx->ref_type.i32, 0, false)};
+    LLVMValueRef findices[2]
+        = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
     TypedValue fval = (TypedValue){.value = fptr, .type = farr_type};
     add_symbol(ctx, "__FUNC__", fval, NULL);
@@ -2797,8 +2831,8 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     add_symbol(ctx, "__func__", fval, NULL);
 
     // __LINE__ as integer constant 0 (i32)
-    LLVMValueRef line_const = LLVMConstInt(ctx->ref_type.i32, 0, false);
-    TypedValue lval = (TypedValue){.value = line_const, .type = ctx->ref_type.i32};
+    LLVMValueRef line_const = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+    TypedValue lval = (TypedValue){.value = line_const, .type = ctx->ref_type.i32_type};
     add_symbol(ctx, "__LINE__", lval, NULL);
 }
 
@@ -3325,8 +3359,8 @@ process_declarator(
 
                                     // Create GEP to element
                                     LLVMValueRef indices[2];
-                                    indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                                    indices[1] = LLVMConstInt(ctx->ref_type.i32, current_index, false);
+                                    indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                                    indices[1] = LLVMConstInt(ctx->ref_type.i32_type, current_index, false);
                                     LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(
                                         ctx->builder, var_type, alloca_inst, indices, 2, "init_elem_ptr"
                                     );
@@ -3515,7 +3549,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             /* Forward declaration not tracked — register it now */
             TypedValue decl = {
                 .value = existing,
-                .type = ctx->ref_type.ptr,
+                .type = ctx->ref_type.ptr_type,
                 .pointee_type = func_type,
             };
             add_function_declaration(ctx, func_name, decl, false);
@@ -3526,7 +3560,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         // New function - add to tracking
         TypedValue decl = {
             /* NB: No value! */
-            .type = ctx->ref_type.ptr,
+            .type = ctx->ref_type.ptr_type,
             .pointee_type = func_type,
         };
         add_function_declaration(ctx, func_name, decl, true);
@@ -3713,7 +3747,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         }
         else
         {
-            LLVMBuildRet(ctx->builder, LLVMConstInt(ctx->ref_type.i32, 0, false));
+            LLVMBuildRet(ctx->builder, LLVMConstInt(ctx->ref_type.i32_type, 0, false));
         }
     }
 
@@ -4037,7 +4071,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
                         register_untagged_enum_definition(ctx, enum_def_node);
-                        typedef_entry.type = ctx->ref_type.i32;
+                        typedef_entry.type = ctx->ref_type.i32_type;
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
                     }
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
@@ -4992,7 +5026,7 @@ process_integer_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * _node
     }
     else
     {
-        int_type = ctx->ref_type.i32;
+        int_type = ctx->ref_type.i32_type;
     }
 
     return (TypedValue){
@@ -5039,7 +5073,7 @@ process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     char const * raw_text = node->text;
     char const * decoded = decode_string(raw_text);
     size_t len = strlen(decoded);
-    LLVMTypeRef str_type = LLVMArrayType(ctx->ref_type.i8, (unsigned)(len + 1));
+    LLVMTypeRef str_type = LLVMArrayType(ctx->ref_type.i8_type, (unsigned)(len + 1));
     LLVMValueRef global_str;
 
     if (LLVMGetInsertBlock(ctx->builder) != NULL)
@@ -5054,7 +5088,7 @@ process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMSetGlobalConstant(global, true);
         LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, decoded, (unsigned)len, false));
         LLVMValueRef indices[2]
-            = {LLVMConstInt(ctx->ref_type.i32, 0, false), LLVMConstInt(ctx->ref_type.i32, 0, false)};
+            = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
         global_str = LLVMConstInBoundsGEP2(str_type, global, indices, 2);
     }
 
@@ -5113,8 +5147,8 @@ process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
     }
 
     return (TypedValue){
-        .value = LLVMConstInt(ctx->ref_type.i8, value, false),
-        .type = ctx->ref_type.i8,
+        .value = LLVMConstInt(ctx->ref_type.i8_type, value, false),
+        .type = ctx->ref_type.i8_type,
     };
 }
 
@@ -5236,7 +5270,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     }
                     else
                     {
-                        LLVMTypeRef ret_type = ctx->ref_type.i32;
+                        LLVMTypeRef ret_type = ctx->ref_type.i32_type;
                         func_sig = LLVMFunctionType(ret_type, NULL, 0, true);
                         callable.value = LLVMAddFunction(ctx->module, base_node->text, func_sig);
                         callable.type = LLVMGetReturnType(func_sig);
@@ -5571,8 +5605,8 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             {
                 // Create GEP to access member
                 LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                indices[1] = LLVMConstInt(ctx->ref_type.i32, storage_index, false);
+                indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+                indices[1] = LLVMConstInt(ctx->ref_type.i32_type, storage_index, false);
 
                 // Check if struct_val (which could be base_val or current_ptr) is a pointer
                 // Now GEP into the ACTUAL address
@@ -5639,7 +5673,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 if (kind == LLVMPointerTypeKind)
                 {
                     // POINTER ARITHMETIC: use GEP to move by 1 element
-                    LLVMValueRef indices[] = {LLVMConstInt(ctx->ref_type.i32, 1, false)};
+                    LLVMValueRef indices[] = {LLVMConstInt(ctx->ref_type.i32_type, 1, false)};
 
                     // Note: we GEP from the original value (the address)
                     modified_val = LLVMBuildInBoundsGEP2(
@@ -5689,11 +5723,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         {
             LLVMTypeRef elem_type = LLVMGetElementType(current_value.type);
             // Handle opaque pointers (elem_type is NULL) and char* (elem_type is i8)
-            if (elem_type == NULL || elem_type == ctx->ref_type.i8)
+            if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
             {
                 // For char* or opaque pointers from subscript, load as i8
-                base_value.value = aligned_load(ctx, ctx->builder, ctx->ref_type.i8, current_value.value, "load_tmp");
-                base_value.type = ctx->ref_type.i8;
+                base_value.value = aligned_load(ctx, ctx->builder, ctx->ref_type.i8_type, current_value.value, "load_tmp");
+                base_value.type = ctx->ref_type.i8_type;
             }
             else
             {
@@ -5994,7 +6028,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         LLVMValueRef llvm_clear_mask = LLVMConstInt(storage_type, clear_mask, false);
         LLVMValueRef llvm_width_mask = LLVMConstInt(storage_type, width_mask, false);
-        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32, lhs_res.bit_offset, false);
+        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32_type, lhs_res.bit_offset, false);
 
         // 4. MODIFY
         // Clear the old bits
@@ -6033,15 +6067,15 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (strcmp(node->text, "true") == 0)
         {
             return (TypedValue){
-                .value = LLVMConstInt(ctx->ref_type.i1, 1, false),
-                .type = ctx->ref_type.i1,
+                .value = LLVMConstInt(ctx->ref_type.i1_type, 1, false),
+                .type = ctx->ref_type.i1_type,
             };
         }
         if (strcmp(node->text, "false") == 0)
         {
             return (TypedValue){
-                .value = LLVMConstInt(ctx->ref_type.i1, 0, false),
-                .type = ctx->ref_type.i1,
+                .value = LLVMConstInt(ctx->ref_type.i1_type, 0, false),
+                .type = ctx->ref_type.i1_type,
             };
         }
     }
@@ -6074,8 +6108,8 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (LLVMGetTypeKind(var_res.type) == LLVMArrayTypeKind)
         {
             LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-            indices[1] = LLVMConstInt(ctx->ref_type.i32, 0, false);
+            indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+            indices[1] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
             return (TypedValue){
                 .value = LLVMBuildInBoundsGEP2(ctx->builder, var_res.type, var_res.value, indices, 2, "array_ptr"),
                 .type = var_res.type,
@@ -6107,7 +6141,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
             func = (TypedValue){
                 .value = func_val,
-                .type = ctx->ref_type.ptr,
+                .type = ctx->ref_type.ptr_type,
                 .pointee_type = LLVMGlobalGetValueType(func_val),
             };
             dump_typed_value("func from LLVM", func);
@@ -6328,7 +6362,7 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     c_grammar_node_t const * op_node = node->binary_expression.op;
     relational_operator_type_t operator= op_node->op.rel.op;
 
-    TypedValue res = {.type = ctx->ref_type.i1};
+    TypedValue res = {.type = ctx->ref_type.i1_type};
     switch (operator)
     {
     case REL_OP_LT:
@@ -6353,8 +6387,8 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     }
 #if 0
     // Convert the i1 result to i32
-    res.value = LLVMBuildZExt(ctx->builder, res.value, ctx->ref_type.i32, "bool_to_int");
-    res.type = ctx->ref_type.i32;
+    res.value = LLVMBuildZExt(ctx->builder, res.value, ctx->ref_type.i32_type, "bool_to_int");
+    res.type = ctx->ref_type.i32_type;
 #endif
 
     return res;
@@ -6400,7 +6434,7 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     equality_operator_type_t operator= op_node->op.eq.op;
     debug_info("%s: now comparing results operator %d", __func__, operator);
 
-    TypedValue res = {.type = ctx->ref_type.i1};
+    TypedValue res = {.type = ctx->ref_type.i1_type};
     switch (operator)
     {
     case EQ_OP_EQ:
@@ -6450,9 +6484,9 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         lhs_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_res.value, zero, "to_bool");
     }
 
-    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, ctx->ref_type.i1, "logical_res");
+    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, ctx->ref_type.i1_type, "logical_res");
 
-    aligned_store(ctx, ctx->builder, lhs_res.value, ctx->ref_type.i1, res_alloca);
+    aligned_store(ctx, ctx->builder, lhs_res.value, ctx->ref_type.i1_type, res_alloca);
     if (is_or)
     {
         LLVMBuildCondBr(ctx->builder, lhs_res.value, merge_block, rhs_block);
@@ -6480,17 +6514,17 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         rhs_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, rhs_res.value, zero, "to_bool");
     }
 
-    aligned_store(ctx, ctx->builder, rhs_res.value, ctx->ref_type.i1, res_alloca);
+    aligned_store(ctx, ctx->builder, rhs_res.value, ctx->ref_type.i1_type, res_alloca);
     LLVMBuildBr(ctx->builder, merge_block);
 
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
 
 #if 0
     /* Upcast to i32. */
-    LLVMValueRef result_val = LLVMBuildZExt(ctx->builder, v, ctx->ref_type.i32, "logical_final_i32");
-    return (TypedValue){.value = result_val, .type = ctx->ref_type.i32};
+    LLVMValueRef result_val = LLVMBuildZExt(ctx->builder, v, ctx->ref_type.i32_type, "logical_final_i32");
+    return (TypedValue){.value = result_val, .type = ctx->ref_type.i32_type};
 #else
-    return (TypedValue){.value = res_alloca, .type = ctx->ref_type.i1, .is_lvalue = true};
+    return (TypedValue){.value = res_alloca, .type = ctx->ref_type.i1_type, .is_lvalue = true};
 #endif
 }
 
@@ -6678,7 +6712,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             TypedValue compound_res = process_compound_literal(ctx, operand_node);
 
             compound_res.is_lvalue = false;
-            compound_res.type = ctx->ref_type.ptr;
+            compound_res.type = ctx->ref_type.ptr_type;
             return compound_res;
         }
         TypedValue v = process_expression(ctx, operand_node);
@@ -6754,16 +6788,16 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 #if 0
         // 2. Cast that i1 back to your standard integer type (e.g., i32)
         // This turns a 'true' into 1 and 'false' into 0
-        LLVMValueRef result_val = LLVMBuildZExt(ctx->builder, is_zero, ctx->ref_type.i32, "not_cast");
+        LLVMValueRef result_val = LLVMBuildZExt(ctx->builder, is_zero, ctx->ref_type.i32_type, "not_cast");
 
         return (TypedValue){
             .value = result_val,
-            .type = ctx->ref_type.i32, // It's definitely an int now
+            .type = ctx->ref_type.i32_type, // It's definitely an int now
         };
 #else
         return (TypedValue){
             .value = is_zero,
-            .type = ctx->ref_type.i1,
+            .type = ctx->ref_type.i1_type,
         };
 #endif
     }
@@ -6793,7 +6827,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
         TypedValue rvalue_res = ensure_rvalue(ctx, "unary_inc_dev_rval", var_res);
         LLVMValueRef original_val = rvalue_res.value;
-        LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32, 1, false);
+        LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32_type, 1, false);
 
         LLVMValueRef new_val;
         if (op->op.unary.op == UNARY_OP_INC)
@@ -6942,7 +6976,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                         {
                             // Try to get the type from the declaration specifiers - look up in struct registry
                             // This is a workaround for opaque pointers
-                            var.pointee_type = ctx->ref_type.i32;
+                            var.pointee_type = ctx->ref_type.i32_type;
                         }
                         target_type = var.pointee_type;
                     }
@@ -7025,9 +7059,9 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
 
         unsigned long long alignment = get_type_alignment(ctx, target_type);
-        LLVMValueRef val = LLVMConstInt(ctx->ref_type.i64, alignment, false);
+        LLVMValueRef val = LLVMConstInt(ctx->ref_type.i64_type, alignment, false);
 
-        return (TypedValue){.value = val, .type = ctx->ref_type.i64};
+        return (TypedValue){.value = val, .type = ctx->ref_type.i64_type};
     }
     default:
     {
