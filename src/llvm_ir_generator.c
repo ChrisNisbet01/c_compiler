@@ -2492,27 +2492,20 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     }
     ctx->generation_flags = flags;
 
-    ctx->type_descriptors = type_descriptors_create_list();
-    if (ctx->type_descriptors == NULL)
-    {
-        free(ctx);
-        return NULL;
-    }
-    ctx->builtins = builtins_create(ctx->type_descriptors);
-    if (ctx->builtins == NULL)
-    {
-        free(ctx->type_descriptors);
-        free(ctx);
-        return NULL;
-    }
-
     // Initialize LLVM
 
     ctx->context = LLVMContextCreate();
     if (!ctx->context)
     {
         debug_error("Failed to create LLVM context.");
-        free(ctx);
+        ir_generator_dispose(ctx);
+        return NULL;
+    }
+
+    ctx->type_descriptors = type_descriptors_create_registry();
+    if (ctx->type_descriptors == NULL)
+    {
+        ir_generator_dispose(ctx);
         return NULL;
     }
 
@@ -2520,8 +2513,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     if (!ctx->module)
     {
         debug_error("Failed to create LLVM module.");
-        LLVMContextDispose(ctx->context);
-        free(ctx);
+        ir_generator_dispose(ctx);
         return NULL;
     }
 
@@ -2529,42 +2521,16 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     if (!ctx->builder)
     {
         debug_error("Failed to create LLVM builder.");
-        LLVMDisposeModule(ctx->module);
-        LLVMContextDispose(ctx->context);
-        free(ctx);
+        ir_generator_dispose(ctx);
         return NULL;
     }
-
-    /* Cache some LLVM ref types that are frequently needed. */
-    ctx->ref_type.i1_type = LLVMInt1TypeInContext(ctx->context);
-    ctx->ref_type.i8_type = LLVMInt8TypeInContext(ctx->context);
-    ctx->ref_type.i32_type = LLVMInt32TypeInContext(ctx->context);
-    ctx->ref_type.i64_type = LLVMInt64TypeInContext(ctx->context);
-    ctx->ref_type.ptr_type = LLVMPointerTypeInContext(ctx->context, 0);
-    ctx->ref_type.float_type = LLVMFloatTypeInContext(ctx->context);
-    ctx->ref_type.double_type = LLVMDoubleTypeInContext(ctx->context);
-    ctx->ref_type.long_double_type = LLVMX86FP80TypeInContext(ctx->context);
-    ctx->ref_type.void_type = LLVMVoidTypeInContext(ctx->context);
-
-    builtins_create_builtin(ctx->builtins, "bool", ctx->ref_type.i1_type);
-    builtins_create_builtin(ctx->builtins, "char", ctx->ref_type.i8_type);
-    builtins_create_builtin(ctx->builtins, "int", ctx->ref_type.i32_type);
-    builtins_create_builtin(ctx->builtins, "long", ctx->ref_type.i64_type);
-    builtins_create_builtin(ctx->builtins, "pointer", ctx->ref_type.ptr_type);
-    builtins_create_builtin(ctx->builtins, "float", ctx->ref_type.float_type);
-    builtins_create_builtin(ctx->builtins, "double", ctx->ref_type.double_type);
-    builtins_create_builtin(ctx->builtins, "fp80", ctx->ref_type.long_double_type);
-    builtins_create_builtin(ctx->builtins, "void", ctx->ref_type.void_type);
 
     // Initialize with global scope
     ctx->current_scope = scope_create(NULL, ctx->context, ctx->builder); // NULL parent = global scope
     if (!ctx->current_scope)
     {
         debug_error("Failed to create global scope.");
-        LLVMDisposeBuilder(ctx->builder);
-        LLVMDisposeModule(ctx->module);
-        LLVMContextDispose(ctx->context);
-        free(ctx);
+        ir_generator_dispose(ctx);
         return NULL;
     }
 

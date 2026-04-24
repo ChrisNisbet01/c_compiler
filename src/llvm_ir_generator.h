@@ -62,21 +62,9 @@ typedef struct ir_generator_ctx
     // --- Function declaration tracking ---
     struct function_decls function_declarations;
 
-    struct
-    {
-        LLVMTypeRef i1_type;
-        LLVMTypeRef i8_type;
-        LLVMTypeRef i32_type;
-        LLVMTypeRef i64_type;
-        LLVMTypeRef ptr_type;
-        LLVMTypeRef float_type;
-        LLVMTypeRef double_type;
-        LLVMTypeRef long_double_type;
-        LLVMTypeRef void_type;
-    } ref_type;
+    builtin_types ref_type;
 
     TypeDescriptors * type_descriptors;
-    Builtins * builtins;
 
     // Pseudo-code for your Compiler State
     int anon_counter;
