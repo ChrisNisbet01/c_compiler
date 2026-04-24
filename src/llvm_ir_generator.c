@@ -332,14 +332,14 @@ ensure_rvalue_impl(ir_generator_ctx_t * ctx, char const * label, TypedValue val,
 
 // Helper function to safely get element type from a pointer, handling opaque pointers
 static LLVMTypeRef
-get_pointer_element_type(ir_generator_ctx_t * ctx, LLVMTypeRef ptr_type)
+get_pointer_element_type(ir_generator_ctx_t * ctx, TypedValue v)
 {
-    if (ptr_type == NULL || LLVMGetTypeKind(ptr_type) != LLVMPointerTypeKind)
+    if (v.type == NULL || LLVMGetTypeKind(v.type) != LLVMPointerTypeKind)
     {
         return NULL;
     }
 
-    LLVMTypeRef elem_type = LLVMGetElementType(ptr_type);
+    LLVMTypeRef elem_type = LLVMGetElementType(v.type);
     if (elem_type == NULL)
     {
         return ctx->ref_type.i8;
@@ -402,7 +402,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
         }
 
         // Get the element type.
-        elem_type = get_pointer_element_type(ctx, base_type);
+        elem_type = get_pointer_element_type(ctx, base);
         debug_info(
             "%s: get_pointer_element_type returned %p (i8=%p)", __func__, (void *)elem_type, (void *)ctx->ref_type.i8
         );
@@ -5767,174 +5767,10 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     debug_info(
         "process_assignment: lhs_node type=%d (%s)", lhs_node->type, get_node_type_name_from_type(lhs_node->type)
     );
-    bool do_process_expression = true;
-    if (do_process_expression && lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
+    if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
         lhs_res = process_expression(ctx, lhs_node);
         dump_typed_value("assignment_lhs", lhs_res);
-    }
-    else if (!do_process_expression && lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
-    {
-        c_grammar_node_t const * base_node = lhs_node->postfix_expression.base_expression;
-        if (base_node->type == AST_NODE_IDENTIFIER)
-        {
-            char const * base_name = base_node->text;
-            TypedValue base;
-
-            debug_info("process_assignment: looking up '%s'", base_name);
-            if (find_symbol(ctx, base_name, &base))
-            {
-                debug_info(
-                    "process_assignment: found '%s', base.type kind=%d, base.value=%p",
-                    base_name,
-                    LLVMGetTypeKind(base.type),
-                    (void *)base.value
-                );
-                LLVMValueRef current_ptr = base.value;
-                LLVMTypeRef current_type = base.type;
-                c_grammar_node_t const * postfix_node = lhs_node->postfix_expression.postfix_parts;
-
-                // Process suffixes to handle array subscripts and member access
-                for (size_t i = 0; i < postfix_node->list.count; ++i)
-                {
-                    c_grammar_node_t * suffix = postfix_node->list.children[i];
-
-                    if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
-                    {
-                        TypedValue current = {
-                            .value = current_ptr,
-                            .type = current_type,
-                        };
-
-                        TypedValue new_typed_value = process_array_subscript(ctx, suffix, current);
-                        debug_info("process_assignment: subscript returned new_ptr=%p", (void *)new_typed_value.value);
-                        debug_info(
-                            "process_assignment: after subscript, current_type kind=%d", LLVMGetTypeKind(current_type)
-                        );
-                        if (new_typed_value.value != NULL)
-                        {
-                            current_ptr = new_typed_value.value;
-                            current_type = new_typed_value.type;
-                        }
-                    }
-                    else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
-                    {
-                        char const * member_name = suffix->identifier.identifier->text;
-
-                        if (current_ptr && current_type)
-                        {
-                            LLVMTypeRef struct_type = NULL;
-
-                            // For nested member access, if current_type is already a struct type, use it directly
-                            // This handles cases like o.inner.x where after accessing 'inner', current_type is %Inner
-                            if (LLVMGetTypeKind(current_type) == LLVMStructTypeKind)
-                            {
-                                struct_type = current_type;
-                            }
-                            // For LLVM 18+ opaque pointers, use struct name from symbol table
-                            else if (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                            {
-                                char const * tag = find_symbol_tag_name(ctx, base_name);
-                                if (tag != NULL)
-                                {
-                                    struct_type = find_type_by_tag(ctx, tag);
-                                }
-                                // Fallback: use pointer element type
-                                if (struct_type == NULL)
-                                {
-                                    struct_type = get_pointer_element_type(ctx, current_type);
-                                }
-                            }
-
-                            // Fallback: try to find struct info by LLVM type directly (for untagged struct typedefs)
-                            if (struct_type == NULL)
-                            {
-                                debug_info("No struct type found from pointer element, trying direct type lookup.");
-                                LLVMTypeRef type_to_search = (LLVMGetTypeKind(current_type) == LLVMPointerTypeKind)
-                                                                 ? get_pointer_element_type(ctx, current_type)
-                                                                 : current_type;
-                                if (type_to_search && LLVMGetTypeKind(type_to_search) == LLVMStructTypeKind)
-                                {
-                                    type_info_t * info
-                                        = scope_find_type_by_llvm_type(ctx->current_scope, type_to_search);
-                                    if (info != NULL)
-                                    {
-                                        struct_type = type_to_search;
-                                    }
-                                }
-                            }
-
-                            if (struct_type && LLVMGetTypeKind(struct_type) == LLVMStructTypeKind)
-                            {
-                                // For arrow access, load the pointer first
-                                LLVMValueRef struct_ptr = current_ptr;
-                                bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
-                                if (is_arrow)
-                                {
-                                    struct_ptr
-                                        = aligned_load(ctx, ctx->builder, current_type, current_ptr, "arrow_ptr");
-                                }
-
-                                unsigned num_elements = LLVMCountStructElementTypes(struct_type);
-                                unsigned member_index = 0;
-                                unsigned storage_index = 0;
-                                type_info_t * info = NULL;
-
-                                info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
-
-                                if (info != NULL)
-                                {
-                                    for (unsigned j = 0; j < info->field_count; j++)
-                                    {
-                                        if (info->fields[j].name != NULL
-                                            && strcmp(info->fields[j].name, member_name) == 0)
-                                        {
-                                            if (info->fields[j].storage_index >= num_elements)
-                                            {
-                                                debug_warning(
-                                                    "Storage index for member '%s' exceeds struct element "
-                                                    "count.",
-                                                    member_name
-                                                );
-                                                return NullTypedValue;
-                                            }
-                                            member_index = j;
-                                            storage_index = info->fields[j].storage_index;
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                LLVMValueRef indices[2];
-                                indices[0] = LLVMConstInt(ctx->ref_type.i32, 0, false);
-                                indices[1] = LLVMConstInt(ctx->ref_type.i32, storage_index, false);
-                                current_ptr = LLVMBuildInBoundsGEP2(
-                                    ctx->builder, struct_type, struct_ptr, indices, 2, "memberptr"
-                                );
-                                current_type = LLVMStructGetTypeAtIndex(struct_type, storage_index);
-
-                                // Check if this is a bitfield and save metadata for later
-                                if (info != NULL && storage_index < info->field_count
-                                    && member_index < info->field_count)
-                                {
-                                    struct_field_t const * field = &info->fields[member_index];
-                                    if (field->bit_width > 0)
-                                    {
-                                        // For bitfield assignment, track the metadata
-                                        // Point to struct for load/modify/store
-                                        current_ptr = struct_ptr;
-                                        current_type = struct_type;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                lhs_res = (TypedValue){.value = current_ptr, .type = current_type};
-                dump_typed_value("process_assignment: final lhs_res", lhs_res);
-            }
-        }
     }
     else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
     {
