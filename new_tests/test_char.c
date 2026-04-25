@@ -1,7 +1,7 @@
 void
 main()
 {
-    char * const p;
+    int i;
 
     return;
 }

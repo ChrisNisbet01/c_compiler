@@ -13,6 +13,7 @@ add_executable(${app}
   ast_node_name.c
   ast_print.c
   c_grammar_ast_actions.c
+  declaration_handler.c
   debug.c
   hash_table.c
   ir_gen_error.c

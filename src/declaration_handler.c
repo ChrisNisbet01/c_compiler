@@ -1,12 +1,19 @@
 #include "declaration_handler.h"
 
+#include "ast_node_name.h"
 #include "debug.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static void
-dump_type_specifier(TypeSpecifier spec)
+dump_type_specifier(TypeSpecifier spec, debug_level_t level)
 {
+    if (level < debug_get_level())
+    {
+        return;
+    }
+
     fprintf(
         stderr,
         "Specifiers: unsigned: %d, signed: %d, long: %u, int %d, void %d, bool %d, short %d, char %d, float %d, double "
@@ -131,11 +138,12 @@ build_type_specifiers(c_grammar_node_t const * spec_list)
     for (size_t i = 0; i < spec_list->list.count; ++i)
     {
         c_grammar_node_t * child = spec_list->list.children[i];
-        type_specifier_process_name(&spec, child->text);
+
+        type_specifier_process_specifier(&spec, child->text);
     }
 
     debug_info("%s", __func__);
-    dump_type_specifier(spec);
+    dump_type_specifier(spec, DEBUG_LEVEL_INFO);
 
     return spec;
 }
@@ -174,7 +182,9 @@ build_type_qualifiers(c_grammar_node_t const * qual_list)
 TypeDescriptor const *
 resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    if (node == NULL || node->type != AST_NODE_TYPEDEF_DECLARATION)
+    debug_info("%s: node type %s", __func__, get_node_type_name_from_node(node));
+
+    if (node == NULL || node->type != AST_NODE_DECLARATION)
     {
         return NULL;
     }
@@ -215,44 +225,41 @@ resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
         return NULL;
     }
-    TypeDescriptor const * current = NULL;
+
+    // unsigned int i, j;
+    //              ^^^^
+    c_grammar_node_t const * init_decl_list = node->declaration.init_declarator_list;
+
+    TypeSpecifier specs = {0};
+
     if (is_native_type)
     {
-        TypeSpecifier specs = build_type_specifiers(type_specifiers);
+        debug_info("Processing native type specifiers");
 
+        specs = build_type_specifiers(type_specifiers);
         if (!type_specifier_is_valid(specs))
         {
             ir_gen_error(&ctx->errors, "Invalid combination of type specifiers in declaration");
-            if (debug_get_level() >= DEBUG_LEVEL_ERROR)
-            {
-                dump_type_specifier(specs);
-            }
+            dump_type_specifier(specs, DEBUG_LEVEL_ERROR);
             return NULL;
         }
-        /* Register the type. */
-        current = get_or_create_builtin_type(ctx->type_descriptors, specs, quals);
+        if (init_decl_list == NULL)
+        {
+            /* No declarators - just register the type. */
+            debug_info("No declarators - not registering the native type");
+            return NULL;
+        }
     }
     else
     {
+        debug_info("Processing struct/union/enum/typedef type specifiers - not implemented yet");
         /* Must be struct/union/enum/typedef. */
         // TODO.
         debug_error("need struct/union/enum/typedef handling in resolve_type_from_ast");
         return NULL;
     }
 
-    if (current == NULL)
-    {
-        ir_gen_error(&ctx->errors, "Failed to resolve base type from declaration");
-        return NULL;
-    }
-
-    // unsigned int i, j;
-    //              ^^^^
-    c_grammar_node_t const * init_decl_list = node->declaration.init_declarator_list;
-    if (init_decl_list == NULL)
-    {
-        return current;
-    }
+    TypeDescriptor const * current = NULL;
     for (size_t i = 0; i < init_decl_list->list.count; ++i)
     {
         c_grammar_node_t const * init_decl = init_decl_list->list.children[i];
@@ -260,21 +267,45 @@ resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * pointer_list = declarator->declarator.pointer_list;
         c_grammar_node_t const * direct_declarator = declarator->declarator.direct_declarator;
 
+        /* FIXME: This is a hack to work around the broken grammar. */
+        TypeDescriptor const * base;
+        if (pointer_list->list.count == 0)
+        {
+            base = get_or_create_builtin_type(ctx->type_descriptors, specs, quals);
+        }
+        else
+        {
+            c_grammar_node_t const * pointer = pointer_list->list.children[pointer_list->list.count - 1];
+            TypeQualifier ptr_quals = build_type_qualifiers(pointer->list.children[0]);
+            base = get_or_create_builtin_type(ctx->type_descriptors, specs, ptr_quals);
+        }
+        current = base;
+
         // TODO: Declare the variable with the resolved type, and handle pointer levels and direct declarator suffixes
         // (arrays/functions)
 
         // 3. Handle Pointer levels (if applicable in this node)
         // C handles pointers from right to left in the AST declarator
-
+        /* FIXME - The grammar doesn't handle pointer levels correctly. When there are pointers, the pointer specifiers
+         * are attached to the incorrect pointer level. */
         for (size_t i = pointer_list->list.count; i > 0; i--)
         {
-            c_grammar_node_t const * pointer = pointer_list->list.children[i - 1];
-            // If node is 'int * const', extract 'const' for the pointer level
-            c_grammar_node_t const * pointer_qual_list = pointer->list.children[0];
-            TypeQualifier ptr_quals = build_type_qualifiers(pointer_qual_list);
-            current = get_or_create_pointer_type(ctx, current, ptr_quals);
+            TypeQualifier ptr_quals;
+
+            if (i > 1)
+            {
+                c_grammar_node_t const * prev_pointer = pointer_list->list.children[i - 2];
+                // If node is 'int * const', extract 'const' for the pointer level
+                c_grammar_node_t const * prev_pointer_qual_list = prev_pointer->list.children[0];
+                ptr_quals = build_type_qualifiers(prev_pointer_qual_list);
+            }
+            else
+            {
+                ptr_quals = quals;
+            }
+            current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
         }
     }
 
-    return current;
+    return current; /* BUG: This will return the last resolved type in a situation like `int p1, p2;`. */
 }

@@ -1,6 +1,9 @@
 #include "type_descriptors.h"
 
+#include "debug.h"
+
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -32,10 +35,28 @@ typedef struct TypeDescriptors
     builtin_types builtins;
 } TypeDescriptors;
 
+static void
+dump_type_descriptor(TypeDescriptor const * desc, debug_level_t level)
+{
+    if (level < debug_get_level())
+    {
+        return;
+    }
+    fprintf(
+        stderr,
+        "TypeDescriptor: kind=%d llvm_type_kind=%d\n",
+        desc->kind,
+        desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1
+    );
+}
+
 // Internal helper to allocate and link a new descriptor
 static TypeDescriptor *
 register_descriptor(TypeDescriptors * registry, TypeDescriptor const * template)
 {
+    debug_info("%s: Registering new descriptor kind %d", __func__, template->kind);
+    dump_type_descriptor(template, DEBUG_LEVEL_INFO);
+
     TypeDescriptor_private * node = malloc(sizeof(*node));
     node->public = *template;
 
@@ -78,6 +99,7 @@ specifiers_match(TypeSpecifier const * a, TypeSpecifier const * b)
 TypeDescriptor const *
 get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * pointee, TypeQualifier qualifiers)
 {
+    debug_info("%s", __func__);
     // Search for existing pointer to this EXACT pointee with these qualifiers
     TypeDescriptor_private * curr = registry->head;
     while (curr)
@@ -100,9 +122,10 @@ get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * po
     return register_descriptor(registry, &template);
 }
 
-static TypeDescriptor const *
+TypeDescriptor const *
 get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals)
 {
+    debug_info("%s", __func__);
     TypeDescriptor_private * curr = registry->head;
     while (curr)
     {
@@ -145,6 +168,7 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
     TypeDescriptor template = {
         .kind = NCC_TYPE_KIND_BUILTIN, .llvm_type = llvm_type, .specifiers = specs, .qualifiers = quals, .pointee = NULL
     };
+
     return register_descriptor(registry, &template);
 }
 

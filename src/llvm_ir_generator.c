@@ -4,6 +4,7 @@
 #include "ast_print.h"
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
 #include "debug.h"
+#include "declaration_handler.h"
 
 // Helper function to get natural alignment for a type
 #include <llvm-c/Target.h>
@@ -3662,36 +3663,37 @@ process_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     // Register any struct/enum definitions in the declaration specifiers (in current scope)
     c_grammar_node_t const * decl_specifiers = node->declaration.declaration_specifiers;
     debug_info("decl specifiers node: %s", get_node_type_name_from_node(decl_specifiers));
-    if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+    c_grammar_node_t const * specifiers_list = decl_specifiers->decl_specifiers.type_specifiers;
+    debug_info("list: %s count %u", get_node_type_name_from_node(specifiers_list), specifiers_list->list.count);
+
+    TypeDescriptor const * resolved_type = resolve_type_from_ast(ctx, node);
+    debug_info("resolved type: %p", (void *)resolved_type);
+
+    c_grammar_node_t const * type_spec_node = NULL;
+
+    if (specifiers_list->list.count > 0)
     {
-        c_grammar_node_t const * specifiers_list = decl_specifiers->decl_specifiers.type_specifiers;
-        debug_info("list: %s count %u", get_node_type_name_from_node(specifiers_list), specifiers_list->list.count);
-        c_grammar_node_t const * type_spec_node = NULL;
-        if (specifiers_list->list.count > 0)
+        type_spec_node = specifiers_list->list.children[0];
+    }
+    if (type_spec_node != NULL)
+    {
+        for (size_t j = 0; j < type_spec_node->list.count; ++j)
         {
-            type_spec_node = specifiers_list->list.children[0];
-        }
-        if (type_spec_node != NULL)
-        {
-            for (size_t j = 0; j < type_spec_node->list.count; ++j)
+            c_grammar_node_t * type_child = type_spec_node->list.children[j];
+
+            if (type_child != NULL)
             {
-                c_grammar_node_t * type_child = type_spec_node->list.children[j];
-
-                if (type_child != NULL)
+                if ((type_child->type == AST_NODE_STRUCT_DEFINITION) || (type_child->type == AST_NODE_UNION_DEFINITION))
                 {
-                    if ((type_child->type == AST_NODE_STRUCT_DEFINITION)
-                        || (type_child->type == AST_NODE_UNION_DEFINITION))
-                    {
-                        register_struct_definition(ctx, type_child);
-                    }
-                    else if (type_child->type == AST_NODE_ENUM_DEFINITION)
-                    {
-                        char const * enum_tag = search_ast_for_type_tag(type_child);
+                    register_struct_definition(ctx, type_child);
+                }
+                else if (type_child->type == AST_NODE_ENUM_DEFINITION)
+                {
+                    char const * enum_tag = search_ast_for_type_tag(type_child);
 
-                        if (enum_tag != NULL)
-                        {
-                            register_tagged_enum_definition(ctx, type_child, enum_tag);
-                        }
+                    if (enum_tag != NULL)
+                    {
+                        register_tagged_enum_definition(ctx, type_child, enum_tag);
                     }
                 }
             }

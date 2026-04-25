@@ -52,3 +52,8 @@ typedef struct TypeDescriptor
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
 
 void type_descriptors_destroy_registry(TypeDescriptors * registry);
+
+TypeDescriptor const *
+get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * pointee, TypeQualifier qualifiers);
+
+TypeDescriptor const * get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier specs, TypeQualifier quals);
