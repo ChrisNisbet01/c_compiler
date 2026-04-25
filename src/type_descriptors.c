@@ -59,6 +59,8 @@ register_descriptor(TypeDescriptors * registry, TypeDescriptor const * template)
 
     TypeDescriptor_private * node = malloc(sizeof(*node));
     node->public = *template;
+    debug_info("%s: new node %p", __func__, (void *)&node->public);
+    type_specifier_dump(node->public.specifiers, DEBUG_LEVEL_INFO);
 
     node->next = registry->head;
     registry->head = node;
@@ -127,6 +129,13 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
 {
     debug_info("%s", __func__);
     TypeDescriptor_private * curr = registry->head;
+
+    if (memcmp(&specs, &(TypeSpecifier){0}, sizeof(specs)) == 0)
+    {
+        debug_info("%s: No specifiers provided.", __func__);
+        return NULL;
+    }
+
     while (curr)
     {
         if (curr->public.kind == NCC_TYPE_KIND_BUILTIN && specifiers_match(&curr->public.specifiers, &specs)
@@ -227,25 +236,27 @@ builtins_init(TypeDescriptors * registry)
     spec.is_short = true;
     get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
     spec.is_short = false;
+
     for (int i = 0; i < 2; i++)
     {
         spec.is_int = i;
+        spec.long_count = 0;
         get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
         spec.long_count = 1;
         get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
         spec.long_count = 2;
         get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
     }
+    spec.long_count = 0;
     spec.is_int = false;
 
     spec.is_double = true;
     get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
     spec.long_count = 1;
     get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
-    spec.long_count = 2;
-    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
     spec.long_count = 0;
     spec.is_double = false;
+
     spec.is_float = true;
     get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
     spec.is_float = false;
@@ -298,13 +309,13 @@ get_or_create_function_type(
     {
         if (curr->public.kind == NCC_TYPE_KIND_FUNCTION && curr->public.pointee == ret_type
             && // Use pointee to store return type
-            curr->public.param_count == param_count)
+            curr->public.function_metadata.param_count == param_count)
         {
             // Check if all parameters match exactly
             bool match = true;
             for (size_t i = 0; i < param_count; i++)
             {
-                if (curr->public.params[i] != params[i])
+                if (curr->public.function_metadata.params[i] != params[i])
                 {
                     match = false;
                     break;
@@ -322,9 +333,10 @@ get_or_create_function_type(
     TypeDescriptor template
         = {.kind = NCC_TYPE_KIND_FUNCTION,
            .pointee = ret_type,
-           .param_count = param_count,
-           .params = malloc(sizeof(*params) * param_count)};
-    memcpy(template.params, params, sizeof(*params) * param_count);
+           .function_metadata.return_type = ret_type,
+           .function_metadata.param_count = param_count,
+           .function_metadata.params = malloc(sizeof(*params) * param_count)};
+    memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
 
     // Construct the LLVM function type
     LLVMTypeRef * llvm_params = malloc(sizeof(LLVMTypeRef) * param_count);
@@ -337,4 +349,25 @@ get_or_create_function_type(
 
     free(llvm_params);
     return register_descriptor(registry, &template);
+}
+
+/* This function shouldn't be required once the conversion to the new type system is complete. */
+TypeDescriptor const *
+get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals)
+{
+    debug_info("%s", __func__);
+    type_specifier_dump(specs, DEBUG_LEVEL_INFO);
+
+    TypeDescriptor_private * curr = registry->head;
+    while (curr)
+    {
+        if (curr->public.kind == NCC_TYPE_KIND_BUILTIN && specifiers_match(&curr->public.specifiers, &specs)
+            && qualifiers_match(&curr->public.qualifiers, &quals))
+        {
+            debug_info("%s: found: %p", __func__, (void *)&curr->public);
+            return &curr->public;
+        }
+        curr = curr->next;
+    }
+    return NULL;
 }

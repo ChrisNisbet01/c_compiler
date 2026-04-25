@@ -12,6 +12,11 @@ typedef struct
     unsigned bit_width;
     unsigned bit_offset;
     LLVMValueRef value;
+
+    /* type-related data. */
+    TypeDescriptor const * type_info; // The high-level type descriptor for this value
+
+    /* These will eventually be removed as all info will be found in the type_info. */
     LLVMTypeRef type;         // The actual type (e.g., i32, struct.foo)
     LLVMTypeRef pointee_type; // If it's a pointer, what does it point to?
 } TypedValue;
@@ -19,3 +24,5 @@ typedef struct
 extern TypedValue NullTypedValue;
 
 void dump_typed_value(char const * label, TypedValue v);
+
+TypedValue create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue);

@@ -37,6 +37,15 @@ typedef enum
 
 typedef struct TypeDescriptors TypeDescriptors;
 typedef struct TypeDescriptor TypeDescriptor;
+
+typedef struct
+{
+    TypeDescriptor const * return_type;
+    unsigned param_count;
+    TypeDescriptor const ** params; // Allocated once in the registry
+    bool is_variadic;
+} FunctionMetadata;
+
 typedef struct TypeDescriptor
 {
     type_descriptor_type_kind_t kind;
@@ -50,8 +59,7 @@ typedef struct TypeDescriptor
     TypeDescriptor const * pointee; // For pointers/arrays
 
     /* Function-specific */
-    size_t param_count;
-    TypeDescriptor const ** params;
+    FunctionMetadata function_metadata;
 } TypeDescriptor;
 
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
@@ -69,3 +77,6 @@ register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQu
 TypeDescriptor const * get_or_create_function_type(
     TypeDescriptors * registry, TypeDescriptor const * ret_type, TypeDescriptor const ** params, size_t param_count
 );
+
+TypeDescriptor const *
+get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals);

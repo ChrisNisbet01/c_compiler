@@ -1806,59 +1806,14 @@ static TypedValue
 get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
 {
     debug_info("%s", __func__);
-    type_specifier_dump(spec, DEBUG_LEVEL_INFO);
+    TypeDescriptor const * type_desc = get_or_create_builtin_type(ctx->type_descriptors, spec, (TypeQualifier){0});
 
-    TypedValue res = {.is_unsigned = spec.is_unsigned};
-    LLVMTypeRef type_ref = NULL;
-
-    /* TODO: Check for illegal combinations. */
-
-    if (spec.is_double)
+    if (type_desc == NULL)
     {
-        res.is_unsigned = false;
-        type_ref = spec.long_count > 0 ? LLVMX86FP80TypeInContext(ctx->context) : LLVMDoubleTypeInContext(ctx->context);
-    }
-    else if (spec.is_float)
-    {
-        res.is_unsigned = false;
-        type_ref = LLVMFloatTypeInContext(ctx->context);
-    }
-    else if (spec.long_count > 0)
-    {
-        type_ref = (sizeof(long) == 8 || spec.long_count > 1) ? LLVMInt64TypeInContext(ctx->context)
-                                                              : LLVMInt32TypeInContext(ctx->context);
-    }
-    else if (spec.is_int)
-    {
-        type_ref = ctx->ref_type.i32_type;
-    }
-    else if (spec.is_char)
-    {
-        type_ref = ctx->ref_type.i8_type;
-    }
-    else if (spec.is_void)
-    {
-        type_ref = LLVMVoidTypeInContext(ctx->context);
-    }
-    else if (spec.is_short)
-    {
-        type_ref = LLVMInt16TypeInContext(ctx->context);
-    }
-    else if (spec.is_bool)
-    {
-        type_ref = LLVMInt1TypeInContext(ctx->context);
+        debug_info("Failed to get type descriptor from specifier");
     }
 
-    if (type_ref != NULL)
-    {
-        debug_info("%s: got type kind: %d", __func__, LLVMGetTypeKind(type_ref));
-    }
-
-    // TODO: deal with unsigned.
-
-    res.type = type_ref;
-
-    return res;
+    return create_typed_value(NULL, type_desc, false);
 }
 
 static LLVMTypeRef
@@ -2067,13 +2022,24 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
             // Check type specifier
             else if (specifier_list->list.count > 0)
             {
-                TypeSpecifier type_spec = build_type_specifiers(specifier_list);
-                TypedValue type_data = get_type_from_type_specifier(ctx, type_spec);
-                if (type_data.type != NULL)
+                c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
+                bool is_struct_or_union_or_enum = type_spec_node->type == AST_NODE_STRUCT_DEFINITION
+                                                  || type_spec_node->type == AST_NODE_UNION_DEFINITION
+                                                  || type_spec_node->type == AST_NODE_ENUM_DEFINITION
+                                                  || type_spec_node->type == AST_NODE_STRUCT_TYPE_REF
+                                                  || type_spec_node->type == AST_NODE_UNION_TYPE_REF
+                                                  || type_spec_node->type == AST_NODE_ENUM_TYPE_REF;
+                if (!is_struct_or_union_or_enum)
                 {
-                    debug_info("and got type kind: %d", LLVMGetTypeKind(type_data.type));
-                    base_type = type_data.type;
+                    TypeSpecifier type_spec = build_type_specifiers(specifier_list);
+                    TypedValue type_data = get_type_from_type_specifier(ctx, type_spec);
+                    if (type_data.type != NULL)
+                    {
+                        debug_info("and got type kind: %d", LLVMGetTypeKind(type_data.type));
+                        base_type = type_data.type;
+                    }
                 }
+
                 if (base_type == NULL)
                 {
                     c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
@@ -3271,12 +3237,6 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
 static void
 process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Check if we've already encountered a fatal error
-    if (ctx->errors.fatal)
-    {
-        return;
-    }
-
     // Create function scope for parameters and body
     scope_push(ctx);
     // --- Handle Function Definition ---

@@ -27,3 +27,16 @@ dump_typed_value(char const * label, TypedValue v)
     fprintf(stderr, "bit offset: %u\n", v.bit_offset);
     fprintf(stderr, "--------------------\n\n");
 }
+
+TypedValue
+create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue)
+{
+    return (TypedValue){
+        .value = val,
+        .type_info = desc,
+        .is_lvalue = is_lvalue,
+        // Carry over metadata from the descriptor
+        .type = desc != NULL ? desc->llvm_type : NULL,
+        .pointee_type = (desc != NULL && desc->pointee != NULL) ? desc->pointee->llvm_type : NULL
+    };
+}
