@@ -336,8 +336,12 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
         for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
             type_info_t * entry = &scope->tagged_types.entries[i];
-            debug_info("scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p", i, (void *)entry->type);
-            if (entry->type == type)
+            debug_info(
+                "scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p",
+                i,
+                (void *)entry->type_desc->llvm_type
+            );
+            if (entry->type_desc->llvm_type == type)
             {
                 debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
                 return entry;
@@ -347,8 +351,12 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
         for (size_t i = 0; i < scope->untagged_types.count; ++i)
         {
             type_info_t * entry = &scope->untagged_types.entries[i];
-            debug_info("scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p", i, (void *)entry->type);
-            if (entry->type == type)
+            debug_info(
+                "scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p",
+                i,
+                (void *)entry->type_desc->llvm_type
+            );
+            if (entry->type_desc->llvm_type == type)
             {
                 debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
                 return entry;
@@ -442,7 +450,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t * info = scope_find_tagged_struct(scope, entry->tag);
         if (info != NULL)
         {
-            return info->type;
+            return info->type_desc->llvm_type;
         }
         return NULL;
     }
@@ -452,7 +460,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         /* Look up by untagged index */
         if (info != NULL)
         {
-            return info->type;
+            return info->type_desc->llvm_type;
         }
         return NULL;
     }
@@ -462,7 +470,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t * info = scope_find_tagged_union(scope, entry->tag);
         if (info != NULL)
         {
-            return info->type;
+            return info->type_desc->llvm_type;
         }
         return NULL;
     }
@@ -472,7 +480,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         /* Look up by untagged index */
         if (info != NULL)
         {
-            return info->type;
+            return info->type_desc->llvm_type;
         }
         return NULL;
     }
@@ -482,7 +490,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t * info = scope_find_tagged_enum(scope, entry->tag);
         if (info != NULL)
         {
-            return info->type;
+            return info->type_desc->llvm_type;
         }
         return NULL;
     }
@@ -497,7 +505,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t const * info = scope_find_untagged_enum(scope, entry->untagged_index);
         if (info != NULL)
         {
-            return info->type;
+            return info->type_desc->llvm_type;
         }
         return NULL;
     }

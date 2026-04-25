@@ -198,7 +198,6 @@ register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQu
         .llvm_type = llvm_struct,
         .pointee = NULL, // Structs aren't pointers
         .qualifiers = quals,
-        // Qualifiers are added via get_qualified_type if the user writes 'const struct'
     };
 
     return register_descriptor(registry, &template);

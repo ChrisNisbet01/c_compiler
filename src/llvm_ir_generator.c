@@ -1063,7 +1063,8 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
     enum_info.tag = strdup(tag);
     enum_info.kind = TYPE_KIND_ENUM;
-    enum_info.type = ctx->ref_type.i32_type;
+    enum_info.type_desc
+        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1312,7 +1313,9 @@ register_tagged_struct_or_union_definition(
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
     opaque.kind = kind;
-    opaque.type = LLVMStructCreateNamed(ctx->context, tag);
+    opaque.type_desc = register_struct_type(
+        ctx->type_descriptors, LLVMStructCreateNamed(ctx->context, tag), (TypeQualifier){0}, kind == TYPE_KIND_UNION
+    );
     type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
     if (registered == NULL)
     {
@@ -1357,7 +1360,7 @@ register_tagged_struct_or_union_definition(
             field_types[current_storage_unit] = field->type;
         }
     }
-    LLVMStructSetBody(mutable_entry->type, field_types, num_storage_units, false);
+    LLVMStructSetBody(mutable_entry->type_desc->llvm_type, field_types, num_storage_units, false);
     free(field_types);
 
     return mutable_entry;
@@ -1388,7 +1391,12 @@ add_untagged_struct_or_union_type(
     new_struct.kind = kind;
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
-    new_struct.type = LLVMStructCreateNamed(ctx->context, new_struct.tag);
+    new_struct.type_desc = register_struct_type(
+        ctx->type_descriptors,
+        LLVMStructCreateNamed(ctx->context, new_struct.tag),
+        (TypeQualifier){0},
+        kind == TYPE_KIND_UNTAGGED_UNION
+    );
 
     struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
     unsigned num_storage_units = last_field->storage_index + 1;
@@ -1404,7 +1412,7 @@ add_untagged_struct_or_union_type(
         }
     }
 
-    LLVMStructSetBody(new_struct.type, field_types, (unsigned)num_storage_units, false);
+    LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
     free(field_types);
 
     return scope_add_untagged_type(ctx->current_scope, new_struct);
@@ -1445,7 +1453,8 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     type_info_t enum_info = {0};
 
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
-    enum_info.type = ctx->ref_type.i32_type;
+    enum_info.type_desc
+        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1516,7 +1525,7 @@ find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
     {
         info = scope_find_tagged_union(ctx->current_scope, name);
     }
-    return info ? info->type : NULL;
+    return info ? info->type_desc->llvm_type : NULL;
 }
 
 static LLVMTypeRef
@@ -1958,7 +1967,7 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                             type_info_t const * info = register_struct_definition(ctx, child);
                             if (info != NULL)
                             {
-                                base_type = info->type;
+                                base_type = info->type_desc->llvm_type;
                             }
                         }
                         else if (
@@ -2090,7 +2099,7 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                                 type_info_t const * info = register_struct_definition(ctx, child);
                                 if (info != NULL)
                                 {
-                                    base_type = info->type;
+                                    base_type = info->type_desc->llvm_type;
                                     break;
                                 }
                             }
@@ -3842,10 +3851,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
                         register_untagged_enum_definition(ctx, enum_def_node);
-                        TypeSpecifier const int_spec = {.is_int = true};
-                        TypeDescriptor const * int_desc
-                            = get_or_create_builtin_type(ctx->type_descriptors, int_spec, (TypeQualifier){0});
-                        typedef_entry.type_desc = int_desc;
+                        typedef_entry.type_desc = get_or_create_builtin_type(
+                            ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
+                        );
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
                     }
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
