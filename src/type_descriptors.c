@@ -287,3 +287,54 @@ type_descriptors_create_registry(LLVMContextRef context)
 
     return registry;
 }
+
+TypeDescriptor const *
+get_or_create_function_type(
+    TypeDescriptors * registry, TypeDescriptor const * ret_type, TypeDescriptor const ** params, size_t param_count
+)
+{
+    TypeDescriptor_private * curr = registry->head;
+    while (curr != NULL)
+    {
+        if (curr->public.kind == NCC_TYPE_KIND_FUNCTION && curr->public.pointee == ret_type
+            && // Use pointee to store return type
+            curr->public.param_count == param_count)
+        {
+            // Check if all parameters match exactly
+            bool match = true;
+            for (size_t i = 0; i < param_count; i++)
+            {
+                if (curr->public.params[i] != params[i])
+                {
+                    match = false;
+                    break;
+                }
+            }
+            if (match)
+            {
+                return &curr->public;
+            }
+        }
+        curr = curr->next;
+    }
+
+    // Not found: Create a new function descriptor
+    TypeDescriptor template
+        = {.kind = NCC_TYPE_KIND_FUNCTION,
+           .pointee = ret_type,
+           .param_count = param_count,
+           .params = malloc(sizeof(*params) * param_count)};
+    memcpy(template.params, params, sizeof(*params) * param_count);
+
+    // Construct the LLVM function type
+    LLVMTypeRef * llvm_params = malloc(sizeof(LLVMTypeRef) * param_count);
+    for (unsigned i = 0; i < param_count; i++)
+    {
+        llvm_params[i] = params[i]->llvm_type;
+    }
+
+    template.llvm_type = LLVMFunctionType(ret_type->llvm_type, llvm_params, param_count, false);
+
+    free(llvm_params);
+    return register_descriptor(registry, &template);
+}
