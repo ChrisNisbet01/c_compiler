@@ -6,8 +6,8 @@
 #include <stdio.h>
 #include <string.h>
 
-static void
-dump_type_specifier(TypeSpecifier spec, debug_level_t level)
+void
+type_specifier_dump(TypeSpecifier spec, debug_level_t level)
 {
     if (level < debug_get_level())
     {
@@ -16,8 +16,8 @@ dump_type_specifier(TypeSpecifier spec, debug_level_t level)
 
     fprintf(
         stderr,
-        "Specifiers: unsigned: %d, signed: %d, long: %u, int %d, void %d, bool %d, short %d, char %d, float %d, double "
-        "%d\n",
+        "Specifiers:\n\tunsigned: %d\n\tsigned: %d\n\tlong: %u\n\tint %d\n\tvoid: %d\n\tbool: %d\n\tshort: %d\n\tchar: "
+        "%d\n\tfloat %d\n\tdouble %d\n",
         spec.is_unsigned,
         spec.is_signed,
         spec.long_count,
@@ -31,7 +31,7 @@ dump_type_specifier(TypeSpecifier spec, debug_level_t level)
     );
 }
 
-static bool
+bool
 type_specifier_is_valid(TypeSpecifier const spec)
 {
     if (spec.long_count > 2)
@@ -56,8 +56,8 @@ type_specifier_is_valid(TypeSpecifier const spec)
     }
     if (spec.is_float)
     {
-        if (spec.long_count > 0 || spec.is_signed || spec.is_unsigned || spec.is_void || spec.is_float || spec.is_bool
-            || spec.is_char || spec.is_short || spec.is_int)
+        if (spec.long_count > 0 || spec.is_signed || spec.is_unsigned || spec.is_void || spec.is_bool || spec.is_char
+            || spec.is_short || spec.is_int)
         {
             return false;
         }
@@ -129,7 +129,7 @@ type_specifier_process_specifier(TypeSpecifier * spec, char const * specifier)
     }
 }
 
-static TypeSpecifier
+TypeSpecifier
 build_type_specifiers(c_grammar_node_t const * spec_list)
 {
     TypeSpecifier spec = {0};
@@ -143,12 +143,12 @@ build_type_specifiers(c_grammar_node_t const * spec_list)
     }
 
     debug_info("%s", __func__);
-    dump_type_specifier(spec, DEBUG_LEVEL_INFO);
+    type_specifier_dump(spec, DEBUG_LEVEL_INFO);
 
     return spec;
 }
 
-static TypeQualifier
+TypeQualifier
 build_type_qualifiers(c_grammar_node_t const * qual_list)
 {
     TypeQualifier quals = {0};
@@ -204,8 +204,9 @@ resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (specifier->list.count == 1)
         {
             c_grammar_node_t const * child = specifier->list.children[0];
-            if (child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
-                || child->type == AST_NODE_ENUM_TYPE_REF)
+            if (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
+                || child->type == AST_NODE_ENUM_DEFINITION || child->type == AST_NODE_STRUCT_TYPE_REF
+                || child->type == AST_NODE_UNION_TYPE_REF || child->type == AST_NODE_ENUM_TYPE_REF)
             {
                 is_struct_or_union_or_enum_or_typedef = true;
             }
@@ -240,7 +241,7 @@ resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (!type_specifier_is_valid(specs))
         {
             ir_gen_error(&ctx->errors, "Invalid combination of type specifiers in declaration");
-            dump_type_specifier(specs, DEBUG_LEVEL_ERROR);
+            type_specifier_dump(specs, DEBUG_LEVEL_ERROR);
             return NULL;
         }
         if (init_decl_list == NULL)

@@ -1802,95 +1802,11 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     return NULL;
 }
 
-static void
-dump_type_specifier(TypeSpecifier spec)
-{
-    fprintf(
-        stderr,
-        "unsigned: %d, long: %u, int %d, void %d, bool %d, short %d, char %d, float %d, double %d\n",
-        spec.is_unsigned,
-        spec.long_count,
-        spec.is_int,
-        spec.is_void,
-        spec.is_bool,
-        spec.is_short,
-        spec.is_char,
-        spec.is_float,
-        spec.is_double
-    );
-}
-
-static void
-type_specifier_process_name(TypeSpecifier * spec, char const * name)
-{
-    if (name == NULL)
-    {
-        return;
-    }
-    /* TODO: Check for illegal combinations. */
-
-    if (strcmp(name, "unsigned") == 0)
-    {
-        spec->is_unsigned = true;
-        spec->is_int = true;
-    }
-    else if (strcmp(name, "int") == 0)
-    {
-        spec->is_int = true;
-    }
-    else if (strcmp(name, "long") == 0)
-    {
-        spec->long_count++;
-    }
-    else if (strcmp(name, "short") == 0)
-    {
-        spec->is_short = true;
-    }
-    else if (strcmp(name, "char") == 0)
-    {
-        spec->is_char = true;
-    }
-    else if (strcmp(name, "float") == 0)
-    {
-        spec->is_float = true;
-    }
-    else if (strcmp(name, "double") == 0)
-    {
-        spec->is_double = true;
-    }
-    else if (strcmp(name, "bool") == 0 || strcmp(name, "_Bool") == 0)
-    {
-        spec->is_bool = true;
-    }
-    else if (strcmp(name, "void") == 0)
-    {
-        spec->is_void = true;
-    }
-}
-
-static TypeSpecifier
-build_type_specifier(c_grammar_node_t const * spec_list)
-{
-    TypeSpecifier spec = {0};
-
-    debug_info("%s count %u", __func__, spec_list->list.count);
-    for (size_t i = 0; i < spec_list->list.count; ++i)
-    {
-        c_grammar_node_t * child = spec_list->list.children[i];
-        type_specifier_process_name(&spec, child->text);
-    }
-
-    debug_info("%s", __func__);
-    dump_type_specifier(spec);
-
-    return spec;
-}
-
 static TypedValue
 get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
 {
     debug_info("%s", __func__);
-    dump_type_specifier(spec);
+    type_specifier_dump(spec, DEBUG_LEVEL_INFO);
 
     TypedValue res = {.is_unsigned = spec.is_unsigned};
     LLVMTypeRef type_ref = NULL;
@@ -2151,7 +2067,7 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
             // Check type specifier
             else if (specifier_list->list.count > 0)
             {
-                TypeSpecifier type_spec = build_type_specifier(specifier_list);
+                TypeSpecifier type_spec = build_type_specifiers(specifier_list);
                 TypedValue type_data = get_type_from_type_specifier(ctx, type_spec);
                 if (type_data.type != NULL)
                 {

@@ -172,6 +172,29 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
     return register_descriptor(registry, &template);
 }
 
+TypeDescriptor const *
+register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union)
+{
+    // Check if this LLVM type is already wrapped
+    TypeDescriptor_private * curr = registry->head;
+    while (curr != NULL)
+    {
+        if (curr->public.llvm_type == llvm_struct)
+            return &curr->public;
+        curr = curr->next;
+    }
+
+    TypeDescriptor template = {
+        .kind = is_union ? NCC_TYPE_KIND_UNION : NCC_TYPE_KIND_STRUCT,
+        .llvm_type = llvm_struct,
+        .pointee = NULL, // Structs aren't pointers
+        .qualifiers = quals,
+        // Qualifiers are added via get_qualified_type if the user writes 'const struct'
+    };
+
+    return register_descriptor(registry, &template);
+}
+
 static void
 builtins_init(TypeDescriptors * registry)
 {

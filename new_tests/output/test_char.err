@@ -86,9 +86,9 @@ INFO: add_symbol_with_struct: name: __FILE__, tag: (null)
 INFO: Added symbol: name='__FILE__', tag='(null)'
 --------------------
 TypedValue: added symbol value
-has value: 0x55a8abd8adc0, is_lvalue: 0
+has value: 0x5e271b6aeea0, is_lvalue: 0
 INFO: Type contents: @__FILE__ = private constant [25 x i8] c"../new_tests/test_char.c\00"
-type: 0x55a8abd86450 (11)
+type: 0x5e271b6aa450 (11)
 pointee type: (nil) (-1)
 bit width: 0
 bit offset: 0
@@ -98,9 +98,9 @@ INFO: add_symbol_with_struct: name: NULL, tag: (null)
 INFO: Added symbol: name='NULL', tag='(null)'
 --------------------
 TypedValue: added symbol value
-has value: 0x55a8abd8b9b0, is_lvalue: 0
+has value: 0x5e271b6afa90, is_lvalue: 0
 INFO: Type contents: ptr null
-type: 0x55a8abd86430 (12)
+type: 0x5e271b6aa430 (12)
 pointee type: (nil) (-1)
 bit width: 0
 bit offset: 0
@@ -324,9 +324,9 @@ INFO: add_symbol_with_struct: name: __FUNC__, tag: (null)
 INFO: Added symbol: name='__FUNC__', tag='(null)'
 --------------------
 TypedValue: added symbol value
-has value: 0x55a8abd8ce10, is_lvalue: 0
+has value: 0x5e271b6b10b0, is_lvalue: 0
 INFO: Type contents: @__FUNC__ = private constant [5 x i8] c"main\00"
-type: 0x55a8abd86480 (11)
+type: 0x5e271b6aa480 (11)
 pointee type: (nil) (-1)
 bit width: 0
 bit offset: 0
@@ -336,9 +336,9 @@ INFO: add_symbol_with_struct: name: __func__, tag: (null)
 INFO: Added symbol: name='__func__', tag='(null)'
 --------------------
 TypedValue: added symbol value
-has value: 0x55a8abd8ce10, is_lvalue: 0
+has value: 0x5e271b6b10b0, is_lvalue: 0
 INFO: Type contents: @__FUNC__ = private constant [5 x i8] c"main\00"
-type: 0x55a8abd86480 (11)
+type: 0x5e271b6aa480 (11)
 pointee type: (nil) (-1)
 bit width: 0
 bit offset: 0
@@ -348,34 +348,54 @@ INFO: add_symbol_with_struct: name: __LINE__, tag: (null)
 INFO: Added symbol: name='__LINE__', tag='(null)'
 --------------------
 TypedValue: added symbol value
-has value: 0x55a8abd8b490, is_lvalue: 0
+has value: 0x5e271b6af570, is_lvalue: 0
 INFO: Type contents: i32 0
-type: 0x55a8abd84c90 (8)
+type: 0x5e271b6a8c90 (8)
 pointee type: (nil) (-1)
 bit width: 0
 bit offset: 0
 --------------------
 
 INFO: extract_function_parameters
-INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 2826028452
+INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 1867629988
 INFO: handling node type NamedDeclarationSpecifiers and specifier list TypeSpecifiers
-INFO: build_type_specifier count 1
-INFO: build_type_specifier
-unsigned: 0, long: 0, int 0, void 1, bool 0, short 0, char 0, float 0, double 0
+INFO: build_type_specifiers count 1
+INFO: build_type_specifiers
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 0
+	void: 1
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_type_from_type_specifier
-unsigned: 0, long: 0, int 0, void 1, bool 0, short 0, char 0, float 0, double 0
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 0
+	void: 1
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_type_from_type_specifier: got type kind: 0
 INFO: and got type kind: 0
 INFO: check declarator
 INFO: map_type: array_depth=0, pointer_level=0, base_type kind=0
 INFO: now making a pointer: level 0
-INFO: dump_llvm_type map_type_to_llvm_t (0x55a8abd84b28):
+INFO: dump_llvm_type map_type_to_llvm_t (0x5e271b6a8b28):
 INFO: type kind: 0
 INFO: Adding function declaration: name='main' has_definition=1
 --------------------
 TypedValue: func
-type: 0x55a8abd86430 (12)
-pointee type: 0x55a8abd864a8 (9)
+type: 0x5e271b6aa430 (12)
+pointee type: 0x5e271b6aa4a8 (9)
 bit width: 0
 bit offset: 0
 --------------------
@@ -434,59 +454,109 @@ INFO: resolve_type_from_ast: node type Declaration
 INFO: Processing native type specifiers
 INFO: build_type_specifiers count 1
 INFO: build_type_specifiers
-Specifiers: unsigned: 0, signed: 0, long: 0, int 1, void 0, bool 0, short 0, char 0, float 0, double 0
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 1
+	void: 0
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_or_create_builtin_type
 INFO: register_descriptor: Registering new descriptor kind 0
 TypeDescriptor: kind=0 llvm_type_kind=8
-INFO: resolved type: 0x55a8abd8cef0
+INFO: resolved type: 0x5e271b6b1190
 INFO: init decl nodes: OptionalInitDeclaratorList
 INFO: process_declarator
 INFO: Direct decl first child type: Identifier (17)
-INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 2826028452
+INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 1867629988
 INFO: handling node type NamedDeclarationSpecifiers and specifier list TypeSpecifiers
-INFO: build_type_specifier count 1
-INFO: build_type_specifier
-unsigned: 0, long: 0, int 1, void 0, bool 0, short 0, char 0, float 0, double 0
+INFO: build_type_specifiers count 1
+INFO: build_type_specifiers
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 1
+	void: 0
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_type_from_type_specifier
-unsigned: 0, long: 0, int 1, void 0, bool 0, short 0, char 0, float 0, double 0
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 1
+	void: 0
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_type_from_type_specifier: got type kind: 8
 INFO: and got type kind: 8
 INFO: check declarator
 INFO: is declarator and pointer level 0
 INFO: map_type: array_depth=0, pointer_level=0, base_type kind=8
 INFO: now making a pointer: level 0
-INFO: dump_llvm_type map_type_to_llvm_t (0x55a8abd84c90):
+INFO: dump_llvm_type map_type_to_llvm_t (0x5e271b6a8c90):
 INFO: type kind: 8
-INFO: Processing declaration for 'i', type 0x55a8abd84c90 kind=8
+INFO: Processing declaration for 'i', type 0x5e271b6a8c90 kind=8
 INFO: got var name: i
 INFO: Finding typedef by name: 'int'
 INFO: Typedef not found for name: 'int'
-INFO: computing pointee type decl specs: 0x55a8abd837b0
-INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 2826028452
+INFO: computing pointee type decl specs: 0x5e271b6a77b0
+INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 1867629988
 INFO: handling node type NamedDeclarationSpecifiers and specifier list TypeSpecifiers
-INFO: build_type_specifier count 1
-INFO: build_type_specifier
-unsigned: 0, long: 0, int 1, void 0, bool 0, short 0, char 0, float 0, double 0
+INFO: build_type_specifiers count 1
+INFO: build_type_specifiers
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 1
+	void: 0
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_type_from_type_specifier
-unsigned: 0, long: 0, int 1, void 0, bool 0, short 0, char 0, float 0, double 0
+Specifiers:
+	unsigned: 0
+	signed: 0
+	long: 0
+	int 1
+	void: 0
+	bool: 0
+	short: 0
+	char: 0
+	float 0
+	double 0
 INFO: get_type_from_type_specifier: got type kind: 8
 INFO: and got type kind: 8
 INFO: check declarator
 INFO: map_type: array_depth=0, pointer_level=0, base_type kind=8
 INFO: now making a pointer: level 0
-INFO: dump_llvm_type map_type_to_llvm_t (0x55a8abd84c90):
+INFO: dump_llvm_type map_type_to_llvm_t (0x5e271b6a8c90):
 INFO: type kind: 8
-INFO: dump_llvm_type Node declaration pointee type (0x55a8abd84c90):
+INFO: dump_llvm_type Node declaration pointee type (0x5e271b6a8c90):
 INFO: type kind: 8
 INFO: no pointee type
-INFO: node decl adding symbol i type 0x55a8abd84c90 (8), pointee_type (nil) (-1)
+INFO: node decl adding symbol i type 0x5e271b6a8c90 (8), pointee_type (nil) (-1)
 INFO: add_symbol_with_struct: name: i, tag: (null)
 INFO: Added symbol: name='i', tag='(null)'
 --------------------
 TypedValue: added symbol value
-has value: 0x55a8abd8de90, is_lvalue: 1
+has value: 0x5e271b6b2210, is_lvalue: 1
 INFO: Type contents:   %i = alloca i32, align 4
-type: 0x55a8abd84c90 (8)
+type: 0x5e271b6a8c90 (8)
 pointee type: (nil) (-1)
 bit width: 0
 bit offset: 0

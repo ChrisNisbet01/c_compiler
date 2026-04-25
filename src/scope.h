@@ -16,6 +16,7 @@
 
 #include "labels.h"
 #include "llvm_typed_value.h"
+#include "type_descriptors.h"
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -32,6 +33,7 @@ typedef LLVMTypeRef LLVMTypeRef;
 typedef struct struct_field
 {
     char * name;
+    TypeDescriptor const * type_desc;
     LLVMTypeRef type;
     LLVMTypeRef pointee_struct_type; /* If type is a pointer to a struct, the struct type it points to */
     unsigned bit_offset;
@@ -56,6 +58,7 @@ typedef struct type_info
 {
     char * tag;       // The tag name (e.g., "MyStruct"), or "" for anonymous structs/unions
     type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
+    TypeDescriptor const * type_desc;
     LLVMTypeRef type;
     struct_field_t * fields;
     size_t field_count;
@@ -72,8 +75,9 @@ typedef struct scope_types
 // --- Typedef entry ---
 typedef struct scope_typedef_entry
 {
-    char * name;        // The typedef's own name
-    type_kind_t kind;   // Which category this refers to
+    char * name;      // The typedef's own name
+    type_kind_t kind; // Which category this refers to
+    TypeDescriptor const * type_desc;
     LLVMTypeRef type;   // Only used for non-struct kinds (e.g., primitives)
     char * tag;         // For tagged kinds - which entry in struct/union/enum list
     int untagged_index; // For untagged kinds - index into untagged list, -1 otherwise
@@ -103,6 +107,7 @@ typedef struct symbol_data_t
     bool is_volatile;
     bool is_extern;
     pointer_qualifiers_t pointer_qualifiers;
+    TypeDescriptor const * type_desc;
     LLVMTypeRef function_signature; /* Used with function pointers. */
 } symbol_data_t;
 
