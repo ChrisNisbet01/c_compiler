@@ -3133,7 +3133,6 @@ process_declarator(
                                 TypedValue tvalue = process_expression(ctx, initializer);
                                 if (tvalue.value != NULL)
                                 {
-                                    // FIXME: lvalues must be loaded first!
                                     ensure_rvalue(ctx, "init_elem_ptr", tvalue);
 
                                     // Create GEP to element
@@ -3843,7 +3842,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
                         register_untagged_enum_definition(ctx, enum_def_node);
-                        typedef_entry.type = ctx->ref_type.i32_type;
+                        TypeSpecifier const int_spec = {.is_int = true};
+                        TypeDescriptor const * int_desc
+                            = get_or_create_builtin_type(ctx->type_descriptors, int_spec, (TypeQualifier){0});
+                        typedef_entry.type_desc = int_desc;
                         typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
                     }
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
@@ -3851,12 +3853,17 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 else
                 {
                     /* Simple type typedef: e.g. typedef int my_int; */
-                    LLVMTypeRef simple_type = map_type_to_llvm_t(ctx, decl_specs, typedef_decl);
-                    if (simple_type != NULL)
+                    c_grammar_node_t const * specifier_list = decl_specs->decl_specifiers.type_specifiers;
+                    c_grammar_node_t const * qualifier_list = decl_specs->decl_specifiers.type_qualifiers;
+                    TypeSpecifier const decl_type_spec = build_type_specifiers(specifier_list);
+                    TypeQualifier const decl_type_qual = build_type_qualifiers(qualifier_list);
+                    TypeDescriptor const * type_desc
+                        = get_or_create_builtin_type(ctx->type_descriptors, decl_type_spec, decl_type_qual);
+                    if (type_desc != NULL)
                     {
                         scope_typedef_entry_t typedef_entry = {0};
                         typedef_entry.name = strdup(typedef_name);
-                        typedef_entry.type = simple_type;
+                        typedef_entry.type_desc = type_desc;
                         typedef_entry.kind = TYPE_KIND_UNKNOWN;
                         scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                     }

@@ -75,7 +75,6 @@ typedef struct scope_typedef_entry
     char * name;      // The typedef's own name
     type_kind_t kind; // Which category this refers to
     TypeDescriptor const * type_desc;
-    LLVMTypeRef type;   // Only used for non-struct kinds (e.g., primitives)
     char * tag;         // For tagged kinds - which entry in struct/union/enum list
     int untagged_index; // For untagged kinds - index into untagged list, -1 otherwise
 } scope_typedef_entry_t;

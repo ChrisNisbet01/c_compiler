@@ -489,9 +489,9 @@ scope_find_typedef(scope_t const * scope, char const * name)
     case TYPE_KIND_UNTAGGED_ENUM:
     {
         /* For untagged enums, return the type directly if set on entry */
-        if (entry->type != NULL)
+        if (entry->type_desc != NULL)
         {
-            return entry->type;
+            return entry->type_desc->llvm_type;
         }
         /* Otherwise, look up the untagged type by index */
         type_info_t const * info = scope_find_untagged_enum(scope, entry->untagged_index);
@@ -504,7 +504,10 @@ scope_find_typedef(scope_t const * scope, char const * name)
     case TYPE_KIND_UNKNOWN:
     default:
         /* For other kinds, return the type directly */
-        return entry->type;
+        if (entry->type_desc != NULL)
+        {
+            return entry->type_desc->llvm_type;
+        }
     }
 
     return NULL; /* Unreachable. */
