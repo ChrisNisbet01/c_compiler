@@ -26,9 +26,6 @@
 // These require LLVM to be installed and its include paths configured in CMake.
 #include <llvm-c/Core.h>
 
-typedef LLVMValueRef LLVMValueRef;
-typedef LLVMTypeRef LLVMTypeRef;
-
 // --- Struct type info for member access ---
 typedef struct struct_field
 {
