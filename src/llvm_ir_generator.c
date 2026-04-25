@@ -2502,7 +2502,19 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         return NULL;
     }
 
-    ctx->type_descriptors = type_descriptors_create_registry();
+    /* TODO: Remove once the type registry is up and running. */
+    ctx->ref_type.i1_type = LLVMInt1TypeInContext(ctx->context);
+    ctx->ref_type.i8_type = LLVMInt8TypeInContext(ctx->context);
+    ctx->ref_type.i16_type = LLVMInt16TypeInContext(ctx->context);
+    ctx->ref_type.i32_type = LLVMInt32TypeInContext(ctx->context);
+    ctx->ref_type.i64_type = LLVMInt64TypeInContext(ctx->context);
+    ctx->ref_type.ptr_type = LLVMPointerTypeInContext(ctx->context, 0);
+    ctx->ref_type.f32_type = LLVMFloatTypeInContext(ctx->context);
+    ctx->ref_type.f64_type = LLVMDoubleTypeInContext(ctx->context);
+    ctx->ref_type.long_double_type = LLVMX86FP80TypeInContext(ctx->context);
+    ctx->ref_type.void_type = LLVMVoidTypeInContext(ctx->context);
+
+    ctx->type_descriptors = type_descriptors_create_registry(ctx->context);
     if (ctx->type_descriptors == NULL)
     {
         ir_generator_dispose(ctx);
@@ -2622,8 +2634,7 @@ ir_generator_dispose(ir_generator_ctx_t * ctx)
     if (ctx->context)
         LLVMContextDispose(ctx->context);
 
-    builtins_destroy(ctx->builtins);
-    type_descriptors_destroy_list(ctx->type_descriptors);
+    type_descriptors_destroy_registry(ctx->type_descriptors);
 
     free(ctx);
 }

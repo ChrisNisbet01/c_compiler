@@ -1,6 +1,5 @@
 #pragma once
 
-#include "builtin_types.h"
 #include "c_grammar_ast.h"
 #include "ir_gen_error.h"
 #include "llvm_typed_value.h"
@@ -14,11 +13,6 @@
 #include <llvm-c/Target.h>          // For target initialization, etc.
 #include <llvm-c/TargetMachine.h>
 #include <stdbool.h>
-
-// Define LLVM types for convenience
-typedef LLVMContextRef LLVMContextRef;
-typedef LLVMModuleRef LLVMModuleRef;
-typedef LLVMBuilderRef LLVMBuilderRef;
 
 struct function_decl_entry
 {
@@ -38,6 +32,20 @@ typedef struct
 {
     bool generate_default_variables; /* Generate values for NULL etc when not preprocessing.*/
 } ir_generation_flags;
+
+typedef struct ref_types
+{
+    LLVMTypeRef i1_type;
+    LLVMTypeRef i8_type;
+    LLVMTypeRef i16_type;
+    LLVMTypeRef i32_type;
+    LLVMTypeRef i64_type;
+    LLVMTypeRef ptr_type;
+    LLVMTypeRef f32_type;
+    LLVMTypeRef f64_type;
+    LLVMTypeRef long_double_type;
+    LLVMTypeRef void_type;
+} ref_types;
 
 // Structure to hold the context for LLVM IR generation.
 // This includes LLVM's core objects and potentially symbol table management.
@@ -62,7 +70,7 @@ typedef struct ir_generator_ctx
     // --- Function declaration tracking ---
     struct function_decls function_declarations;
 
-    builtin_types ref_type;
+    ref_types ref_type;
 
     TypeDescriptors * type_descriptors;
 

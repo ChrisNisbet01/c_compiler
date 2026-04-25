@@ -1,7 +1,5 @@
 #include "type_descriptors.h"
 
-#include "builtin_types.h"
-
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +15,7 @@ typedef struct builtin_types
 {
     LLVMTypeRef i1_type;
     LLVMTypeRef i8_type;
+    LLVMTypeRef i16_type;
     LLVMTypeRef i32_type;
     LLVMTypeRef i64_type;
     LLVMTypeRef ptr_type;
@@ -29,7 +28,7 @@ typedef struct builtin_types
 typedef struct TypeDescriptors
 {
     TypeDescriptor_private * head;
-    LLVMContextRef * context;
+    LLVMContextRef context;
     builtin_types builtins;
 } TypeDescriptors;
 
@@ -134,6 +133,8 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
     }
     else if (specs.long_count > 1)
         llvm_type = registry->builtins.i64_type;
+    else if (specs.is_short)
+        llvm_type = registry->builtins.i16_type;
     else if (specs.is_char)
         llvm_type = registry->builtins.i8_type;
     else if (specs.is_bool)
@@ -151,10 +152,11 @@ static void
 builtins_init(TypeDescriptors * registry)
 {
     builtin_types * types = &registry->builtins;
-    LLVMContextRef * context = registry->context;
+    LLVMContextRef context = registry->context;
 
     types->i1_type = LLVMInt1TypeInContext(context);
     types->i8_type = LLVMInt8TypeInContext(context);
+    types->i16_type = LLVMInt16TypeInContext(context);
     types->i32_type = LLVMInt32TypeInContext(context);
     types->i64_type = LLVMInt64TypeInContext(context);
     types->ptr_type = LLVMPointerTypeInContext(context, 0);
@@ -166,8 +168,40 @@ builtins_init(TypeDescriptors * registry)
     TypeSpecifier spec;
     memset(&spec, 0, sizeof(spec));
     /* Now register them all with the type system. */
+    spec.is_void = true;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.is_void = false;
     spec.is_bool = true;
     get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.is_bool = false;
+    spec.is_char = true;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.is_char = false;
+    spec.is_short = true;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.is_short = false;
+    for (int i = 0; i < 2; i++)
+    {
+        spec.is_int = i;
+        get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+        spec.long_count = 1;
+        get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+        spec.long_count = 2;
+        get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    }
+    spec.is_int = false;
+
+    spec.is_double = true;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.long_count = 1;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.long_count = 2;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.long_count = 0;
+    spec.is_double = false;
+    spec.is_float = true;
+    get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+    spec.is_float = false;
 }
 
 void
@@ -188,7 +222,7 @@ type_descriptors_destroy_registry(TypeDescriptors * registry)
 }
 
 TypeDescriptors *
-type_descriptors_create_registry(LLVMContextRef * context)
+type_descriptors_create_registry(LLVMContextRef context)
 {
     if (context == NULL)
     {

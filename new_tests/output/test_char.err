@@ -1,0 +1,483 @@
+INFO: Successfully parsed the C file!
+AST:
+TranslationUnit (0): (1 child)
+  ExternalDeclarations (1): (1 child)
+    ExternalDeclaration (2): (1 child)
+      TopLevelDeclaration (3): (2 children)
+        OptionalKwExtension (8): (0 children)
+        FunctionDefinition (5): (3 children)
+          NamedDeclarationSpecifiers (19): (4 children)
+            StorageClassSpecifiers (105): (0 children)
+            TypeQualifiers (108): (0 children)
+            TypeSpecifiers (18): (1 child)
+              TypeSpecifier (21): `void` (0 children)
+            TypeQualifiers (108): (0 children)
+          Declarator (25): (4 children)
+            PointerList (30): (0 children)
+            DirectDeclarator (26): (2 children)
+              Identifier (17): `main` (0 children)
+              AttributeList (101): (0 children)
+            DeclaratorSuffixList (28): (1 child)
+              DeclaratorSuffix (27): (1 child)
+                ParameterList (110): (0 children)
+            AttributeList (101): (0 children)
+          CompoundStatement (6): (2 children)
+            Declaration (10): (3 children)
+              OptionalKwExtension (8): (0 children)
+              NamedDeclarationSpecifiers (19): (4 children)
+                StorageClassSpecifiers (105): (0 children)
+                TypeQualifiers (108): (0 children)
+                TypeSpecifiers (18): (1 child)
+                  TypeSpecifier (21): `char` (0 children)
+                TypeQualifiers (108): (0 children)
+              OptionalInitDeclaratorList (9): (1 child)
+                InitDeclarator (52): (3 children)
+                  Declarator (25): (4 children)
+                    PointerList (30): (1 child)
+                      Pointer (29): (1 child)
+                        TypeQualifiers (108): (1 child)
+                          TypeQualifier (107): `const` (0 children)
+                    DirectDeclarator (26): (2 children)
+                      Identifier (17): `p` (0 children)
+                      AttributeList (101): (0 children)
+                    DeclaratorSuffixList (28): (0 children)
+                    AttributeList (101): (0 children)
+                  AttributeList (101): (0 children)
+                  AttributeList (101): (0 children)
+            ReturnStatement (61): (0 children)
+INFO: AST max depth: 13
+INFO: Starting LLVM IR Generation...
+INFO: add_symbol_with_struct: name: __FILE__, tag: (null)
+INFO: Added symbol: name='__FILE__', tag='(null)'
+--------------------
+TypedValue: added symbol value
+has value: 0x5af6113570b0, is_lvalue: 0
+INFO: Type contents: @__FILE__ = private constant [22 x i8] c"new_tests/test_char.c\00"
+type: 0x5af611352760 (11)
+pointee type: (nil) (-1)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: add_symbol_with_struct: name: NULL, tag: (null)
+INFO: Added symbol: name='NULL', tag='(null)'
+--------------------
+TypedValue: added symbol value
+has value: 0x5af611357c90, is_lvalue: 0
+INFO: Type contents: ptr null
+type: 0x5af611352740 (12)
+pointee type: (nil) (-1)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: process_ast_node node type: TranslationUnit (0)
+
+AST: process_ast:
+TranslationUnit (0): (1 child)
+  ExternalDeclarations (1): (1 child)
+    ExternalDeclaration (2): (1 child)
+      TopLevelDeclaration (3): (2 children)
+        OptionalKwExtension (8): (0 children)
+        FunctionDefinition (5): (3 children)
+          NamedDeclarationSpecifiers (19): (4 children)
+            StorageClassSpecifiers (105): (0 children)
+            TypeQualifiers (108): (0 children)
+            TypeSpecifiers (18): (1 child)
+              TypeSpecifier (21): `void` (0 children)
+            TypeQualifiers (108): (0 children)
+          Declarator (25): (4 children)
+            PointerList (30): (0 children)
+            DirectDeclarator (26): (2 children)
+              Identifier (17): `main` (0 children)
+              AttributeList (101): (0 children)
+            DeclaratorSuffixList (28): (1 child)
+              DeclaratorSuffix (27): (1 child)
+                ParameterList (110): (0 children)
+            AttributeList (101): (0 children)
+          CompoundStatement (6): (2 children)
+            Declaration (10): (3 children)
+              OptionalKwExtension (8): (0 children)
+              NamedDeclarationSpecifiers (19): (4 children)
+                StorageClassSpecifiers (105): (0 children)
+                TypeQualifiers (108): (0 children)
+                TypeSpecifiers (18): (1 child)
+                  TypeSpecifier (21): `char` (0 children)
+                TypeQualifiers (108): (0 children)
+              OptionalInitDeclaratorList (9): (1 child)
+                InitDeclarator (52): (3 children)
+                  Declarator (25): (4 children)
+                    PointerList (30): (1 child)
+                      Pointer (29): (1 child)
+                        TypeQualifiers (108): (1 child)
+                          TypeQualifier (107): `const` (0 children)
+                    DirectDeclarator (26): (2 children)
+                      Identifier (17): `p` (0 children)
+                      AttributeList (101): (0 children)
+                    DeclaratorSuffixList (28): (0 children)
+                    AttributeList (101): (0 children)
+                  AttributeList (101): (0 children)
+                  AttributeList (101): (0 children)
+            ReturnStatement (61): (0 children)
+INFO: process_ast_node node type: ExternalDeclarations (1)
+
+AST: process_ast:
+ExternalDeclarations (1): (1 child)
+  ExternalDeclaration (2): (1 child)
+    TopLevelDeclaration (3): (2 children)
+      OptionalKwExtension (8): (0 children)
+      FunctionDefinition (5): (3 children)
+        NamedDeclarationSpecifiers (19): (4 children)
+          StorageClassSpecifiers (105): (0 children)
+          TypeQualifiers (108): (0 children)
+          TypeSpecifiers (18): (1 child)
+            TypeSpecifier (21): `void` (0 children)
+          TypeQualifiers (108): (0 children)
+        Declarator (25): (4 children)
+          PointerList (30): (0 children)
+          DirectDeclarator (26): (2 children)
+            Identifier (17): `main` (0 children)
+            AttributeList (101): (0 children)
+          DeclaratorSuffixList (28): (1 child)
+            DeclaratorSuffix (27): (1 child)
+              ParameterList (110): (0 children)
+          AttributeList (101): (0 children)
+        CompoundStatement (6): (2 children)
+          Declaration (10): (3 children)
+            OptionalKwExtension (8): (0 children)
+            NamedDeclarationSpecifiers (19): (4 children)
+              StorageClassSpecifiers (105): (0 children)
+              TypeQualifiers (108): (0 children)
+              TypeSpecifiers (18): (1 child)
+                TypeSpecifier (21): `char` (0 children)
+              TypeQualifiers (108): (0 children)
+            OptionalInitDeclaratorList (9): (1 child)
+              InitDeclarator (52): (3 children)
+                Declarator (25): (4 children)
+                  PointerList (30): (1 child)
+                    Pointer (29): (1 child)
+                      TypeQualifiers (108): (1 child)
+                        TypeQualifier (107): `const` (0 children)
+                  DirectDeclarator (26): (2 children)
+                    Identifier (17): `p` (0 children)
+                    AttributeList (101): (0 children)
+                  DeclaratorSuffixList (28): (0 children)
+                  AttributeList (101): (0 children)
+                AttributeList (101): (0 children)
+                AttributeList (101): (0 children)
+          ReturnStatement (61): (0 children)
+INFO: process_ast_node node type: ExternalDeclaration (2)
+
+AST: process_ast:
+ExternalDeclaration (2): (1 child)
+  TopLevelDeclaration (3): (2 children)
+    OptionalKwExtension (8): (0 children)
+    FunctionDefinition (5): (3 children)
+      NamedDeclarationSpecifiers (19): (4 children)
+        StorageClassSpecifiers (105): (0 children)
+        TypeQualifiers (108): (0 children)
+        TypeSpecifiers (18): (1 child)
+          TypeSpecifier (21): `void` (0 children)
+        TypeQualifiers (108): (0 children)
+      Declarator (25): (4 children)
+        PointerList (30): (0 children)
+        DirectDeclarator (26): (2 children)
+          Identifier (17): `main` (0 children)
+          AttributeList (101): (0 children)
+        DeclaratorSuffixList (28): (1 child)
+          DeclaratorSuffix (27): (1 child)
+            ParameterList (110): (0 children)
+        AttributeList (101): (0 children)
+      CompoundStatement (6): (2 children)
+        Declaration (10): (3 children)
+          OptionalKwExtension (8): (0 children)
+          NamedDeclarationSpecifiers (19): (4 children)
+            StorageClassSpecifiers (105): (0 children)
+            TypeQualifiers (108): (0 children)
+            TypeSpecifiers (18): (1 child)
+              TypeSpecifier (21): `char` (0 children)
+            TypeQualifiers (108): (0 children)
+          OptionalInitDeclaratorList (9): (1 child)
+            InitDeclarator (52): (3 children)
+              Declarator (25): (4 children)
+                PointerList (30): (1 child)
+                  Pointer (29): (1 child)
+                    TypeQualifiers (108): (1 child)
+                      TypeQualifier (107): `const` (0 children)
+                DirectDeclarator (26): (2 children)
+                  Identifier (17): `p` (0 children)
+                  AttributeList (101): (0 children)
+                DeclaratorSuffixList (28): (0 children)
+                AttributeList (101): (0 children)
+              AttributeList (101): (0 children)
+              AttributeList (101): (0 children)
+        ReturnStatement (61): (0 children)
+INFO: process_ast_node node type: TopLevelDeclaration (3)
+
+AST: process_ast:
+TopLevelDeclaration (3): (2 children)
+  OptionalKwExtension (8): (0 children)
+  FunctionDefinition (5): (3 children)
+    NamedDeclarationSpecifiers (19): (4 children)
+      StorageClassSpecifiers (105): (0 children)
+      TypeQualifiers (108): (0 children)
+      TypeSpecifiers (18): (1 child)
+        TypeSpecifier (21): `void` (0 children)
+      TypeQualifiers (108): (0 children)
+    Declarator (25): (4 children)
+      PointerList (30): (0 children)
+      DirectDeclarator (26): (2 children)
+        Identifier (17): `main` (0 children)
+        AttributeList (101): (0 children)
+      DeclaratorSuffixList (28): (1 child)
+        DeclaratorSuffix (27): (1 child)
+          ParameterList (110): (0 children)
+      AttributeList (101): (0 children)
+    CompoundStatement (6): (2 children)
+      Declaration (10): (3 children)
+        OptionalKwExtension (8): (0 children)
+        NamedDeclarationSpecifiers (19): (4 children)
+          StorageClassSpecifiers (105): (0 children)
+          TypeQualifiers (108): (0 children)
+          TypeSpecifiers (18): (1 child)
+            TypeSpecifier (21): `char` (0 children)
+          TypeQualifiers (108): (0 children)
+        OptionalInitDeclaratorList (9): (1 child)
+          InitDeclarator (52): (3 children)
+            Declarator (25): (4 children)
+              PointerList (30): (1 child)
+                Pointer (29): (1 child)
+                  TypeQualifiers (108): (1 child)
+                    TypeQualifier (107): `const` (0 children)
+              DirectDeclarator (26): (2 children)
+                Identifier (17): `p` (0 children)
+                AttributeList (101): (0 children)
+              DeclaratorSuffixList (28): (0 children)
+              AttributeList (101): (0 children)
+            AttributeList (101): (0 children)
+            AttributeList (101): (0 children)
+      ReturnStatement (61): (0 children)
+INFO: process_ast_node node type: FunctionDefinition (5)
+
+AST: process_ast:
+FunctionDefinition (5): (3 children)
+  NamedDeclarationSpecifiers (19): (4 children)
+    StorageClassSpecifiers (105): (0 children)
+    TypeQualifiers (108): (0 children)
+    TypeSpecifiers (18): (1 child)
+      TypeSpecifier (21): `void` (0 children)
+    TypeQualifiers (108): (0 children)
+  Declarator (25): (4 children)
+    PointerList (30): (0 children)
+    DirectDeclarator (26): (2 children)
+      Identifier (17): `main` (0 children)
+      AttributeList (101): (0 children)
+    DeclaratorSuffixList (28): (1 child)
+      DeclaratorSuffix (27): (1 child)
+        ParameterList (110): (0 children)
+    AttributeList (101): (0 children)
+  CompoundStatement (6): (2 children)
+    Declaration (10): (3 children)
+      OptionalKwExtension (8): (0 children)
+      NamedDeclarationSpecifiers (19): (4 children)
+        StorageClassSpecifiers (105): (0 children)
+        TypeQualifiers (108): (0 children)
+        TypeSpecifiers (18): (1 child)
+          TypeSpecifier (21): `char` (0 children)
+        TypeQualifiers (108): (0 children)
+      OptionalInitDeclaratorList (9): (1 child)
+        InitDeclarator (52): (3 children)
+          Declarator (25): (4 children)
+            PointerList (30): (1 child)
+              Pointer (29): (1 child)
+                TypeQualifiers (108): (1 child)
+                  TypeQualifier (107): `const` (0 children)
+            DirectDeclarator (26): (2 children)
+              Identifier (17): `p` (0 children)
+              AttributeList (101): (0 children)
+            DeclaratorSuffixList (28): (0 children)
+            AttributeList (101): (0 children)
+          AttributeList (101): (0 children)
+          AttributeList (101): (0 children)
+    ReturnStatement (61): (0 children)
+INFO: add_symbol_with_struct: name: __FUNC__, tag: (null)
+INFO: Added symbol: name='__FUNC__', tag='(null)'
+--------------------
+TypedValue: added symbol value
+has value: 0x5af6113590f0, is_lvalue: 0
+INFO: Type contents: @__FUNC__ = private constant [5 x i8] c"main\00"
+type: 0x5af611352790 (11)
+pointee type: (nil) (-1)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: add_symbol_with_struct: name: __func__, tag: (null)
+INFO: Added symbol: name='__func__', tag='(null)'
+--------------------
+TypedValue: added symbol value
+has value: 0x5af6113590f0, is_lvalue: 0
+INFO: Type contents: @__FUNC__ = private constant [5 x i8] c"main\00"
+type: 0x5af611352790 (11)
+pointee type: (nil) (-1)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: add_symbol_with_struct: name: __LINE__, tag: (null)
+INFO: Added symbol: name='__LINE__', tag='(null)'
+--------------------
+TypedValue: added symbol value
+has value: 0x5af611357770, is_lvalue: 0
+INFO: Type contents: i32 0
+type: 0x5af611350fa0 (8)
+pointee type: (nil) (-1)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: extract_function_parameters
+INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 1255261604
+INFO: handling node type NamedDeclarationSpecifiers and specifier list TypeSpecifiers
+INFO: build_type_specifier count 1
+INFO: build_type_specifier
+unsigned: 0, long: 0, int 0, void 1, bool 0, short 0, char 0, float 0, double 0
+INFO: get_type_from_type_specifier
+unsigned: 0, long: 0, int 0, void 1, bool 0, short 0, char 0, float 0, double 0
+INFO: get_type_from_type_specifier: got type kind: 0
+INFO: and got type kind: 0
+INFO: check declarator
+INFO: map_type: array_depth=0, pointer_level=0, base_type kind=0
+INFO: now making a pointer: level 0
+INFO: dump_llvm_type map_type_to_llvm_t (0x5af611350e38):
+INFO: type kind: 0
+INFO: Adding function declaration: name='main' has_definition=1
+--------------------
+TypedValue: func
+type: 0x5af611352740 (12)
+pointee type: 0x5af6113527b8 (9)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: find_function_declaration: main
+INFO: not found
+INFO: process_ast_node node type: CompoundStatement (6)
+
+AST: process_ast:
+CompoundStatement (6): (2 children)
+  Declaration (10): (3 children)
+    OptionalKwExtension (8): (0 children)
+    NamedDeclarationSpecifiers (19): (4 children)
+      StorageClassSpecifiers (105): (0 children)
+      TypeQualifiers (108): (0 children)
+      TypeSpecifiers (18): (1 child)
+        TypeSpecifier (21): `char` (0 children)
+      TypeQualifiers (108): (0 children)
+    OptionalInitDeclaratorList (9): (1 child)
+      InitDeclarator (52): (3 children)
+        Declarator (25): (4 children)
+          PointerList (30): (1 child)
+            Pointer (29): (1 child)
+              TypeQualifiers (108): (1 child)
+                TypeQualifier (107): `const` (0 children)
+          DirectDeclarator (26): (2 children)
+            Identifier (17): `p` (0 children)
+            AttributeList (101): (0 children)
+          DeclaratorSuffixList (28): (0 children)
+          AttributeList (101): (0 children)
+        AttributeList (101): (0 children)
+        AttributeList (101): (0 children)
+  ReturnStatement (61): (0 children)
+INFO: process_ast_node node type: Declaration (10)
+
+AST: process_ast:
+Declaration (10): (3 children)
+  OptionalKwExtension (8): (0 children)
+  NamedDeclarationSpecifiers (19): (4 children)
+    StorageClassSpecifiers (105): (0 children)
+    TypeQualifiers (108): (0 children)
+    TypeSpecifiers (18): (1 child)
+      TypeSpecifier (21): `char` (0 children)
+    TypeQualifiers (108): (0 children)
+  OptionalInitDeclaratorList (9): (1 child)
+    InitDeclarator (52): (3 children)
+      Declarator (25): (4 children)
+        PointerList (30): (1 child)
+          Pointer (29): (1 child)
+            TypeQualifiers (108): (1 child)
+              TypeQualifier (107): `const` (0 children)
+        DirectDeclarator (26): (2 children)
+          Identifier (17): `p` (0 children)
+          AttributeList (101): (0 children)
+        DeclaratorSuffixList (28): (0 children)
+        AttributeList (101): (0 children)
+      AttributeList (101): (0 children)
+      AttributeList (101): (0 children)
+INFO: decl specifiers node: NamedDeclarationSpecifiers
+INFO: list: TypeSpecifiers count 1
+INFO: init decl nodes: OptionalInitDeclaratorList
+INFO: process_declarator
+INFO: Direct decl first child type: Identifier (17)
+INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 1255261604
+INFO: handling node type NamedDeclarationSpecifiers and specifier list TypeSpecifiers
+INFO: build_type_specifier count 1
+INFO: build_type_specifier
+unsigned: 0, long: 0, int 0, void 0, bool 0, short 0, char 1, float 0, double 0
+INFO: get_type_from_type_specifier
+unsigned: 0, long: 0, int 0, void 0, bool 0, short 0, char 1, float 0, double 0
+INFO: get_type_from_type_specifier: got type kind: 8
+INFO: and got type kind: 8
+INFO: check declarator
+INFO: is declarator and pointer level 1
+INFO: map_type: array_depth=0, pointer_level=1, base_type kind=8
+INFO: now making a pointer: level 1
+INFO: dump_llvm_type map_type_to_llvm_t (0x5af611352740):
+INFO: type kind: 12
+INFO: Processing declaration for 'p', type 0x5af611352740 kind=12
+INFO: got var name: p
+INFO: Finding typedef by name: 'char'
+INFO: Typedef not found for name: 'char'
+INFO: computing pointee type decl specs: 0x5af61134f8c0
+INFO: map_type_to_llvm_t: specifier_type: NamedDeclarationSpecifiers, line 1255261604
+INFO: handling node type NamedDeclarationSpecifiers and specifier list TypeSpecifiers
+INFO: build_type_specifier count 1
+INFO: build_type_specifier
+unsigned: 0, long: 0, int 0, void 0, bool 0, short 0, char 1, float 0, double 0
+INFO: get_type_from_type_specifier
+unsigned: 0, long: 0, int 0, void 0, bool 0, short 0, char 1, float 0, double 0
+INFO: get_type_from_type_specifier: got type kind: 8
+INFO: and got type kind: 8
+INFO: check declarator
+INFO: map_type: array_depth=0, pointer_level=0, base_type kind=8
+INFO: now making a pointer: level 0
+INFO: dump_llvm_type map_type_to_llvm_t (0x5af611350f70):
+INFO: type kind: 8
+INFO: dump_llvm_type Node declaration pointee type (0x5af611350f70):
+INFO: type kind: 8
+INFO: node decl adding symbol p type 0x5af611352740 (12), pointee_type 0x5af611350f70 (8)
+INFO: add_symbol_with_struct: name: p, tag: (null)
+INFO: Added symbol: name='p', tag='(null)'
+--------------------
+TypedValue: added symbol value
+has value: 0x5af61135a170, is_lvalue: 1
+INFO: Type contents:   %p = alloca ptr, align 8
+type: 0x5af611352740 (12)
+pointee type: 0x5af611350f70 (8)
+bit width: 0
+bit offset: 0
+--------------------
+
+INFO: processed: Declaration
+INFO: process_ast_node node type: ReturnStatement (61)
+
+AST: process_ast:
+ReturnStatement (61): (0 children)
+INFO: processed: ReturnStatement
+INFO: processed: CompoundStatement
+INFO: processed: FunctionDefinition
+INFO: processed: TopLevelDeclaration
+INFO: processed: ExternalDeclaration
+INFO: processed: ExternalDeclarations
+INFO: processed: TranslationUnit
+INFO: IRGen: Successfully wrote LLVM IR to new_tests/output/test_char.ll

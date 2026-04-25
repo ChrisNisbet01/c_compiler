@@ -7,6 +7,7 @@
 typedef struct
 {
     bool is_unsigned;
+    bool is_signed;
     int long_count; // 0 = int, 1 = long, 2 = long long
     bool is_void;
     bool is_bool;
@@ -48,10 +49,6 @@ typedef struct TypeDescriptor
 
 } TypeDescriptor;
 
-TypeDescriptors * type_descriptors_create_list(void);
+TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
 
-void type_descriptors_destroy_list(TypeDescriptors * list);
-
-TypeDescriptor const * type_descriptors_get_or_create(
-    TypeDescriptors * list, type_descriptor_type_kind_t kind, LLVMTypeRef type, TypeDescriptor const * pointee
-);
+void type_descriptors_destroy_registry(TypeDescriptors * registry);
