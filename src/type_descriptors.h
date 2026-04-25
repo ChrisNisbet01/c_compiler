@@ -1,22 +1,10 @@
 #pragma once
 
+#include "type_specifier.h"
+
 #include <llvm-c/Core.h>
 #include <stdbool.h>
 #include <stddef.h>
-
-typedef struct
-{
-    bool is_unsigned;
-    bool is_signed;
-    int long_count; // 0 = int, 1 = long, 2 = long long
-    bool is_void;
-    bool is_bool;
-    bool is_short;
-    bool is_char;
-    bool is_int;
-    bool is_float;
-    bool is_double;
-} TypeSpecifier;
 
 typedef struct
 {
@@ -75,7 +63,11 @@ TypeDescriptor const *
 register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union);
 
 TypeDescriptor const * get_or_create_function_type(
-    TypeDescriptors * registry, TypeDescriptor const * ret_type, TypeDescriptor const ** params, size_t param_count
+    TypeDescriptors * registry,
+    TypeDescriptor const * ret_type,
+    TypeDescriptor const ** params,
+    size_t param_count,
+    bool is_variadic
 );
 
 TypeDescriptor const *

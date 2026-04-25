@@ -115,7 +115,7 @@ RBracket = lexeme(']');
 Semicolon = lexeme(';');
 Comma = lexeme(',');
 Colon = lexeme(':' not(':'));
-Ellipsis = lexeme("...");
+Ellipsis = lexeme("...") @AST_ACTION_ELLIPSIS;
 
 // Protected operators using not() to prevent prefix stealing
 Assign = lexeme('=' not('='));

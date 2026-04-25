@@ -1,7 +1,5 @@
 void
-main()
+main(int i, ...)
 {
-    int i;
-
     return;
 }

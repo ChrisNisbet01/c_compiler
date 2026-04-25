@@ -19,6 +19,7 @@ TypedValue NullTypedValue;
 typedef struct
 {
     size_t count;
+    bool is_variadic;
     char const ** names;
     LLVMTypeRef * types;
     LLVMTypeRef * pointee_types;
@@ -2208,10 +2209,16 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                     parameter_list = suffix->list.children[0];
                 }
             }
-
+            bool is_variadic = false;
             for (size_t j = 0; j < parameter_list->list.count; ++j)
             {
                 c_grammar_node_t * params_child = parameter_list->list.children[j];
+
+                if (params_child->type == AST_NODE_ELLIPSIS)
+                {
+                    is_variadic = true;
+                    break;
+                }
                 debug_info("map_type: param[%zu] type=%s", j, get_node_type_name_from_type(params_child->type));
                 if (params_child->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                 {
@@ -3261,7 +3268,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 
     // --- Extract Function Name ---
     char const * func_name = NULL;
-    c_grammar_node_t const * suffix_node = NULL;
     c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
 
     if (direct_decl && direct_decl->list.count > 0 && direct_decl->list.children[0]->type == AST_NODE_IDENTIFIER)
@@ -3274,23 +3280,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     add_function_scope_builtin_macros(ctx, func_name);
 
-    // Find parameter suffix list
-    c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
-    if (suffix_list != NULL && suffix_list->list.count > 0)
-    {
-        suffix_node = suffix_list->list.children[0];
-    }
-
-    c_grammar_node_t const * params_list = NULL;
-    if (suffix_node->list.count > 0)
-    {
-        params_list = suffix_node->list.children[0];
-        if (params_list->type != AST_NODE_PARAMETER_LIST)
-        {
-            params_list = NULL;
-        }
-    }
-
+    c_grammar_node_t const * params_list = search_parameters_list_in_declarator(declarator_node);
     parameter_definitions_t params = extract_function_parameters(ctx, params_list);
     LLVMTypeRef return_type = map_type_to_llvm_t(ctx, decl_specifiers_node, NULL);
     LLVMTypeRef func_type = generate_function_signature(params, return_type);
@@ -4617,6 +4607,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     case AST_NODE_TYPE_SPECIFIERS:
     case AST_NODE_PARAMETER_LIST:
+    case AST_NODE_ELLIPSIS:
     default:
         // Fallback: Recursively process children for unhandled node types.
         if (node->text != NULL && node->list.count == 0)
@@ -7062,6 +7053,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     case AST_NODE_TYPE_SPECIFIERS:
     case AST_NODE_PARAMETER_LIST:
+    case AST_NODE_ELLIPSIS:
     default:
         // Attempt to recursively process if it might yield a value.
         if (node->list.count > 0)
