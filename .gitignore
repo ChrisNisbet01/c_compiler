@@ -1,6 +1,7 @@
 a.out
 a.out.ll
 /tests/output/
+/new_tests/output/
 /build/
 /.cache/
 /build_debug/
