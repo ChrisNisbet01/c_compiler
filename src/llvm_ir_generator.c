@@ -2875,8 +2875,22 @@ parameter_definitions_cleanup(parameter_definitions_t * params)
 }
 
 static bool
-parameter_definitions_init(parameter_definitions_t * params, size_t count)
+parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t const * params_list_node)
 {
+    if (params_list_node == NULL || params_list_node->type != AST_NODE_PARAMETER_LIST)
+    {
+        debug_error("Invalid parameter list node");
+        return false;
+    }
+
+    size_t params_list_count = params_list_node->list.count;
+    if (params_list_count > 1
+        && params_list_node->list.children[params_list_count - 1]->type == AST_NODE_ELLIPSIS)
+    {
+        params_list_count--; /* Exclude ellipsis from count */
+    }
+
+    size_t count = params_list_count / 3;
     params->count = count;
     params->names = calloc(count, sizeof(*params->names));
     params->types = calloc(count, sizeof(*params->types));
@@ -3215,7 +3229,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
     if (params_list != NULL && params_list->list.count > 0)
     {
         // Each parameter typically has [KwExtension, TypeSpecifier, Declarator]
-        if (!parameter_definitions_init(&params, params_list->list.count / 3))
+        if (!parameter_definitions_init(&params, params_list))
         {
             ir_gen_error(&ctx->errors, "Memory error");
             return params;
