@@ -397,3 +397,13 @@ get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier co
     }
     return NULL;
 }
+
+TypeDescriptor const *
+type_descriptor_get_pointee(TypeDescriptor const * desc)
+{
+    if (desc == NULL)
+    {
+        return NULL;
+    }
+    return desc->pointee;
+}

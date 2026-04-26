@@ -71,3 +71,5 @@ TypeDescriptor const * get_or_create_function_type(
 
 TypeDescriptor const *
 get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals);
+
+TypeDescriptor const * type_descriptor_get_pointee(TypeDescriptor const * desc);

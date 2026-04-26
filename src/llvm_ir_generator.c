@@ -2171,7 +2171,12 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         LLVMValueRef indices[2]
             = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
-        TypedValue val = (TypedValue){.value = ptr, .type = arr_type};
+
+        TypeSpecifier char_spec = {0};
+        char_spec.is_char = true;
+        TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+        TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
+        TypedValue val = create_typed_value(ptr, arr_desc, false);
         add_symbol(ctx, "__FILE__", val, NULL);
     }
 
@@ -2181,7 +2186,12 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         LLVMTypeRef null_type = ctx->ref_type.ptr_type;
         LLVMValueRef null_const = LLVMConstPointerNull(null_type);
         LLVMSetGlobalConstant(null_const, true);
-        TypedValue null_val = (TypedValue){.value = null_const, .type = null_type};
+
+        TypeSpecifier void_spec = {0};
+        void_spec.is_void = true;
+        TypeDescriptor const * void_desc = get_or_create_builtin_type(ctx->type_descriptors, void_spec, (TypeQualifier){0});
+        TypeDescriptor const * ptr_desc = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
+        TypedValue null_val = create_typed_value(null_const, ptr_desc, false);
         add_symbol(ctx, "NULL", null_val, NULL);
     }
 
@@ -2332,14 +2342,24 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     LLVMValueRef findices[2]
         = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
-    TypedValue fval = (TypedValue){.value = fptr, .type = farr_type};
+
+    TypeSpecifier char_spec = {0};
+    char_spec.is_char = true;
+    TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+    TypeDescriptor const * farr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, flen + 1);
+    TypedValue fval = create_typed_value(fptr, farr_desc, false);
     add_symbol(ctx, "__FUNC__", fval, NULL);
     // __func__ alias to same value
     add_symbol(ctx, "__func__", fval, NULL);
 
     // __LINE__ as integer constant 0 (i32)
     LLVMValueRef line_const = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-    TypedValue lval = (TypedValue){.value = line_const, .type = ctx->ref_type.i32_type};
+    TypeSpecifier int_spec = {0};
+    int_spec.is_int = true;
+    int_spec.long_count = 0;
+    int_spec.is_unsigned = true;
+    TypeDescriptor const * i32_desc = get_or_create_builtin_type(ctx->type_descriptors, int_spec, (TypeQualifier){0});
+    TypedValue lval = create_typed_value(line_const, i32_desc, false);
     add_symbol(ctx, "__LINE__", lval, NULL);
 }
 
@@ -5271,7 +5291,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             lhs_res = (TypedValue){
                 .value = target_addr,
-                .type = ptr_val.pointee_type, // Use the metadata!
+                .type = typed_value_get_pointee_llvm(&ptr_val),
                 .is_lvalue = true
             };
         }

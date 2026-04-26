@@ -1,6 +1,8 @@
 #include "llvm_typed_value.h"
 
-#include <debug.h>
+#include "debug.h"
+#include "type_descriptors.h"
+
 #include <stddef.h>
 #include <stdio.h>
 
@@ -39,4 +41,42 @@ create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue
         .type = desc != NULL ? desc->llvm_type : NULL,
         .pointee_type = (desc != NULL && desc->pointee != NULL) ? desc->pointee->llvm_type : NULL
     };
+}
+
+TypeDescriptor const *
+typed_value_get_descriptor(TypedValue const * tv)
+{
+    if (tv == NULL)
+    {
+        return NULL;
+    }
+    return tv->type_info;
+}
+
+LLVMTypeRef
+typed_value_get_llvm_type(TypedValue const * tv)
+{
+    if (tv == NULL)
+    {
+        return NULL;
+    }
+    if (tv->type_info != NULL)
+    {
+        return tv->type_info->llvm_type;
+    }
+    return tv->type;
+}
+
+LLVMTypeRef
+typed_value_get_pointee_llvm(TypedValue const * tv)
+{
+    if (tv == NULL)
+    {
+        return NULL;
+    }
+    if (tv->type_info != NULL && tv->type_info->pointee != NULL)
+    {
+        return tv->type_info->pointee->llvm_type;
+    }
+    return tv->pointee_type;
 }
