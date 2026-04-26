@@ -31,6 +31,19 @@ dump_typed_value(char const * label, TypedValue v)
 }
 
 TypedValue
+create_typed_value_llvm(LLVMValueRef val, LLVMTypeRef val_type, LLVMTypeRef pointee_type, bool is_lvalue)
+{
+    // This function should be used when we only have LLVM type info available, and not the full TypeDescriptor
+    // metadata. It should eventually not be needed at all.
+    return (TypedValue){
+        .value = val,
+        .is_lvalue = is_lvalue,
+        .type = val_type,
+        .pointee_type = pointee_type,
+    };
+}
+
+TypedValue
 create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue)
 {
     return (TypedValue){

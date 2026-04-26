@@ -98,11 +98,7 @@ typedef struct pointer_qualifiers_t
 
 typedef struct symbol_data_t
 {
-    bool is_const; /* For non-pointer variables only. For pointers, use pointer_qualifiers. */
-    bool is_volatile;
-    bool is_extern;
     pointer_qualifiers_t pointer_qualifiers;
-    TypeDescriptor const * type_desc;
     LLVMTypeRef function_signature; /* Used with function pointers. */
 } symbol_data_t;
 

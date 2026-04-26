@@ -2172,9 +2172,9 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
             = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
 
-        TypeSpecifier char_spec = {0};
-        char_spec.is_char = true;
-        TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+        TypeSpecifier char_spec = {.is_char = true};
+        TypeQualifier char_qual = {.is_const = true};
+        TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, char_qual);
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
         TypedValue val = create_typed_value(ptr, arr_desc, false);
         add_symbol(ctx, "__FILE__", val, NULL);
@@ -2187,10 +2187,11 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         LLVMValueRef null_const = LLVMConstPointerNull(null_type);
         LLVMSetGlobalConstant(null_const, true);
 
-        TypeSpecifier void_spec = {0};
-        void_spec.is_void = true;
-        TypeDescriptor const * void_desc = get_or_create_builtin_type(ctx->type_descriptors, void_spec, (TypeQualifier){0});
-        TypeDescriptor const * ptr_desc = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
+        TypeSpecifier void_spec = {.is_void = true};
+        TypeQualifier void_qual = {.is_const = true};
+        TypeDescriptor const * void_desc = get_or_create_builtin_type(ctx->type_descriptors, void_spec, void_qual);
+        TypeDescriptor const * ptr_desc
+            = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
         TypedValue null_val = create_typed_value(null_const, ptr_desc, false);
         add_symbol(ctx, "NULL", null_val, NULL);
     }
@@ -2430,7 +2431,8 @@ create_global_variable(
         };
         TypeSpecifier char_spec = {0};
         char_spec.is_char = true;
-        TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+        TypeDescriptor const * char_desc
+            = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, str_len + 1);
         TypedValue val = create_typed_value(global_var, arr_desc, true);
         add_symbol(ctx, var_name, val, &data);
@@ -2454,7 +2456,6 @@ create_global_variable(
     }
 
     /* Register symbol with pointee type for pointer types */
-    symbol_data_t symbol_data = {.is_const = is_const};
     LLVMTypeRef pointee_type = NULL;
     if (var_type != NULL)
     {
@@ -2490,7 +2491,7 @@ create_global_variable(
         .pointee_type = pointee_type,
         .is_lvalue = true,
     };
-    add_symbol(ctx, var_name, val, &symbol_data);
+    add_symbol(ctx, var_name, val, NULL);
 
     /* Handle explicit initializer if present */
     if (initializer_expr_node)
@@ -2815,19 +2816,12 @@ process_declarator(
                 extract_pointer_qualifiers(declarator_node->declarator.pointer_list, decl_specifiers, &pointer_quals);
             }
 
-            bool symbol_is_const = false;
-            if (pointer_quals.level == 0)
-            {
-                // No pointer: is_const directly on the variable
-                symbol_is_const = is_const;
-            }
             // For pointer types, we don't set symbol_is_const here.
             // All const checking is done via pointer_qualifiers:
             // - is_const[level-1] for direct pointer assignment (can't reassign pointer)
             // - is_const[0] for data pointed to (can't modify through pointer)
 
             symbol_data_t symbol_data = {
-                .is_const = symbol_is_const,
                 .pointer_qualifiers = pointer_quals,
                 .function_signature = function_signature,
             };
@@ -2838,7 +2832,7 @@ process_declarator(
                 .is_lvalue = true,
             };
             // Also store type_info if we have it - using helper for backward compat
-            sym_val.type_info = NULL;  // TODO: create TypeDescriptor from var_type
+            sym_val.type_info = NULL; // TODO: create TypeDescriptor from var_type
             debug_info(
                 "node decl adding symbol %s type %p (%d), pointee_type %p (%d)",
                 var_name,
@@ -5291,11 +5285,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             // We load it to get the address of the target
             LLVMValueRef target_addr = aligned_load(ctx, ctx->builder, ptr_val.type, ptr_val.value, "ptr_deref");
 
-            lhs_res = (TypedValue){
-                .value = target_addr,
-                .type = typed_value_get_pointee_llvm(&ptr_val),
-                .is_lvalue = true
-            };
+            lhs_res
+                = (TypedValue){.value = target_addr, .type = typed_value_get_pointee_llvm(&ptr_val), .is_lvalue = true};
         }
     }
     else
@@ -5315,105 +5306,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         print_ast_with_label(lhs_node, "LHS");
     }
 
-    // Check const correctness at the target level of assignment
-    {
-        char const * target_name = NULL;
-        unsigned int deref_level = 0;
-
-        // Determine the base identifier and dereference level
-        if (lhs_node->type == AST_NODE_IDENTIFIER)
-        {
-            target_name = lhs_node->text;
-            deref_level = 0;
-        }
-        else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
-        {
-            // Pointer dereference: *ptr = value
-            // Check if this is a dereference operation
-            c_grammar_node_t const * op_node = lhs_node->unary_expression_prefix.op;
-            if (op_node != NULL && op_node->op.unary.op == UNARY_OP_DEREF)
-            {
-                c_grammar_node_t const * operand = lhs_node->unary_expression_prefix.operand;
-                if (operand != NULL && operand->type == AST_NODE_IDENTIFIER)
-                {
-                    target_name = operand->text;
-                    deref_level = 1;
-                }
-            }
-        }
-        else if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
-        {
-            // Array subscript or member access - need to traverse back to find base identifier
-            // For now, check the base identifier at level 0
-            c_grammar_node_t const * base = lhs_node->postfix_expression.base_expression;
-            if (base != NULL && base->type == AST_NODE_IDENTIFIER)
-            {
-                target_name = base->text;
-                // Array subscript means we're accessing element (level 0 of the array)
-                // Member access means accessing member (level 0 of the struct)
-                deref_level = 0;
-            }
-        }
-
-        // Check if the target is const at the appropriate level
-        if (target_name != NULL)
-        {
-            symbol_t const * sym = find_symbol_entry(ctx, target_name);
-            if (sym != NULL)
-            {
-                bool is_target_const = false;
-                if (deref_level == 0)
-                {
-                    // Direct assignment to variable
-                    // For pointer types:
-                    // - Check is_const[level-1]: const on the pointer itself (e.g., char * const p)
-                    // - is_const_on_pointee means const on data pointed to (e.g., char const * p) - can reassign
-                    // For non-pointer types: check is_const
-                    if (sym->data.pointer_qualifiers.level > 0)
-                    {
-                        unsigned int outermost_level = sym->data.pointer_qualifiers.level - 1;
-                        is_target_const = sym->data.pointer_qualifiers.is_const[outermost_level];
-                    }
-                    else
-                    {
-                        is_target_const = sym->data.is_const;
-                    }
-                }
-                else if (deref_level > 0 && deref_level <= sym->data.pointer_qualifiers.level)
-                {
-                    // Assignment through pointer: check qualifier at that level
-                    // Level 0 = *ptr, level 1 = **ptr, etc.
-                    // Also check if pointee is const (is_const_on_pointee for deref_level == 1)
-                    if (deref_level == 1 && sym->data.pointer_qualifiers.is_const_on_pointee)
-                    {
-                        is_target_const = true;
-                    }
-                    else
-                    {
-                        is_target_const = sym->data.pointer_qualifiers.is_const[deref_level - 1];
-                    }
-                }
-
-                if (is_target_const)
-                {
-                    if (deref_level == 0)
-                    {
-                        ir_gen_error(&ctx->errors, "cannot assign to const variable '%s'", target_name);
-                    }
-                    else
-                    {
-                        ir_gen_error(
-                            &ctx->errors,
-                            "cannot assign to const memory through '%s' at dereference level %u",
-                            target_name,
-                            deref_level
-                        );
-                    }
-                    return NullTypedValue;
-                }
-            }
-        }
-    }
+    // TODO: perform const checking once type descriptor conversion is complete.
+    /* if (lhs_res.type_info->qualifiers.is_const) {ERROR} */
 
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
     c_grammar_node_t const * op_node = node->binary_expression.op;
