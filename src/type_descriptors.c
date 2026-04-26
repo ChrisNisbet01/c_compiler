@@ -97,7 +97,30 @@ specifiers_match(TypeSpecifier const * a, TypeSpecifier const * b)
     return memcmp(a, b, sizeof(*a)) == 0;
 }
 
-// 1. Get or Create a Pointer Type
+TypeDescriptor const *
+get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const *element_type, size_t size)
+{
+    TypeDescriptor_private *curr = registry->head;
+    while (curr)
+    {
+        if (curr->public.kind == NCC_TYPE_KIND_ARRAY &&
+            curr->public.pointee == element_type &&
+            curr->public.array_size == size)
+        {
+            return &curr->public;
+        }
+        curr = curr->next;
+    }
+
+    TypeDescriptor template = {
+        .kind = NCC_TYPE_KIND_ARRAY,
+        .llvm_type = LLVMArrayType(element_type->llvm_type, (unsigned)size),
+        .pointee = element_type,
+        .array_size = size
+    };
+    return register_descriptor(registry, &template);
+}
+
 TypeDescriptor const *
 get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * pointee, TypeQualifier qualifiers)
 {

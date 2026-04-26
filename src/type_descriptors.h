@@ -40,6 +40,7 @@ typedef struct TypeDescriptor
 
     // Relationships
     TypeDescriptor const * pointee; // For pointers/arrays
+    size_t array_size;              // 0 for unsized (int[]), >0 for sized (int[10])
 
     /* Function-specific */
     FunctionMetadata function_metadata;
@@ -48,6 +49,9 @@ typedef struct TypeDescriptor
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
 
 void type_descriptors_destroy_registry(TypeDescriptors * registry);
+
+TypeDescriptor const *
+get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * element_type, size_t size);
 
 TypeDescriptor const *
 get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * pointee, TypeQualifier qualifiers);
