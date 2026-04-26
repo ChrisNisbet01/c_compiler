@@ -331,19 +331,15 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
 {
     while (scope != NULL && type != NULL)
     {
-        debug_info("scope_find_type_by_llvm_type: Searching for LLVMTypeRef %p", (void *)type);
+        debug_info("%s: Searching for LLVMTypeRef %p", __func__, (void *)type);
 
         for (size_t i = 0; i < scope->tagged_types.count; ++i)
         {
             type_info_t * entry = &scope->tagged_types.entries[i];
-            debug_info(
-                "scope_find_type_by_llvm_type: Checking tagged_type[%zu].type = %p",
-                i,
-                (void *)entry->type_desc->llvm_type
-            );
+            debug_info("%s: Checking tagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
             if (entry->type_desc->llvm_type == type)
             {
-                debug_info("scope_find_type_by_llvm_type: Found match in tagged_types.");
+                debug_info("%s: Found match in tagged_types.", __func__);
                 return entry;
             }
         }
@@ -351,23 +347,64 @@ scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
         for (size_t i = 0; i < scope->untagged_types.count; ++i)
         {
             type_info_t * entry = &scope->untagged_types.entries[i];
-            debug_info(
-                "scope_find_type_by_llvm_type: Checking untagged_type[%zu].type = %p",
-                i,
-                (void *)entry->type_desc->llvm_type
-            );
+            debug_info("%s: Checking untagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
             if (entry->type_desc->llvm_type == type)
             {
-                debug_info("scope_find_type_by_llvm_type: Found match in untagged_types.");
+                debug_info("%s: Found match in untagged_types.", __func__);
                 return entry;
             }
         }
 
-        debug_info("scope_find_type_by_llvm_type: Searching in parent scope.");
+        debug_info("%s: Searching in parent scope.", __func__);
         scope = scope->parent;
     }
 
-    debug_info("scope_find_type_by_llvm_type: Type %p not found in any scope.", (void *)type);
+    debug_info("%s: Type %p not found in any scope.", __func__, (void *)type);
+    return NULL;
+}
+
+type_info_t *
+scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc)
+{
+    if (type_desc == NULL)
+    {
+        return NULL;
+    }
+    while (scope != NULL)
+    {
+        debug_info(
+            "%s: Searching for LLVMTypeRef %d",
+            __func__,
+            (type_desc != NULL && type_desc->llvm_type != NULL) ? (int)LLVMGetTypeKind(type_desc->llvm_type) : -1
+        );
+
+        for (size_t i = 0; i < scope->tagged_types.count; ++i)
+        {
+            type_info_t * entry = &scope->tagged_types.entries[i];
+            debug_info("%s: Checking tagged_type[%zu]", __func__, i);
+            if (entry->type_desc == type_desc)
+            {
+                debug_info("%s: Found match in tagged_types.", __func__);
+                return entry;
+            }
+        }
+
+        for (size_t i = 0; i < scope->untagged_types.count; ++i)
+        {
+            type_info_t * entry = &scope->untagged_types.entries[i];
+            debug_info("%s: Checking untagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
+            if (entry->type_desc == type_desc)
+            {
+                debug_info("%s: Found match in untagged_types.", __func__);
+                return entry;
+            }
+        }
+
+        debug_info("%s: Searching in parent scope.", __func__);
+        scope = scope->parent;
+    }
+
+    debug_info("%s: Type %d not found in any scope.", __func__, LLVMGetTypeKind(type_desc->llvm_type));
     return NULL;
 }
 
@@ -425,8 +462,8 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
     return NULL;
 }
 
-LLVMTypeRef
-scope_find_typedef(scope_t const * scope, char const * name)
+TypeDescriptor const *
+scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 {
     debug_info("Finding typedef by name: '%s'", name);
     scope_typedef_entry_t const * entry = scope_lookup_typedef_entry_by_name(scope, name);
@@ -450,7 +487,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t * info = scope_find_tagged_struct(scope, entry->tag);
         if (info != NULL)
         {
-            return info->type_desc->llvm_type;
+            return info->type_desc;
         }
         return NULL;
     }
@@ -460,7 +497,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         /* Look up by untagged index */
         if (info != NULL)
         {
-            return info->type_desc->llvm_type;
+            return info->type_desc;
         }
         return NULL;
     }
@@ -470,7 +507,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t * info = scope_find_tagged_union(scope, entry->tag);
         if (info != NULL)
         {
-            return info->type_desc->llvm_type;
+            return info->type_desc;
         }
         return NULL;
     }
@@ -480,7 +517,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         /* Look up by untagged index */
         if (info != NULL)
         {
-            return info->type_desc->llvm_type;
+            return info->type_desc;
         }
         return NULL;
     }
@@ -490,7 +527,7 @@ scope_find_typedef(scope_t const * scope, char const * name)
         type_info_t * info = scope_find_tagged_enum(scope, entry->tag);
         if (info != NULL)
         {
-            return info->type_desc->llvm_type;
+            return info->type_desc;
         }
         return NULL;
     }
@@ -499,13 +536,13 @@ scope_find_typedef(scope_t const * scope, char const * name)
         /* For untagged enums, return the type directly if set on entry */
         if (entry->type_desc != NULL)
         {
-            return entry->type_desc->llvm_type;
+            return entry->type_desc;
         }
         /* Otherwise, look up the untagged type by index */
         type_info_t const * info = scope_find_untagged_enum(scope, entry->untagged_index);
         if (info != NULL)
         {
-            return info->type_desc->llvm_type;
+            return info->type_desc;
         }
         return NULL;
     }
@@ -514,11 +551,11 @@ scope_find_typedef(scope_t const * scope, char const * name)
         /* For other kinds, return the type directly */
         if (entry->type_desc != NULL)
         {
-            return entry->type_desc->llvm_type;
+            return entry->type_desc;
         }
     }
 
-    return NULL; /* Unreachable. */
+    return NULL;
 }
 
 // --- Symbol management ---

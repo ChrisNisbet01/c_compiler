@@ -399,7 +399,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
                 // Try the opposite: look up struct types and check their pointer fields
                 // For now, scan the current scope's untagged_types for struct with pointer field matching our type
                 scope_t const * scope = ctx->current_scope;
-                for (size_t i = 0; i < scope->untagged_types.count; ++i)
+                for (size_t i = 0; i < scope->untagged_types.count; i++)
                 {
                     type_info_t const * ti = &scope->untagged_types.entries[i];
                     for (size_t j = 0; j < ti->field_count; ++j)
@@ -1529,17 +1529,29 @@ find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
     return info ? info->type_desc->llvm_type : NULL;
 }
 
-static LLVMTypeRef
-find_typedef_type(ir_generator_ctx_t * ctx, char const * name)
+static TypeDescriptor const *
+find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name)
 {
-    LLVMTypeRef result = scope_find_typedef(ctx->current_scope, name);
+    // Try to find as struct first, then union
+    type_info_t * info = scope_find_tagged_struct(ctx->current_scope, name);
+    if (info == NULL)
+    {
+        info = scope_find_tagged_union(ctx->current_scope, name);
+    }
+    return info ? info->type_desc : NULL;
+}
+
+static TypeDescriptor const *
+find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name)
+{
+    TypeDescriptor const * result = scope_find_typedef_type_descriptor(ctx->current_scope, name);
     return result;
 }
 
 static int
-find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name)
+find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * member_name)
 {
-    if (!struct_type || !field_name)
+    if (!struct_type || !member_name)
         return -1;
 
     type_info_t * info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
@@ -1549,7 +1561,7 @@ find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char 
 
     for (size_t i = 0; i < info->field_count; ++i)
     {
-        if (info->fields[i].name && strcmp(info->fields[i].name, field_name) == 0)
+        if (info->fields[i].name && strcmp(info->fields[i].name, member_name) == 0)
         {
             return (int)i;
         }
@@ -1997,10 +2009,10 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
             char const * typedef_name = extract_typedef_name(specifiers);
             if (typedef_name != NULL)
             {
-                LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                if (typedef_type != NULL)
+                TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                if (typedef_type_desc != NULL)
                 {
-                    base_type = typedef_type;
+                    base_type = typedef_type_desc->llvm_type;
                 }
             }
         }
@@ -2022,10 +2034,10 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                 char const * typedef_name = extract_typedef_name(typedef_name_node);
                 if (typedef_name != NULL)
                 {
-                    LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                    if (typedef_type != NULL)
+                    TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                    if (typedef_type_desc != NULL)
                     {
-                        base_type = typedef_type;
+                        base_type = typedef_type_desc->llvm_type;
                     }
                 }
             }
@@ -2060,10 +2072,10 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                         char const * type_name = type_spec_node->text;
 
                         // First check for typedef
-                        LLVMTypeRef typedef_type = find_typedef_type(ctx, type_name);
-                        if (typedef_type != NULL)
+                        TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, type_name);
+                        if (typedef_type_desc != NULL)
                         {
-                            base_type = typedef_type;
+                            base_type = typedef_type_desc->llvm_type;
                         }
                         else
                         {
@@ -2081,10 +2093,11 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                             if (child->text != NULL)
                             {
                                 // Check for typedef first
-                                LLVMTypeRef typedef_type = find_typedef_type(ctx, child->text);
-                                if (typedef_type)
+                                TypeDescriptor const * typedef_type_desc
+                                    = find_typedef_type_descriptor(ctx, child->text);
+                                if (typedef_type_desc != NULL)
                                 {
-                                    base_type = typedef_type;
+                                    base_type = typedef_type_desc->llvm_type;
                                     break;
                                 }
                                 base_type = get_type_from_name(ctx, child->text);
@@ -2997,10 +3010,11 @@ process_declarator(
                     char const * typedef_name = extract_typedef_name(typedef_specifier);
                     if (typedef_name != NULL)
                     {
-                        LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                        if (typedef_type != NULL)
+                        TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                        if (typedef_type_desc != NULL)
                         {
-                            type_info_t * info = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
+                            type_info_t * info
+                                = scope_find_type_by_type_descriptor(ctx->current_scope, typedef_type_desc);
                             if (info != NULL)
                             {
                                 struct_name = info->tag;
@@ -3026,8 +3040,8 @@ process_declarator(
                         else
                         {
                             /* Try typedef - get underlying struct name */
-                            LLVMTypeRef typedef_type = find_typedef_type(ctx, child->text);
-                            if (typedef_type != NULL)
+                            TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, child->text);
+                            if (typedef_type_desc != NULL)
                             {
                                 /* Need to find the struct name from the typedef entry */
                                 /* For now, set struct_name to the typedef name itself - */
@@ -3036,7 +3050,7 @@ process_declarator(
                                  */
                                 /* Actually, let's look up the struct by the type */
                                 type_info_t const * info
-                                    = scope_find_type_by_llvm_type(ctx->current_scope, typedef_type);
+                                    = scope_find_type_by_type_descriptor(ctx->current_scope, typedef_type_desc);
                                 if (info != NULL)
                                 {
                                     struct_name = info->tag;
@@ -3484,12 +3498,13 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                 char const * typedef_name = extract_typedef_name(type_spec);
                 if (typedef_name != NULL)
                 {
-                    LLVMTypeRef base = find_typedef_type(ctx, typedef_name);
-                    if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind
+                    TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                    if (typedef_type_desc != NULL && typedef_type_desc->llvm_type != NULL
+                        && LLVMGetTypeKind(typedef_type_desc->llvm_type) == LLVMStructTypeKind
                         && LLVMGetTypeKind(params.types[i]) == LLVMPointerTypeKind)
                     {
                         /* Update the symbol's pointee_type */
-                        p.pointee_type = base;
+                        p.pointee_type = typedef_type_desc->llvm_type;
                     }
                 }
             }
@@ -6436,15 +6451,16 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
 
     /* Look up the type - struct list or typedef list */
-    LLVMTypeRef compound_type = is_typedef ? find_typedef_type(ctx, type_name) : find_type_by_tag(ctx, type_name);
-    if (compound_type == NULL)
+    TypeDescriptor const * compound_type_desc
+        = is_typedef ? find_typedef_type_descriptor(ctx, type_name) : find_type_descriptor_by_tag(ctx, type_name);
+    if (compound_type_desc == NULL || compound_type_desc->llvm_type == NULL)
     {
         debug_error("Unknown type '%s' in compound literal", type_name);
         return NullTypedValue;
     }
 
     // Create a temporary local variable (alloca) for the compound literal
-    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type, "compound_literal_tmp");
+    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type_desc->llvm_type, "compound_literal_tmp");
     if (alloca_inst == NULL)
     {
         debug_error("Failed to allocate compound literal");
@@ -6455,10 +6471,15 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
     {
         int current_index = 0;
-        process_initializer_list(ctx, alloca_inst, compound_type, init_list_node, &current_index);
+        process_initializer_list(ctx, alloca_inst, compound_type_desc->llvm_type, init_list_node, &current_index);
     }
 
-    return (TypedValue){.value = alloca_inst, .type = compound_type, .pointee_type = compound_type, .is_lvalue = true};
+    return (TypedValue){
+        .value = alloca_inst,
+        .type = compound_type_desc->llvm_type,
+        .pointee_type = compound_type_desc->llvm_type,
+        .is_lvalue = true
+    };
 }
 
 static TypedValue
@@ -6683,14 +6704,13 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
                 {
                     c_grammar_node_t const * specifier = child->typedef_specifier_qualifier.typedef_specifier;
-                    debug_info("XXXXXXXXXXXXXXXX");
                     char const * typedef_name = extract_typedef_name(specifier);
                     if (typedef_name != NULL)
                     {
-                        LLVMTypeRef typedef_type = find_typedef_type(ctx, typedef_name);
-                        if (typedef_type != NULL)
+                        TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                        if (typedef_type_desc != NULL && typedef_type_desc->llvm_type != NULL)
                         {
-                            target_type = typedef_type;
+                            target_type = typedef_type_desc->llvm_type;
                         }
                     }
                 }
@@ -6716,7 +6736,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
             if (type_name != NULL)
             {
-                target_type = find_typedef_type(ctx, type_name);
+                TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, type_name);
+                if (typedef_type_desc != NULL && typedef_type_desc->llvm_type != NULL)
+                {
+                    target_type = typedef_type_desc->llvm_type;
+                }
             }
         }
         else if (operand_node->type == AST_NODE_NAMED_DECL_SPECIFIERS)

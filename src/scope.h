@@ -264,6 +264,14 @@ type_info_t const * scope_find_untagged_enum(scope_t const * scope, int index);
  */
 type_info_t * scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type);
 
+/**
+ * @brief Finds a type by its LLVM type reference.
+ * @param scope The scope to search.
+ * @param type The LLVM type to search for.
+ * @return Pointer to the type info, or NULL if not found.
+ */
+type_info_t * scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc);
+
 // --- Typedef management ---
 
 /**
@@ -288,7 +296,7 @@ void scope_add_typedef_forward_decl(scope_t * scope, char const * typedef_name, 
  * @param name The typedef name to search for.
  * @return The LLVM type of the typedef, or NULL if not found.
  */
-LLVMTypeRef scope_find_typedef(scope_t const * scope, char const * name);
+TypeDescriptor const * scope_find_typedef_type_descriptor(scope_t const * scope, char const * name);
 
 // --- Symbol management ---
 
