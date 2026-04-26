@@ -2428,11 +2428,11 @@ create_global_variable(
         symbol_data_t data = {
             .function_signature = function_signature,
         };
-        TypedValue val = (TypedValue){
-            .value = global_var,
-            .type = var_type,
-            .is_lvalue = true,
-        };
+        TypeSpecifier char_spec = {0};
+        char_spec.is_char = true;
+        TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+        TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, str_len + 1);
+        TypedValue val = create_typed_value(global_var, arr_desc, true);
         add_symbol(ctx, var_name, val, &data);
 
         free((char *)decoded);
@@ -2837,6 +2837,8 @@ process_declarator(
                 .pointee_type = pointee_type,
                 .is_lvalue = true,
             };
+            // Also store type_info if we have it - using helper for backward compat
+            sym_val.type_info = NULL;  // TODO: create TypeDescriptor from var_type
             debug_info(
                 "node decl adding symbol %s type %p (%d), pointee_type %p (%d)",
                 var_name,
