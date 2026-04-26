@@ -653,13 +653,7 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
             symbol_t * symbol = &scope->symbols[i - 1];
             if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
             {
-                debug_info(
-                    "Found symbol entry in current scope:\n\tname='%s'\n\tptr=%p\n\ttype=%p\n\tpointee: %p",
-                    name,
-                    (void *)symbol->value.value,
-                    (void *)symbol->value.type,
-                    (void *)symbol->value.pointee_type
-                );
+                dump_typed_value("Found symbol entry value", symbol->value);
                 return symbol;
             }
         }
