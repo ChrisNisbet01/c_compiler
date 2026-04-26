@@ -3586,8 +3586,8 @@ process_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     c_grammar_node_t const * specifiers_list = decl_specifiers->decl_specifiers.type_specifiers;
     debug_info("list: %s count %u", get_node_type_name_from_node(specifiers_list), specifiers_list->list.count);
 
-    TypeDescriptor const * resolved_type = resolve_type_from_ast(ctx, node);
-    debug_info("resolved type: %p", (void *)resolved_type);
+    // TypeDescriptor const * resolved_type = resolve_type_from_ast(ctx, node);
+    // debug_info("resolved type: %p", (void *)resolved_type);
 
     c_grammar_node_t const * type_spec_node = NULL;
 
