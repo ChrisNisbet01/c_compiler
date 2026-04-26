@@ -2429,8 +2429,7 @@ create_global_variable(
         symbol_data_t data = {
             .function_signature = function_signature,
         };
-        TypeSpecifier char_spec = {0};
-        char_spec.is_char = true;
+        TypeSpecifier char_spec = {.is_char = true};
         TypeDescriptor const * char_desc
             = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, str_len + 1);

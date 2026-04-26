@@ -8,8 +8,9 @@
 #include <stdio.h>
 #include <string.h>
 
-static TypeDescriptor const *
-resolve_function_pointer_type(ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * suffix);
+static TypeDescriptor const * resolve_function_pointer_type(
+    ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * suffix
+);
 
 static TypeDescriptor const *
 resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_type, c_grammar_node_t const * suffix);
@@ -135,7 +136,9 @@ resolve_type_descriptor(ir_generator_ctx_t * ctx, c_grammar_node_t const * speci
 }
 
 static TypeDescriptor const *
-resolve_function_pointer_type(ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * suffix)
+resolve_function_pointer_type(
+    ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * suffix
+)
 {
     c_grammar_node_t const * param_list = extract_parameter_list(suffix);
     if (param_list == NULL)
@@ -184,33 +187,8 @@ resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     c_grammar_node_t const * type_specifiers = decl_specs->decl_specifiers.type_specifiers;
     c_grammar_node_t const * type_qualifiers = decl_specs->decl_specifiers.type_qualifiers;
     TypeQualifier quals = build_type_qualifiers(type_qualifiers);
-
-    bool is_struct_or_union_or_enum_or_typedef = false;
-    bool is_native_type = true;
-    if (type_specifiers->list.count == 1)
-    {
-        c_grammar_node_t const * specifier = type_specifiers->list.children[0];
-        if (specifier->list.count == 1)
-        {
-            c_grammar_node_t const * child = specifier->list.children[0];
-            if (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
-                || child->type == AST_NODE_ENUM_DEFINITION || child->type == AST_NODE_STRUCT_TYPE_REF
-                || child->type == AST_NODE_UNION_TYPE_REF || child->type == AST_NODE_ENUM_TYPE_REF)
-            {
-                is_struct_or_union_or_enum_or_typedef = true;
-            }
-        }
-    }
-    for (size_t i = 0; i < type_specifiers->list.count; ++i)
-    {
-        c_grammar_node_t const * specifier = type_specifiers->list.children[i];
-        if (specifier->text == NULL)
-        {
-            is_native_type = false;
-            break;
-        }
-    }
-    if (!is_struct_or_union_or_enum_or_typedef && !is_native_type)
+    TypeSpecifierValidationResult validation_result = validate_type_specifiers(type_specifiers);
+    if (!validation_result.is_valid)
     {
         ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
         return NULL;
@@ -222,7 +200,7 @@ resolve_type_from_ast(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     TypeSpecifier specs = {0};
 
-    if (is_native_type)
+    if (validation_result.is_native_type)
     {
         debug_info("Processing native type specifiers");
 

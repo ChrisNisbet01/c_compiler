@@ -80,6 +80,46 @@ type_specifier_is_valid(TypeSpecifier const spec)
     return true;
 }
 
+TypeSpecifierValidationResult
+validate_type_specifiers(c_grammar_node_t const * type_specifiers)
+{
+    TypeSpecifierValidationResult result = {0};
+    if (type_specifiers == NULL || type_specifiers->type != AST_NODE_TYPE_SPECIFIERS)
+    {
+        return result;
+    }
+
+    if (type_specifiers->list.count == 1)
+    {
+        c_grammar_node_t const * specifier = type_specifiers->list.children[0];
+        if (specifier->list.count == 1)
+        {
+            c_grammar_node_t const * child = specifier->list.children[0];
+            if (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
+                || child->type == AST_NODE_ENUM_DEFINITION || child->type == AST_NODE_STRUCT_TYPE_REF
+                || child->type == AST_NODE_UNION_TYPE_REF || child->type == AST_NODE_ENUM_TYPE_REF)
+            {
+                result.is_struct_or_union_or_enum = true;
+            }
+        }
+    }
+
+    result.is_native_type = true;
+    for (size_t i = 0; i < type_specifiers->list.count; ++i)
+    {
+        c_grammar_node_t const * specifier = type_specifiers->list.children[i];
+        if (specifier->text == NULL)
+        {
+            result.is_native_type = false;
+            break;
+        }
+    }
+    // Valid if exactly one of these is true
+    result.is_valid = result.is_native_type != result.is_struct_or_union_or_enum;
+
+    return result;
+}
+
 static void
 type_specifier_process_specifier(TypeSpecifier * spec, char const * specifier)
 {
@@ -131,6 +171,22 @@ TypeSpecifier
 build_type_specifiers(c_grammar_node_t const * spec_list)
 {
     TypeSpecifier spec = {0};
+    if (spec_list == NULL || spec_list->type != AST_NODE_TYPE_SPECIFIERS)
+    {
+        return spec;
+    }
+    TypeSpecifierValidationResult validation_result = validate_type_specifiers(spec_list);
+
+    if (!validation_result.is_valid)
+    {
+        debug_info("Invalid type specifiers in declaration");
+        return (TypeSpecifier){0};
+    }
+    if (!validation_result.is_native_type)
+    {
+        debug_info("Not a native type, cannot build TypeSpecifier");
+        return (TypeSpecifier){0};
+    }
 
     debug_info("%s count %u", __func__, spec_list->list.count);
     for (size_t i = 0; i < spec_list->list.count; ++i)
@@ -144,4 +200,16 @@ build_type_specifiers(c_grammar_node_t const * spec_list)
     type_specifier_dump(spec, DEBUG_LEVEL_INFO);
 
     return spec;
+}
+
+TypeSpecifier
+build_type_specifiers_from_declaration_specifiers(c_grammar_node_t const * declaration_specs)
+{
+    if (declaration_specs == NULL || declaration_specs->type != AST_NODE_NAMED_DECL_SPECIFIERS)
+    {
+        return (TypeSpecifier){0};
+    }
+    c_grammar_node_t const * type_spec_list = declaration_specs->decl_specifiers.type_specifiers;
+
+    return build_type_specifiers(type_spec_list);
 }
