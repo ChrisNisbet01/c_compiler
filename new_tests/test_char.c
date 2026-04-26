@@ -1,5 +1,6 @@
 void
-main(int i, ...)
+main()
 {
+    char * p;
     return;
 }

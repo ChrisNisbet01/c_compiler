@@ -1,16 +1,11 @@
 #pragma once
 
+#include "type_qualifiers.h"
 #include "type_specifier.h"
 
 #include <llvm-c/Core.h>
 #include <stdbool.h>
 #include <stddef.h>
-
-typedef struct
-{
-    bool is_const;
-    bool is_volatile;
-} TypeQualifier;
 
 typedef enum
 {

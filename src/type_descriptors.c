@@ -334,6 +334,7 @@ get_or_create_function_type(
     // Not found: Create a new function descriptor
     TypeDescriptor template
         = {.kind = NCC_TYPE_KIND_FUNCTION,
+           .llvm_type = registry->builtins.ptr_type,
            .pointee = ret_type,
            .function_metadata.return_type = ret_type,
            .function_metadata.param_count = param_count,

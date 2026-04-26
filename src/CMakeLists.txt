@@ -23,6 +23,7 @@ add_executable(${app}
   scope.c
   symbol_table.c
   type_descriptors.c
+  type_qualifiers.c
   type_specifier.c
 )
 
