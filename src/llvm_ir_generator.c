@@ -1493,6 +1493,17 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
 }
 
 static type_info_t const *
+register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
+{
+    char const * tag = search_ast_for_type_tag(enum_node);
+    if (tag != NULL)
+    {
+        return register_tagged_enum_definition(ctx, enum_node, tag);
+    }
+    return register_untagged_enum_definition(ctx, enum_node, NULL);
+}
+
+static type_info_t const *
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
     if (type_child == NULL
@@ -1509,7 +1520,10 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     }
     if (struct_tag == NULL)
     {
-        return NULL;
+        type_kind_t kind
+            = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_UNTAGGED_STRUCT : TYPE_KIND_UNTAGGED_UNION;
+
+        return register_untagged_struct_or_union_definition(ctx, type_child, kind, NULL);
     }
 
     type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
@@ -1908,7 +1922,7 @@ dump_llvm_type(char const * label, LLVMTypeRef type)
 static LLVMTypeRef
 map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
 {
-    debug_info("%s: specifier_type: %s, line %u", __func__, get_node_type_name_from_node(specifiers));
+    debug_info("%s: specifier_type: %s", __func__, get_node_type_name_from_node(specifiers));
     static int map_type_depth = 0;
     if (map_type_depth > 64)
     {
@@ -2044,13 +2058,17 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
             // Check type specifier
             else if (specifier_list->list.count > 0)
             {
+                bool is_struct_or_union_or_enum = false;
                 c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
-                bool is_struct_or_union_or_enum = type_spec_node->type == AST_NODE_STRUCT_DEFINITION
-                                                  || type_spec_node->type == AST_NODE_UNION_DEFINITION
-                                                  || type_spec_node->type == AST_NODE_ENUM_DEFINITION
-                                                  || type_spec_node->type == AST_NODE_STRUCT_TYPE_REF
-                                                  || type_spec_node->type == AST_NODE_UNION_TYPE_REF
-                                                  || type_spec_node->type == AST_NODE_ENUM_TYPE_REF;
+                c_grammar_node_t const * child
+                    = type_spec_node->list.count > 0 ? type_spec_node->list.children[0] : NULL;
+                if (child != NULL)
+                {
+                    is_struct_or_union_or_enum
+                        = child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
+                          || child->type == AST_NODE_ENUM_DEFINITION || child->type == AST_NODE_STRUCT_TYPE_REF
+                          || child->type == AST_NODE_UNION_TYPE_REF || child->type == AST_NODE_ENUM_TYPE_REF;
+                }
                 if (!is_struct_or_union_or_enum)
                 {
                     TypeSpecifier type_spec = build_type_specifiers(specifier_list);
@@ -2884,8 +2902,7 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
     }
 
     size_t params_list_count = params_list_node->list.count;
-    if (params_list_count > 1
-        && params_list_node->list.children[params_list_count - 1]->type == AST_NODE_ELLIPSIS)
+    if (params_list_count > 1 && params_list_node->list.children[params_list_count - 1]->type == AST_NODE_ELLIPSIS)
     {
         params_list_count--; /* Exclude ellipsis from count */
     }
@@ -3592,12 +3609,7 @@ process_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 }
                 else if (type_child->type == AST_NODE_ENUM_DEFINITION)
                 {
-                    char const * enum_tag = search_ast_for_type_tag(type_child);
-
-                    if (enum_tag != NULL)
-                    {
-                        register_tagged_enum_definition(ctx, type_child, enum_tag);
-                    }
+                    register_enum_definition(ctx, type_child);
                 }
             }
         }

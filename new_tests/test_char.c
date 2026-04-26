@@ -1,5 +1,9 @@
-void
-main(int i, ...)
+int
+main()
 {
-    return;
+    enum {
+        A = 1,
+    } a = A;
+
+    return a - 1;
 }
