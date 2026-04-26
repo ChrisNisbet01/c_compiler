@@ -5,6 +5,7 @@
 #include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
 #include "debug.h"
 #include "declaration_handler.h"
+#include "type_utils.h"
 
 // Helper function to get natural alignment for a type
 #include <llvm-c/Target.h>
@@ -35,14 +36,39 @@ static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * 
 static TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
 #define process_expression(c, n) _process_expression_impl((c), (n), __LINE__);
 
-static LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
-static type_info_t const * register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
-);
-static type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+extern char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
+extern char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
+extern TypeDescriptor const * find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
+extern LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
+extern TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
+extern char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
+extern type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+extern bool is_function_suffix(c_grammar_node_t const * suffix);
+extern c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
+extern c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
+extern int evaluate_enum_value_assignment_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value);
+extern bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static TypedValue
 cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool zero_extend);
+
+static type_info_t const *
+register_tagged_struct_or_union_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind);
+
+static type_info_t const *
+register_untagged_struct_or_union_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id);
+
+static char const * search_ast_for_type_tag(c_grammar_node_t const * definition_node);
+
+static type_info_t const *
+register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, char const * tag);
+
+static type_info_t const *
+register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id);
+
+static type_info_t const *
+register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
@@ -73,69 +99,7 @@ search_for_identifier(c_grammar_node_t const * node)
 // Helper function to extract struct/union tag from a TypeSpecifier node
 // Returns the tag if found (struct or union definition with identifier child), or NULL
 // Only returns non-NULL when struct/union definition node is present and it contains an Identifier.
-static char const *
-extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
-{
-    if (type_spec_node == NULL)
-    {
-        return NULL;
-    }
 
-    if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF || type_spec_node->type == AST_NODE_UNION_TYPE_REF
-        || type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
-    {
-        c_grammar_node_t const * ident = type_spec_node->type_ref.identifier;
-        return ident ? ident->text : NULL;
-    }
-
-    if (type_spec_node->type != AST_NODE_TYPE_SPECIFIER || type_spec_node->list.count == 0)
-    {
-        return NULL;
-    }
-
-    c_grammar_node_t const * spec_child = type_spec_node->list.children[0];
-    c_grammar_node_t const * id_node = NULL;
-
-    if (spec_child->type == AST_NODE_ENUM_DEFINITION)
-    {
-        id_node = spec_child->enum_definition.identifier;
-    }
-    else if (spec_child->type == AST_NODE_STRUCT_DEFINITION || spec_child->type == AST_NODE_UNION_DEFINITION)
-    {
-        id_node = spec_child->struct_definition.identifier;
-    }
-    else if (
-        spec_child->type == AST_NODE_ENUM_TYPE_REF || spec_child->type == AST_NODE_STRUCT_TYPE_REF
-        || spec_child->type == AST_NODE_UNION_TYPE_REF
-    )
-    {
-        id_node = spec_child->type_ref.identifier;
-    }
-
-    if (id_node == NULL)
-    {
-        return NULL;
-    }
-
-    return id_node->text;
-}
-
-// Returns the name if found (plain identifier, i.e., typedef name), or NULL
-// Only returns non-NULL when there is NO struct/union keyword
-static char const *
-extract_typedef_name(c_grammar_node_t const * type_spec_node)
-{
-    if (type_spec_node == NULL || type_spec_node->type != AST_NODE_TYPEDEF_SPECIFIER
-        || type_spec_node->identifier.identifier == NULL)
-    {
-        debug_info("%s: no name", __func__);
-        return NULL;
-    }
-    debug_info("%s got name: %s", __func__, type_spec_node->identifier.identifier->text);
-    return type_spec_node->identifier.identifier->text;
-}
-
-// Helper function to extract pointer qualifiers from a pointer_list AST node and type specifiers
 // Parses const/volatile qualifiers at each level of indirection
 // For 'int const * p': level 0 const comes from type specifiers
 // For 'int * const p': level 0 const comes from pointer_list[0]
@@ -815,751 +779,6 @@ process_initializer_list(
             }
         }
     }
-}
-
-static int
-evaluate_enum_value_assignment_expression(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
-)
-{
-    if (value_node == NULL)
-    {
-        return current_value;
-    }
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wswitch-enum"
-
-    switch (value_node->type)
-    {
-    case AST_NODE_INTEGER_LITERAL:
-        current_value = (int)value_node->integer_lit.integer_literal.value;
-        break;
-
-    case AST_NODE_IDENTIFIER:
-        if (value_node->text != NULL)
-        {
-            TypedValue symbol = NullTypedValue;
-            if (find_symbol(ctx, value_node->text, &symbol))
-            {
-                LLVMValueRef initializer = LLVMGetInitializer(symbol.value);
-                if (initializer != NULL && LLVMIsAConstantInt(initializer))
-                {
-                    debug_info("%s initializing value", __func__);
-                    current_value = (int)LLVMConstIntGetZExtValue(initializer);
-                }
-            }
-        }
-        break;
-
-    case AST_NODE_ARITHMETIC_EXPRESSION:
-    {
-        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
-        c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        arithmetic_operator_type_t op = op_node->op.arith.op;
-
-        if (op == ARITH_OP_ADD)
-        {
-            current_value = lhs_value + rhs_value;
-        }
-        else if (op == ARITH_OP_SUB)
-        {
-            current_value = lhs_value - rhs_value;
-        }
-        else if (op == ARITH_OP_MUL)
-        {
-            current_value = lhs_value * rhs_value;
-        }
-        else if (op == ARITH_OP_DIV && rhs_value != 0)
-        {
-            current_value = lhs_value / rhs_value;
-        }
-        else if (op == ARITH_OP_MOD && rhs_value != 0)
-        {
-            current_value = lhs_value % rhs_value;
-        }
-    }
-    break;
-
-    case AST_NODE_BITWISE_EXPRESSION:
-    {
-        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
-        c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        bitwise_operator_type_t op = op_node->op.bitwise.op;
-
-        switch (op)
-        {
-        case BITWISE_OP_AND:
-            current_value = lhs_value & rhs_value;
-            break;
-        case BITWISE_OP_XOR:
-            current_value = lhs_value ^ rhs_value;
-            break;
-        case BITWISE_OP_OR:
-            current_value = lhs_value | rhs_value;
-            break;
-        default:
-            break;
-        }
-    }
-    break;
-
-    case AST_NODE_SHIFT_EXPRESSION:
-    {
-        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
-        c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        shift_operator_type_t op = op_node->op.shift.op;
-
-        if (op == SHIFT_OP_LL)
-        {
-            current_value = lhs_value << rhs_value;
-        }
-        else if (op == SHIFT_OP_AR)
-        {
-            current_value = lhs_value >> rhs_value;
-        }
-    }
-    break;
-
-    case AST_NODE_EQUALITY_EXPRESSION:
-    {
-        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
-        c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        equality_operator_type_t op = op_node->op.eq.op;
-
-        if (op == EQ_OP_EQ)
-        {
-            current_value = (lhs_value == rhs_value) ? 1 : 0;
-        }
-        else if (op == EQ_OP_NE)
-        {
-            current_value = (lhs_value != rhs_value) ? 1 : 0;
-        }
-    }
-    break;
-
-    case AST_NODE_RELATIONAL_EXPRESSION:
-    {
-        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
-        c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        relational_operator_type_t op = op_node->op.rel.op;
-
-        if (op == REL_OP_LT)
-        {
-            current_value = (lhs_value < rhs_value) ? 1 : 0;
-        }
-        else if (op == REL_OP_GT)
-        {
-            current_value = (lhs_value > rhs_value) ? 1 : 0;
-        }
-        else if (op == REL_OP_LE)
-        {
-            current_value = (lhs_value <= rhs_value) ? 1 : 0;
-        }
-        else if (op == REL_OP_GE)
-        {
-            current_value = (lhs_value >= rhs_value) ? 1 : 0;
-        }
-    }
-    break;
-
-    case AST_NODE_LOGICAL_EXPRESSION:
-    {
-        int lhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.left, 0);
-        int rhs_value = evaluate_enum_value_assignment_expression(ctx, value_node->binary_expression.right, 0);
-        c_grammar_node_t const * op_node = value_node->binary_expression.op;
-        logical_operator_type_t op = op_node->op.logical.op;
-
-        if (op == LOGICAL_OP_AND)
-        {
-            current_value = (lhs_value && rhs_value) ? 1 : 0;
-        }
-        else if (op == LOGICAL_OP_OR)
-        {
-            current_value = (lhs_value || rhs_value) ? 1 : 0;
-        }
-    }
-    break;
-
-    default:
-        break;
-    }
-
-#pragma GCC diagnostic pop
-
-    return current_value;
-}
-
-static bool
-register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
-{
-    if (ctx == NULL || enum_node == NULL || enum_node->type != AST_NODE_ENUM_DEFINITION)
-    {
-        return false;
-    }
-
-    // EnumDefinition structure: [AttributeList Identifier?, EnumeratorList, ...]
-    // The enumerators contain the enum constant names and values
-    c_grammar_node_t const * enumerator_list = enum_node->enum_definition.enumerator_list;
-
-    // Enumerate values and register them as global constants
-    int current_value = 0;
-
-    for (size_t i = 0; i < enumerator_list->list.count; ++i)
-    {
-        c_grammar_node_t * child = enumerator_list->list.children[i];
-
-        if (child->type == AST_NODE_ENUMERATOR)
-        {
-            // Enumerator = [Identifier] or [Identifier, Assign, IntegerLiteral]
-            c_grammar_node_t const * name_node = child->enumerator.identifier;
-            c_grammar_node_t const * value_node = child->enumerator.expression;
-            char const * enum_name = name_node->text;
-            // Check if there's an explicit value assignment
-            if (value_node != NULL)
-            {
-                // Walk down the expression tree to find the integer literal
-                current_value = evaluate_enum_value_assignment_expression(ctx, value_node, current_value);
-            }
-
-            // Create a global constant for this enum value
-            LLVMValueRef const_val = LLVMConstInt(ctx->ref_type.i32_type, current_value, true);
-
-            LLVMValueRef global = LLVMAddGlobal(ctx->module, ctx->ref_type.i32_type, enum_name);
-            LLVMSetInitializer(global, const_val);
-            LLVMSetGlobalConstant(global, true);
-            LLVMSetLinkage(global, LLVMInternalLinkage);
-
-            // Also add to symbol table for immediate lookup
-            TypedValue val = (TypedValue){.value = global, .type = ctx->ref_type.i32_type};
-            add_symbol(ctx, enum_name, val, NULL);
-
-            current_value++;
-        }
-    }
-
-    return true;
-}
-
-static type_info_t const *
-register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, char const * tag)
-{
-    if (ctx == NULL || tag == NULL)
-    {
-        return NULL;
-    }
-
-    if (!register_enum_constants(ctx, enum_node))
-    {
-        return NULL;
-    }
-
-    // Store the enum tag in tagged_types if present
-    type_info_t enum_info = {0};
-
-    enum_info.tag = strdup(tag);
-    enum_info.kind = TYPE_KIND_ENUM;
-    enum_info.type_desc
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
-    enum_info.fields = NULL;
-    enum_info.field_count = 0;
-
-    return scope_add_tagged_type(ctx->current_scope, enum_info);
-}
-
-typedef struct
-{
-    size_t num_members;
-    struct_field_t * members;
-} struct_or_union_members_st;
-
-static struct_or_union_members_st
-extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
-{
-    debug_info("%s:", __func__);
-    struct_or_union_members_st object_members = {0};
-
-    if (type_child == NULL
-        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
-    {
-        return object_members;
-    }
-
-    // StructDefinition has: [AttributeList Identifier?, StructDeclarationList AttributeList]
-    c_grammar_node_t const * members_node = type_child->struct_definition.declaration_list;
-
-    if (members_node == NULL || members_node->list.count == 0)
-    {
-        return object_members;
-    }
-
-    // StructDeclarationList contains StructDeclaration nodes
-    size_t max_num_members = members_node->list.count;
-    struct_field_t * members = calloc(max_num_members, sizeof(*members));
-    if (members == NULL)
-    {
-        return object_members;
-    }
-
-    unsigned num_members = 0;
-
-    for (size_t i = 0; i < members_node->list.count; i++)
-    {
-        c_grammar_node_t * struct_decl = members_node->list.children[i];
-        if (struct_decl == NULL || struct_decl->type != AST_NODE_STRUCT_DECLARATION)
-        {
-            continue;
-        }
-
-        c_grammar_node_t const * specifier_qualifier_list = struct_decl->struct_declaration.specifier_qualifier_list;
-        c_grammar_node_t const * declarator_list = struct_decl->struct_declaration.declarator_list;
-
-        if (specifier_qualifier_list == NULL || specifier_qualifier_list->list.count == 0)
-        {
-            continue;
-        }
-        debug_info("%s: spec_qual_list_type is %s", __func__, get_node_type_name_from_node(specifier_qualifier_list));
-
-        /* Search through specifier_qualifier_list children for the actual type specifier */
-        c_grammar_node_t const * type_spec = NULL;
-        if (specifier_qualifier_list->list.count == 1
-            && specifier_qualifier_list->list.children[0]->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
-        {
-            c_grammar_node_t const * child = specifier_qualifier_list->list.children[0];
-            type_spec = child->typedef_specifier_qualifier.typedef_specifier;
-            debug_info("ssql type spec is a %s node", get_node_type_name_from_node(type_spec));
-        }
-        else
-        {
-            for (size_t j = 0; j < specifier_qualifier_list->list.count; j++)
-            {
-                c_grammar_node_t const * child = specifier_qualifier_list->list.children[j];
-                if (child != NULL
-                    && (child->type == AST_NODE_TYPE_SPECIFIER || child->type == AST_NODE_TYPEDEF_SPECIFIER))
-                {
-                    type_spec = child;
-                    break;
-                }
-            }
-        }
-
-        if (type_spec == NULL)
-        {
-            continue;
-        }
-
-        /* Anonymous struct/union: no declarator list - skip for now */
-        if (declarator_list == NULL || declarator_list->list.count == 0)
-        {
-            continue;
-        }
-
-        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
-
-        struct_field_t new_member = {0};
-
-        if (struct_decl_node->type == AST_NODE_STRUCT_DECLARATOR && struct_decl_node->list.count > 0)
-        {
-            c_grammar_node_t * decl = struct_decl_node->list.children[0];
-            if (decl == NULL)
-            {
-                continue;
-            }
-
-            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
-            {
-                // Bitfield handling
-                if (decl->list.count < 1 || decl->list.count > 2)
-                {
-                    continue;
-                }
-                size_t width_idx;
-                if (decl->list.count == 1)
-                {
-                    width_idx = 0;
-                    new_member.name = strdup("");
-                }
-                else
-                {
-                    width_idx = 1;
-                    c_grammar_node_t const * bf_decl = decl->list.children[0];
-                    if (bf_decl->type == AST_NODE_DECLARATOR)
-                    {
-                        c_grammar_node_t const * direct_decl = bf_decl->declarator.direct_declarator;
-                        if (direct_decl && direct_decl->list.count > 0)
-                        {
-                            c_grammar_node_t * ident = direct_decl->list.children[0];
-                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
-                            {
-                                new_member.name = strdup(ident->text);
-                            }
-                        }
-                    }
-                }
-                c_grammar_node_t * width_node = decl->list.children[width_idx];
-                if (width_node->type == AST_NODE_INTEGER_LITERAL)
-                {
-                    new_member.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
-                }
-
-                new_member.type = map_type_to_llvm_t(ctx, type_spec, NULL);
-                if (new_member.type == NULL)
-                {
-                    free(new_member.name);
-                    continue;
-                }
-
-                unsigned type_bits;
-                struct_field_t * previous_member = NULL;
-                if (num_members > 0)
-                {
-                    previous_member = &members[num_members - 1];
-                    type_bits = LLVMGetIntTypeWidth(previous_member->type);
-                }
-                else
-                {
-                    type_bits = LLVMGetIntTypeWidth(new_member.type);
-                }
-                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
-                    || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
-                    || LLVMGetTypeKind(new_member.type) != LLVMGetTypeKind(previous_member->type)
-                    || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
-                {
-                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
-                }
-                else
-                {
-                    new_member.storage_index = previous_member->storage_index;
-                    new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
-                }
-                members[num_members] = new_member;
-                num_members++;
-            }
-            else if (decl->type == AST_NODE_DECLARATOR)
-            {
-                new_member.type = map_type_to_llvm_t(ctx, type_spec, decl);
-
-                c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
-                if (direct_decl->list.count > 0)
-                {
-                    c_grammar_node_t * ident = direct_decl->list.children[0];
-                    if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
-                    {
-                        new_member.name = strdup(ident->text);
-                    }
-                }
-                if (new_member.name == NULL)
-                {
-                    continue;
-                }
-                if (new_member.type == NULL)
-                {
-                    free(new_member.name);
-                    continue;
-                }
-
-                struct_field_t * previous_member = NULL;
-                if (num_members > 0)
-                {
-                    previous_member = &members[num_members - 1];
-                }
-                new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
-
-                /* If the field is a pointer, record what struct it points to for chained arrow access */
-                if (LLVMGetTypeKind(new_member.type) == LLVMPointerTypeKind)
-                {
-                    /* Look up the base type from the type specifier to find the pointee struct */
-                    LLVMTypeRef base = map_type_to_llvm_t(ctx, type_spec, NULL);
-                    if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind)
-                    {
-                        new_member.pointee_struct_type = base;
-                    }
-                }
-
-                members[num_members] = new_member;
-                num_members++;
-            }
-        }
-    }
-
-    object_members.members = members;
-    object_members.num_members = num_members;
-
-    return object_members;
-}
-
-static type_info_t const *
-register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
-)
-{
-    if (ctx == NULL || tag == NULL)
-    {
-        return NULL;
-    }
-
-    if (find_type_by_tag(ctx, tag) != NULL)
-    {
-        /* Already defined. */
-        return NULL;
-    }
-
-    /* Pre-register as an opaque struct to break recursive cycles (e.g. struct containing pointer to itself).
-     * Any recursive call to map_type for this tag will find this entry and return the opaque type. */
-    type_info_t opaque = {0};
-    opaque.tag = strdup(tag);
-    opaque.kind = kind;
-    opaque.type_desc = register_struct_type(
-        ctx->type_descriptors, LLVMStructCreateNamed(ctx->context, tag), (TypeQualifier){0}, kind == TYPE_KIND_UNION
-    );
-    type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
-    if (registered == NULL)
-    {
-        free(opaque.tag);
-        return NULL;
-    }
-
-    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
-
-    if (members.num_members == 0)
-    {
-        free(members.members);
-        return registered;
-    }
-
-    /* Fill in the body of the pre-registered opaque struct */
-    type_info_t * mutable_entry = (kind == TYPE_KIND_UNION) ? scope_find_tagged_union(ctx->current_scope, tag)
-                                                            : scope_find_tagged_struct(ctx->current_scope, tag);
-    if (mutable_entry == NULL)
-    {
-        free(members.members);
-        return registered;
-    }
-
-    mutable_entry->field_count = members.num_members;
-    mutable_entry->fields = members.members;
-
-    struct_field_t * last_field = &members.members[members.num_members - 1];
-    unsigned num_storage_units = last_field->storage_index + 1;
-    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-    if (field_types == NULL)
-    {
-        return registered;
-    }
-    int current_storage_unit = -1;
-    for (size_t i = 0; i < members.num_members; i++)
-    {
-        struct_field_t * field = &members.members[i];
-        if (field->storage_index != (unsigned)current_storage_unit)
-        {
-            current_storage_unit = (int)field->storage_index;
-            field_types[current_storage_unit] = field->type;
-        }
-    }
-    LLVMStructSetBody(mutable_entry->type_desc->llvm_type, field_types, num_storage_units, false);
-    free(field_types);
-
-    return mutable_entry;
-}
-
-char *
-generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix)
-{
-    char * name = malloc(64);
-    // Format: .anon.struct.0, .anon.struct.1, etc.
-    sprintf(name, ".anon.%s.%d", prefix, ctx->anon_counter++);
-    return name;
-}
-
-static type_info_t const *
-add_untagged_struct_or_union_type(
-    ir_generator_ctx_t * ctx, type_kind_t kind, struct_field_t * fields, size_t num_fields, int * new_type_id
-)
-{
-    if (ctx == NULL || fields == NULL || num_fields == 0)
-    {
-        return NULL;
-    }
-
-    type_info_t new_struct = {0};
-
-    new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
-    new_struct.kind = kind;
-    new_struct.field_count = num_fields;
-    new_struct.fields = fields;
-    new_struct.type_desc = register_struct_type(
-        ctx->type_descriptors,
-        LLVMStructCreateNamed(ctx->context, new_struct.tag),
-        (TypeQualifier){0},
-        kind == TYPE_KIND_UNTAGGED_UNION
-    );
-
-    struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
-    unsigned num_storage_units = last_field->storage_index + 1;
-    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-    int current_storage_unit = -1;
-    for (size_t i = 0; i < new_struct.field_count; i++)
-    {
-        struct_field_t * field = &fields[i];
-        if (field->storage_index != (unsigned)current_storage_unit)
-        {
-            current_storage_unit = field->storage_index;
-            field_types[current_storage_unit] = field->type;
-        }
-    }
-
-    LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
-    free(field_types);
-
-    return scope_add_untagged_type(ctx->current_scope, new_struct, new_type_id);
-}
-
-static type_info_t const *
-register_untagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
-)
-{
-    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
-    debug_info("%s: num_members: %zu", __func__, members.num_members);
-
-    if (members.num_members > 0)
-    {
-        return add_untagged_struct_or_union_type(ctx, kind, members.members, members.num_members, new_type_id);
-    }
-
-    free(members.members);
-
-    return NULL;
-}
-
-static type_info_t const *
-register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id)
-{
-    if (ctx == NULL)
-    {
-        return NULL;
-    }
-
-    if (!register_enum_constants(ctx, enum_node))
-    {
-        return NULL;
-    }
-
-    // Store the enum tag in tagged_types if present
-    type_info_t enum_info = {0};
-
-    enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
-    enum_info.type_desc
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
-    enum_info.fields = NULL;
-    enum_info.field_count = 0;
-
-    return scope_add_untagged_type(ctx->current_scope, enum_info, new_enum_id);
-}
-
-static char const *
-search_ast_for_type_tag(c_grammar_node_t const * definition_node)
-
-{
-    if (definition_node == NULL)
-    {
-        return NULL;
-    }
-
-    if (definition_node->type == AST_NODE_ENUM_DEFINITION)
-    {
-        if (definition_node->enum_definition.identifier == NULL)
-        {
-            return NULL;
-        }
-        return definition_node->enum_definition.identifier->text;
-    }
-
-    if (definition_node->type == AST_NODE_STRUCT_DEFINITION || definition_node->type == AST_NODE_UNION_DEFINITION)
-    {
-        if (definition_node->struct_definition.identifier == NULL)
-        {
-            return NULL;
-        }
-        return definition_node->struct_definition.identifier->text;
-    }
-
-    return NULL;
-}
-
-static type_info_t const *
-register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
-{
-    char const * tag = search_ast_for_type_tag(enum_node);
-    if (tag != NULL)
-    {
-        return register_tagged_enum_definition(ctx, enum_node, tag);
-    }
-    return register_untagged_enum_definition(ctx, enum_node, NULL);
-}
-
-static type_info_t const *
-register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
-{
-    if (type_child == NULL
-        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
-    {
-        return NULL;
-    }
-
-    char const * struct_tag = NULL;
-
-    if (type_child->struct_definition.identifier != NULL)
-    {
-        struct_tag = type_child->struct_definition.identifier->text;
-    }
-    if (struct_tag == NULL)
-    {
-        type_kind_t kind
-            = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_UNTAGGED_STRUCT : TYPE_KIND_UNTAGGED_UNION;
-
-        return register_untagged_struct_or_union_definition(ctx, type_child, kind, NULL);
-    }
-
-    type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-
-    return register_tagged_struct_or_union_definition(ctx, type_child, struct_tag, kind);
-}
-
-static LLVMTypeRef
-find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
-{
-    // Try to find as struct first, then union
-    type_info_t * info = scope_find_tagged_struct(ctx->current_scope, name);
-    if (info == NULL)
-    {
-        info = scope_find_tagged_union(ctx->current_scope, name);
-    }
-    return info ? info->type_desc->llvm_type : NULL;
-}
-
-static TypeDescriptor const *
-find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name)
-{
-    // Try to find as struct first, then union
-    type_info_t * info = scope_find_tagged_struct(ctx->current_scope, name);
-    if (info == NULL)
-    {
-        info = scope_find_tagged_union(ctx->current_scope, name);
-    }
-    return info ? info->type_desc : NULL;
-}
-
-static TypeDescriptor const *
-find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name)
-{
-    TypeDescriptor const * result = scope_find_typedef_type_descriptor(ctx->current_scope, name);
-    return result;
 }
 
 static int
@@ -2407,6 +1626,464 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
     return final_type;
 }
 
+static struct_or_union_members_st extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+
+static char const *
+search_ast_for_type_tag(c_grammar_node_t const * definition_node)
+{
+    if (definition_node == NULL)
+    {
+        return NULL;
+    }
+
+    if (definition_node->type == AST_NODE_ENUM_DEFINITION)
+    {
+        if (definition_node->enum_definition.identifier == NULL)
+        {
+            return NULL;
+        }
+        return definition_node->enum_definition.identifier->text;
+    }
+
+    if (definition_node->type == AST_NODE_STRUCT_DEFINITION || definition_node->type == AST_NODE_UNION_DEFINITION)
+    {
+        if (definition_node->struct_definition.identifier == NULL)
+        {
+            return NULL;
+        }
+        return definition_node->struct_definition.identifier->text;
+    }
+
+    return NULL;
+}
+
+static type_info_t const *
+register_tagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
+)
+{
+    if (ctx == NULL || tag == NULL)
+    {
+        return NULL;
+    }
+
+    if (find_type_by_tag(ctx, tag) != NULL)
+    {
+        return NULL;
+    }
+
+    type_info_t opaque = {0};
+    opaque.tag = strdup(tag);
+    opaque.kind = kind;
+    opaque.type_desc = register_struct_type(
+        ctx->type_descriptors, LLVMStructCreateNamed(ctx->context, tag), (TypeQualifier){0}, kind == TYPE_KIND_UNION
+    );
+    type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
+    if (registered == NULL)
+    {
+        free((void *)opaque.tag);
+        return NULL;
+    }
+
+    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
+
+    if (members.num_members == 0)
+    {
+        free(members.members);
+        return registered;
+    }
+
+    type_info_t * mutable_entry = (kind == TYPE_KIND_UNION) ? scope_find_tagged_union(ctx->current_scope, tag)
+                                                            : scope_find_tagged_struct(ctx->current_scope, tag);
+    if (mutable_entry == NULL)
+    {
+        free(members.members);
+        return registered;
+    }
+
+    mutable_entry->field_count = members.num_members;
+    mutable_entry->fields = members.members;
+
+    struct_field_t * last_field = &members.members[members.num_members - 1];
+    unsigned num_storage_units = last_field->storage_index + 1;
+    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+    if (field_types == NULL)
+    {
+        return registered;
+    }
+    int current_storage_unit = -1;
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        struct_field_t * field = &members.members[i];
+        if (field->storage_index != (unsigned)current_storage_unit)
+        {
+            current_storage_unit = (int)field->storage_index;
+            field_types[current_storage_unit] = field->type;
+        }
+    }
+    LLVMStructSetBody(mutable_entry->type_desc->llvm_type, field_types, num_storage_units, false);
+    free(field_types);
+
+    return mutable_entry;
+}
+
+static type_info_t const *
+add_untagged_struct_or_union_type(
+    ir_generator_ctx_t * ctx, type_kind_t kind, struct_field_t * fields, size_t num_fields, int * new_type_id
+)
+{
+    if (ctx == NULL || fields == NULL || num_fields == 0)
+    {
+        return NULL;
+    }
+
+    type_info_t new_struct = {0};
+
+    new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
+    new_struct.kind = kind;
+    new_struct.field_count = num_fields;
+    new_struct.fields = fields;
+    new_struct.type_desc = register_struct_type(
+        ctx->type_descriptors,
+        LLVMStructCreateNamed(ctx->context, new_struct.tag),
+        (TypeQualifier){0},
+        kind == TYPE_KIND_UNTAGGED_UNION
+    );
+
+    struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
+    unsigned num_storage_units = last_field->storage_index + 1;
+    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+    int current_storage_unit = -1;
+    for (size_t i = 0; i < new_struct.field_count; i++)
+    {
+        struct_field_t * field = &fields[i];
+        if (field->storage_index != (unsigned)current_storage_unit)
+        {
+            current_storage_unit = field->storage_index;
+            field_types[current_storage_unit] = field->type;
+        }
+    }
+
+    LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
+    free(field_types);
+
+    return scope_add_untagged_type(ctx->current_scope, new_struct, new_type_id);
+}
+
+static struct_or_union_members_st
+extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+{
+    debug_info("%s:", __func__);
+    struct_or_union_members_st object_members = {0};
+
+    if (type_child == NULL
+        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
+    {
+        return object_members;
+    }
+
+    c_grammar_node_t const * members_node = type_child->struct_definition.declaration_list;
+
+    if (members_node == NULL || members_node->list.count == 0)
+    {
+        return object_members;
+    }
+
+    size_t max_num_members = members_node->list.count;
+    struct_field_t * members = calloc(max_num_members, sizeof(*members));
+    if (members == NULL)
+    {
+        return object_members;
+    }
+
+    unsigned num_members = 0;
+
+    for (size_t i = 0; i < members_node->list.count; i++)
+    {
+        c_grammar_node_t * struct_decl = members_node->list.children[i];
+        if (struct_decl == NULL || struct_decl->type != AST_NODE_STRUCT_DECLARATION)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * specifier_qualifier_list = struct_decl->struct_declaration.specifier_qualifier_list;
+        c_grammar_node_t const * declarator_list = struct_decl->struct_declaration.declarator_list;
+
+        if (specifier_qualifier_list == NULL || specifier_qualifier_list->list.count == 0)
+        {
+            continue;
+        }
+        debug_info("%s: spec_qual_list_type is %s", __func__, get_node_type_name_from_node(specifier_qualifier_list));
+
+        c_grammar_node_t const * type_spec = NULL;
+        if (specifier_qualifier_list->list.count == 1
+            && specifier_qualifier_list->list.children[0]->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+        {
+            c_grammar_node_t const * child = specifier_qualifier_list->list.children[0];
+            type_spec = child->typedef_specifier_qualifier.typedef_specifier;
+            debug_info("ssql type spec is a %s node", get_node_type_name_from_node(type_spec));
+        }
+        else
+        {
+            for (size_t j = 0; j < specifier_qualifier_list->list.count; j++)
+            {
+                c_grammar_node_t const * child = specifier_qualifier_list->list.children[j];
+                if (child != NULL
+                    && (child->type == AST_NODE_TYPE_SPECIFIER || child->type == AST_NODE_TYPEDEF_SPECIFIER))
+                {
+                    type_spec = child;
+                    break;
+                }
+            }
+        }
+
+        if (type_spec == NULL)
+        {
+            continue;
+        }
+
+        if (declarator_list == NULL || declarator_list->list.count == 0)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
+
+        struct_field_t new_member = {0};
+
+        if (struct_decl_node->type == AST_NODE_STRUCT_DECLARATOR && struct_decl_node->list.count > 0)
+        {
+            c_grammar_node_t * decl = struct_decl_node->list.children[0];
+            if (decl == NULL)
+            {
+                continue;
+            }
+
+            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+            {
+                if (decl->list.count < 1 || decl->list.count > 2)
+                {
+                    continue;
+                }
+                size_t width_idx;
+                if (decl->list.count == 1)
+                {
+                    width_idx = 0;
+                    new_member.name = strdup("");
+                }
+                else
+                {
+                    width_idx = 1;
+                    c_grammar_node_t const * bf_decl = decl->list.children[0];
+                    if (bf_decl->type == AST_NODE_DECLARATOR)
+                    {
+                        c_grammar_node_t const * direct_decl = bf_decl->declarator.direct_declarator;
+                        if (direct_decl && direct_decl->list.count > 0)
+                        {
+                            c_grammar_node_t * ident = direct_decl->list.children[0];
+                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                            {
+                                new_member.name = strdup(ident->text);
+                            }
+                        }
+                    }
+                }
+                c_grammar_node_t * width_node = decl->list.children[width_idx];
+                if (width_node->type == AST_NODE_INTEGER_LITERAL)
+                {
+                    new_member.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
+                }
+
+                new_member.type = map_type_to_llvm_t(ctx, type_spec, NULL);
+                if (new_member.type == NULL)
+                {
+                    free(new_member.name);
+                    continue;
+                }
+
+                unsigned type_bits;
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                    type_bits = LLVMGetIntTypeWidth(previous_member->type);
+                }
+                else
+                {
+                    type_bits = LLVMGetIntTypeWidth(new_member.type);
+                }
+                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
+                    || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
+                    || LLVMGetTypeKind(new_member.type) != LLVMGetTypeKind(previous_member->type)
+                    || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
+                {
+                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                }
+                else
+                {
+                    new_member.storage_index = previous_member->storage_index;
+                    new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
+                }
+                members[num_members] = new_member;
+                num_members++;
+            }
+            else if (decl->type == AST_NODE_DECLARATOR)
+            {
+                new_member.type = map_type_to_llvm_t(ctx, type_spec, decl);
+
+                c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
+                if (direct_decl->list.count > 0)
+                {
+                    c_grammar_node_t * ident = direct_decl->list.children[0];
+                    if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                    {
+                        new_member.name = strdup(ident->text);
+                    }
+                }
+                if (new_member.name == NULL)
+                {
+                    continue;
+                }
+                if (new_member.type == NULL)
+                {
+                    free(new_member.name);
+                    continue;
+                }
+
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                }
+                new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+
+                if (LLVMGetTypeKind(new_member.type) == LLVMPointerTypeKind)
+                {
+                    LLVMTypeRef base = map_type_to_llvm_t(ctx, type_spec, NULL);
+                    if (base != NULL && LLVMGetTypeKind(base) == LLVMStructTypeKind)
+                    {
+                        new_member.pointee_struct_type = base;
+                    }
+                }
+
+                members[num_members] = new_member;
+                num_members++;
+            }
+        }
+    }
+
+    object_members.members = members;
+    object_members.num_members = num_members;
+
+    return object_members;
+}
+
+static type_info_t const *
+register_untagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
+)
+{
+    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
+    debug_info("%s: num_members: %zu", __func__, members.num_members);
+
+    if (members.num_members > 0)
+    {
+        return add_untagged_struct_or_union_type(ctx, kind, members.members, members.num_members, new_type_id);
+    }
+
+    free(members.members);
+
+    return NULL;
+}
+
+type_info_t const *
+register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+{
+    if (type_child == NULL
+        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
+    {
+        return NULL;
+    }
+
+    char const * struct_tag = NULL;
+
+    if (type_child->struct_definition.identifier != NULL)
+    {
+        struct_tag = type_child->struct_definition.identifier->text;
+    }
+    if (struct_tag == NULL)
+    {
+        type_kind_t kind
+            = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_UNTAGGED_STRUCT : TYPE_KIND_UNTAGGED_UNION;
+
+        return register_untagged_struct_or_union_definition(ctx, type_child, kind, NULL);
+    }
+
+    type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
+
+    return register_tagged_struct_or_union_definition(ctx, type_child, struct_tag, kind);
+}
+
+static type_info_t const *
+register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id)
+{
+    if (ctx == NULL)
+    {
+        return NULL;
+    }
+
+    if (!register_enum_constants(ctx, enum_node))
+    {
+        return NULL;
+    }
+
+    type_info_t enum_info = {0};
+
+    enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
+    enum_info.type_desc
+        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+    enum_info.fields = NULL;
+    enum_info.field_count = 0;
+
+    return scope_add_untagged_type(ctx->current_scope, enum_info, new_enum_id);
+}
+
+static type_info_t const *
+register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, char const * tag)
+{
+    if (ctx == NULL || tag == NULL)
+    {
+        return NULL;
+    }
+
+    if (!register_enum_constants(ctx, enum_node))
+    {
+        return NULL;
+    }
+
+    type_info_t enum_info = {0};
+
+    enum_info.kind = TYPE_KIND_ENUM;
+    enum_info.type_desc
+        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+    enum_info.fields = NULL;
+    enum_info.field_count = 0;
+    enum_info.tag = strdup(tag);
+
+    return scope_add_tagged_type(ctx->current_scope, enum_info);
+}
+
+static type_info_t const *
+register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
+{
+    char const * tag = search_ast_for_type_tag(enum_node);
+    if (tag != NULL)
+    {
+        return register_tagged_enum_definition(ctx, enum_node, tag);
+    }
+    return register_untagged_enum_definition(ctx, enum_node, NULL);
+}
+
 /**
  * @brief Initializes the IR generator context.
  * Creates LLVM context, module, and builder.
@@ -2660,32 +2337,6 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     LLVMValueRef line_const = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
     TypedValue lval = (TypedValue){.value = line_const, .type = ctx->ref_type.i32_type};
     add_symbol(ctx, "__LINE__", lval, NULL);
-}
-
-static c_grammar_node_t const *
-search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node)
-{
-    if (declarator_node == NULL)
-    {
-        return NULL;
-    }
-    c_grammar_node_t const * suffix_list = declarator_node->declarator.declarator_suffix_list;
-    if (suffix_list->list.count == 0)
-    {
-        return NULL;
-    }
-    c_grammar_node_t const * suffix = suffix_list->list.children[0];
-    if (suffix->type != AST_NODE_DECLARATOR_SUFFIX || suffix->list.count == 0)
-    {
-        return NULL;
-    }
-    c_grammar_node_t const * parameters_list = suffix->list.children[0];
-    if (parameters_list->type != AST_NODE_PARAMETER_LIST)
-    {
-        return NULL;
-    }
-
-    return parameters_list;
 }
 
 static bool

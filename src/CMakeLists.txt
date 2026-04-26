@@ -25,6 +25,7 @@ add_executable(${app}
   type_descriptors.c
   type_qualifiers.c
   type_specifier.c
+  type_utils.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)
