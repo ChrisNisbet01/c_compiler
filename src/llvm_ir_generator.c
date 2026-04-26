@@ -1378,7 +1378,7 @@ generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix)
 
 static type_info_t const *
 add_untagged_struct_or_union_type(
-    ir_generator_ctx_t * ctx, type_kind_t kind, struct_field_t * fields, size_t num_fields
+    ir_generator_ctx_t * ctx, type_kind_t kind, struct_field_t * fields, size_t num_fields, int * new_type_id
 )
 {
     if (ctx == NULL || fields == NULL || num_fields == 0)
@@ -1416,12 +1416,12 @@ add_untagged_struct_or_union_type(
     LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
     free(field_types);
 
-    return scope_add_untagged_type(ctx->current_scope, new_struct);
+    return scope_add_untagged_type(ctx->current_scope, new_struct, new_type_id);
 }
 
 static type_info_t const *
 register_untagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
 )
 {
     struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
@@ -1429,7 +1429,7 @@ register_untagged_struct_or_union_definition(
 
     if (members.num_members > 0)
     {
-        return add_untagged_struct_or_union_type(ctx, kind, members.members, members.num_members);
+        return add_untagged_struct_or_union_type(ctx, kind, members.members, members.num_members, new_type_id);
     }
 
     free(members.members);
@@ -1438,7 +1438,7 @@ register_untagged_struct_or_union_definition(
 }
 
 static type_info_t const *
-register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
+register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id)
 {
     if (ctx == NULL)
     {
@@ -1459,7 +1459,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
-    return scope_add_untagged_type(ctx->current_scope, enum_info);
+    return scope_add_untagged_type(ctx->current_scope, enum_info, new_enum_id);
 }
 
 static char const *
@@ -3833,8 +3833,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
                                                                                    : TYPE_KIND_UNTAGGED_UNION;
-                        register_untagged_struct_or_union_definition(ctx, struct_def_node, kind);
-                        typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
+                        register_untagged_struct_or_union_definition(
+                            ctx, struct_def_node, kind, &typedef_entry.untagged_index
+                        );
                     }
                     typedef_entry.kind = kind;
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
@@ -3855,11 +3856,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     else
                     {
                         typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
-                        register_untagged_enum_definition(ctx, enum_def_node);
+                        register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
                         typedef_entry.type_desc = get_or_create_builtin_type(
                             ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
                         );
-                        typedef_entry.untagged_index = ctx->current_scope->untagged_types.count - 1;
                     }
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }

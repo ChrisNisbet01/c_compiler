@@ -202,7 +202,7 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
 }
 
 type_info_t const *
-scope_add_untagged_type(scope_t * scope, type_info_t info)
+scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
 {
     if (scope == NULL)
     {
@@ -210,7 +210,12 @@ scope_add_untagged_type(scope_t * scope, type_info_t info)
     }
 
     scope_types_t * untagged = &scope->untagged_types;
-    return add_info_to_list(untagged, info);
+    type_info_t const * result = add_info_to_list(untagged, info);
+    if (result != NULL && untagged_index != NULL)
+    {
+        *untagged_index = untagged->count - 1;
+    }
+    return result;
 }
 
 // --- Tagged type lookup ---
