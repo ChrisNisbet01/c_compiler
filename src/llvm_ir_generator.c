@@ -46,18 +46,22 @@ extern type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, 
 extern bool is_function_suffix(c_grammar_node_t const * suffix);
 extern c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
 extern c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
-extern int evaluate_enum_value_assignment_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value);
+extern int evaluate_enum_value_assignment_expression(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
+);
 extern bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static TypedValue
 cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool zero_extend);
 
-static type_info_t const *
-register_tagged_struct_or_union_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind);
+static type_info_t const * register_tagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
+);
 
-static type_info_t const *
-register_untagged_struct_or_union_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id);
+static type_info_t const * register_untagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
+);
 
 static char const * search_ast_for_type_tag(c_grammar_node_t const * definition_node);
 
@@ -67,8 +71,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
 static type_info_t const *
 register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id);
 
-static type_info_t const *
-register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+static type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
@@ -1626,7 +1629,8 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
     return final_type;
 }
 
-static struct_or_union_members_st extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+static struct_or_union_members_st
+extract_struct_or_union_members(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
 static char const *
 search_ast_for_type_tag(c_grammar_node_t const * definition_node)
