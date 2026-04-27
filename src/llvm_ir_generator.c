@@ -3117,13 +3117,22 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     // --- Handle function parameters: allocate space and store arguments ---
     for (size_t i = 0; i < type_desc->function_metadata.param_count; ++i)
     {
+        char const * p_name = type_desc->function_metadata.names[i];
+        TypeDescriptor const * p_type_desc = type_desc->function_metadata.params[i];
+        LLVMTypeRef p_type = p_type_desc->llvm_type;
         LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
-        LLVMValueRef alloca_inst = LLVMBuildAlloca(
-            ctx->builder,
-            type_desc->function_metadata.params[i]->llvm_type,
-            type_desc->function_metadata.names[i] ? type_desc->function_metadata.names[i] : ""
-        );
-        aligned_store(ctx, ctx->builder, param_val, type_desc->function_metadata.params[i]->llvm_type, alloca_inst);
+        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, p_type, p_name != NULL ? p_name : "");
+        aligned_store(ctx, ctx->builder, param_val, p_type, alloca_inst);
+
+        if (p_name != NULL)
+        {
+
+            TypedValue p_val = create_typed_value(alloca_inst, p_type_desc, true);
+
+            // If your descriptor is a struct or points to one,
+            // the symbol table can now just check p_type->kind
+            add_symbol(ctx, p_name, p_val, NULL);
+        }
     }
 
     // Process the compound statement (function body).
