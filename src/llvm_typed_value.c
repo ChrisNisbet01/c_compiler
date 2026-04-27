@@ -89,9 +89,54 @@ typed_value_get_pointee_llvm(TypedValue const * tv)
     {
         return NULL;
     }
-    if (tv->type_info != NULL && tv->type_info->pointee != NULL)
+    if (tv->type_info != NULL)
     {
-        return tv->type_info->pointee->llvm_type;
+        if (tv->type_info->pointee != NULL)
+        {
+            return tv->type_info->pointee->llvm_type;
+        }
+        else
+        {
+            return NULL;
+        }
     }
+
     return tv->pointee_type;
+}
+
+bool
+typed_value_switch_to_pointee(TypedValue * tv)
+{
+    if (tv == NULL)
+    {
+        return false;
+    }
+    if (tv->type_info != NULL)
+    {
+        tv->type_info = tv->type_info->pointee;
+        return true;
+    }
+    /* Should eventually be removed once we switch to using TypeDescriptors exclusively. */
+    if (tv->pointee_type != NULL)
+    {
+        tv->type = tv->pointee_type;
+        tv->pointee_type = NULL; // Clear pointee_type since we've switched to it
+        // We don't have full TypeDescriptor info, so we can't update type_info or pointee_type accurately.
+        return true;
+    }
+    return false;
+}
+
+void
+typed_value_assign_type_desc(TypedValue * tv, TypeDescriptor const * desc)
+{
+    if (tv == NULL)
+    {
+        return;
+    }
+    tv->type_info = desc;
+
+    /* Legacy support. */
+    tv->type = desc->llvm_type;
+    tv->pointee_type = (desc->pointee != NULL) ? desc->pointee->llvm_type : NULL;
 }

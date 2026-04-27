@@ -34,3 +34,5 @@ TypeDescriptor const * typed_value_get_descriptor(TypedValue const * tv);
 LLVMTypeRef typed_value_get_llvm_type(TypedValue const * tv);
 
 LLVMTypeRef typed_value_get_pointee_llvm(TypedValue const * tv);
+
+bool typed_value_switch_to_pointee(TypedValue * tv);

@@ -417,3 +417,62 @@ get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier co
     }
     return NULL;
 }
+
+TypeDescriptor const *
+find_descriptor_by_llvm_type(TypeDescriptors * registry, LLVMTypeRef type)
+{
+    // Iterate through your type registry head
+    TypeDescriptor_private * curr = registry->head;
+    while (curr)
+    {
+        if (curr->public.llvm_type == type)
+        {
+            return &curr->public;
+        }
+        curr = curr->next;
+    }
+
+    return NULL;
+}
+
+TypeDescriptor const *
+create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_type, char const * func, int line)
+{
+    debug_warning(
+        "%s:%d: No descriptor found for LLVM type %d, creating fallback", func, line, LLVMGetTypeKind(llvm_type)
+    );
+    TypeDescriptor template = {0};
+    template.llvm_type = llvm_type;
+
+    LLVMTypeKind kind = LLVMGetTypeKind(llvm_type);
+
+    switch (kind)
+    {
+    case LLVMIntegerTypeKind:
+        template.kind = NCC_TYPE_KIND_BUILTIN; // Or a generic INT kind
+        break;
+    case LLVMPointerTypeKind:
+        template.kind = NCC_TYPE_KIND_POINTER;
+        // Note: We can't easily know the 'pointee' here
+        // without a deep search or recursive fallback.
+        break;
+    case LLVMArrayTypeKind:
+        template.kind = NCC_TYPE_KIND_ARRAY;
+        template.array_size = LLVMGetArrayLength(llvm_type);
+        break;
+    case LLVMStructTypeKind:
+        template.kind = NCC_TYPE_KIND_STRUCT;
+        break;
+    case LLVMVoidTypeKind:
+        template.kind = NCC_TYPE_KIND_BUILTIN;
+        break;
+    case LLVMFunctionTypeKind:
+        template.kind = NCC_TYPE_KIND_FUNCTION;
+        break;
+    default:
+        break;
+    }
+
+    // Register it so we don't create duplicates for the same orphan type
+    return register_descriptor(registry, &template);
+}

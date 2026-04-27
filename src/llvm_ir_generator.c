@@ -1462,16 +1462,10 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                     parameter_list = suffix->list.children[0];
                 }
             }
-            bool is_variadic = false;
             for (size_t j = 0; j < parameter_list->list.count; ++j)
             {
                 c_grammar_node_t * params_child = parameter_list->list.children[j];
 
-                if (params_child->type == AST_NODE_ELLIPSIS)
-                {
-                    is_variadic = true;
-                    break;
-                }
                 debug_info("map_type: param[%zu] type=%s", j, get_node_type_name_from_type(params_child->type));
                 if (params_child->type == AST_NODE_NAMED_DECL_SPECIFIERS)
                 {
@@ -5213,13 +5207,23 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * op_node = lhs_node->unary_expression_prefix.op;
         if (op_node != NULL && op_node->op.unary.op == UNARY_OP_DEREF)
         {
-            TypedValue ptr_val = process_expression(ctx, lhs_node->unary_expression_prefix.operand);
+            lhs_res = process_expression(ctx, lhs_node->unary_expression_prefix.operand);
+            if (lhs_res.value == NULL)
+            {
+                debug_error("Failed to process LHS expression in assignment.");
+                return NullTypedValue;
+            }
             // ptr_val.value is the address of the pointer
             // We load it to get the address of the target
-            LLVMValueRef target_addr = aligned_load(ctx, ctx->builder, ptr_val.type, ptr_val.value, "ptr_deref");
-
-            lhs_res
-                = (TypedValue){.value = target_addr, .type = typed_value_get_pointee_llvm(&ptr_val), .is_lvalue = true};
+            lhs_res.value
+                = aligned_load(ctx, ctx->builder, typed_value_get_llvm_type(&lhs_res), lhs_res.value, "ptr_deref");
+            if (!typed_value_switch_to_pointee(&lhs_res))
+            {
+                ir_gen_error(&ctx->errors, "Failed to switch LHS to pointee type in assignment.");
+                debug_error("Failed to switch LHS to pointee type.");
+                return NullTypedValue;
+            }
+            lhs_res.is_lvalue = true;
         }
     }
     else
@@ -6038,11 +6042,37 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // The compound literal code returns a loaded value, but we need the pointer
         if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
         {
-            TypedValue compound_res = process_compound_literal(ctx, operand_node);
+            TypedValue v = process_compound_literal(ctx, operand_node);
 
-            compound_res.is_lvalue = false;
-            compound_res.type = ctx->ref_type.ptr_type;
-            return compound_res;
+            if (v.value == NULL)
+            {
+                ir_gen_error(&ctx->errors, "Cannot take the address of an rvalue");
+                return NullTypedValue;
+            }
+
+            // --- The Bridge Logic ---
+            TypeDescriptor const * base_desc = v.type_info;
+
+            if (base_desc == NULL)
+            {
+                debug_info("No type descriptor found for compound literal, attempting fallback");
+                // Fallback: If we don't have a descriptor, try to find one
+                // that matches the current LLVM type.
+                base_desc = find_descriptor_by_llvm_type(ctx->type_descriptors, v.type);
+
+                // If still NULL (e.g., an anonymous struct not yet in registry),
+                // you might need to create a "temporary" or "stub" descriptor
+                // to avoid breaking the rest of the chain.
+                if (base_desc == NULL)
+                {
+                    base_desc = create_fallback_descriptor(ctx->type_descriptors, v.type);
+                }
+            }
+            v = create_typed_value(
+                v.value, get_or_create_pointer_type(ctx->type_descriptors, base_desc, (TypeQualifier){0}), false
+            );
+
+            return v;
         }
         TypedValue v = process_expression(ctx, operand_node);
 
@@ -6068,13 +6098,12 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             return NullTypedValue;
         }
         operand_res = ensure_rvalue(ctx, "un_op_deref", operand_res);
-
-        return (TypedValue){
-            .value = operand_res.value,
-            .type = operand_res.pointee_type,
-            .pointee_type = NULL,
-            .is_lvalue = true,
-        };
+        if (!typed_value_switch_to_pointee(&operand_res))
+        {
+            ir_gen_error(&ctx->errors, "Error: Failed to switch to pointee type for dereference");
+            return NullTypedValue;
+        }
+        operand_res.is_lvalue = true;
 
         return operand_res;
     }
@@ -6084,6 +6113,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         TypedValue operand_res = process_expression(ctx, operand_node);
         if (operand_res.value == NULL)
         {
+            ir_gen_error(&ctx->errors, "Operand processing failed for unary minus");
             return NullTypedValue;
         }
         if (operand_res.type != NULL
@@ -6104,11 +6134,12 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_NOT:
     {
         TypedValue operand_res = process_expression(ctx, operand_node);
-        operand_res = ensure_rvalue(ctx, "un_not_rval", operand_res);
         if (operand_res.value == NULL || operand_res.type == NULL)
         {
+            ir_gen_error(&ctx->errors, "Operand processing failed for unary NOT");
             return NullTypedValue;
         }
+        operand_res = ensure_rvalue(ctx, "un_not_rval", operand_res);
 
         // 1. Comparison produces an i1 (1-bit integer)
         LLVMValueRef zero = LLVMConstNull(operand_res.type);

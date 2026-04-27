@@ -75,3 +75,10 @@ TypeDescriptor const *
 get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals);
 
 TypeDescriptor const * type_descriptor_get_pointee(TypeDescriptor const * desc);
+
+TypeDescriptor const * find_descriptor_by_llvm_type(TypeDescriptors * registry, LLVMTypeRef type);
+
+TypeDescriptor const *
+create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_type, char const * func, int line);
+#define create_fallback_descriptor(registry, llvm_type)                                                                \
+    create_fallback_descriptor_impl(registry, llvm_type, __func__, __LINE__)
