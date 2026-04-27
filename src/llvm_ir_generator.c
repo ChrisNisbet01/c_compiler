@@ -3000,17 +3000,13 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         scope_pop(ctx);
         return;
     }
-#if 1
+
     TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers_node, declarator_node);
-    if (type_desc != NULL)
-    {
-        debug_info("%s: got type desc for function definition", __func__);
-    }
-    else
+    if (type_desc == NULL)
     {
         debug_info("%s: failed to get type desc for function definition", __func__);
+        return;
     }
-#endif
 
     // --- Extract Function Name ---
     char const * func_name = NULL;
@@ -3026,11 +3022,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     add_function_scope_builtin_macros(ctx, func_name);
 
-    c_grammar_node_t const * params_list = search_parameters_list_in_declarator(declarator_node);
-    parameter_definitions_t params = extract_function_parameters(ctx, params_list);
-    LLVMTypeRef return_type = map_type_to_llvm_t(ctx, decl_specifiers_node, NULL);
-    LLVMTypeRef func_type = generate_function_signature(params, return_type);
-
     // Check for function redeclaration or signature mismatch
     LLVMValueRef existing = LLVMGetNamedFunction(ctx->module, func_name);
     if (existing != NULL)
@@ -3041,10 +3032,9 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         if (decl != NULL)
         {
             LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
-            if (!function_signatures_match(existing_type, func_type))
+            if (!function_signatures_match(existing_type, type_desc->llvm_type))
             {
                 ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
-                parameter_definitions_cleanup(&params);
                 scope_pop(ctx);
                 return;
             }
@@ -3052,7 +3042,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             if (decl->has_definition)
             {
                 ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
-                parameter_definitions_cleanup(&params);
                 scope_pop(ctx);
                 return;
             }
@@ -3062,22 +3051,14 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         else
         {
             /* Forward declaration not tracked — register it now */
-            TypedValue decl = {
-                .value = existing,
-                .type = ctx->ref_type.ptr_type,
-                .pointee_type = func_type,
-            };
+            TypedValue decl = create_typed_value(existing, type_desc, false);
             add_function_declaration(ctx, func_name, decl, false);
         }
     }
     else
     {
         // New function - add to tracking
-        TypedValue decl = {
-            /* NB: No value! */
-            .type = ctx->ref_type.ptr_type,
-            .pointee_type = func_type,
-        };
+        TypedValue decl = create_typed_value(NULL, type_desc, true);
         add_function_declaration(ctx, func_name, decl, true);
     }
 
@@ -3088,25 +3069,24 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     if (func != NULL)
     {
         LLVMTypeRef existing_type = LLVMGlobalGetValueType(func);
-        if (!function_signatures_match(existing_type, func_type))
+        if (!function_signatures_match(existing_type, type_desc->llvm_type))
         {
             /* Replace the stub: redirect all uses to a new function then delete the old one */
-            LLVMValueRef new_func = LLVMAddFunction(ctx->module, "", func_type);
+            LLVMValueRef new_func = LLVMAddFunction(ctx->module, "", type_desc->llvm_type);
             LLVMReplaceAllUsesWith(func, new_func);
             LLVMDeleteFunction(func);
             LLVMSetValueName(new_func, func_name);
             func = new_func;
         }
         /* Verify param count matches before proceeding */
-        if (LLVMCountParams(func) != (unsigned)params.count)
+        if (LLVMCountParams(func) != (unsigned)type_desc->function_metadata.param_count)
         {
             debug_error(
                 "Function '%s': param count mismatch after setup (%u vs %zu), skipping.",
                 func_name,
                 LLVMCountParams(func),
-                params.count
+                type_desc->function_metadata.param_count
             );
-            parameter_definitions_cleanup(&params);
             scope_pop(ctx);
 
             return;
@@ -3114,7 +3094,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     else
     {
-        func = LLVMAddFunction(ctx->module, func_name, func_type);
+        func = LLVMAddFunction(ctx->module, func_name, type_desc->llvm_type);
     }
 
     // Create a basic block for the function's entry point.
@@ -3131,121 +3111,16 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
 
     // --- Handle function parameters: allocate space and store arguments ---
-    for (size_t i = 0; i < params.count; ++i)
+    for (size_t i = 0; i < type_desc->function_metadata.param_count; ++i)
     {
         LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
-        LLVMValueRef alloca_inst
-            = LLVMBuildAlloca(ctx->builder, params.types[i], params.names[i] ? params.names[i] : "");
-        aligned_store(ctx, ctx->builder, param_val, params.types[i], alloca_inst);
-        if (params.names[i] != NULL)
-        {
-            LLVMTypeRef param_function_signature = NULL;
-            // Extract struct/union name from parameter specifiers for pointer-to-compound types
-            char const * param_compound_name = NULL;
-            c_grammar_node_t const * param_decl_specs = params_list->list.children[i * 3 + 1];
-            c_grammar_node_t const * param_declarator = params_list->list.children[i * 3 + 2];
-            c_grammar_node_t const * param_direct_declarator = param_declarator->declarator.direct_declarator;
-            if (param_direct_declarator->list.count > 0)
-            {
-                c_grammar_node_t const * direct_declarator_child = param_direct_declarator->list.children[0];
-                if (direct_declarator_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
-                {
-                    debug_info("function parameter is a function pointer");
-                    // FunctionPointerDeclarator contains Pointer, Identifier, DeclaratorSuffixList
-                    c_grammar_node_t const * param_params_list = search_parameters_list_in_declarator(param_declarator);
-                    parameter_definitions_t param_params = extract_function_parameters(ctx, param_params_list);
-
-                    LLVMTypeRef return_type = map_type_to_llvm_t(ctx, param_decl_specs, NULL);
-                    param_function_signature = generate_function_signature(param_params, return_type);
-                    parameter_definitions_cleanup(&param_params);
-                    debug_info("Parameter function pointer signature: %p", param_function_signature);
-                }
-            }
-
-            // p_spec is either TypeSpecifier directly or DeclarationSpecifiers containing TypeSpecifier
-            c_grammar_node_t const * type_spec = NULL;
-            if (param_decl_specs && param_decl_specs->list.count > 0)
-            {
-                if (param_decl_specs->type == AST_NODE_TYPE_SPECIFIER
-                    || param_decl_specs->type == AST_NODE_TYPEDEF_SPECIFIER)
-                {
-                    type_spec = param_decl_specs;
-                }
-                else if (param_decl_specs->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-                {
-                    // Use structured fields
-                    if (param_decl_specs->decl_specifiers.typedef_name != NULL)
-                    {
-                        type_spec = param_decl_specs->decl_specifiers.typedef_name;
-                    }
-                    else
-                    {
-                        c_grammar_node_t const * specifier_list = param_decl_specs->decl_specifiers.type_specifiers;
-                        if (specifier_list->list.count > 0)
-                        {
-                            type_spec = specifier_list->list.children[0];
-                        }
-                    }
-                }
-            }
-
-            /* Use helper to extract type name - check struct/union keyword first, then typedef */
-            if (type_spec)
-            {
-                if (type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
-                {
-                    /* Is a typedef name - get the underlying struct tag from the typedef entry */
-                    char const * typedef_name = extract_typedef_name(type_spec);
-                    if (typedef_name != NULL)
-                    {
-                        scope_typedef_entry_t const * entry
-                            = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
-                        if (entry != NULL && entry->tag != NULL)
-                        {
-                            param_compound_name = entry->tag;
-                        }
-                    }
-                }
-                else
-                {
-                    char const * tag = extract_struct_or_union_or_enum_tag(type_spec);
-                    if (tag != NULL)
-                    {
-                        param_compound_name = tag;
-                    }
-                }
-            }
-            TypedValue p = (TypedValue){
-                .value = alloca_inst,
-                .type = params.types[i],
-                .pointee_type = param_function_signature,
-                .is_lvalue = true,
-            };
-            dump_typed_value("function_param", p);
-
-            /* For pointer parameters to anonymous struct typedefs, store the pointee struct type */
-            /* Moved from below the add_symbol_with_struct() call. */
-            if (type_spec != NULL && type_spec->type == AST_NODE_TYPEDEF_SPECIFIER)
-            {
-                char const * typedef_name = extract_typedef_name(type_spec);
-                if (typedef_name != NULL)
-                {
-                    TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
-                    if (typedef_type_desc != NULL && typedef_type_desc->llvm_type != NULL
-                        && LLVMGetTypeKind(typedef_type_desc->llvm_type) == LLVMStructTypeKind
-                        && LLVMGetTypeKind(params.types[i]) == LLVMPointerTypeKind)
-                    {
-                        /* Update the symbol's pointee_type */
-                        p.pointee_type = typedef_type_desc->llvm_type;
-                    }
-                }
-            }
-
-            add_symbol_with_struct(ctx, params.names[i], p, param_compound_name, NULL);
-        }
+        LLVMValueRef alloca_inst = LLVMBuildAlloca(
+            ctx->builder,
+            type_desc->function_metadata.params[i]->llvm_type,
+            type_desc->function_metadata.names[i] ? type_desc->function_metadata.names[i] : ""
+        );
+        aligned_store(ctx, ctx->builder, param_val, type_desc->function_metadata.params[i]->llvm_type, alloca_inst);
     }
-
-    parameter_definitions_cleanup(&params);
 
     // Process the compound statement (function body).
     process_ast_node(ctx, compound_stmt_node);
@@ -3257,7 +3132,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     // --- Add a default return if the function doesn't end with one ---
     if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
     {
-        if (LLVMGetTypeKind(return_type) == LLVMVoidTypeKind)
+        if (LLVMGetTypeKind(type_desc->function_metadata.return_type->llvm_type) == LLVMVoidTypeKind)
         {
             LLVMBuildRetVoid(ctx->builder);
         }

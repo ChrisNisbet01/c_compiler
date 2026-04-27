@@ -158,7 +158,7 @@ resolve_function_pointer_type(
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
 
     TypeDescriptor const * res = get_or_create_function_type(
-        ctx->type_descriptors, return_type, params.types, params.count, params.is_variadic
+        ctx->type_descriptors, return_type, params.types, params.names, params.count, params.is_variadic
     );
     parameter_definitions_cleanup(&params);
     return res;

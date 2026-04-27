@@ -324,6 +324,7 @@ get_or_create_function_type(
     TypeDescriptors * registry,
     TypeDescriptor const * ret_type,
     TypeDescriptor const ** params,
+    char const ** param_names,
     size_t param_count,
     bool is_variadic
 )
@@ -359,8 +360,18 @@ get_or_create_function_type(
            .pointee = ret_type,
            .function_metadata.return_type = ret_type,
            .function_metadata.param_count = param_count,
-           .function_metadata.params = malloc(sizeof(*params) * param_count)};
+           .function_metadata.params = malloc(sizeof(*params) * param_count),
+           .function_metadata.names = calloc(param_count, sizeof(*param_names)),
+           .function_metadata.is_variadic = is_variadic};
+
     memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
+    for (size_t i = 0; i < param_count; i++)
+    {
+        if (param_names[i] != NULL)
+        {
+            template.function_metadata.names[i] = strdup(param_names[i]);
+        }
+    }
 
     // Construct the LLVM function type
     LLVMTypeRef * llvm_params = malloc(sizeof(*llvm_params) * param_count);
