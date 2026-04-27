@@ -6005,12 +6005,7 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         process_initializer_list(ctx, alloca_inst, compound_type_desc->llvm_type, init_list_node, NULL);
     }
 
-    return (TypedValue){
-        .value = alloca_inst,
-        .type = compound_type_desc->llvm_type,
-        .pointee_type = compound_type_desc->llvm_type,
-        .is_lvalue = true
-    };
+    return create_typed_value(alloca_inst, compound_type_desc, true);
 }
 
 static TypedValue
