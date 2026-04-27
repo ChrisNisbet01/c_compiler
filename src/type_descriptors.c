@@ -356,7 +356,6 @@ get_or_create_function_type(
     // Not found: Create a new function descriptor
     TypeDescriptor template
         = {.kind = NCC_TYPE_KIND_FUNCTION,
-           .llvm_type = registry->builtins.ptr_type,
            .pointee = ret_type,
            .function_metadata.return_type = ret_type,
            .function_metadata.param_count = param_count,
@@ -379,8 +378,20 @@ get_or_create_function_type(
     {
         llvm_params[i] = params[i]->llvm_type;
     }
-
+    debug_info(
+        "%s: creating function type for return type %d with %zu params",
+        __func__,
+        LLVMGetTypeKind(ret_type->llvm_type),
+        param_count
+    );
     template.llvm_type = LLVMFunctionType(ret_type->llvm_type, llvm_params, param_count, is_variadic);
+    debug_info(
+        "%s: created function type %d for return type %d with %zu params",
+        __func__,
+        LLVMGetTypeKind(template.llvm_type),
+        LLVMGetTypeKind(ret_type->llvm_type),
+        param_count
+    );
 
     free(llvm_params);
     return register_descriptor(registry, &template);

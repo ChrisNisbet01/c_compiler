@@ -2556,6 +2556,13 @@ generate_function_signature(parameter_definitions_t params, LLVMTypeRef return_t
     LLVMTypeRef func_type
         = LLVMFunctionType(return_type, params.count > 0 ? params.types : empty_params, (unsigned)params.count, false);
 
+    debug_info(
+        "%s: generated function type %d for return type kind %d with %zu params",
+        __func__,
+        LLVMGetTypeKind(func_type),
+        LLVMGetTypeKind(return_type),
+        params.count
+    );
     return func_type;
 }
 
@@ -3055,12 +3062,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             add_function_declaration(ctx, func_name, decl, false);
         }
     }
-    else
-    {
-        // New function - add to tracking
-        TypedValue decl = create_typed_value(NULL, type_desc, true);
-        add_function_declaration(ctx, func_name, decl, true);
-    }
 
     /* Reuse existing declaration if already added (e.g. from a forward declaration),
      * but only if the type matches. If it was an auto-declared stub with wrong type,
@@ -3094,6 +3095,9 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     else
     {
+        debug_info(
+            "Adding new function '%s' to module type signature: %d", func_name, LLVMGetTypeKind(type_desc->llvm_type)
+        );
         func = LLVMAddFunction(ctx->module, func_name, type_desc->llvm_type);
     }
 

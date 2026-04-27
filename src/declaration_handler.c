@@ -105,6 +105,12 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
                 get_node_type_name_from_node(p_decl)
             );
             params.types[i] = resolve_type_descriptor(ctx, p_spec, p_decl);
+            debug_info(
+                "%s: resolved parameter %u type descriptor with LLVM type kind %d",
+                __func__,
+                i,
+                LLVMGetTypeKind(params.types[i]->llvm_type)
+            );
             if (p_decl != NULL)
             {
                 c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
@@ -150,9 +156,9 @@ resolve_function_pointer_type(
 )
 {
     debug_info(
-        "%s: resolving function pointer type for return type %p and param list %p",
+        "%s: resolving function pointer type for return type %d and param list %p",
         __func__,
-        (void *)return_type,
+        LLVMGetTypeKind(return_type->llvm_type),
         (void *)param_list
     );
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
@@ -308,12 +314,14 @@ resolve_type_descriptor(
     {
         current = resolve_function_pointer_type(ctx, current, param_list);
     }
-
-    for (size_t i = suffix_list->list.count; i > 0; i--)
+    else
     {
-        c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];
+        for (size_t i = suffix_list->list.count; i > 0; i--)
+        {
+            c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];
 
-        current = resolve_array_suffix(ctx, current, suffix);
+            current = resolve_array_suffix(ctx, current, suffix);
+        }
     }
 
     return current;
