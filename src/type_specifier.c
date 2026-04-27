@@ -94,10 +94,11 @@ validate_type_specifiers(c_grammar_node_t const * type_specifiers)
         c_grammar_node_t const * specifier = type_specifiers->list.children[0];
         if (specifier->list.count == 1)
         {
-            c_grammar_node_t const * child = specifier->list.children[0];
-            if (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
-                || child->type == AST_NODE_ENUM_DEFINITION || child->type == AST_NODE_STRUCT_TYPE_REF
-                || child->type == AST_NODE_UNION_TYPE_REF || child->type == AST_NODE_ENUM_TYPE_REF)
+            c_grammar_node_t const * inner = specifier->list.children[0];
+            if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION
+                || inner->type == AST_NODE_ENUM_DEFINITION || inner->type == AST_NODE_STRUCT_TYPE_REF
+                || inner->type == AST_NODE_UNION_TYPE_REF || inner->type == AST_NODE_ENUM_TYPE_REF
+                || inner->type == AST_NODE_TYPEDEF_SPECIFIER)
             {
                 result.is_struct_or_union_or_enum = true;
             }

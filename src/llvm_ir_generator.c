@@ -36,20 +36,20 @@ static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * 
 static TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
 #define process_expression(c, n) _process_expression_impl((c), (n), __LINE__);
 
-extern char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
-extern char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
-extern TypeDescriptor const * find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
-extern LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
-extern TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
-extern char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
-extern type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
-extern bool is_function_suffix(c_grammar_node_t const * suffix);
-extern c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
-extern c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
-extern int evaluate_enum_value_assignment_expression(
+char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
+char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
+TypeDescriptor const * find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
+LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
+TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
+char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
+type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+bool is_function_suffix(c_grammar_node_t const * suffix);
+c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
+c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
+int evaluate_enum_value_assignment_expression(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
 );
-extern bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
 static TypedValue
@@ -2779,7 +2779,7 @@ process_declarator(
                     }
                 }
             }
-
+            bool added_using_type_descriptor = false;
             // Compute pointee_type for pointer variables
             // We need to compute this BEFORE map_type adds pointer types, because
             // LLVMGetElementType returns NULL/invalid for opaque pointers
@@ -2791,6 +2791,24 @@ process_declarator(
             }
             else if (decl_specifiers != NULL)
             {
+                if (1)
+                {
+                    TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
+                    if (0 && type_desc != NULL)
+                    {
+                        debug_info("DDDDDDD got type desc");
+                        TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
+                        debug_info("%s: adding symbol %s type using type descriptor", __func__, var_name);
+                        add_symbol_with_struct(ctx, var_name, sym_val, struct_name, NULL);
+                        added_using_type_descriptor = true;
+                    }
+                    else
+                    {
+                        debug_info("DDDDDDD failed to get type desc");
+                        print_ast(decl_specifiers);
+                    }
+                }
+
                 debug_info("computing pointee type decl specs: %p", decl_specifiers);
                 // Get the base type from specifiers
                 pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
@@ -2819,28 +2837,30 @@ process_declarator(
             // All const checking is done via pointer_qualifiers:
             // - is_const[level-1] for direct pointer assignment (can't reassign pointer)
             // - is_const[0] for data pointed to (can't modify through pointer)
-
-            symbol_data_t symbol_data = {
-                .pointer_qualifiers = pointer_quals,
-                .function_signature = function_signature,
-            };
-            TypedValue sym_val = (TypedValue){
-                .value = alloca_inst,
-                .type = var_type,
-                .pointee_type = pointee_type,
-                .is_lvalue = true,
-            };
-            // Also store type_info if we have it - using helper for backward compat
-            sym_val.type_info = NULL; // TODO: create TypeDescriptor from var_type
-            debug_info(
-                "node decl adding symbol %s type %p (%d), pointee_type %p (%d)",
-                var_name,
-                (void *)var_type,
-                var_type != NULL ? (int)LLVMGetTypeKind(var_type) : -1,
-                (void *)pointee_type,
-                pointee_type != NULL ? (int)LLVMGetTypeKind(pointee_type) : -1
-            );
-            add_symbol_with_struct(ctx, var_name, sym_val, struct_name, &symbol_data);
+            if (!added_using_type_descriptor)
+            {
+                symbol_data_t symbol_data = {
+                    .pointer_qualifiers = pointer_quals,
+                    .function_signature = function_signature,
+                };
+                TypedValue sym_val = (TypedValue){
+                    .value = alloca_inst,
+                    .type = var_type,
+                    .pointee_type = pointee_type,
+                    .is_lvalue = true,
+                };
+                // Also store type_info if we have it - using helper for backward compat
+                sym_val.type_info = NULL; // TODO: create TypeDescriptor from var_type
+                debug_info(
+                    "node decl adding symbol %s type %p (%d), pointee_type %p (%d)",
+                    var_name,
+                    (void *)var_type,
+                    var_type != NULL ? (int)LLVMGetTypeKind(var_type) : -1,
+                    (void *)pointee_type,
+                    pointee_type != NULL ? (int)LLVMGetTypeKind(pointee_type) : -1
+                );
+                add_symbol_with_struct(ctx, var_name, sym_val, struct_name, &symbol_data);
+            }
 
             // Process initializer if present
             if (initializer_expr_node != NULL)

@@ -98,26 +98,24 @@ specifiers_match(TypeSpecifier const * a, TypeSpecifier const * b)
 }
 
 TypeDescriptor const *
-get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const *element_type, size_t size)
+get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * element_type, size_t size)
 {
-    TypeDescriptor_private *curr = registry->head;
+    TypeDescriptor_private * curr = registry->head;
     while (curr)
     {
-        if (curr->public.kind == NCC_TYPE_KIND_ARRAY &&
-            curr->public.pointee == element_type &&
-            curr->public.array_size == size)
+        if (curr->public.kind == NCC_TYPE_KIND_ARRAY && curr->public.pointee == element_type
+            && curr->public.array_size == size)
         {
             return &curr->public;
         }
         curr = curr->next;
     }
 
-    TypeDescriptor template = {
-        .kind = NCC_TYPE_KIND_ARRAY,
-        .llvm_type = LLVMArrayType(element_type->llvm_type, (unsigned)size),
-        .pointee = element_type,
-        .array_size = size
-    };
+    TypeDescriptor template
+        = {.kind = NCC_TYPE_KIND_ARRAY,
+           .llvm_type = LLVMArrayType(element_type->llvm_type, (unsigned)size),
+           .pointee = element_type,
+           .array_size = size};
     return register_descriptor(registry, &template);
 }
 
@@ -396,14 +394,4 @@ get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier co
         curr = curr->next;
     }
     return NULL;
-}
-
-TypeDescriptor const *
-type_descriptor_get_pointee(TypeDescriptor const * desc)
-{
-    if (desc == NULL)
-    {
-        return NULL;
-    }
-    return desc->pointee;
 }
