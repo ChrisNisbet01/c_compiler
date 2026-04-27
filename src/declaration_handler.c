@@ -154,6 +154,12 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
         }
     }
 
+    if (params.count == 1 && params.types[0]->specifiers.is_void)
+    {
+        debug_info("%s: single parameter of type void - treating as no parameters", __func__);
+        params.count = 0;
+    }
+
     return params;
 }
 
