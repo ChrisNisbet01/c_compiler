@@ -218,7 +218,6 @@ UnaryExpression = UnaryExpressionPrefix | PostfixExpression;
 
 // Abstract declarators are used in type names (e.g., in casts)
 PointerPlus = Pointer+ @AST_ACTION_POINTER_LIST;
-DeclaratorSuffixPlus = DeclaratorSuffix+ @AST_ACTION_DECLARATOR_SUFFIX_LIST;
 AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixPlus @AST_ACTION_ABSTRACT_DECLARATOR;
 
 TypeName = SpecifierQualifierList AbstractDeclarator? @AST_ACTION_TYPE_NAME;
@@ -400,6 +399,7 @@ DeclaratorSuffix = (LBracket (TypeQualifierMany ArraySizeQualifier? Expression) 
                  | ParameterList @AST_ACTION_DECLARATOR_SUFFIX;
 
 DeclaratorSuffixList = DeclaratorSuffix* @AST_ACTION_DECLARATOR_SUFFIX_LIST;
+DeclaratorSuffixPlus = DeclaratorSuffix+ @AST_ACTION_DECLARATOR_SUFFIX_LIST;
 
 Declarator = PointerManyList DirectDeclarator DeclaratorSuffixList AttributeList @AST_ACTION_DECLARATOR;
 

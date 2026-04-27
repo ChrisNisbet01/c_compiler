@@ -1518,7 +1518,7 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
     }
 
     // Handle Abstract Declarator (used in type names, e.g., cast expressions)
-    if (declarator && declarator->type == AST_NODE_ABSTRACT_DECLARATOR)
+    if (declarator != NULL && declarator->type == AST_NODE_ABSTRACT_DECLARATOR)
     {
         debug_info("is abstract delcarator");
         // AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixList
