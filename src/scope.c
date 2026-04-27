@@ -484,83 +484,40 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
         entry->kind,
         entry->untagged_index
     );
+
+    type_info_t const * info = NULL;
+
     switch (entry->kind)
     {
     case TYPE_KIND_STRUCT:
-    {
         /* Look up the struct by tag name */
-        type_info_t * info = scope_find_tagged_struct(scope, entry->tag);
-        if (info != NULL)
-        {
-            return info->type_desc;
-        }
-        return NULL;
-    }
+        info = scope_find_tagged_struct(scope, entry->tag);
+        break;
     case TYPE_KIND_UNTAGGED_STRUCT:
-    {
-        type_info_t const * info = scope_find_untagged_struct(scope, entry->untagged_index);
-        /* Look up by untagged index */
-        if (info != NULL)
-        {
-            return info->type_desc;
-        }
-        return NULL;
-    }
+        info = scope_find_untagged_struct(scope, entry->untagged_index);
+        break;
     case TYPE_KIND_UNION:
-    {
         /* Look up the union by tag name */
-        type_info_t * info = scope_find_tagged_union(scope, entry->tag);
-        if (info != NULL)
-        {
-            return info->type_desc;
-        }
-        return NULL;
-    }
+        info = scope_find_tagged_union(scope, entry->tag);
+        break;
     case TYPE_KIND_UNTAGGED_UNION:
-    {
-        type_info_t const * info = scope_find_untagged_union(scope, entry->untagged_index);
-        /* Look up by untagged index */
-        if (info != NULL)
-        {
-            return info->type_desc;
-        }
-        return NULL;
-    }
+        info = scope_find_untagged_union(scope, entry->untagged_index);
+        break;
     case TYPE_KIND_ENUM:
-    {
-        /* Look up the enum by tag name */
-        type_info_t * info = scope_find_tagged_enum(scope, entry->tag);
-        if (info != NULL)
-        {
-            return info->type_desc;
-        }
-        return NULL;
-    }
+        info = scope_find_tagged_enum(scope, entry->tag);
+        break;
     case TYPE_KIND_UNTAGGED_ENUM:
-    {
-        /* For untagged enums, return the type directly if set on entry */
-        if (entry->type_desc != NULL)
-        {
-            return entry->type_desc;
-        }
-        /* Otherwise, look up the untagged type by index */
-        type_info_t const * info = scope_find_untagged_enum(scope, entry->untagged_index);
-        if (info != NULL)
-        {
-            return info->type_desc;
-        }
-        return NULL;
-    }
-    case TYPE_KIND_UNKNOWN:
+        info = scope_find_untagged_enum(scope, entry->untagged_index);
+        break;
+    case TYPE_KIND_BUILTIN:
+        debug_info("Typedef entry has unknown kind, returning direct type_desc.");
+        return entry->type_desc;
     default:
-        /* For other kinds, return the type directly */
-        if (entry->type_desc != NULL)
-        {
-            return entry->type_desc;
-        }
+        debug_error("%s: Unsupported typedef kind: %d", __func__, entry->kind);
+        return NULL;
     }
 
-    return NULL;
+    return info != NULL ? info->type_desc : NULL;
 }
 
 // --- Symbol management ---

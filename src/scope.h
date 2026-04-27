@@ -41,7 +41,7 @@ typedef struct struct_field
 // --- Type kind for tagged types and typedef entries ---
 typedef enum
 {
-    TYPE_KIND_UNKNOWN,         // Unassigned/unknown type kind
+    TYPE_KIND_BUILTIN,         // For typedefs that refer directly to builtin types (e.g., typedef int myint;)
     TYPE_KIND_STRUCT,          // Tagged struct
     TYPE_KIND_UNION,           // Tagged union
     TYPE_KIND_UNTAGGED_STRUCT, // Untagged struct (anonymous)

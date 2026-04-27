@@ -3388,7 +3388,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         for (size_t k = 0; k < spec_child->list.count; ++k)
                         {
                             c_grammar_node_t const * type_child = spec_child->list.children[k];
-                            type_kind_t kind = TYPE_KIND_UNKNOWN;
+                            type_kind_t kind = TYPE_KIND_BUILTIN;
                             if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
                             {
                                 kind = TYPE_KIND_STRUCT;
@@ -3397,32 +3397,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             {
                                 kind = TYPE_KIND_UNION;
                             }
-
-                            if (kind != TYPE_KIND_UNKNOWN)
+                            else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
                             {
-                                c_grammar_node_t const * tag_name_node = NULL;
-                                if (type_child->type == AST_NODE_STRUCT_TYPE_REF
-                                    || type_child->type == AST_NODE_UNION_TYPE_REF)
-                                {
-                                    tag_name_node = type_child->type_ref.identifier;
-                                }
+                                kind = TYPE_KIND_ENUM;
+                            }
 
-                                if (tag_name_node && tag_name_node->type == AST_NODE_IDENTIFIER)
+                            if (kind != TYPE_KIND_BUILTIN)
+                            {
+                                c_grammar_node_t const * tag_name_node = type_child->type_ref.identifier;
+
+                                if (tag_name_node != NULL && tag_name_node->type == AST_NODE_IDENTIFIER)
                                 {
                                     scope_add_typedef_forward_decl(
                                         ctx->current_scope, typedef_name, tag_name_node->text, kind
-                                    );
-                                    handled = true;
-                                    break;
-                                }
-                            }
-                            else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
-                            {
-                                c_grammar_node_t const * tag_name_node = type_child->type_ref.identifier;
-                                if (tag_name_node && tag_name_node->type == AST_NODE_IDENTIFIER)
-                                {
-                                    scope_add_typedef_forward_decl(
-                                        ctx->current_scope, typedef_name, tag_name_node->text, TYPE_KIND_ENUM
                                     );
                                     handled = true;
                                     break;
@@ -3499,7 +3486,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         scope_typedef_entry_t typedef_entry = {0};
                         typedef_entry.name = strdup(typedef_name);
                         typedef_entry.type_desc = type_desc;
-                        typedef_entry.kind = TYPE_KIND_UNKNOWN;
+                        typedef_entry.kind = TYPE_KIND_BUILTIN;
                         scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                     }
                 }
@@ -6019,17 +6006,6 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     {
     case UNARY_OP_ADDR:
     {
-        // For &identifier, return the pointer directly (don't load)
-        if (operand_node->type == AST_NODE_IDENTIFIER)
-        {
-            TypedValue var;
-            if (find_symbol(ctx, operand_node->text, &var))
-            {
-                var.is_lvalue = false;
-                return var;
-            }
-        }
-
         // For &compound_literal, we need to create a pointer to the temp
         // The compound literal code returns a loaded value, but we need the pointer
         if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
