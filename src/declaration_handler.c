@@ -6,10 +6,11 @@
 #include "type_utils.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static TypeDescriptor const * resolve_function_pointer_type(
-    ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * suffix
+    ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * param_list
 );
 
 static TypeDescriptor const *
@@ -151,64 +152,138 @@ resolve_type_descriptor(
     c_grammar_node_t const * direct_declarator = declarator->declarator.direct_declarator;
     c_grammar_node_t const * fn_ptr_declarator
         = direct_declarator->list.count > 0 ? direct_declarator->list.children[0] : NULL;
+    c_grammar_node_t const * param_list = search_parameters_list_in_declarator(declarator);
 
-    bool is_function = suffix_list->list.count > 0 && is_function_suffix(suffix_list->list.children[0]);
+    bool is_function = fn_ptr_declarator != NULL && fn_ptr_declarator->type == AST_NODE_FUNCTION_POINTER_DECLARATOR
+                       && param_list != NULL;
 
     if (is_function)
     {
-        for (size_t i = 0; i < suffix_list->list.count; i++)
-        {
-            c_grammar_node_t const * suffix = suffix_list->list.children[i];
-
-            current = resolve_function_pointer_type(ctx, current, suffix);
-        }
+        current = resolve_function_pointer_type(ctx, current, param_list);
     }
-    else
-    {
-        for (size_t i = suffix_list->list.count; i > 0; i--)
-        {
-            c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];
 
-            current = resolve_array_suffix(ctx, current, suffix);
-        }
+    for (size_t i = suffix_list->list.count; i > 0; i--)
+    {
+        c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];
+
+        current = resolve_array_suffix(ctx, current, suffix);
     }
 
     return current;
 }
 
+typedef struct
+{
+    size_t count;
+    bool is_variadic;
+    char const ** names;
+    TypeDescriptor const ** types;
+} parameter_definitions_t;
+
+static void
+parameter_definitions_cleanup(parameter_definitions_t * params)
+{
+    free(params->names);
+    free(params->types);
+}
+
+static bool
+parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t const * params_list_node)
+{
+    if (params_list_node == NULL || params_list_node->type != AST_NODE_PARAMETER_LIST)
+    {
+        debug_error("Invalid parameter list node");
+        return false;
+    }
+
+    size_t params_list_count = params_list_node->list.count;
+    if (params_list_count > 1 && params_list_node->list.children[params_list_count - 1]->type == AST_NODE_ELLIPSIS)
+    {
+        params_list_count--; /* Exclude ellipsis from count */
+    }
+
+    size_t count = params_list_count / 3;
+    params->count = count;
+    params->names = calloc(count, sizeof(*params->names));
+    params->types = calloc(count, sizeof(*params->types));
+
+    if (params->names == NULL || params->types == NULL)
+    {
+        debug_error("failed to init param definitions");
+        parameter_definitions_cleanup(params);
+        return false;
+    }
+
+    return true;
+}
+
+static parameter_definitions_t
+extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * params_list)
+{
+    debug_info("%s", __func__);
+    parameter_definitions_t params = {0};
+
+    if (params_list != NULL && params_list->list.count > 0)
+    {
+        // Each parameter typically has [KwExtension, TypeSpecifier, Declarator]
+        if (!parameter_definitions_init(&params, params_list))
+        {
+            ir_gen_error(&ctx->errors, "Memory error");
+            return params;
+        }
+
+        for (size_t i = 0; i < params.count; ++i)
+        {
+            c_grammar_node_t const * p_spec = params_list->list.children[i * 3 + 1];
+            c_grammar_node_t const * p_decl = params_list->list.children[i * 3 + 2];
+
+            params.types[i] = resolve_type_descriptor(ctx, p_spec, p_decl);
+
+            c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
+            if (p_direct != NULL && p_direct->list.count > 0)
+            {
+                c_grammar_node_t const * first_child = p_direct->list.children[0];
+                if (first_child->type == AST_NODE_IDENTIFIER)
+                {
+                    params.names[i] = first_child->text;
+                }
+                else if (first_child->type == AST_NODE_DECLARATOR)
+                {
+                    // Nested declarator (e.g., for function pointers like *name)
+                    // Find the DirectDeclarator inside and get the Identifier
+                    c_grammar_node_t const * nested_direct = first_child->declarator.direct_declarator;
+                    if (nested_direct && nested_direct->list.count > 0
+                        && nested_direct->list.children[0]->type == AST_NODE_IDENTIFIER)
+                    {
+                        params.names[i] = nested_direct->list.children[0]->text;
+                    }
+                }
+                else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                {
+                    // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
+                    char const * id = first_child->function_pointer_declarator.identifier->text;
+                    if (id != NULL)
+                    {
+                        params.names[i] = id;
+                    }
+                }
+            }
+        }
+    }
+
+    return params;
+}
+
 static TypeDescriptor const *
 resolve_function_pointer_type(
-    ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * suffix
+    ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * param_list
 )
 {
-    c_grammar_node_t const * param_list = extract_parameter_list(suffix);
-    if (param_list == NULL)
-    {
-        param_list = suffix;
-    }
+    parameter_definitions_t params = extract_function_parameters(ctx, param_list);
 
-    TypeDescriptor const * params[16] = {NULL};
-    size_t param_count = 0;
-    bool is_variadic = false;
-
-    for (size_t i = 0; i < param_list->list.count && param_count < 16; i++)
-    {
-        c_grammar_node_t const * param = param_list->list.children[i];
-        if (param->type == AST_NODE_ELLIPSIS)
-        {
-            is_variadic = true;
-            break;
-        }
-        else if (param->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-        {
-            params[param_count++] = resolve_type_descriptor(ctx, param, NULL);
-        }
-        else if (param->type == AST_NODE_DECLARATOR)
-        {
-            c_grammar_node_t const * decl_specs = param;
-            params[param_count++] = resolve_type_descriptor(ctx, decl_specs, NULL);
-        }
-    }
-
-    return get_or_create_function_type(ctx->type_descriptors, return_type, params, param_count, is_variadic);
+    TypeDescriptor const * res = get_or_create_function_type(
+        ctx->type_descriptors, return_type, params.types, params.count, params.is_variadic
+    );
+    parameter_definitions_cleanup(&params);
+    return res;
 }
