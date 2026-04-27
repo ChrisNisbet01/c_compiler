@@ -2794,7 +2794,7 @@ process_declarator(
                 if (1)
                 {
                     TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
-                    if (0 && type_desc != NULL)
+                    if (type_desc != NULL)
                     {
                         debug_info("DDDDDDD got type desc");
                         TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
@@ -3000,6 +3000,17 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         scope_pop(ctx);
         return;
     }
+#if 1
+    TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers_node, declarator_node);
+    if (type_desc != NULL)
+    {
+        debug_info("%s: got type desc for function definition", __func__);
+    }
+    else
+    {
+        debug_info("%s: failed to get type desc for function definition", __func__);
+    }
+#endif
 
     // --- Extract Function Name ---
     char const * func_name = NULL;
