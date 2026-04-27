@@ -2902,14 +2902,12 @@ process_declarator(
                         else
                         {
                             // Regular array or struct initializer
-                            int current_index = 0;
-                            process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                            process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, NULL);
                         }
                     }
                     else
                     {
-                        int current_index = 0;
-                        process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, &current_index);
+                        process_initializer_list(ctx, alloca_inst, var_type, initializer_expr_node, NULL);
                     }
                 }
                 else
@@ -6004,8 +6002,7 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     // Initialize using the initializer list
     if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
     {
-        int current_index = 0;
-        process_initializer_list(ctx, alloca_inst, compound_type_desc->llvm_type, init_list_node, &current_index);
+        process_initializer_list(ctx, alloca_inst, compound_type_desc->llvm_type, init_list_node, NULL);
     }
 
     return (TypedValue){
