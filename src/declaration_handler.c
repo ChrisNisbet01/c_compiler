@@ -111,6 +111,13 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
                 i,
                 LLVMGetTypeKind(params.types[i]->llvm_type)
             );
+            if (LLVMGetTypeKind(params.types[i]->llvm_type) == LLVMFunctionTypeKind)
+            {
+                debug_info("%s: parameter %zu is a function type - converting to pointer type", __func__, i);
+                params.types[i]
+                    = get_or_create_pointer_type(ctx->type_descriptors, params.types[i], (TypeQualifier){0});
+            }
+
             if (p_decl != NULL)
             {
                 c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
@@ -181,9 +188,29 @@ resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_ty
         if (child->type == AST_NODE_INTEGER_LITERAL)
         {
             size = (size_t)child->integer_lit.integer_literal.value;
+            break;
         }
     }
     return get_or_create_array_type(ctx->type_descriptors, element_type, size);
+}
+
+static c_grammar_node_t const *
+search_function_pointer_declarator(c_grammar_node_t const * node)
+{
+    if (node == NULL)
+    {
+        return NULL;
+    }
+    for (size_t i = 0; i < node->list.count; i++)
+    {
+        c_grammar_node_t const * child = node->list.children[i];
+        if (child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+        {
+            return child;
+        }
+    }
+
+    return NULL;
 }
 
 TypeDescriptor const *
@@ -305,14 +332,31 @@ resolve_type_descriptor(
         current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
     }
 
-    c_grammar_node_t const * suffix_list = declarator->declarator.declarator_suffix_list;
-    c_grammar_node_t const * direct_declarator = declarator->declarator.direct_declarator;
     c_grammar_node_t const * param_list = search_parameters_list_in_declarator(declarator);
     bool is_function = param_list != NULL;
+    c_grammar_node_t const * suffix_list = declarator->declarator.declarator_suffix_list;
 
     if (is_function)
     {
         current = resolve_function_pointer_type(ctx, current, param_list);
+
+        /* Now handle any function pointer array suffixes. */
+        c_grammar_node_t const * direct_declarator = declarator->declarator.direct_declarator;
+        c_grammar_node_t const * func_pointer_declaration = search_function_pointer_declarator(direct_declarator);
+        if (func_pointer_declaration != NULL)
+        {
+            c_grammar_node_t const * fp_suffix_list
+                = func_pointer_declaration->function_pointer_declarator.declarator_suffix_list;
+            debug_info(
+                "%s: found function pointer declarator, have %d array suffixes", __func__, fp_suffix_list->list.count
+            );
+            for (size_t i = fp_suffix_list->list.count; i > 0; i--)
+            {
+                c_grammar_node_t const * suffix = fp_suffix_list->list.children[i - 1];
+
+                current = resolve_array_suffix(ctx, current, suffix);
+            }
+        }
     }
     else
     {

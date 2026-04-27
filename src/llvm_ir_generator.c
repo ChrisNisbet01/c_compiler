@@ -3099,6 +3099,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             "Adding new function '%s' to module type signature: %d", func_name, LLVMGetTypeKind(type_desc->llvm_type)
         );
         func = LLVMAddFunction(ctx->module, func_name, type_desc->llvm_type);
+        debug_info("Added function");
     }
 
     // Create a basic block for the function's entry point.
@@ -3115,14 +3116,21 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
 
     // --- Handle function parameters: allocate space and store arguments ---
+    debug_info("Processing %u function parameters for '%s'", type_desc->function_metadata.param_count, func_name);
     for (size_t i = 0; i < type_desc->function_metadata.param_count; ++i)
     {
         char const * p_name = type_desc->function_metadata.names[i];
         TypeDescriptor const * p_type_desc = type_desc->function_metadata.params[i];
+        debug_info("Processing parameter %zu name: %s type desc %p", i, p_name, (void *)p_type_desc);
         LLVMTypeRef p_type = p_type_desc->llvm_type;
+        debug_info("llvm type %p", (void *)p_type);
+        debug_info("llvm type kind %d", LLVMGetTypeKind(p_type));
         LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
+        debug_info("1");
         LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, p_type, p_name != NULL ? p_name : "");
+        debug_info("2");
         aligned_store(ctx, ctx->builder, param_val, p_type, alloca_inst);
+        debug_info("3");
 
         if (p_name != NULL)
         {
@@ -3133,8 +3141,9 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             // the symbol table can now just check p_type->kind
             add_symbol(ctx, p_name, p_val, NULL);
         }
+        debug_info("Processed parameter %zu", i);
     }
-
+    debug_info("processed parameters");
     // Process the compound statement (function body).
     process_ast_node(ctx, compound_stmt_node);
     if (ctx->errors.fatal)
