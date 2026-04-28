@@ -381,6 +381,8 @@ type_info_t * scope_lookup_untagged_entry_by_index(scope_t const * scope, int in
  */
 scope_typedef_entry_t * scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name);
 
+type_kind_t scope_lookup_kind_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc);
+
 // --- Function declaration tracking ---
 
 /**

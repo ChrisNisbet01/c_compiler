@@ -267,8 +267,11 @@ builtins_init(TypeDescriptors * registry)
     for (int i = 0; i < 2; i++)
     {
         spec.is_int = i;
-        spec.long_count = 0;
-        get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+        if (i > 0)
+        {
+            spec.long_count = 0;
+            get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
+        }
         spec.long_count = 1;
         get_or_create_builtin_type(registry, spec, (TypeQualifier){0});
         spec.long_count = 2;
@@ -533,7 +536,7 @@ TypeDescriptor const *
 type_descriptor_get_int8_type(TypeDescriptors * registry, bool const_qualified)
 {
     return get_or_create_builtin_type(
-        registry, (TypeSpecifier){.is_unsigned = true, .is_char = true}, (TypeQualifier){.is_const = const_qualified}
+        registry, (TypeSpecifier){.is_char = true}, (TypeQualifier){.is_const = const_qualified}
     );
 }
 

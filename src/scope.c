@@ -418,7 +418,17 @@ scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const *
 void
 scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 {
-    debug_info("Adding typedef entry: name='%s', tag='%s', kind=%d", entry.name, entry.tag, entry.kind);
+    debug_info(
+        "Adding typedef entry:\n\tname='%s'\n\ttag='%s'\n\tkind=%d\n\tllvm_type: %d\n\tpointee type: %d",
+        entry.name,
+        entry.tag,
+        entry.kind,
+        entry.type_desc != NULL ? (int)LLVMGetTypeKind(entry.type_desc->llvm_type) : -1,
+        entry.type_desc != NULL && entry.type_desc->pointee != NULL
+            ? (int)LLVMGetTypeKind(entry.type_desc->pointee->llvm_type)
+            : -1
+    );
+    ;
     if (scope == NULL)
     {
         return;
@@ -465,6 +475,50 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
         scope = scope->parent;
     }
     return NULL;
+}
+
+type_kind_t
+scope_lookup_kind_by_type_descriptor(scope_t const * scope_in, TypeDescriptor const * type_desc)
+{
+    scope_t const * scope = scope_in;
+
+    while (scope != NULL && type_desc != NULL)
+    {
+        for (size_t i = 0; i < scope->typedefs.count; ++i)
+        {
+            scope_typedef_entry_t * entry = &scope->typedefs.entries[i];
+            if (type_desc == entry->type_desc)
+            {
+                return entry->kind;
+            }
+        }
+
+        for (size_t i = 0; i < scope->tagged_types.count; ++i)
+        {
+            type_info_t * entry = &scope->tagged_types.entries[i];
+            debug_info("%s: Checking tagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
+            if (entry->type_desc == type_desc)
+            {
+                debug_info("%s: Found match in tagged_types.", __func__);
+                return entry->kind;
+            }
+        }
+
+        for (size_t i = 0; i < scope->untagged_types.count; ++i)
+        {
+            type_info_t * entry = &scope->untagged_types.entries[i];
+            debug_info("%s: Checking untagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
+            if (entry->type_desc == type_desc)
+            {
+                debug_info("%s: Found match in untagged_types.", __func__);
+                return entry->kind;
+            }
+        }
+
+        scope = scope->parent;
+    }
+
+    return TYPE_KIND_BUILTIN;
 }
 
 TypeDescriptor const *

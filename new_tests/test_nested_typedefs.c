@@ -5,5 +5,8 @@ typedef __int8_t * CharPtr;
 int
 main()
 {
-    return 0;
+    __int8_t c = 5;
+    CharPtr pc = &c;
+
+    return *pc - 5;
 }

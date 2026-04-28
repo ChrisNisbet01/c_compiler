@@ -374,6 +374,7 @@ resolve_type_descriptor(
 
     if (declarator == NULL)
     {
+        debug_info("%s: no declarator provided, returning type descriptor", __func__);
         return current;
     }
 

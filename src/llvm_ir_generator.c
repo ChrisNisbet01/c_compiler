@@ -2560,6 +2560,22 @@ process_declarator(
 {
     debug_info("%s", __func__);
 
+    TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
+    if (type_desc != NULL)
+    {
+        debug_info(
+            "%s: got type desc: type %d pointee type: %d",
+            __func__,
+            (int)LLVMGetTypeKind(type_desc->llvm_type),
+            (type_desc->pointee != NULL && type_desc->pointee->llvm_type != NULL)
+                ? (int)LLVMGetTypeKind(type_desc->pointee->llvm_type)
+                : -1
+        );
+    }
+    else
+    {
+        debug_info("%s: no type desc found", __func__);
+    }
     c_grammar_node_t const * initializer_expr_node = NULL;
     if (init_decl_initializer != NULL && init_decl_initializer->list.count > 0)
     {
@@ -2748,7 +2764,6 @@ process_declarator(
                  * Eventually, resolve_type_descriptor should always succeed and the code within the
                  * if (!added_using_type_descriptor) condition can be removed.
                  */
-                TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
 
                 if (type_desc != NULL)
                 {
@@ -2764,19 +2779,27 @@ process_declarator(
                     print_ast(decl_specifiers);
                 }
 
-                debug_info("computing pointee type decl specs: %p", decl_specifiers);
-                // Get the base type from specifiers
-                pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
-                // If there's a declarator with pointers, this is the pointee type
-                dump_llvm_type("Node declaration pointee type", pointee_type);
-                if (pointee_type != NULL && declarator_node != NULL)
+                if (type_desc != NULL)
                 {
-                    // Check if there are pointers in the declarator
-                    bool has_pointer = declarator_node->declarator.pointer_list->list.count > 0;
-                    if (!has_pointer)
+                    debug_info("using type descriptor for to provide pointee");
+                    pointee_type = type_desc->pointee != NULL ? type_desc->pointee->llvm_type : NULL;
+                }
+                else
+                {
+                    debug_info("computing pointee type decl specs: %p", decl_specifiers);
+                    // Get the base type from specifiers
+                    pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
+                    // If there's a declarator with pointers, this is the pointee type
+                    dump_llvm_type("Node declaration pointee type", pointee_type);
+                    if (pointee_type != NULL && declarator_node != NULL)
                     {
-                        debug_info("no pointee type");
-                        pointee_type = NULL;
+                        // Check if there are pointers in the declarator
+                        bool has_pointer = declarator_node->declarator.pointer_list->list.count > 0;
+                        if (!has_pointer)
+                        {
+                            debug_info("no pointee type");
+                            pointee_type = NULL;
+                        }
                     }
                 }
             }
@@ -3348,6 +3371,17 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
             /* TypedefInitDeclarator -> TypedefDeclarator -> Identifier (via find_typedef_name_node) */
             c_grammar_node_t const * typedef_decl = typedef_init_decl->init_declarator.declarator;
+
+            TypeDescriptor const * typedef_type_desc = resolve_type_descriptor(ctx, decl_specs, typedef_decl);
+            if (typedef_type_desc != NULL)
+            {
+                debug_info("%s: Got type desc for typedef", __func__);
+            }
+            else
+            {
+                debug_info("%s: Failed to get type desc for typedef", __func__);
+            }
+
             c_grammar_node_t const * name_node = find_typedef_name_node(typedef_decl);
 
             if (name_node != NULL && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
@@ -3356,12 +3390,14 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 debug_info("Typedef: name='%s'", typedef_name);
 
                 bool handled = false;
-                if (existing_typedef_info != NULL)
+                if (typedef_type_desc != NULL)
                 {
+                    type_kind_t kind = scope_lookup_kind_by_type_descriptor(ctx->current_scope, typedef_type_desc);
+                    debug_info("%s existing info: %p", __func__, (void *)existing_typedef_info);
                     scope_typedef_entry_t typedef_entry = {
-                        .kind = existing_typedef_info->kind,
+                        .kind = kind,
                         .name = strdup(typedef_name),
-                        .type_desc = existing_typedef_info->type_desc,
+                        .type_desc = typedef_type_desc,
                     };
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                     handled = true;
