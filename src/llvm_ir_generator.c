@@ -2580,6 +2580,7 @@ process_declarator(
 )
 {
     debug_info("%s", __func__);
+
     c_grammar_node_t const * initializer_expr_node = NULL;
     if (init_decl_initializer != NULL && init_decl_initializer->list.count > 0)
     {
@@ -2764,22 +2765,24 @@ process_declarator(
             }
             else if (decl_specifiers != NULL)
             {
-                if (1)
+                /*
+                 * Eventually, resolve_type_descriptor should always succeed and the code within the
+                 * if (!added_using_type_descriptor) condition can be removed.
+                 */
+                TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
+
+				if (type_desc != NULL)
                 {
-                    TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
-                    if (type_desc != NULL)
-                    {
-                        debug_info("DDDDDDD got type desc");
-                        TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
-                        debug_info("%s: adding symbol %s type using type descriptor", __func__, var_name);
-                        add_symbol_with_struct(ctx, var_name, sym_val, struct_name, NULL);
-                        added_using_type_descriptor = true;
-                    }
-                    else
-                    {
-                        debug_info("DDDDDDD failed to get type desc");
-                        print_ast(decl_specifiers);
-                    }
+                    debug_info("DDDDDDD got type desc");
+                    TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
+                    debug_info("%s: adding symbol %s type using type descriptor", __func__, var_name);
+                    add_symbol_with_struct(ctx, var_name, sym_val, struct_name, NULL);
+                    added_using_type_descriptor = true;
+                }
+                else
+                {
+                    debug_info("DDDDDDD failed to get type desc");
+                    print_ast(decl_specifiers);
                 }
 
                 debug_info("computing pointee type decl specs: %p", decl_specifiers);
@@ -3404,20 +3407,23 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     scope_typedef_entry_t typedef_entry = {0};
                     typedef_entry.name = strdup(typedef_name);
 
+                    type_info_t const * type_info;
+
                     if (struct_tag != NULL)
                     {
                         kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-                        register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
+                        type_info = register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
                         typedef_entry.tag = strdup(struct_tag);
                     }
                     else
                     {
                         kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
                                                                                    : TYPE_KIND_UNTAGGED_UNION;
-                        register_untagged_struct_or_union_definition(
+                        type_info = register_untagged_struct_or_union_definition(
                             ctx, struct_def_node, kind, &typedef_entry.untagged_index
                         );
                     }
+                    typedef_entry.type_desc = type_info->type_desc;
                     typedef_entry.kind = kind;
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }
@@ -3428,18 +3434,21 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     scope_typedef_entry_t typedef_entry = {0};
                     typedef_entry.name = strdup(typedef_name);
 
+                    type_info_t const * type_info;
+
                     if (enum_tag != NULL)
                     {
                         typedef_entry.kind = TYPE_KIND_ENUM;
-                        register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
                         typedef_entry.tag = strdup(enum_tag);
+                        type_info = register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
                     }
                     else
                     {
                         typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
-                        register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
-                        typedef_entry.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
+                        type_info
+                            = register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
                     }
+                    typedef_entry.type_desc = type_info->type_desc;
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }
                 else
@@ -3458,6 +3467,11 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         typedef_entry.type_desc = type_desc;
                         typedef_entry.kind = TYPE_KIND_BUILTIN;
                         scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                    }
+                    else
+                    {
+                        debug_info("Failed to resolve type for typedef '%s'", typedef_name);
+                        print_ast(decl_specs);
                     }
                 }
             }

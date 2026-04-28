@@ -84,6 +84,10 @@ find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
     {
         info = scope_find_tagged_union(ctx->current_scope, name);
     }
+    if (info == NULL)
+    {
+        info = scope_find_tagged_enum(ctx->current_scope, name);
+    }
     return info ? info->type_desc->llvm_type : NULL;
 }
 

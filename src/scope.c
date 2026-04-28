@@ -409,7 +409,7 @@ scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const *
         scope = scope->parent;
     }
 
-    debug_info("%s: Type %d not found in any scope.", __func__, LLVMGetTypeKind(type_desc->llvm_type));
+    debug_info("%s: Type descriptor %d not found in any scope.", __func__, LLVMGetTypeKind(type_desc->llvm_type));
     return NULL;
 }
 
@@ -484,6 +484,11 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
         entry->kind,
         entry->untagged_index
     );
+
+    if (entry->type_desc != NULL)
+    {
+        return entry->type_desc;
+    }
 
     type_info_t const * info = NULL;
 

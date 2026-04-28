@@ -236,6 +236,20 @@ resolve_type_descriptor(
         return NULL;
     }
 
+    if (specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST && specifiers->list.count == 1)
+    {
+        c_grammar_node_t const * child = specifiers->list.children[0];
+        if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+        {
+            specifiers = child->typedef_specifier_qualifier.typedef_specifier;
+            if (specifiers == NULL)
+            {
+                debug_info("%s: no specifiers provided, cannot resolve type descriptor", __func__);
+                return NULL;
+            }
+        }
+    }
+
     c_grammar_node_t const * type_spec_list = NULL;
     c_grammar_node_t const * type_qual_list = NULL;
     TypeSpecifierValidationResult validation_result = {0};
@@ -283,9 +297,13 @@ resolve_type_descriptor(
             {
                 current = register_struct_definition(ctx, inner)->type_desc;
             }
-            else if (inner->type == AST_NODE_STRUCT_TYPE_REF || inner->type == AST_NODE_UNION_TYPE_REF)
+            else if (
+                inner->type == AST_NODE_STRUCT_TYPE_REF || inner->type == AST_NODE_UNION_TYPE_REF
+                || inner->type == AST_NODE_ENUM_TYPE_REF
+            )
             {
                 char const * tag = extract_struct_or_union_or_enum_tag(inner);
+                debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
                 if (tag != NULL)
                 {
                     current = find_type_descriptor_by_tag(ctx, tag);

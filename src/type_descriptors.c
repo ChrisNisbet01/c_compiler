@@ -146,15 +146,17 @@ get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * po
 }
 
 TypeDescriptor const *
-get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals)
+get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs_in, TypeQualifier const quals)
 {
+    TypeSpecifier specs = specs_in;
+
     debug_info("%s", __func__);
     TypeDescriptor_private * curr = registry->head;
 
     if (memcmp(&specs, &(TypeSpecifier){0}, sizeof(specs)) == 0)
     {
-        debug_info("%s: No specifiers provided.", __func__);
-        return NULL;
+        debug_info("%s: No specifiers provided. Defaulting to int", __func__);
+        specs.is_int = true;
     }
 
     while (curr)
