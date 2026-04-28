@@ -1057,20 +1057,6 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     return NULL;
 }
 
-static TypedValue
-get_type_from_type_specifier(ir_generator_ctx_t * ctx, TypeSpecifier const spec)
-{
-    debug_info("%s", __func__);
-    TypeDescriptor const * type_desc = get_or_create_builtin_type(ctx->type_descriptors, spec, (TypeQualifier){0});
-
-    if (type_desc == NULL)
-    {
-        debug_info("Failed to get type descriptor from specifier");
-    }
-
-    return create_typed_value(NULL, type_desc, false);
-}
-
 static LLVMTypeRef
 get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
 {
@@ -1291,11 +1277,12 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
                 if (!is_struct_or_union_or_enum)
                 {
                     TypeSpecifier type_spec = build_type_specifiers(specifier_list);
-                    TypedValue type_data = get_type_from_type_specifier(ctx, type_spec);
-                    if (type_data.type != NULL)
+                    TypeDescriptor const * type_desc
+                        = get_or_create_builtin_type(ctx->type_descriptors, type_spec, (TypeQualifier){0});
+                    if (type_desc != NULL && type_desc->llvm_type != NULL)
                     {
-                        debug_info("and got type kind: %d", LLVMGetTypeKind(type_data.type));
-                        base_type = type_data.type;
+                        debug_info("and got type kind: %d", LLVMGetTypeKind(type_desc->llvm_type));
+                        base_type = type_desc->llvm_type;
                     }
                 }
 
@@ -2035,8 +2022,8 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     type_info_t enum_info = {0};
 
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
-    enum_info.type_desc
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+    // Enums are typically represented as int, but this can be improved to use the smallest type that fits the values
+    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -2059,8 +2046,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     type_info_t enum_info = {0};
 
     enum_info.kind = TYPE_KIND_ENUM;
-    enum_info.type_desc
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
     enum_info.tag = strdup(tag);
@@ -2163,9 +2149,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
             = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
 
-        TypeSpecifier char_spec = {.is_char = true};
-        TypeQualifier char_qual = {.is_const = true};
-        TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, char_qual);
+        TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
         TypedValue val = create_typed_value(ptr, arr_desc, false);
         add_symbol(ctx, "__FILE__", val, NULL);
@@ -2178,9 +2162,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         LLVMValueRef null_const = LLVMConstPointerNull(null_type);
         LLVMSetGlobalConstant(null_const, true);
 
-        TypeSpecifier void_spec = {.is_void = true};
-        TypeQualifier void_qual = {.is_const = true};
-        TypeDescriptor const * void_desc = get_or_create_builtin_type(ctx->type_descriptors, void_spec, void_qual);
+        TypeDescriptor const * void_desc = type_descriptor_get_void_type(ctx->type_descriptors);
         TypeDescriptor const * ptr_desc
             = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
         TypedValue null_val = create_typed_value(null_const, ptr_desc, false);
@@ -2335,9 +2317,7 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
         = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
 
-    TypeSpecifier char_spec = {0};
-    char_spec.is_char = true;
-    TypeDescriptor const * char_desc = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+    TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
     TypeDescriptor const * farr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, flen + 1);
     TypedValue fval = create_typed_value(fptr, farr_desc, false);
     add_symbol(ctx, "__FUNC__", fval, NULL);
@@ -2346,11 +2326,7 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
 
     // __LINE__ as integer constant 0 (i32)
     LLVMValueRef line_const = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-    TypeSpecifier int_spec = {0};
-    int_spec.is_int = true;
-    int_spec.long_count = 0;
-    int_spec.is_unsigned = true;
-    TypeDescriptor const * i32_desc = get_or_create_builtin_type(ctx->type_descriptors, int_spec, (TypeQualifier){0});
+    TypeDescriptor const * i32_desc = type_descriptor_get_uint32_type(ctx->type_descriptors, true);
     TypedValue lval = create_typed_value(line_const, i32_desc, false);
     add_symbol(ctx, "__LINE__", lval, NULL);
 }
@@ -2420,9 +2396,8 @@ create_global_variable(
         symbol_data_t data = {
             .function_signature = function_signature,
         };
-        TypeSpecifier char_spec = {.is_char = true};
-        TypeDescriptor const * char_desc
-            = get_or_create_builtin_type(ctx->type_descriptors, char_spec, (TypeQualifier){0});
+
+        TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, is_const);
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, str_len + 1);
         TypedValue val = create_typed_value(global_var, arr_desc, true);
         add_symbol(ctx, var_name, val, &data);
@@ -3463,9 +3438,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     {
                         typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
                         register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
-                        typedef_entry.type_desc = get_or_create_builtin_type(
-                            ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
-                        );
+                        typedef_entry.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
                     }
                     scope_add_typedef_entry(ctx->current_scope, typedef_entry);
                 }
@@ -6095,10 +6068,8 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // 1. Comparison produces an i1 (1-bit integer)
         LLVMValueRef zero = LLVMConstNull(operand_res.type);
         LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, zero, "is_zero_tmp");
+        TypeDescriptor const * bool_desc = type_descriptor_get_bool_type(ctx->type_descriptors, false);
 
-        TypeSpecifier const type_spec = {.is_bool = true};
-        TypeDescriptor const * bool_desc
-            = get_or_create_builtin_type(ctx->type_descriptors, type_spec, (TypeQualifier){0});
         return create_typed_value(is_zero, bool_desc, false);
     }
 
@@ -6226,9 +6197,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
         debug_info("unary operator getting size of type: %p", target_type);
         uint64_t sizeof_type_bytes = get_type_size(ctx, target_type);
-        TypeDescriptor const * sizeof_desc = get_or_create_builtin_type(
-            ctx->type_descriptors, (TypeSpecifier){.is_unsigned = true, .long_count = 2}, (TypeQualifier){0}
-        );
+        TypeDescriptor const * sizeof_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(sizeof_desc->llvm_type, sizeof_type_bytes, false);
 
         return create_typed_value(val, sizeof_desc, false);
@@ -6283,9 +6252,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
         debug_info("unary operator getting alignment of type: %p", target_type);
         uint64_t alignment = get_type_alignment(ctx, target_type);
-        TypeDescriptor const * alignment_desc = get_or_create_builtin_type(
-            ctx->type_descriptors, (TypeSpecifier){.is_unsigned = true, .long_count = 2}, (TypeQualifier){0}
-        );
+        TypeDescriptor const * alignment_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(alignment_desc->llvm_type, alignment, false);
 
         return create_typed_value(val, alignment_desc, false);

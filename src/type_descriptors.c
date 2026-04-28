@@ -186,13 +186,18 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
     }
     else if (specs.long_count > 1)
         llvm_type = registry->builtins.i64_type;
+    else if (specs.is_int)
+        llvm_type = registry->builtins.i32_type;
     else if (specs.is_short)
         llvm_type = registry->builtins.i16_type;
     else if (specs.is_char)
         llvm_type = registry->builtins.i8_type;
     else if (specs.is_bool)
         llvm_type = registry->builtins.i1_type;
-    else                                         // TODO: Determine if long should be i64 or i32 depending on ?
+    else if (specs.is_unsigned)
+        llvm_type = registry->builtins.i32_type; // Unsigned int is still i32 in LLVM, the signedness is in the
+                                                 // operations, not the type itself
+    else // TODO: Determine if long should be i64 or i32 depending on architecture
         llvm_type = registry->builtins.i32_type; // Default int / long
 
     TypeDescriptor template = {
@@ -446,6 +451,9 @@ create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_typ
 
     LLVMTypeKind kind = LLVMGetTypeKind(llvm_type);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-enum"
+
     switch (kind)
     {
     case LLVMIntegerTypeKind:
@@ -473,6 +481,70 @@ create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_typ
         break;
     }
 
+#pragma GCC diagnostic pop
+
     // Register it so we don't create duplicates for the same orphan type
     return register_descriptor(registry, &template);
+}
+
+TypeDescriptor const *
+type_descriptor_get_uint64_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.is_unsigned = true, .long_count = 2}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_uint32_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.is_unsigned = true}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_uint8_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.is_unsigned = true, .is_char = true}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_int64_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.long_count = 2}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_int32_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.is_int = true}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_int8_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.is_unsigned = true, .is_char = true}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_bool_type(TypeDescriptors * registry, bool const_qualified)
+{
+    return get_or_create_builtin_type(
+        registry, (TypeSpecifier){.is_bool = true}, (TypeQualifier){.is_const = const_qualified}
+    );
+}
+
+TypeDescriptor const *
+type_descriptor_get_void_type(TypeDescriptors * registry)
+{
+    return get_or_create_builtin_type(registry, (TypeSpecifier){.is_void = true}, (TypeQualifier){0});
 }

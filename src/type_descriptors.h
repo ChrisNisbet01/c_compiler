@@ -82,3 +82,19 @@ TypeDescriptor const *
 create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_type, char const * func, int line);
 #define create_fallback_descriptor(registry, llvm_type)                                                                \
     create_fallback_descriptor_impl(registry, llvm_type, __func__, __LINE__)
+
+TypeDescriptor const * type_descriptor_get_uint64_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_uint32_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_uint8_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_int64_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_int32_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_int8_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_bool_type(TypeDescriptors * registry, bool const_qualified);
+
+TypeDescriptor const * type_descriptor_get_void_type(TypeDescriptors * registry);
