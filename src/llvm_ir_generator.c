@@ -6023,18 +6023,9 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
             if (base_desc == NULL)
             {
-                debug_info("No type descriptor found for compound literal, attempting fallback");
-                // Fallback: If we don't have a descriptor, try to find one
-                // that matches the current LLVM type.
-                base_desc = find_descriptor_by_llvm_type(ctx->type_descriptors, v.type);
-
-                // If still NULL (e.g., an anonymous struct not yet in registry),
-                // you might need to create a "temporary" or "stub" descriptor
-                // to avoid breaking the rest of the chain.
-                if (base_desc == NULL)
-                {
-                    base_desc = create_fallback_descriptor(ctx->type_descriptors, v.type);
-                }
+                ir_gen_error(&ctx->errors, "No type information found for compound literal");
+                debug_error("No type descriptor found for compound literal, attempting fallback");
+                return NullTypedValue;
             }
             v = create_typed_value(
                 v.value, get_or_create_pointer_type(ctx->type_descriptors, base_desc, (TypeQualifier){0}), false
