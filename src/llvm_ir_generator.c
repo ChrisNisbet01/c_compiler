@@ -173,7 +173,7 @@ extract_pointer_qualifiers(
     }
 }
 
-static unsigned long long
+static uint64_t
 get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
 {
     if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
@@ -187,30 +187,27 @@ get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
 
     // 2. Query the Preferred (or ABI) alignment directly as a number
     // LLVMABIAlignmentOfType returns the actual unsigned int you want.
-    unsigned alignment = LLVMABIAlignmentOfType(data_layout, type);
+    uint64_t alignment = LLVMABIAlignmentOfType(data_layout, type);
 
     debug_info("Type kind %u has alignment: %u", LLVMGetTypeKind(type), alignment);
 
-    return (unsigned long long)alignment;
+    return alignment;
 }
 
 // Helper function to get size in bytes for a type
-static TypedValue
+static uint64_t
 get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
 {
     if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
     {
-        return (TypedValue){.value = LLVMConstInt(ctx->ref_type.i64_type, 0, false), .type = ctx->ref_type.i64_type};
+        return 0;
     }
 
     // Get the size in bytes as a standard C integer
     LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
-    unsigned size_in_bytes = LLVMABISizeOfType(data_layout, type);
-    debug_info("type size: %u", size_in_bytes);
-    return (TypedValue){
-        .value = LLVMConstInt(ctx->ref_type.i64_type, size_in_bytes, false),
-        .type = ctx->ref_type.i64_type,
-    };
+    uint64_t size_in_bytes = LLVMABISizeOfType(data_layout, type);
+    debug_info("type size: %llu", size_in_bytes);
+    return size_in_bytes;
 }
 
 // Helper wrapper for LLVMBuildStore with proper alignment
@@ -6093,44 +6090,25 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_NOT:
     {
         TypedValue operand_res = process_expression(ctx, operand_node);
-        if (operand_res.value == NULL || operand_res.type == NULL)
-        {
-            ir_gen_error(&ctx->errors, "Operand processing failed for unary NOT");
-            return NullTypedValue;
-        }
         operand_res = ensure_rvalue(ctx, "un_not_rval", operand_res);
 
         // 1. Comparison produces an i1 (1-bit integer)
         LLVMValueRef zero = LLVMConstNull(operand_res.type);
         LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, zero, "is_zero_tmp");
 
-#if 0
-        // 2. Cast that i1 back to your standard integer type (e.g., i32)
-        // This turns a 'true' into 1 and 'false' into 0
-        LLVMValueRef result_val = LLVMBuildZExt(ctx->builder, is_zero, ctx->ref_type.i32_type, "not_cast");
-
-        return (TypedValue){
-            .value = result_val,
-            .type = ctx->ref_type.i32_type, // It's definitely an int now
-        };
-#else
-        return (TypedValue){
-            .value = is_zero,
-            .type = ctx->ref_type.i1_type,
-        };
-#endif
+        TypeSpecifier const type_spec = {.is_bool = true};
+        TypeDescriptor const * bool_desc
+            = get_or_create_builtin_type(ctx->type_descriptors, type_spec, (TypeQualifier){0});
+        return create_typed_value(is_zero, bool_desc, false);
     }
 
     case UNARY_OP_BITNOT:
     {
         TypedValue operand_res = process_expression(ctx, operand_node);
         operand_res = ensure_rvalue(ctx, "bit_not_rval", operand_res);
-        if (operand_res.value == NULL)
-        {
-            return operand_res;
-        }
+
         operand_res.value = LLVMBuildNot(ctx->builder, operand_res.value, "bitnot_tmp");
-        operand_res.is_lvalue = true;
+        operand_res.is_lvalue = false;
         return operand_res;
     }
 
@@ -6236,89 +6214,24 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 }
             }
         }
-        // Check if operand is a type specifier (e.g., sizeof(int))
-        else if (operand_node->type == AST_NODE_TYPE_SPECIFIER)
-        {
-            if (operand_node->text != NULL)
-            {
-                char const * type_name = operand_node->text;
-                target_type = get_type_from_name(ctx, type_name);
-            }
-            else
-            {
-                // Non-terminal type specifier - use map_type
-                target_type = map_type_to_llvm_t(ctx, operand_node, NULL);
-            }
-        }
-        else if (operand_node->type == AST_NODE_TYPEDEF_SPECIFIER)
-        {
-            char const * type_name = extract_typedef_name(operand_node);
-
-            if (type_name != NULL)
-            {
-                TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, type_name);
-                if (typedef_type_desc != NULL && typedef_type_desc->llvm_type != NULL)
-                {
-                    target_type = typedef_type_desc->llvm_type;
-                }
-            }
-        }
-        else if (operand_node->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-        {
-            target_type = map_type_to_llvm_t(ctx, operand_node, NULL);
-        }
-        // Check if operand is an identifier (e.g., sizeof(x) or sizeof(arr))
-        else if (operand_node->type == AST_NODE_IDENTIFIER)
-        {
-            char const * var_name = operand_node->text;
-            TypedValue var;
-            if (find_symbol(ctx, var_name, &var))
-            {
-                target_type = var.type;
-            }
-        }
-        // Otherwise, try processing as expression (for things like sizeof(*ptr))
         else
         {
-            // Handle dereference specially: sizeof(*ptr) should give sizeof of pointee type
-            if (operand_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX
-                && operand_node->unary_expression_prefix.op->op.unary.op == UNARY_OP_DEREF)
-            {
-                c_grammar_node_t const * deref_operand = operand_node->unary_expression_prefix.operand;
-                if (deref_operand && deref_operand->type == AST_NODE_IDENTIFIER)
-                {
-                    char const * var_name = deref_operand->text;
-                    TypedValue var;
-                    if (find_symbol(ctx, var_name, &var))
-                    {
-                        // If pointee_type is NULL (due to opaque pointer), compute from var_type manually
-                        // FIXME - Is this really needed?
-                        if (var.pointee_type == NULL && var.type != NULL
-                            && LLVMGetTypeKind(var.type) == LLVMPointerTypeKind)
-                        {
-                            // Try to get the type from the declaration specifiers - look up in struct registry
-                            // This is a workaround for opaque pointers
-                            var.pointee_type = ctx->ref_type.i32_type;
-                        }
-                        target_type = var.pointee_type;
-                    }
-                }
-            }
+            debug_info("Operand node type for sizeof: %s", get_node_type_name_from_node(operand_node));
+            TypedValue operand_res = process_expression(ctx, operand_node);
 
-            // Fall back to processing expression if we haven't found type yet
-            if (target_type == NULL)
-            {
-                TypedValue expr_val = process_expression(ctx, operand_node);
-                if (expr_val.value != NULL)
-                {
-                    target_type = expr_val.type;
-                }
-            }
+            target_type = typed_value_get_llvm_type(&operand_res);
+            debug_info(
+                "sizeof operand expression type: %d", target_type != NULL ? (int)LLVMGetTypeKind(target_type) : -1
+            );
         }
         debug_info("unary operator getting size of type: %p", target_type);
-        TypedValue v = get_type_size(ctx, target_type);
+        uint64_t sizeof_type_bytes = get_type_size(ctx, target_type);
+        TypeDescriptor const * sizeof_desc = get_or_create_builtin_type(
+            ctx->type_descriptors, (TypeSpecifier){.is_unsigned = true, .long_count = 2}, (TypeQualifier){0}
+        );
+        LLVMValueRef val = LLVMConstInt(sizeof_desc->llvm_type, sizeof_type_bytes, false);
 
-        return v;
+        return create_typed_value(val, sizeof_desc, false);
     }
     case UNARY_OP_ALIGNOF:
     {
@@ -6358,32 +6271,24 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 }
             }
         }
-        else if (operand_node->type == AST_NODE_TYPE_SPECIFIER || operand_node->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-        {
-            target_type = map_type_to_llvm_t(ctx, operand_node, NULL);
-        }
-        else if (operand_node->type == AST_NODE_IDENTIFIER)
-        {
-            char const * var_name = operand_node->text;
-            TypedValue var;
-            if (find_symbol(ctx, var_name, &var))
-            {
-                target_type = var.type;
-            }
-        }
         else
         {
-            TypedValue expr_val = process_expression(ctx, operand_node);
-            if (expr_val.value != NULL)
-            {
-                target_type = expr_val.type;
-            }
+            debug_info("Operand node type for alignof: %s", get_node_type_name_from_node(operand_node));
+            TypedValue operand_res = process_expression(ctx, operand_node);
+
+            target_type = typed_value_get_llvm_type(&operand_res);
+            debug_info(
+                "alignment operand expression type: %d", target_type != NULL ? (int)LLVMGetTypeKind(target_type) : -1
+            );
         }
+        debug_info("unary operator getting alignment of type: %p", target_type);
+        uint64_t alignment = get_type_alignment(ctx, target_type);
+        TypeDescriptor const * alignment_desc = get_or_create_builtin_type(
+            ctx->type_descriptors, (TypeSpecifier){.is_unsigned = true, .long_count = 2}, (TypeQualifier){0}
+        );
+        LLVMValueRef val = LLVMConstInt(alignment_desc->llvm_type, alignment, false);
 
-        unsigned long long alignment = get_type_alignment(ctx, target_type);
-        LLVMValueRef val = LLVMConstInt(ctx->ref_type.i64_type, alignment, false);
-
-        return (TypedValue){.value = val, .type = ctx->ref_type.i64_type};
+        return create_typed_value(val, alignment_desc, false);
     }
     default:
     {

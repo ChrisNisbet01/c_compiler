@@ -238,26 +238,28 @@ resolve_type_descriptor(
 
     c_grammar_node_t const * type_spec_list = NULL;
     c_grammar_node_t const * type_qual_list = NULL;
+    TypeSpecifierValidationResult validation_result = {0};
 
     if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
     {
         type_spec_list = specifiers->decl_specifiers.type_specifiers;
+        validation_result = validate_type_specifiers(type_spec_list);
+
+        if (!validation_result.is_valid)
+        {
+            ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
+            return NULL;
+        }
+        else
+        {
+            debug_info(
+                "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
+                __func__,
+                validation_result.is_native_type,
+                validation_result.is_struct_or_union_or_enum
+            );
+        }
         type_qual_list = specifiers->decl_specifiers.type_qualifiers;
-    }
-    TypeSpecifierValidationResult validation_result = validate_type_specifiers(type_spec_list);
-    if (!validation_result.is_valid)
-    {
-        ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
-        return NULL;
-    }
-    else
-    {
-        debug_info(
-            "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
-            __func__,
-            validation_result.is_native_type,
-            validation_result.is_struct_or_union_or_enum
-        );
     }
     TypeDescriptor const * current = NULL;
 
