@@ -70,8 +70,7 @@ type_specifier_is_valid(TypeSpecifier const spec)
     }
     if (spec.is_short)
     {
-        if (spec.long_count > 0 || spec.is_char || spec.is_int || spec.is_float || spec.is_double || spec.is_void
-            || spec.is_bool)
+        if (spec.long_count > 0 || spec.is_char || spec.is_float || spec.is_double || spec.is_void || spec.is_bool)
         {
             return false;
         }

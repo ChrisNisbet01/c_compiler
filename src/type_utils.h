@@ -23,6 +23,9 @@ char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
 
 type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
+type_info_t const *
+register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union);
+
 bool is_function_suffix(c_grammar_node_t const * suffix);
 
 c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);

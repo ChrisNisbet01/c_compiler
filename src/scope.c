@@ -452,6 +452,7 @@ scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 void
 scope_add_typedef_forward_decl(scope_t * scope, char const * typedef_name, char const * tag, type_kind_t kind)
 {
+    debug_info("%s: name: %s, tag: %s", __func__, typedef_name, tag);
     scope_typedef_entry_t entry = {0};
     entry.name = strdup(typedef_name);
     entry.tag = strdup(tag);

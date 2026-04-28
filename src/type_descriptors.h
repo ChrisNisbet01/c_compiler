@@ -30,6 +30,12 @@ typedef struct
     bool is_variadic;
 } FunctionMetadata;
 
+typedef struct
+{
+    bool is_complete;
+    /* TODO: add members. */
+} StructMetaData;
+
 typedef struct TypeDescriptor
 {
     type_descriptor_type_kind_t kind;
@@ -45,6 +51,9 @@ typedef struct TypeDescriptor
 
     /* Function-specific */
     FunctionMetadata function_metadata;
+
+    /* Struct/union-specific */
+    StructMetaData struct_metadata;
 } TypeDescriptor;
 
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
@@ -59,8 +68,9 @@ get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * po
 
 TypeDescriptor const * get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier specs, TypeQualifier quals);
 
-TypeDescriptor const *
-register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union);
+TypeDescriptor const * register_struct_type(
+    TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union, bool is_complete
+);
 
 TypeDescriptor const * get_or_create_function_type(
     TypeDescriptors * registry,

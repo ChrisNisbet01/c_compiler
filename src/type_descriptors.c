@@ -210,7 +210,9 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
 }
 
 TypeDescriptor const *
-register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union)
+register_struct_type(
+    TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union, bool is_complete
+)
 {
     // Check if this LLVM type is already wrapped
     TypeDescriptor_private * curr = registry->head;
@@ -226,6 +228,7 @@ register_struct_type(TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQu
         .llvm_type = llvm_struct,
         .pointee = NULL, // Structs aren't pointers
         .qualifiers = quals,
+        .struct_metadata.is_complete = is_complete,
     };
 
     return register_descriptor(registry, &template);

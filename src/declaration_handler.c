@@ -308,6 +308,8 @@ resolve_type_descriptor(
 
     TypeDescriptor const * current = existing_typedef_info != NULL ? existing_typedef_info->type_desc : NULL;
 
+    debug_info("current type descriptor: %p", (void *)current);
+
     if (current == NULL && type_spec_list != NULL && type_spec_list->list.count > 0)
     {
         c_grammar_node_t const * type_spec_node = type_spec_list->list.children[0];
@@ -338,6 +340,17 @@ resolve_type_descriptor(
                 if (tag != NULL)
                 {
                     current = find_type_descriptor_by_tag(ctx, tag);
+                }
+                if (current == NULL)
+                {
+                    if (inner->type == AST_NODE_ENUM_TYPE_REF)
+                    {
+                        /* What to do? */
+                        return NULL;
+                    }
+                    type_info_t const * opaque_info
+                        = register_opaque_struct_or_union_definition(ctx, tag, inner->type == AST_NODE_UNION_TYPE_REF);
+                    current = opaque_info->type_desc;
                 }
             }
         }
@@ -377,6 +390,7 @@ resolve_type_descriptor(
         debug_info("%s: no declarator provided, returning type descriptor", __func__);
         return current;
     }
+    debug_info("declarator node: %s", get_node_type_name_from_node(declarator));
 
     c_grammar_node_t const * pointer_list = NULL;
     c_grammar_node_t const * param_list = NULL;
@@ -402,7 +416,7 @@ resolve_type_descriptor(
         debug_error("%s Unsupported declarator type: %s", __func__, get_node_type_name_from_node(declarator));
         return NULL;
     }
-
+    debug_info("1");
     for (size_t i = pointer_list->list.count; i > 0; i--)
     {
         c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
@@ -413,11 +427,13 @@ resolve_type_descriptor(
         }
         current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
     }
+    debug_info("2");
 
     bool is_function = param_list != NULL;
 
     if (is_function)
     {
+        debug_info("3");
         current = resolve_function_pointer_type(ctx, current, param_list);
 
         /* Now handle any function pointer array suffixes. */
@@ -439,6 +455,7 @@ resolve_type_descriptor(
     }
     else
     {
+        debug_info("4");
         for (size_t i = suffix_list->list.count; i > 0; i--)
         {
             c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];

@@ -1618,6 +1618,31 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
     return NULL;
 }
 
+type_info_t const *
+register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union)
+{
+    if (ctx == NULL || tag == NULL)
+    {
+        return NULL;
+    }
+
+    type_info_t opaque = {0};
+    opaque.tag = strdup(tag);
+    opaque.kind = is_union ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
+    bool is_complete = false;
+    opaque.type_desc = register_struct_type(
+        ctx->type_descriptors, LLVMStructCreateNamed(ctx->context, tag), (TypeQualifier){0}, is_union, is_complete
+    );
+    type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
+    if (registered == NULL)
+    {
+        free((void *)opaque.tag);
+        return NULL;
+    }
+
+    return registered;
+}
+
 static type_info_t const *
 register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
@@ -1636,8 +1661,13 @@ register_tagged_struct_or_union_definition(
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
     opaque.kind = kind;
+    bool is_complete = true;
     opaque.type_desc = register_struct_type(
-        ctx->type_descriptors, LLVMStructCreateNamed(ctx->context, tag), (TypeQualifier){0}, kind == TYPE_KIND_UNION
+        ctx->type_descriptors,
+        LLVMStructCreateNamed(ctx->context, tag),
+        (TypeQualifier){0},
+        kind == TYPE_KIND_UNION,
+        is_complete
     );
     type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
     if (registered == NULL)
@@ -1704,11 +1734,13 @@ add_untagged_struct_or_union_type(
     new_struct.kind = kind;
     new_struct.field_count = num_fields;
     new_struct.fields = fields;
+    bool is_complete = true;
     new_struct.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, new_struct.tag),
         (TypeQualifier){0},
-        kind == TYPE_KIND_UNTAGGED_UNION
+        kind == TYPE_KIND_UNTAGGED_UNION,
+        is_complete
     );
 
     struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
