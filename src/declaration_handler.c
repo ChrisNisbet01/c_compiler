@@ -225,10 +225,10 @@ resolve_type_descriptor(
 )
 {
     debug_info(
-        "%s: resolving type descriptor for decl_specifiers %p and declarator %p",
+        "%s: resolving type descriptor for decl_specifiers %s and declarator %s",
         __func__,
-        (void *)decl_specifiers,
-        (void *)declarator
+        decl_specifiers != NULL ? get_node_type_name_from_node(decl_specifiers) : "NULL",
+        declarator != NULL ? get_node_type_name_from_node(declarator) : "NULL"
     );
     if (decl_specifiers == NULL)
     {
@@ -236,27 +236,35 @@ resolve_type_descriptor(
         return NULL;
     }
 
-    if (0 && decl_specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST && decl_specifiers->list.count == 1)
+    c_grammar_node_t const * type_spec_list = NULL;
+
+    if (decl_specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST)
     {
         c_grammar_node_t const * child = decl_specifiers->list.children[0];
         if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
         {
-            decl_specifiers = child->typedef_specifier_qualifier.typedef_specifier;
-            if (decl_specifiers == NULL)
+            if (decl_specifiers->list.count == 1)
             {
-                debug_info("%s: no decl_specifiers provided, cannot resolve type descriptor", __func__);
-                return NULL;
+                decl_specifiers = child->typedef_specifier_qualifier.typedef_specifier;
+                if (decl_specifiers == NULL)
+                {
+                    debug_info("%s: no decl_specifiers provided, cannot resolve type descriptor", __func__);
+                    return NULL;
+                }
             }
+        }
+        else
+        {
+            type_spec_list = decl_specifiers;
+            debug_info("set type spec list to %s", get_node_type_name_from_node(type_spec_list));
         }
     }
 
-    c_grammar_node_t const * type_spec_list = NULL;
     c_grammar_node_t const * type_qual_list = NULL;
     TypeSpecifierValidationResult validation_result = {0};
     scope_typedef_entry_t const * existing_typedef_info = NULL;
 
-    if (decl_specifiers->type
-        == AST_NODE_NAMED_DECL_SPECIFIERS) /* TODO: Is there ever a time when it's not a NAMED_DECL_SPECIFERS? */
+    if (decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
     {
         /* First check for a TYPEDEF_SPECIFIER, in which case there won't be any TYPE_SPECIFIERS. */
         c_grammar_node_t const * typedef_specifier_node = decl_specifiers->decl_specifiers.typedef_specifier;
@@ -284,26 +292,28 @@ resolve_type_descriptor(
         if (existing_typedef_info == NULL)
         {
             type_spec_list = decl_specifiers->decl_specifiers.type_specifiers;
-            validation_result = validate_type_specifiers(type_spec_list);
-
-            if (!validation_result.is_valid)
-            {
-                ir_gen_error(
-                    &ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration"
-                );
-                return NULL;
-            }
-            else
-            {
-                debug_info(
-                    "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
-                    __func__,
-                    validation_result.is_native_type,
-                    validation_result.is_struct_or_union_or_enum
-                );
-            }
         }
         type_qual_list = decl_specifiers->decl_specifiers.type_qualifiers;
+    }
+
+    if (type_spec_list != NULL)
+    {
+        validation_result = validate_type_specifiers(type_spec_list);
+
+        if (!validation_result.is_valid)
+        {
+            ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
+            return NULL;
+        }
+        else
+        {
+            debug_info(
+                "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
+                __func__,
+                validation_result.is_native_type,
+                validation_result.is_struct_or_union_or_enum
+            );
+        }
     }
 
     TypeDescriptor const * current = existing_typedef_info != NULL ? existing_typedef_info->type_desc : NULL;
@@ -382,6 +392,7 @@ resolve_type_descriptor(
 
     if (current == NULL)
     {
+        debug_info("no type descriptor found, returning NULL");
         return NULL;
     }
 
@@ -463,6 +474,6 @@ resolve_type_descriptor(
             current = resolve_array_suffix(ctx, current, suffix);
         }
     }
-
+    debug_info("%s out: current %p", __func__, current);
     return current;
 }

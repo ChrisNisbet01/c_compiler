@@ -83,7 +83,9 @@ TypeSpecifierValidationResult
 validate_type_specifiers(c_grammar_node_t const * type_specifiers)
 {
     TypeSpecifierValidationResult result = {0};
-    if (type_specifiers == NULL || type_specifiers->type != AST_NODE_TYPE_SPECIFIERS)
+    if (type_specifiers == NULL
+        || (type_specifiers->type != AST_NODE_TYPE_SPECIFIERS
+            && type_specifiers->type != AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST))
     {
         return result;
     }
@@ -174,7 +176,8 @@ TypeSpecifier
 build_type_specifiers(c_grammar_node_t const * spec_list)
 {
     TypeSpecifier spec = {0};
-    if (spec_list == NULL || spec_list->type != AST_NODE_TYPE_SPECIFIERS)
+    if (spec_list == NULL
+        || (spec_list->type != AST_NODE_TYPE_SPECIFIERS && spec_list->type != AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST))
     {
         return spec;
     }
