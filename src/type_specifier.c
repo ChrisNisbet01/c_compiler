@@ -133,6 +133,10 @@ type_specifier_process_specifier(TypeSpecifier * spec, char const * specifier)
     {
         spec->is_unsigned = true;
     }
+    else if (strcmp(specifier, "signed") == 0)
+    {
+        spec->is_signed = true;
+    }
     else if (strcmp(specifier, "int") == 0)
     {
         spec->is_int = true;

@@ -73,7 +73,7 @@ typedef struct scope_typedef_entry
 {
     char * name;                      // The typedef's own name
     type_kind_t kind;                 // Which category this refers to
-    TypeDescriptor const * type_desc; /* For native types and enums(e.g. int, char) */
+    TypeDescriptor const * type_desc; /* For native types, nested typedefs and enums(e.g. int, char) */
     char * tag;                       // For tagged kinds - which entry in struct/union/enum list
     int untagged_index;               // For untagged kinds - index into untagged list, -1 otherwise
 } scope_typedef_entry_t;

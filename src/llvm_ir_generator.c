@@ -2771,7 +2771,7 @@ process_declarator(
                  */
                 TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
 
-				if (type_desc != NULL)
+                if (type_desc != NULL)
                 {
                     debug_info("DDDDDDD got type desc");
                     TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
@@ -3308,6 +3308,28 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * struct_def_node = NULL;
         c_grammar_node_t const * enum_def_node = NULL;
         c_grammar_node_t const * specifiers_list = decl_specs->decl_specifiers.type_specifiers;
+        c_grammar_node_t const * typedef_name_node = decl_specs->decl_specifiers.typedef_name;
+        char const * typedef_name = search_for_identifier(typedef_name_node);
+        scope_typedef_entry_t const * existing_typedef_info = NULL;
+
+        if (typedef_name != NULL)
+        {
+            debug_info("Processing typedef '%s'", typedef_name);
+            /* We should have a typedef of this name already registered. */
+            existing_typedef_info = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+            if (existing_typedef_info != NULL)
+            {
+                debug_info("Found typedef descriptor for '%s'", typedef_name);
+            }
+            else
+            {
+                debug_info("No typedef descriptor found for '%s'", typedef_name);
+            }
+        }
+        else
+        {
+            debug_info("No typedef name found");
+        }
 
         /* Look for struct/union/enum definition inside DeclarationSpecifiers once */
         for (size_t i = 0; i < specifiers_list->list.count; ++i)
@@ -3354,8 +3376,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 char const * typedef_name = name_node->text;
                 debug_info("Typedef: name='%s'", typedef_name);
 
-                /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */
                 bool handled = false;
+                if (existing_typedef_info != NULL)
+                {
+                    scope_typedef_entry_t typedef_entry = {
+                        .kind = existing_typedef_info->kind,
+                        .name = strdup(typedef_name),
+                        .type_desc = existing_typedef_info->type_desc,
+                    };
+                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                    handled = true;
+                }
+
+                /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */
                 for (size_t j = 0; j < specifiers_list->list.count && !handled; ++j)
                 {
                     c_grammar_node_t * spec_child = specifiers_list->list.children[j];

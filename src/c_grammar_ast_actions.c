@@ -624,14 +624,10 @@ handle_named_decl_specifiers(
     ast_node->decl_specifiers.storage_class = children[idx++];
     c_grammar_node_t * type_qualifiers_node = children[idx++];
     ast_node->decl_specifiers.type_qualifiers = type_qualifiers_node;
-
-    if (type_qualifiers_node != NULL)
-    {
-        ast_node->decl_specifiers.type = type_qualifiers_node->type_qualifier;
-    }
+    ast_node->decl_specifiers.type = type_qualifiers_node->type_qualifier;
 
     c_grammar_node_t * third_child = children[idx];
-    if (third_child != NULL && third_child->type == AST_NODE_FUNCTION_SPECIFIER)
+    if (third_child->type == AST_NODE_FUNCTION_SPECIFIER)
     {
         ast_node->decl_specifiers.function_specifier = children[idx++];
     }
@@ -651,7 +647,7 @@ handle_named_decl_specifiers(
     }
 
     c_grammar_node_t * child = children[idx];
-    if (idx < (size_t)count && child != NULL && child->type == AST_NODE_TYPEDEF_SPECIFIER)
+    if (idx < (size_t)count && child->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
         ast_node->decl_specifiers.typedef_name = children[idx++];
     }
