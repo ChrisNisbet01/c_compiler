@@ -221,30 +221,30 @@ search_function_pointer_declarator(c_grammar_node_t const * node)
 
 TypeDescriptor const *
 resolve_type_descriptor(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * decl_specifiers, c_grammar_node_t const * declarator
 )
 {
     debug_info(
-        "%s: resolving type descriptor for specifiers %p and declarator %p",
+        "%s: resolving type descriptor for decl_specifiers %p and declarator %p",
         __func__,
-        (void *)specifiers,
+        (void *)decl_specifiers,
         (void *)declarator
     );
-    if (specifiers == NULL)
+    if (decl_specifiers == NULL)
     {
-        debug_info("%s: no specifiers provided, cannot resolve type descriptor", __func__);
+        debug_info("%s: no decl_specifiers provided, cannot resolve type descriptor", __func__);
         return NULL;
     }
 
-    if (specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST && specifiers->list.count == 1)
+    if (0 && decl_specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST && decl_specifiers->list.count == 1)
     {
-        c_grammar_node_t const * child = specifiers->list.children[0];
+        c_grammar_node_t const * child = decl_specifiers->list.children[0];
         if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
         {
-            specifiers = child->typedef_specifier_qualifier.typedef_specifier;
-            if (specifiers == NULL)
+            decl_specifiers = child->typedef_specifier_qualifier.typedef_specifier;
+            if (decl_specifiers == NULL)
             {
-                debug_info("%s: no specifiers provided, cannot resolve type descriptor", __func__);
+                debug_info("%s: no decl_specifiers provided, cannot resolve type descriptor", __func__);
                 return NULL;
             }
         }
@@ -253,31 +253,62 @@ resolve_type_descriptor(
     c_grammar_node_t const * type_spec_list = NULL;
     c_grammar_node_t const * type_qual_list = NULL;
     TypeSpecifierValidationResult validation_result = {0};
+    scope_typedef_entry_t const * existing_typedef_info = NULL;
 
-    if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+    if (decl_specifiers->type
+        == AST_NODE_NAMED_DECL_SPECIFIERS) /* TODO: Is there ever a time when it's not a NAMED_DECL_SPECIFERS? */
     {
-        type_spec_list = specifiers->decl_specifiers.type_specifiers;
-        validation_result = validate_type_specifiers(type_spec_list);
+        /* First check for a TYPEDEF_SPECIFIER, in which case there won't be any TYPE_SPECIFIERS. */
+        c_grammar_node_t const * typedef_specifier_node = decl_specifiers->decl_specifiers.typedef_specifier;
+        char const * typedef_name = search_for_identifier(typedef_specifier_node);
 
-        if (!validation_result.is_valid)
+        if (typedef_name != NULL)
         {
-            ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
-            return NULL;
+            debug_info("%s: Processing typedef '%s'", __func__, typedef_name);
+            /* We should have a typedef of this name already registered. */
+            existing_typedef_info = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+            if (existing_typedef_info != NULL)
+            {
+                debug_info("%s: Found typedef descriptor for '%s'", __func__, typedef_name);
+            }
+            else
+            {
+                debug_info("%s: No typedef descriptor found for '%s'", __func__, typedef_name);
+            }
         }
         else
         {
-            debug_info(
-                "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
-                __func__,
-                validation_result.is_native_type,
-                validation_result.is_struct_or_union_or_enum
-            );
+            debug_info("%s: No typedef name found", __func__);
         }
-        type_qual_list = specifiers->decl_specifiers.type_qualifiers;
-    }
-    TypeDescriptor const * current = NULL;
 
-    if (type_spec_list != NULL && type_spec_list->list.count > 0)
+        if (existing_typedef_info == NULL)
+        {
+            type_spec_list = decl_specifiers->decl_specifiers.type_specifiers;
+            validation_result = validate_type_specifiers(type_spec_list);
+
+            if (!validation_result.is_valid)
+            {
+                ir_gen_error(
+                    &ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration"
+                );
+                return NULL;
+            }
+            else
+            {
+                debug_info(
+                    "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
+                    __func__,
+                    validation_result.is_native_type,
+                    validation_result.is_struct_or_union_or_enum
+                );
+            }
+        }
+        type_qual_list = decl_specifiers->decl_specifiers.type_qualifiers;
+    }
+
+    TypeDescriptor const * current = existing_typedef_info != NULL ? existing_typedef_info->type_desc : NULL;
+
+    if (current == NULL && type_spec_list != NULL && type_spec_list->list.count > 0)
     {
         c_grammar_node_t const * type_spec_node = type_spec_list->list.children[0];
 
@@ -346,7 +377,31 @@ resolve_type_descriptor(
         return current;
     }
 
-    c_grammar_node_t const * pointer_list = declarator->declarator.pointer_list;
+    c_grammar_node_t const * pointer_list = NULL;
+    c_grammar_node_t const * param_list = NULL;
+    c_grammar_node_t const * suffix_list = NULL;
+    c_grammar_node_t const * direct_declarator = NULL;
+
+    if (declarator->type == AST_NODE_TYPEDEF_DECLARATOR)
+    {
+        pointer_list = declarator->typedef_declarator.pointer_list;
+        suffix_list = declarator->typedef_declarator.declarator_suffix_list;
+        direct_declarator = declarator->typedef_declarator.direct_declarator;
+    }
+    else if (declarator->type == AST_NODE_DECLARATOR)
+    {
+        pointer_list = declarator->declarator.pointer_list;
+        param_list = search_parameters_list_in_declarator(declarator);
+        suffix_list = declarator->declarator.declarator_suffix_list;
+        direct_declarator = declarator->declarator.direct_declarator;
+    }
+    else
+    {
+        /* What? */
+        debug_error("%s Unsupported declarator type: %s", __func__, get_node_type_name_from_node(declarator));
+        return NULL;
+    }
+
     for (size_t i = pointer_list->list.count; i > 0; i--)
     {
         c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
@@ -358,16 +413,13 @@ resolve_type_descriptor(
         current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
     }
 
-    c_grammar_node_t const * param_list = search_parameters_list_in_declarator(declarator);
     bool is_function = param_list != NULL;
-    c_grammar_node_t const * suffix_list = declarator->declarator.declarator_suffix_list;
 
     if (is_function)
     {
         current = resolve_function_pointer_type(ctx, current, param_list);
 
         /* Now handle any function pointer array suffixes. */
-        c_grammar_node_t const * direct_declarator = declarator->declarator.direct_declarator;
         c_grammar_node_t const * func_pointer_declaration = search_function_pointer_declarator(direct_declarator);
         if (func_pointer_declaration != NULL)
         {

@@ -29,6 +29,10 @@ c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix)
 
 c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
 
-int evaluate_enum_value_assignment_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value);
+int evaluate_enum_value_assignment_expression(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
+);
 
 bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+
+char const * search_for_identifier(c_grammar_node_t const * node);

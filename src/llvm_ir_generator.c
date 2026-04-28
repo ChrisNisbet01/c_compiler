@@ -78,27 +78,6 @@ static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_
 static parameter_definitions_t
 extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * params_list);
 
-static char const *
-search_for_identifier(c_grammar_node_t const * node)
-{
-    if (node == NULL)
-    {
-        return NULL;
-    }
-
-    for (size_t i = 0; i < node->list.count; i++)
-    {
-        c_grammar_node_t * child = node->list.children[i];
-
-        if (child->type == AST_NODE_IDENTIFIER && child->text != NULL)
-        {
-            return child->text;
-        }
-    }
-
-    return NULL;
-}
-
 // Helper function to extract struct/union tag from a TypeSpecifier node
 // Returns the tag if found (struct or union definition with identifier child), or NULL
 // Only returns non-NULL when struct/union definition node is present and it contains an Identifier.
@@ -1239,7 +1218,7 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
         else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
             // Use the structured fields from ast_node_decl_specifiers_t
-            c_grammar_node_t const * typedef_name_node = specifiers->decl_specifiers.typedef_name;
+            c_grammar_node_t const * typedef_specifier_node = specifiers->decl_specifiers.typedef_specifier;
             c_grammar_node_t const * specifier_list = specifiers->decl_specifiers.type_specifiers;
             debug_info(
                 "handling node type %s and specifier list %s",
@@ -1248,9 +1227,9 @@ map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers
             );
 
             // Check for typedef name first
-            if (typedef_name_node != NULL)
+            if (typedef_specifier_node != NULL)
             {
-                char const * typedef_name = extract_typedef_name(typedef_name_node);
+                char const * typedef_name = extract_typedef_name(typedef_specifier_node);
                 if (typedef_name != NULL)
                 {
                     TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
@@ -2681,9 +2660,9 @@ process_declarator(
 
             // Find struct name for pointer-to-struct types
             char const * struct_name = NULL;
-            if (decl_specifiers)
+            if (decl_specifiers != NULL)
             {
-                c_grammar_node_t const * typedef_specifier = decl_specifiers->decl_specifiers.typedef_name;
+                c_grammar_node_t const * typedef_specifier = decl_specifiers->decl_specifiers.typedef_specifier;
 
                 if (typedef_specifier != NULL)
                 {
@@ -3308,8 +3287,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * struct_def_node = NULL;
         c_grammar_node_t const * enum_def_node = NULL;
         c_grammar_node_t const * specifiers_list = decl_specs->decl_specifiers.type_specifiers;
-        c_grammar_node_t const * typedef_name_node = decl_specs->decl_specifiers.typedef_name;
-        char const * typedef_name = search_for_identifier(typedef_name_node);
+        c_grammar_node_t const * typedef_specifier_node = decl_specs->decl_specifiers.typedef_specifier;
+        char const * typedef_name = search_for_identifier(typedef_specifier_node);
         scope_typedef_entry_t const * existing_typedef_info = NULL;
 
         if (typedef_name != NULL)

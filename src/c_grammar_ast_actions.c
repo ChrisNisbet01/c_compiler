@@ -649,7 +649,7 @@ handle_named_decl_specifiers(
     c_grammar_node_t * child = children[idx];
     if (idx < (size_t)count && child->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
-        ast_node->decl_specifiers.typedef_name = children[idx++];
+        ast_node->decl_specifiers.typedef_specifier = children[idx++];
     }
 
     if (idx < (size_t)count)

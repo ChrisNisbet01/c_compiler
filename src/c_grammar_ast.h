@@ -319,7 +319,7 @@ typedef struct ast_node_decl_specifiers_t
     c_grammar_node_t const * type_qualifiers;
     c_grammar_node_t const * function_specifier;
     c_grammar_node_t const * type_specifiers;
-    c_grammar_node_t const * typedef_name;
+    c_grammar_node_t const * typedef_specifier;
     c_grammar_node_t const * trailing_type_qualifiers;
     storage_class_data_t storage;
     type_qualifier_data_t type;

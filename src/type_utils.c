@@ -385,3 +385,24 @@ is_function_suffix(c_grammar_node_t const * suffix)
     c_grammar_node_t const * param_list = extract_parameter_list(suffix);
     return param_list != NULL;
 }
+
+char const *
+search_for_identifier(c_grammar_node_t const * node)
+{
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
+    for (size_t i = 0; i < node->list.count; i++)
+    {
+        c_grammar_node_t * child = node->list.children[i];
+
+        if (child->type == AST_NODE_IDENTIFIER && child->text != NULL)
+        {
+            return child->text;
+        }
+    }
+
+    return NULL;
+}
