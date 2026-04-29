@@ -263,37 +263,41 @@ resolve_type_descriptor(
     c_grammar_node_t const * type_qual_list = NULL;
     TypeSpecifierValidationResult validation_result = {0};
     scope_typedef_entry_t const * existing_typedef_info = NULL;
-
-    if (decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+    char const * typedef_name = NULL;
+    if (decl_specifiers->type == AST_NODE_TYPEDEF_SPECIFIER)
+    {
+        typedef_name = search_for_identifier(decl_specifiers);
+    }
+    else if (decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
     {
         /* First check for a TYPEDEF_SPECIFIER, in which case there won't be any TYPE_SPECIFIERS. */
         c_grammar_node_t const * typedef_specifier_node = decl_specifiers->decl_specifiers.typedef_specifier;
-        char const * typedef_name = search_for_identifier(typedef_specifier_node);
+        typedef_name = search_for_identifier(typedef_specifier_node);
+        type_qual_list = decl_specifiers->decl_specifiers.type_qualifiers;
+    }
 
-        if (typedef_name != NULL)
+    if (typedef_name != NULL)
+    {
+        debug_info("%s: Processing typedef '%s'", __func__, typedef_name);
+        /* We should have a typedef of this name already registered. */
+        existing_typedef_info = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+        if (existing_typedef_info != NULL)
         {
-            debug_info("%s: Processing typedef '%s'", __func__, typedef_name);
-            /* We should have a typedef of this name already registered. */
-            existing_typedef_info = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
-            if (existing_typedef_info != NULL)
-            {
-                debug_info("%s: Found typedef descriptor for '%s'", __func__, typedef_name);
-            }
-            else
-            {
-                debug_info("%s: No typedef descriptor found for '%s'", __func__, typedef_name);
-            }
+            debug_info("%s: Found typedef descriptor for '%s'", __func__, typedef_name);
         }
         else
         {
-            debug_info("%s: No typedef name found", __func__);
+            debug_info("%s: No typedef descriptor found for '%s'", __func__, typedef_name);
         }
+    }
+    else
+    {
+        debug_info("%s: No typedef name found", __func__);
+    }
 
-        if (existing_typedef_info == NULL)
-        {
-            type_spec_list = decl_specifiers->decl_specifiers.type_specifiers;
-        }
-        type_qual_list = decl_specifiers->decl_specifiers.type_qualifiers;
+    if (existing_typedef_info == NULL)
+    {
+        type_spec_list = decl_specifiers->decl_specifiers.type_specifiers;
     }
 
     if (type_spec_list != NULL)
@@ -487,6 +491,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
     if (type_child == NULL
         || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
     {
+        debug_warning("Need struct or union definition, but got: %s", get_node_type_name_from_node(type_child));
         return object_members;
     }
 
@@ -494,6 +499,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
 
     if (members_node == NULL || members_node->list.count == 0)
     {
+        debug_warning("no members declaration");
         return object_members;
     }
 
@@ -603,7 +609,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     new_member.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
                 }
 
-                debug_info("resolving");
+                debug_info("resolving member: %s", new_member.name);
                 new_member.type_desc = resolve_type_descriptor(ctx, type_spec, NULL);
                 if (new_member.type_desc == NULL)
                 {

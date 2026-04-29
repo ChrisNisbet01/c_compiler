@@ -437,9 +437,13 @@ handle_integer_literal(
             {
                 ast_node->integer_lit.integer_literal.is_unsigned = true;
             }
-            if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+            if (strstr(suffix_text, "ll") != NULL || strstr(suffix_text, "LL") != NULL)
             {
-                ast_node->integer_lit.integer_literal.is_long = true;
+                ast_node->integer_lit.integer_literal.long_count = 2;
+            }
+            else if (strchr(suffix_text, 'l') || strchr(suffix_text, 'L'))
+            {
+                ast_node->integer_lit.integer_literal.long_count = 1;
             }
         }
     }

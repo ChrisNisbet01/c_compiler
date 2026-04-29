@@ -6,6 +6,11 @@ typedef struct
 {
     Inner * inr;
 } Outer;
+typedef struct A
+{
+    int dummy;
+} A_t;
+
 int
 main(void)
 {

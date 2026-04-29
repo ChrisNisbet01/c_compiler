@@ -24,6 +24,16 @@ typedef struct TypeDescriptor TypeDescriptor;
 
 typedef struct
 {
+    unsigned width;
+} FloatMetadata;
+
+typedef struct
+{
+    unsigned width;
+} IntegerMetadata;
+
+typedef struct
+{
     TypeDescriptor const * return_type;
     unsigned param_count;
     TypeDescriptor const ** params; // Allocated once in the registry
@@ -56,6 +66,9 @@ typedef struct TypeDescriptor
 
     /* Struct/union-specific */
     StructMetaData struct_metadata;
+
+    IntegerMetadata integer_metadata;
+    FloatMetadata float_metadata;
 } TypeDescriptor;
 
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
@@ -115,3 +128,11 @@ TypeDescriptor const * type_descriptor_get_int8_type(TypeDescriptors * registry,
 TypeDescriptor const * type_descriptor_get_bool_type(TypeDescriptors * registry, bool const_qualified);
 
 TypeDescriptor const * type_descriptor_get_void_type(TypeDescriptors * registry);
+
+/**
+ * Searches the struct metadata for a member with the matching name.
+ * Returns the 0-based index of the field, or -1 if not found.
+ */
+int type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, char const * name);
+
+TypeDescriptor const * type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index);

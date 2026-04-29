@@ -282,7 +282,7 @@ typedef struct
 {
     long long value;
     bool is_unsigned;
-    bool is_long;
+    unsigned long_count;
 } integer_literal_data_t;
 
 typedef struct ast_node_expression_t

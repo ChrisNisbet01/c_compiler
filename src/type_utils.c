@@ -394,6 +394,40 @@ search_for_identifier(c_grammar_node_t const * node)
         return NULL;
     }
 
+    if (node->type == AST_NODE_DECLARATOR)
+    {
+        char const * var_name = NULL;
+        c_grammar_node_t const * direct_decl_node = node->declarator.direct_declarator;
+
+        // For regular variables: DirectDeclarator -> Identifier
+        // For function pointers: DirectDeclarator -> FunctionPointerDeclarator -> {Pointer, Identifier,
+        // DeclaratorSuffix*}
+        if (direct_decl_node && direct_decl_node->list.count > 0)
+        {
+            c_grammar_node_t * first_child = direct_decl_node->list.children[0];
+            if (first_child->type == AST_NODE_IDENTIFIER)
+            {
+                var_name = first_child->text;
+            }
+            else if (first_child->type == AST_NODE_DECLARATOR)
+            {
+                // Nested declarator (e.g., for function pointers like *name)
+                // Find the DirectDeclarator inside and get the Identifier
+                c_grammar_node_t const * nested_direct = first_child->declarator.direct_declarator;
+                if (nested_direct != NULL)
+                {
+                    char const * id = search_for_identifier(nested_direct);
+                    if (id != NULL)
+                    {
+                        var_name = id;
+                    }
+                }
+            }
+        }
+
+        return var_name;
+    }
+
     for (size_t i = 0; i < node->list.count; i++)
     {
         c_grammar_node_t * child = node->list.children[i];
@@ -405,4 +439,44 @@ search_for_identifier(c_grammar_node_t const * node)
     }
 
     return NULL;
+}
+
+unsigned
+get_fp_width(LLVMTypeRef type)
+{
+    LLVMTypeKind kind = LLVMGetTypeKind(type);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-enum"
+
+    switch (kind)
+    {
+    case LLVMHalfTypeKind:
+        return 16;
+    case LLVMFloatTypeKind:
+        return 32;
+    case LLVMDoubleTypeKind:
+        return 64;
+    case LLVMX86_FP80TypeKind:
+        return 80;
+    case LLVMFP128TypeKind:
+        return 128;
+    default:
+        return 0; // Not a floating-point type
+    }
+
+#pragma GCC diagnostic pop
+}
+
+bool
+is_integer_kind(LLVMTypeRef type)
+{
+    LLVMTypeKind kind = LLVMGetTypeKind(type);
+    return kind == LLVMIntegerTypeKind || kind == LLVMHalfTypeKind;
+}
+
+bool
+is_floating_kind(LLVMTypeRef type)
+{
+    return get_fp_width(type) > 0;
 }

@@ -62,6 +62,16 @@ register_descriptor(TypeDescriptors * registry, TypeDescriptor const * template)
     debug_info("%s: new node %p", __func__, (void *)&node->public);
     type_specifier_dump(node->public.specifiers, DEBUG_LEVEL_INFO);
 
+    LLVMTypeKind llvm_kind = LLVMGetTypeKind(node->public.llvm_type);
+    if (llvm_kind == LLVMIntegerTypeKind)
+    {
+        node->public.integer_metadata.width = LLVMGetIntTypeWidth(node->public.llvm_type);
+    }
+    else if (llvm_kind == LLVMFloatTypeKind)
+    {
+        node->public.float_metadata.width = get_fp_width(node->public.llvm_type);
+    }
+
     node->next = registry->head;
     registry->head = node;
 
@@ -575,4 +585,49 @@ TypeDescriptor const *
 type_descriptor_get_void_type(TypeDescriptors * registry)
 {
     return get_or_create_builtin_type(registry, (TypeSpecifier){.is_void = true}, (TypeQualifier){0});
+}
+
+int
+type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, char const * name)
+{
+    if (desc == NULL || name == NULL || desc->kind != NCC_TYPE_KIND_STRUCT)
+    {
+        debug_warning("%s: Invalid struct descriptor", __func__);
+        return -1;
+    }
+
+    // Access the members list in your metadata structure
+    for (int i = 0; i < (int)desc->struct_metadata.members.num_members; ++i)
+    {
+        char const * member_name = desc->struct_metadata.members.members[i].name;
+
+        if (member_name != NULL && strcmp(member_name, name) == 0)
+        {
+            debug_info("%s: got member %s at index %u", __func__, name, i);
+            return i;
+        }
+    }
+
+    // Field not found in this struct
+    return -1;
+}
+
+TypeDescriptor const *
+type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
+{
+    if (desc == NULL || desc->kind != NCC_TYPE_KIND_STRUCT)
+    {
+        debug_warning("%s: Invalid struct descriptor", __func__);
+        return NULL;
+    }
+
+    if (index < 0 || index >= (int)desc->struct_metadata.members.num_members)
+    {
+        debug_warning(
+            "%s: Index out of bounds: %d, masx: %zu", __func__, index, desc->struct_metadata.members.num_members
+        );
+        return NULL;
+    }
+
+    return desc->struct_metadata.members.members[index].type_desc;
 }
