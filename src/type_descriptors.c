@@ -216,7 +216,7 @@ register_struct_type(
     TypeQualifier const quals,
     bool is_union,
     bool is_complete,
-    struct_or_union_members_st * members
+    struct_or_union_members_st const * members
 )
 {
     // Check if this LLVM type is already wrapped
@@ -229,11 +229,18 @@ register_struct_type(
     }
 
     struct_or_union_members_st members_template = {0};
-
-    if (members != NULL && members->num_members > 0)
+    if (members->num_members > 0)
     {
-        members_template = *members;
-        memset(members, 0, sizeof *members);
+        members_template.num_members = members->num_members;
+        members_template.members = malloc(sizeof(*members->members) * members->num_members);
+        memcpy(members_template.members, members->members, sizeof(*members->members) * members->num_members);
+        for (size_t i = 0; i < members->num_members; i++)
+        {
+            if (members->members[i].name != NULL)
+            {
+                members_template.members[i].name = strdup(members->members[i].name);
+            }
+        }
     }
 
     TypeDescriptor template

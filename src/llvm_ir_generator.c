@@ -1872,45 +1872,51 @@ register_tagged_struct_or_union_definition(
         return NULL;
     }
 
-    struct_or_union_members_st members_type_desc = extract_struct_or_union_members_type_descriptor(ctx, type_child);
-    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
+    struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
 
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
     opaque.kind = kind;
     bool is_complete = true;
+
+    if (members.num_members > 0)
+    {
+        opaque.field_count = members.num_members;
+        opaque.fields = malloc(members.num_members * sizeof(*members.members));
+        memcpy(opaque.fields, members.members, members.num_members * sizeof(*members.members));
+        for (size_t i = 0; i < members.num_members; i++)
+        {
+            if (opaque.fields[i].name != NULL)
+            {
+                opaque.fields[i].name = strdup(opaque.fields[i].name);
+            }
+        }
+    }
+
     opaque.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, tag),
         (TypeQualifier){0},
         kind == TYPE_KIND_UNION,
         is_complete,
-        &members_type_desc
+        &members
     );
 
     type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
     if (registered == NULL)
     {
         free((void *)opaque.tag);
+        for (size_t i = 0; i < opaque.field_count; i++)
+        {
+            free(opaque.fields[i].name);
+        }
         return NULL;
     }
 
     if (members.num_members == 0)
     {
-        free(members.members);
         return registered;
     }
-
-    type_info_t * mutable_entry = (kind == TYPE_KIND_UNION) ? scope_find_tagged_union(ctx->current_scope, tag)
-                                                            : scope_find_tagged_struct(ctx->current_scope, tag);
-    if (mutable_entry == NULL)
-    {
-        free(members.members);
-        return registered;
-    }
-
-    mutable_entry->field_count = members.num_members;
-    mutable_entry->fields = members.members;
 
     struct_field_t * last_field = &members.members[members.num_members - 1];
     unsigned num_storage_units = last_field->storage_index + 1;
@@ -1926,46 +1932,52 @@ register_tagged_struct_or_union_definition(
         if (field->storage_index != (unsigned)current_storage_unit)
         {
             current_storage_unit = (int)field->storage_index;
-            field_types[current_storage_unit] = field->type;
+            field_types[current_storage_unit] = field->type_desc->llvm_type;
         }
     }
-    LLVMStructSetBody(mutable_entry->type_desc->llvm_type, field_types, num_storage_units, false);
+    LLVMStructSetBody(registered->type_desc->llvm_type, field_types, num_storage_units, false);
     free(field_types);
 
-    return mutable_entry;
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        free(members.members[i].name);
+    }
+    free(members.members);
+
+    return registered;
 }
 
 static type_info_t const *
 add_untagged_struct_or_union_type(
-    ir_generator_ctx_t * ctx, type_kind_t kind, struct_field_t * fields, size_t num_fields, int * new_type_id
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
 )
 {
-    if (ctx == NULL || fields == NULL || num_fields == 0)
+    if (ctx == NULL)
     {
         return NULL;
     }
 
-    type_info_t new_struct = {0};
+    struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
 
+    type_info_t new_struct = {0};
     new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
     new_struct.kind = kind;
-    new_struct.field_count = num_fields;
-    new_struct.fields = fields;
     bool is_complete = true;
-    struct_or_union_members_st members = {0};
-    if (num_fields > 0)
+
+    if (members.num_members > 0)
     {
-        members.members = malloc(num_fields * sizeof(*members.members));
-        memcpy(members.members, fields, num_fields * sizeof(*members.members));
-        for (size_t i = 0; i < num_fields; i++)
+        new_struct.field_count = members.num_members;
+        new_struct.fields = malloc(members.num_members * sizeof(*members.members));
+        memcpy(new_struct.fields, members.members, members.num_members * sizeof(*members.members));
+        for (size_t i = 0; i < members.num_members; i++)
         {
-            if (members.members[i].name != NULL)
+            if (new_struct.fields[i].name != NULL)
             {
-                members.members[i].name = strdup(members.members[i].name);
+                new_struct.fields[i].name = strdup(new_struct.fields[i].name);
             }
         }
-        members.num_members = num_fields;
     }
+
     new_struct.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, new_struct.tag),
@@ -1975,24 +1987,46 @@ add_untagged_struct_or_union_type(
         &members
     );
 
+    type_info_t const * registered = scope_add_untagged_type(ctx->current_scope, new_struct, new_type_id);
+    if (registered == NULL)
+    {
+        free((void *)new_struct.tag);
+        for (size_t i = 0; i < new_struct.field_count; i++)
+        {
+            free(new_struct.fields[i].name);
+        }
+        return NULL;
+    }
+
+    if (members.num_members == 0)
+    {
+        return registered;
+    }
+
     struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
     unsigned num_storage_units = last_field->storage_index + 1;
     LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
     int current_storage_unit = -1;
     for (size_t i = 0; i < new_struct.field_count; i++)
     {
-        struct_field_t * field = &fields[i];
+        struct_field_t * field = &members.members[i];
         if (field->storage_index != (unsigned)current_storage_unit)
         {
             current_storage_unit = field->storage_index;
-            field_types[current_storage_unit] = field->type;
+            field_types[current_storage_unit] = field->type_desc->llvm_type;
         }
     }
 
     LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
     free(field_types);
 
-    return scope_add_untagged_type(ctx->current_scope, new_struct, new_type_id);
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        free(members.members[i].name);
+    }
+    free(members.members);
+
+    return registered;
 }
 
 static type_info_t const *
@@ -2000,17 +2034,9 @@ register_untagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
 )
 {
-    struct_or_union_members_st members = extract_struct_or_union_members(ctx, type_child);
-    debug_info("%s: num_members: %zu", __func__, members.num_members);
+    debug_info("%s", __func__);
 
-    if (members.num_members > 0)
-    {
-        return add_untagged_struct_or_union_type(ctx, kind, members.members, members.num_members, new_type_id);
-    }
-
-    free(members.members);
-
-    return NULL;
+    return add_untagged_struct_or_union_type(ctx, type_child, kind, new_type_id);
 }
 
 type_info_t const *

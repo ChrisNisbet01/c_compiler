@@ -76,7 +76,7 @@ TypeDescriptor const * register_struct_type(
     TypeQualifier const quals,
     bool is_union,
     bool is_complete,
-    struct_or_union_members_st * members
+    struct_or_union_members_st const * members
 );
 
 TypeDescriptor const * get_or_create_function_type(
