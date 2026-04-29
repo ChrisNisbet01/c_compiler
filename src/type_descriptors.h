@@ -2,6 +2,7 @@
 
 #include "type_qualifiers.h"
 #include "type_specifier.h"
+#include "type_utils.h"
 
 #include <llvm-c/Core.h>
 #include <stdbool.h>
@@ -33,6 +34,7 @@ typedef struct
 typedef struct
 {
     bool is_complete;
+    struct_or_union_members_st members;
     /* TODO: add members. */
 } StructMetaData;
 
@@ -69,7 +71,12 @@ get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * po
 TypeDescriptor const * get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier specs, TypeQualifier quals);
 
 TypeDescriptor const * register_struct_type(
-    TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union, bool is_complete
+    TypeDescriptors * registry,
+    LLVMTypeRef llvm_struct,
+    TypeQualifier const quals,
+    bool is_union,
+    bool is_complete,
+    struct_or_union_members_st * members
 );
 
 TypeDescriptor const * get_or_create_function_type(

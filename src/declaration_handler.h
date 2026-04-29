@@ -16,3 +16,6 @@ TypeQualifier build_type_qualifiers(c_grammar_node_t const * qual_list);
 TypeDescriptor const * resolve_type_descriptor(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
 );
+
+struct_or_union_members_st
+extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);

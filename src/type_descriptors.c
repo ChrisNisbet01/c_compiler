@@ -211,7 +211,12 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
 
 TypeDescriptor const *
 register_struct_type(
-    TypeDescriptors * registry, LLVMTypeRef llvm_struct, TypeQualifier const quals, bool is_union, bool is_complete
+    TypeDescriptors * registry,
+    LLVMTypeRef llvm_struct,
+    TypeQualifier const quals,
+    bool is_union,
+    bool is_complete,
+    struct_or_union_members_st * members
 )
 {
     // Check if this LLVM type is already wrapped
@@ -223,13 +228,21 @@ register_struct_type(
         curr = curr->next;
     }
 
-    TypeDescriptor template = {
-        .kind = is_union ? NCC_TYPE_KIND_UNION : NCC_TYPE_KIND_STRUCT,
-        .llvm_type = llvm_struct,
-        .pointee = NULL, // Structs aren't pointers
-        .qualifiers = quals,
-        .struct_metadata.is_complete = is_complete,
-    };
+    struct_or_union_members_st members_template = {0};
+
+    if (members != NULL && members->num_members > 0)
+    {
+        members_template = *members;
+        memset(members, 0, sizeof *members);
+    }
+
+    TypeDescriptor template
+        = {.kind = is_union ? NCC_TYPE_KIND_UNION : NCC_TYPE_KIND_STRUCT,
+           .llvm_type = llvm_struct,
+           .pointee = NULL, // Structs aren't pointers
+           .qualifiers = quals,
+           .struct_metadata.is_complete = is_complete,
+           .struct_metadata.members = members_template};
 
     return register_descriptor(registry, &template);
 }

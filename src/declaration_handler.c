@@ -477,3 +477,210 @@ resolve_type_descriptor(
     debug_info("%s out: current %p", __func__, current);
     return current;
 }
+
+struct_or_union_members_st
+extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+{
+    debug_info("%s:", __func__);
+    struct_or_union_members_st object_members = {0};
+
+    if (type_child == NULL
+        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
+    {
+        return object_members;
+    }
+
+    c_grammar_node_t const * members_node = type_child->struct_definition.declaration_list;
+
+    if (members_node == NULL || members_node->list.count == 0)
+    {
+        return object_members;
+    }
+
+    size_t max_num_members = members_node->list.count;
+    struct_field_t * members = calloc(max_num_members, sizeof(*members));
+    if (members == NULL)
+    {
+        return object_members;
+    }
+
+    unsigned num_members = 0;
+
+    for (size_t i = 0; i < members_node->list.count; i++)
+    {
+        debug_info("check member %u and num_members %u", i, num_members);
+        c_grammar_node_t * struct_decl = members_node->list.children[i];
+        if (struct_decl == NULL || struct_decl->type != AST_NODE_STRUCT_DECLARATION)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * specifier_qualifier_list = struct_decl->struct_declaration.specifier_qualifier_list;
+        c_grammar_node_t const * declarator_list = struct_decl->struct_declaration.declarator_list;
+
+        if (specifier_qualifier_list == NULL || specifier_qualifier_list->list.count == 0)
+        {
+            continue;
+        }
+        debug_info("%s: spec_qual_list_type is %s", __func__, get_node_type_name_from_node(specifier_qualifier_list));
+
+        c_grammar_node_t const * type_spec = NULL;
+        if (specifier_qualifier_list->list.count == 1
+            && specifier_qualifier_list->list.children[0]->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+        {
+            c_grammar_node_t const * child = specifier_qualifier_list->list.children[0];
+            type_spec = child->typedef_specifier_qualifier.typedef_specifier;
+            debug_info("ssql type spec is a %s node", get_node_type_name_from_node(type_spec));
+        }
+        else
+        {
+            for (size_t j = 0; j < specifier_qualifier_list->list.count; j++)
+            {
+                c_grammar_node_t const * child = specifier_qualifier_list->list.children[j];
+                if (child != NULL
+                    && (child->type == AST_NODE_TYPE_SPECIFIER || child->type == AST_NODE_TYPEDEF_SPECIFIER))
+                {
+                    type_spec = child;
+                    break;
+                }
+            }
+        }
+        type_spec = specifier_qualifier_list;
+        if (type_spec == NULL)
+        {
+            continue;
+        }
+
+        if (declarator_list == NULL || declarator_list->list.count == 0)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
+
+        struct_field_t new_member = {0};
+
+        if (struct_decl_node->type == AST_NODE_STRUCT_DECLARATOR && struct_decl_node->list.count > 0)
+        {
+            c_grammar_node_t * decl = struct_decl_node->list.children[0];
+            if (decl == NULL)
+            {
+                continue;
+            }
+
+            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+            {
+                if (decl->list.count < 1 || decl->list.count > 2)
+                {
+                    continue;
+                }
+                size_t width_idx;
+                if (decl->list.count == 1)
+                {
+                    width_idx = 0;
+                    new_member.name = strdup("");
+                }
+                else
+                {
+                    width_idx = 1;
+                    c_grammar_node_t const * bf_decl = decl->list.children[0];
+                    if (bf_decl->type == AST_NODE_DECLARATOR)
+                    {
+                        c_grammar_node_t const * direct_decl = bf_decl->declarator.direct_declarator;
+                        if (direct_decl && direct_decl->list.count > 0)
+                        {
+                            c_grammar_node_t * ident = direct_decl->list.children[0];
+                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                            {
+                                new_member.name = strdup(ident->text);
+                            }
+                        }
+                    }
+                }
+                c_grammar_node_t * width_node = decl->list.children[width_idx];
+                if (width_node->type == AST_NODE_INTEGER_LITERAL)
+                {
+                    new_member.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
+                }
+
+                debug_info("resolving");
+                new_member.type_desc = resolve_type_descriptor(ctx, type_spec, NULL);
+                if (new_member.type_desc == NULL)
+                {
+                    debug_info("%s failed to get type descriptor", __func__);
+                    free(new_member.name);
+                    continue;
+                }
+                debug_info("resolved: %p", new_member.type_desc);
+
+                unsigned type_bits;
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                    type_bits = LLVMGetIntTypeWidth(previous_member->type_desc->llvm_type);
+                }
+                else
+                {
+                    type_bits = LLVMGetIntTypeWidth(new_member.type_desc->llvm_type);
+                }
+                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
+                    || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
+                    || LLVMGetTypeKind(new_member.type_desc->llvm_type)
+                           != LLVMGetTypeKind(previous_member->type_desc->llvm_type)
+                    || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
+                {
+                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                }
+                else
+                {
+                    new_member.storage_index = previous_member->storage_index;
+                    new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
+                }
+                members[num_members] = new_member;
+                num_members++;
+            }
+            else if (decl->type == AST_NODE_DECLARATOR)
+            {
+                debug_info("resolving declarator");
+                new_member.type_desc = resolve_type_descriptor(ctx, type_spec, decl);
+                debug_info("resolved: %p", new_member.type_desc);
+
+                c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
+                if (direct_decl->list.count > 0)
+                {
+                    c_grammar_node_t * ident = direct_decl->list.children[0];
+                    if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                    {
+                        new_member.name = strdup(ident->text);
+                    }
+                }
+                if (new_member.name == NULL)
+                {
+                    continue;
+                }
+                if (new_member.type_desc == NULL)
+                {
+                    free(new_member.name);
+                    continue;
+                }
+
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                }
+                new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+
+                members[num_members] = new_member;
+                num_members++;
+            }
+        }
+    }
+
+    object_members.members = members;
+    object_members.num_members = num_members;
+
+    debug_info("%s: got %zu members", __func__, object_members.num_members);
+    return object_members;
+}

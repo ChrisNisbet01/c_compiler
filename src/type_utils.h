@@ -2,12 +2,15 @@
 
 #include "c_grammar_ast.h"
 #include "llvm_ir_generator.h"
+#include "struct_members.h"
 
-typedef struct
-{
-    size_t num_members;
-    struct_field_t * members;
-} struct_or_union_members_st;
+#include <llvm-c/Core.h>
+
+typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptors TypeDescriptors;
+typedef struct scope scope_t;
+
+typedef struct ir_generator_ctx ir_generator_ctx_t;
 
 char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
 
@@ -20,11 +23,6 @@ LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
 TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
 
 char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
-
-type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
-
-type_info_t const *
-register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union);
 
 bool is_function_suffix(c_grammar_node_t const * suffix);
 

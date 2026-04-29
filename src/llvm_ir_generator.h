@@ -14,6 +14,10 @@
 #include <llvm-c/TargetMachine.h>
 #include <stdbool.h>
 
+typedef struct TypeDescriptors TypeDescriptors;
+typedef struct scope scope_t;
+typedef struct type_info type_info_t;
+
 struct function_decl_entry
 {
     char * name;
@@ -119,3 +123,8 @@ int write_llvm_ir_to_file(LLVMModuleRef module, char const * file_path);
  * @return 0 on success, -1 on failure.
  */
 int emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, LLVMCodeGenFileType file_type);
+
+type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+
+type_info_t const *
+register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union);

@@ -1,11 +1,11 @@
 #pragma once
 
-#include "type_descriptors.h"
-
 #include <llvm-c/Core.h>
 #include <stdbool.h>
 
-typedef struct
+typedef struct TypeDescriptor TypeDescriptor;
+
+typedef struct TypedValue
 {
     bool is_lvalue;
     bool is_unsigned;
