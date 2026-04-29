@@ -39,7 +39,3 @@ bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * 
 char const * search_for_identifier(c_grammar_node_t const * node);
 
 unsigned get_fp_width(LLVMTypeRef type);
-
-bool is_integer_kind(LLVMTypeRef type);
-
-bool is_floating_kind(LLVMTypeRef type);

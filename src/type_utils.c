@@ -467,16 +467,3 @@ get_fp_width(LLVMTypeRef type)
 
 #pragma GCC diagnostic pop
 }
-
-bool
-is_integer_kind(LLVMTypeRef type)
-{
-    LLVMTypeKind kind = LLVMGetTypeKind(type);
-    return kind == LLVMIntegerTypeKind || kind == LLVMHalfTypeKind;
-}
-
-bool
-is_floating_kind(LLVMTypeRef type)
-{
-    return get_fp_width(type) > 0;
-}

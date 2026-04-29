@@ -202,10 +202,10 @@ cast_typed_value_to_desc(ir_generator_ctx_t * ctx, TypedValue src, TypeDescripto
 
     type_descriptor_type_kind_t src_kind = src.type_info->kind;
     type_descriptor_type_kind_t target_kind = target_desc->kind;
-    bool src_is_int = is_integer_kind(src.type_info->llvm_type);
-    bool target_is_int = is_integer_kind(target_desc->llvm_type);
-    bool src_is_float = is_floating_kind(src.type_info->llvm_type);
-    bool target_is_float = is_floating_kind(target_desc->llvm_type);
+    bool src_is_int = is_integer_kind(src.type_info);
+    bool target_is_int = is_integer_kind(target_desc);
+    bool src_is_float = is_floating_kind(src.type_info);
+    bool target_is_float = is_floating_kind(target_desc);
 
     // --- 1. Integer to Integer ---
     if (src_is_int && target_is_int)
@@ -537,20 +537,21 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
 }
 
 static TypedValue
-handle_bitfield_extraction(TypedValue tval, type_info_t const * info, size_t member_index)
+handle_bitfield_extraction_desc(TypedValue tval, TypeDescriptor const * struct_desc, size_t member_index)
 {
-    if (info == NULL || info->fields == NULL)
+    if (struct_desc == NULL)
     {
         debug_info("%s no info to extract bit_width", __func__);
         return tval;
     }
 
-    if (member_index >= info->field_count || info->fields[member_index].bit_width == 0)
+    if (member_index >= struct_desc->struct_metadata.members.num_members
+        || struct_desc->struct_metadata.members.members[member_index].bit_width == 0)
     {
         return tval;
     }
 
-    struct_field_t const * field = &info->fields[member_index];
+    struct_field_t const * field = &struct_desc->struct_metadata.members.members[member_index];
 
     tval.bit_width = field->bit_width;
     tval.bit_offset = field->bit_offset;
@@ -4227,537 +4228,201 @@ process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
 static TypedValue
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // AST structure for PostfixExpression: [BaseExpression, SuffixPart1, SuffixPart2, ...]
     c_grammar_node_t const * base_node = node->postfix_expression.base_expression;
-    TypedValue base_value = NullTypedValue;
-    TypedValue current_value = NullTypedValue;
-    bool have_ptr = false;
-    bool did_member_access = false; /* tracks whether we've done at least one member access */
-
-    debug_info("%s", __func__);
-    print_ast_with_label(node, "node");
-    print_ast_with_label(base_node, "base");
-
-    // Check if base is a symbol (for array access)
-    // Do this before process_expression to avoid double GEP for arrays
-    if (base_node->type == AST_NODE_CAST_EXPRESSION)
-    {
-        base_node = base_node->cast_expression.expression;
-    }
-    if (base_node->type == AST_NODE_IDENTIFIER)
-    {
-        char const * var_name = base_node->text;
-        TypedValue var;
-
-        if (find_symbol(ctx, var_name, &var))
-        {
-            current_value = var;
-            dump_typed_value("initial current value from identifier", current_value);
-            have_ptr = true;
-        }
-    }
-
     c_grammar_node_t const * postfix_parts_node = node->postfix_expression.postfix_parts;
-    print_ast_with_label(postfix_parts_node, "postfix_parts");
 
-    {
-        // For function calls, don't call process_expression on the identifier
-        // The function call suffix handling will get the function pointer directly
-        bool has_func_call_suffix = false;
-
-        for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
-        {
-            if (postfix_parts_node->list.children[i]->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
-            {
-                has_func_call_suffix = true;
-                break;
-            }
-        }
-        if (!has_func_call_suffix)
-        {
-            debug_info("processing base node");
-            base_value = process_expression(ctx, base_node);
-            dump_typed_value("base value post processing base AST node", base_value);
-        }
-
-        // If base_val is a pointer type and have_ptr is false, set up current_ptr for member access
-        // This handles cases like ((Point *)ptr)->member where base is a cast expression
-        if (/*!have_ptr && */ base_value.value != NULL && base_value.type != NULL)
-        {
-            LLVMTypeRef base_type = base_value.type;
-
-            current_value = base_value;
-            if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
-            {
-                // For member access, we need the pointee type, not the pointer type
-                // For non-opaque, LLVMGetElementType works. For opaque, leave current_type as NULL
-                have_ptr = true;
-                debug_info(
-                    "Set current_ptr from base_val pointer for member access, current_type kind=%d",
-                    LLVMGetTypeKind(current_value.type)
-                );
-                dump_typed_value("current and base values from process_expression", current_value);
-            }
-        }
-    }
+    // 1. Resolve the base value.
+    // In C, postfix expressions group left-to-right.
+    // We start with the base and then "pipe" the result through each suffix.
+    TypedValue current_val = process_expression(ctx, base_node);
 
     for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
     {
         c_grammar_node_t * suffix = postfix_parts_node->list.children[i];
-        print_ast_with_label(suffix, "suffix");
 
-        if (suffix->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch"
+
+        switch (suffix->type)
         {
-            // 1. Determine what we are trying to call
-            TypedValue callable = current_value.value != NULL ? current_value : base_value;
+        case AST_NODE_OPTIONAL_ARGUMENT_LIST:
+        {
+            // FUNCTION CALL: (args...)
+            // Resolve what we are calling. If it's a function directly,
+            // we call it. If it's a pointer to a function, we load it first.
+            TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
 
-            callable = ensure_rvalue(ctx, "func_ptr_load", callable);
-
-            LLVMTypeRef func_sig = callable.pointee_type;
-
-            if (func_sig == NULL && base_node->type == AST_NODE_IDENTIFIER && base_node->text != NULL)
+            TypeDescriptor const * func_desc = NULL;
+            if (callable.type_info->kind == NCC_TYPE_KIND_FUNCTION)
             {
-                char const * name = base_node->text;
-                TypedValue var;
-                if (find_symbol(ctx, name, &var))
-                {
-                    // This is where 'func' is found as a parameter!
-                    // 1. Get the value (the pointer address)
-                    TypedValue rval = ensure_rvalue(ctx, "func_ptr_load", var);
-
-                    // 2. Use the rval.value for the call, NOT the name
-                    callable.value = rval.value;
-                    func_sig = rval.pointee_type;
-                }
-                else
-                {
-                    debug_info("no function signature - will auto-declare: '%s'", base_node->text);
-                    // For undeclared functions like printf, auto-declare as variadic returning i32
-                    // with no required arguments to support different call patterns
-                    callable.value = LLVMGetNamedFunction(ctx->module, base_node->text);
-                    debug_info("get named func for %s returned %p", base_node->text, (void *)callable.value);
-                    if (callable.value != NULL)
-                    {
-                        func_sig = LLVMGlobalGetValueType(callable.value);
-                    }
-                    else
-                    {
-                        LLVMTypeRef ret_type = ctx->ref_type.i32_type;
-                        func_sig = LLVMFunctionType(ret_type, NULL, 0, true);
-                        callable.value = LLVMAddFunction(ctx->module, base_node->text, func_sig);
-                        callable.type = LLVMGetReturnType(func_sig);
-                    }
-                }
+                func_desc = callable.type_info;
             }
-            if (func_sig == NULL)
+            else if (
+                callable.type_info->kind == NCC_TYPE_KIND_POINTER
+                && callable.type_info->pointee->kind == NCC_TYPE_KIND_FUNCTION
+            )
             {
-                debug_error("Could not resolve function for call.");
-                ir_gen_error(&ctx->errors, "Could not resolve function for call.");
+                func_desc = callable.type_info->pointee;
+            }
+
+            if (!func_desc)
+            {
+                ir_gen_error(&ctx->errors, "Expression is not a function or function pointer");
                 return NullTypedValue;
             }
 
-            char const * call_name = "";
-            LLVMTypeRef return_type = LLVMGetReturnType(func_sig);
-            if (return_type != LLVMVoidTypeInContext(ctx->context))
-            {
-                call_name = "call_tmp";
-            }
+            // Process Arguments
+            size_t num_args = suffix->list.count;
+            LLVMValueRef * call_args = num_args > 0 ? calloc(num_args, sizeof(LLVMValueRef)) : NULL;
 
-            // Handle function call. Arguments might be children directly or in an ArgumentList
-            size_t num_args = 0;
-            TypedValue * args = NULL;
-
-            if (suffix->list.count > 0)
+            for (size_t j = 0; j < num_args; ++j)
             {
-                num_args = suffix->list.count;
-                args = malloc(num_args * sizeof(*args));
-                for (size_t j = 0; j < num_args; ++j)
+                TypedValue arg = process_expression(ctx, suffix->list.children[j]);
+                // Auto-cast to parameter type if available
+                if (j < func_desc->function_metadata.param_count)
                 {
-                    args[j] = process_expression(ctx, suffix->list.children[j]);
-                    args[j] = ensure_rvalue(ctx, "postfix_arg_list_arg_rval", args[j]);
-                }
-            }
-
-            // For zero-argument calls, pass NULL for args (per LLVM C API docs)
-            LLVMValueRef * call_args = NULL;
-            if (num_args > 0)
-            {
-                call_args = calloc(num_args, sizeof *call_args);
-                for (size_t i = 0; i < num_args; i++)
-                {
-                    call_args[i] = args[i].value;
-                }
-            }
-
-            LLVMValueRef call_value
-                = LLVMBuildCall2(ctx->builder, func_sig, callable.value, call_args, (unsigned)num_args, call_name);
-            free(call_args);
-            free(args);
-
-            TypedValue call_res = {
-                .type = return_type,
-            };
-            if (return_type != LLVMVoidTypeInContext(ctx->context))
-            {
-                // For void functions, leave base_val set to NULL (void calls don't produce values)
-                call_res.value = call_value;
-            }
-
-            base_value = call_res;
-        }
-        else if (suffix->type == AST_NODE_ARRAY_SUBSCRIPT)
-        {
-            // Array subscript: use helper function
-            if (have_ptr && current_value.type != NULL)
-            {
-                if (LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
-                {
-                    dump_typed_value("prior to process_array_subscript - ensuring rvalue", current_value);
-                    // We are holding the address of a pointer variable (e.g., &o.inner).
-                    // We need the ACTUAL address stored there (e.g., the value of inner).
-                    current_value = ensure_rvalue(ctx, "subscript_ptr_load", current_value);
-                    // FIXME - This should be inside process_array_subscript, but need to refactor to pass TypedValue
-                    // first.
-                }
-                dump_typed_value("to process_array_subscript", current_value);
-                TypedValue new_value = process_array_subscript(ctx, suffix, current_value);
-                dump_typed_value("from process_array_subscript", current_value);
-                if (new_value.value != NULL)
-                {
-                    // Update current_ptr for next iteration
-                    current_value = new_value;
-                    base_value = current_value;
-                    debug_info(
-                        "current_type kind is: now %u pointee: %u",
-                        LLVMGetTypeKind(current_value.type),
-                        base_value.pointee_type != NULL ? (int)LLVMGetTypeKind(base_value.pointee_type) : -1
-                    );
+                    arg = cast_typed_value_to_desc(ctx, arg, func_desc->function_metadata.params[j]);
                 }
                 else
                 {
-                    debug_error("Could not process array subscript.");
-                    return NullTypedValue;
+                    arg = ensure_rvalue(ctx, "vararg_load", arg);
                 }
-            }
-        }
-        else if (suffix->type == AST_NODE_MEMBER_ACCESS_DOT || suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
-        {
-            // Struct member access: s.x or p->x
-            // AST_MEMBER_ACCESS_DOT/ARROW children: [Dot/Arrow, Identifier]
-            char const * member_name = suffix->identifier.identifier->text;
-            if (member_name == NULL)
-            {
-                debug_error("Could not find member name in member access AST node.");
-                return NullTypedValue;
+                call_args[j] = arg.value;
             }
 
-            debug_info(
-                "\n\n\n\nMember access start: base_val=%p, have_ptr=%d, current_ptr=%p, current_type= %p (%d) "
-                "current_pointee_type: %p "
-                "(%d)",
-                (void *)base_value.value,
-                have_ptr,
-                (void *)current_value.value,
-                current_value.type,
-                current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1,
-                current_value.pointee_type,
-                current_value.pointee_type != NULL ? (int)LLVMGetTypeKind(current_value.pointee_type) : -1
+            LLVMValueRef call_val = LLVMBuildCall2(
+                ctx->builder,
+                func_desc->llvm_type,
+                callable.value,
+                call_args,
+                (unsigned)num_args,
+                is_void_return(func_desc) ? "" : "call_tmp"
             );
 
+            free(call_args);
+            current_val = create_typed_value(call_val, func_desc->function_metadata.return_type, false);
+            break;
+        }
+
+        case AST_NODE_ARRAY_SUBSCRIPT:
+        {
+            // ARRAY ACCESS: [index]
+            // C rule: a[i] is identical to *(a + i).
+            // Array types decay to pointers here.
+            if (current_val.type_info->kind == NCC_TYPE_KIND_ARRAY)
+            {
+                // Decay array to pointer to first element
+                current_val = cast_typed_value_to_desc(
+                    ctx,
+                    current_val,
+                    get_or_create_pointer_type(
+                        ctx->type_descriptors, current_val.type_info->pointee, (TypeQualifier){0}
+                    )
+                );
+            }
+
+            current_val = ensure_rvalue(ctx, "ptr_subscript_load", current_val);
+            current_val = process_array_subscript(ctx, suffix, current_val);
+            break;
+        }
+
+        case AST_NODE_MEMBER_ACCESS_DOT:
+        case AST_NODE_MEMBER_ACCESS_ARROW:
+        {
+            // MEMBER ACCESS: .member or ->member
             bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+            char const * member_name = suffix->identifier.identifier->text;
 
             if (is_arrow)
             {
-                // base_value is currently the result of the PREVIOUS step (e.g., &o.inr)
-                // We load it to get the address of the 'Inner' struct
-                base_value = ensure_rvalue(ctx, "arrow_base_load", base_value);
-
-                if (base_value.pointee_type)
+                // -> implies a pointer dereference first
+                current_val = ensure_rvalue(ctx, "arrow_deref", current_val);
+                if (current_val.type_info->kind != NCC_TYPE_KIND_POINTER)
                 {
-                    // Now swap the type so the member lookup looks at 'Inner', not 'ptr'
-                    base_value.type = base_value.pointee_type;
+                    ir_gen_error(&ctx->errors, "Arrow operator used on non-pointer");
+                    return NullTypedValue;
                 }
-            }
-            TypedValue struct_value = base_value;
-            dump_typed_value("new struct value", struct_value);
-
-            // Handle case where base_val is NULL but we have current_ptr from array subscript
-            // OR for arrow access where current_ptr is set
-            if (current_value.value != NULL && have_ptr
-                && ((struct_value.value == NULL && current_value.type != NULL) || is_arrow))
-            {
-                // current_ptr points to the element, current_type is its type
-                LLVMTypeKind type_kind = current_value.type ? LLVMGetTypeKind(current_value.type) : 0;
-                if (type_kind == LLVMStructTypeKind)
-                {
-                    struct_value = current_value;
-                }
-                else if (type_kind == LLVMPointerTypeKind)
-                {
-                    LLVMTypeRef elem_type = LLVMGetElementType(current_value.type);
-                    if (elem_type && LLVMGetTypeKind(elem_type) == LLVMStructTypeKind)
-                    {
-                        struct_value.value = current_value.value;
-                        struct_value.type = elem_type;
-                    }
-                }
-                else
-                {
-                    debug_error("Member access on unsupported type kind %d.", type_kind);
-                    ir_gen_error(&ctx->errors, "Member access on unsupported type kind %d.", type_kind);
-                }
+                // Move the context to the struct being pointed to
+                current_val.type_info = current_val.type_info->pointee;
             }
 
-            if (struct_value.value == NULL || struct_value.type == NULL)
+            TypeDescriptor const * struct_desc = current_val.type_info;
+            if (struct_desc->kind != NCC_TYPE_KIND_STRUCT)
             {
-                debug_error(
-                    "Struct value didn't have required fields - value: %p, type: %p",
-                    (void *)struct_value.value,
-                    (void *)struct_value.type
+                ir_gen_error(&ctx->errors, "Member access on non-struct type");
+                return NullTypedValue;
+            }
+
+            int field_idx = type_descriptor_find_struct_field_index_from_desc(struct_desc, member_name);
+            if (field_idx < 0)
+            {
+                ir_gen_error(&ctx->errors, "Struct has no member named '%s'", member_name);
+                return NullTypedValue;
+            }
+
+            // Create the GEP
+            LLVMValueRef indices[2]
+                = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
+                   LLVMConstInt(ctx->ref_type.i32_type, field_idx, false)};
+
+            TypeDescriptor const * field_desc = struct_desc->struct_metadata.members.members[field_idx].type_desc;
+
+            LLVMValueRef member_ptr = LLVMBuildInBoundsGEP2(
+                ctx->builder, struct_desc->llvm_type, current_val.value, indices, 2, "memberptr"
+            );
+
+            current_val = create_typed_value(member_ptr, field_desc, true);
+
+            // Handle bitfields if your struct metadata tracks them
+            current_val = handle_bitfield_extraction_desc(current_val, struct_desc, field_idx);
+            break;
+        }
+
+        case AST_NODE_POSTFIX_OPERATOR:
+        {
+            // POSTFIX: i++ / i--
+            if (!current_val.is_lvalue)
+            {
+                ir_gen_error(&ctx->errors, "Postfix operator requires lvalue");
+                return NullTypedValue;
+            }
+
+            TypedValue original_val = ensure_rvalue(ctx, "postfix_orig", current_val);
+            LLVMValueRef modified;
+
+            if (current_val.type_info->kind == NCC_TYPE_KIND_POINTER)
+            {
+                LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32_type, 1, false);
+                modified = LLVMBuildInBoundsGEP2(
+                    ctx->builder, current_val.type_info->pointee->llvm_type, original_val.value, &one, 1, "ptr_step"
                 );
-                ir_gen_error(&ctx->errors, "Struct value didn't have required fields");
-            }
-
-            debug_info(
-                "Checking struct_type after assignment: is_arrow=%d, struct_type=%p (kind=%d), "
-                "base_node type=%d, current_type: %d, is_lvalue: %d",
-                is_arrow,
-                (void *)struct_value.type,
-                struct_value.type ? (int)LLVMGetTypeKind(struct_value.type) : -1,
-                base_node ? (int)base_node->type : -1,
-                current_value.type != NULL ? (int)LLVMGetTypeKind(current_value.type) : -1,
-                struct_value.is_lvalue
-            );
-
-            // For arrow access with cast expressions like ((Point *)ptr)->member
-            // if current_type is already the struct type, use it directly
-            // OR if base is a cast expression, get type from the cast's target type
-            if (is_arrow && current_value.type != NULL && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
-            {
-                LLVMTypeRef pointee = LLVMGetElementType(current_value.type);
-                if (pointee != NULL && LLVMGetTypeKind(pointee) == LLVMStructTypeKind)
-                {
-                    struct_value.type = pointee;
-                    struct_value.value = current_value.value;
-                }
-            }
-
-            // For LLVM 18+ opaque pointers, use struct name from symbol table
-            // For arrow access, we need to look up the Pointee type from the symbol, even if struct_type
-            // was already set (it might be the pointer type from earlier)
-            bool do_symbol_lookup_using_pointee_type = false;
-            if (is_arrow && did_member_access && current_value.type != NULL
-                && LLVMGetTypeKind(current_value.type) == LLVMPointerTypeKind)
-            {
-                debug_info("Using existing struct type");
-            }
-            else if (is_arrow && base_node && base_node->type == AST_NODE_IDENTIFIER)
-            {
-                debug_info("Arrow access: is_arrow=%d", is_arrow);
-                /* For chained arrow access, current_type was set to the pointee struct
-                 * type after the previous member access — use it with priority. */
-                char const * tag = find_symbol_tag_name(ctx, base_node->text);
-                debug_info("Looking up struct type by tag '%s' for opaque pointer.", tag ? tag : "NULL");
-                if (tag != NULL)
-                {
-                    struct_value.type = find_type_by_tag(ctx, tag);
-                }
-
-                /* For anonymous struct typedefs (tag not in tagged list), use pointee_type from symbol */
-                if (struct_value.type == NULL)
-                {
-                    debug_info("Checking find_symbol for '%s', struct_type is NULL", base_node->text);
-                    TypedValue sym;
-
-                    if (find_symbol(ctx, base_node->text, &sym))
-                    {
-                        debug_info("Arrow access: found symbol '%s'", base_node->text);
-                        if (sym.pointee_type != NULL && LLVMGetTypeKind(sym.pointee_type) == LLVMStructTypeKind)
-                        {
-                            debug_info("Found struct type from pointee!");
-                            struct_value = sym;
-                            do_symbol_lookup_using_pointee_type = true;
-                        }
-                    }
-                    else
-                    {
-                        debug_info("find_symbol returned false for '%s'", base_node->text);
-                    }
-                }
-            }
-            debug_info("assign struct type");
-            dump_typed_value("struct value", struct_value);
-            dump_typed_value("current value", current_value);
-            LLVMTypeRef struct_type
-                = do_symbol_lookup_using_pointee_type ? struct_value.pointee_type : struct_value.type;
-
-            if (struct_type == NULL)
-            {
-                debug_error("Could not find struct type for member access of '%s'.", member_name);
-                continue;
-            }
-
-            // Find the member index by name
-            unsigned num_elements = LLVMCountStructElementTypes(struct_type);
-            unsigned member_index = 0;
-            unsigned storage_index = 0;
-            bool found = false;
-
-            // Look up the struct info to find the member by name
-            type_info_t const * struct_info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
-            debug_info(
-                "Looking up struct info for member access by type. Struct type: %p (%u), found info: %s",
-                (void *)struct_value.type,
-                struct_value.type != NULL ? (int)LLVMGetTypeKind(struct_value.type) : -1,
-                struct_info ? "yes" : "no"
-            );
-            if (struct_info != NULL && struct_info->fields != NULL)
-            {
-                for (unsigned j = 0; j < struct_info->field_count; ++j)
-                {
-                    if (struct_info->fields[j].name && strcmp(struct_info->fields[j].name, member_name) == 0
-                        && struct_info->fields[j].storage_index < num_elements)
-                    {
-                        struct_field_t const * field = &struct_info->fields[j];
-                        member_index = j;
-                        storage_index = field->storage_index;
-                        current_value.type = field->type;
-                        current_value.pointee_type = field->pointee_struct_type;
-                        found = true;
-                        break;
-                    }
-                }
             }
             else
             {
-                ir_gen_error(&ctx->errors, "struct member '%s' not found", member_name);
-                return NullTypedValue;
-            }
-            debug_info(
-                "Member '%s' access - found: %s, member_index: %u, storage_index: %u, num_elements: %u, "
-                "current_val pointee_type: %p (%u)",
-                member_name,
-                found ? "yes" : "no",
-                member_index,
-                storage_index,
-                num_elements,
-                current_value.pointee_type,
-                current_value.pointee_type != NULL ? (int)LLVMGetTypeKind(current_value.pointee_type) : -1
-            );
-            if (found || num_elements > 0)
-            {
-                // Create GEP to access member
-                LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-                indices[1] = LLVMConstInt(ctx->ref_type.i32_type, storage_index, false);
+                LLVMValueRef one = is_floating_kind(current_val.type_info)
+                                       ? LLVMConstReal(current_val.type_info->llvm_type, 1.0)
+                                       : LLVMConstInt(current_val.type_info->llvm_type, 1, false);
 
-                // Check if struct_val (which could be base_val or current_ptr) is a pointer
-                // Now GEP into the ACTUAL address
-                TypedValue loaded_struct_value = struct_value;
-                if (is_arrow)
-                {
-                    loaded_struct_value = ensure_rvalue(ctx, "postfix_struct_rval", struct_value);
-                    debug_info("loaded struct pointer and type: %d", LLVMGetTypeKind(loaded_struct_value.type));
-                    if (current_value.pointee_type != NULL)
-                    {
-                        debug_info("have pointee type!!");
-                        struct_value.value = current_value.value;
-                        struct_value.type = current_value.pointee_type;
-                        struct_type = struct_value.type;
-                    }
-                }
+                if (suffix->op.postfix.op == POSTFIX_OP_INC)
+                    modified = is_floating_kind(current_val.type_info)
+                                   ? LLVMBuildFAdd(ctx->builder, original_val.value, one, "inc")
+                                   : LLVMBuildAdd(ctx->builder, original_val.value, one, "inc");
                 else
-                {
-                    loaded_struct_value = struct_value;
-                    debug_info(
-                        "have pointer and loaded struct type: %p (%u) struct type %p (%u)",
-                        loaded_struct_value.type,
-                        LLVMGetTypeKind(loaded_struct_value.type),
-                        struct_type,
-                        struct_type != NULL ? (int)LLVMGetTypeKind(struct_type) : -1
-                    );
-                }
-
-                debug_info("end of block and struct info: %p", (void *)struct_info);
-                if (struct_info == NULL)
-                {
-                    debug_error("have no struct_info - bailing out!");
-                    ir_gen_error(&ctx->errors, "Compiler error: have no struct_info - bailing out!");
-                    return NullTypedValue;
-                }
-                base_value = (TypedValue){
-                    .value = LLVMBuildInBoundsGEP2(
-                        ctx->builder, struct_type, loaded_struct_value.value, indices, 2, "memberptr"
-                    ),
-                    .type = struct_info->fields[member_index].type,
-                    .pointee_type = struct_info->fields[member_index].pointee_struct_type,
-                    .is_lvalue = true,
-                };
-
-                dump_typed_value("end_of_block_pre_bitfield_extraction_base_value", base_value);
-                base_value = handle_bitfield_extraction(base_value, struct_info, member_index);
-                dump_typed_value("end_of_block_base_value", base_value);
-                current_value = base_value;
-                dump_typed_value("end_of_block_current_value", current_value);
-                did_member_access = true;
+                    modified = is_floating_kind(current_val.type_info)
+                                   ? LLVMBuildFSub(ctx->builder, original_val.value, one, "dec")
+                                   : LLVMBuildSub(ctx->builder, original_val.value, one, "dec");
             }
+
+            aligned_store(ctx, ctx->builder, modified, current_val.type_info->llvm_type, current_val.value);
+            current_val = original_val; // Result is the value BEFORE modification
+            break;
         }
-        else if (suffix->type == AST_NODE_POSTFIX_OPERATOR)
-        {
-            // Handle postfix increment/decrement: i++ or i--
-            if (current_value.is_lvalue && current_value.value)
-            {
-                // 1. Get the ORIGINAL value (this is what the expression returns)
-                TypedValue original_val = ensure_rvalue(ctx, "postfix_op_rval", current_value);
-                LLVMValueRef modified_val;
-                LLVMTypeRef type = original_val.type;
-                LLVMTypeKind kind = LLVMGetTypeKind(type);
-
-                if (kind == LLVMPointerTypeKind)
-                {
-                    // POINTER ARITHMETIC: use GEP to move by 1 element
-                    LLVMValueRef indices[] = {LLVMConstInt(ctx->ref_type.i32_type, 1, false)};
-
-                    // Note: we GEP from the original value (the address)
-                    modified_val = LLVMBuildInBoundsGEP2(
-                        ctx->builder, current_value.pointee_type, original_val.value, indices, 1, "ptr_step"
-                    );
-                }
-                else if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                {
-                    LLVMValueRef one = LLVMConstReal(type, 1.0);
-                    if (suffix->op.postfix.op == POSTFIX_OP_INC)
-                        modified_val = LLVMBuildFAdd(ctx->builder, original_val.value, one, "postfix_inc");
-                    else
-                        modified_val = LLVMBuildFSub(ctx->builder, original_val.value, one, "postfix_dec");
-                }
-                else
-                {
-                    // INTEGER: match the bit width of the type (i8, i32, i64, etc.)
-                    LLVMValueRef one = LLVMConstInt(type, 1, false);
-                    if (suffix->op.postfix.op == POSTFIX_OP_INC)
-                        modified_val = LLVMBuildAdd(ctx->builder, original_val.value, one, "postfix_inc");
-                    else
-                        modified_val = LLVMBuildSub(ctx->builder, original_val.value, one, "postfix_dec");
-                }
-
-                // 2. SIDE EFFECT: Store the modified value back into the original memory
-                aligned_store(ctx, ctx->builder, modified_val, current_value.type, current_value.value);
-
-                // 3. RESULT: Return the ORIGINAL value as an RVALUE
-                base_value = original_val;
-                base_value.is_lvalue = false;
-            }
         }
-        else
-        {
-            debug_warning("Unhandled postfix suffix type %u", suffix->type);
-        }
+
+#pragma GCC diagnostic pop
     }
 
-    dump_typed_value("XXX - process_postfix_expression", base_value);
-
-    return base_value;
+    return current_val;
 }
 
 static TypedValue

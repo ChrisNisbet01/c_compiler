@@ -38,6 +38,7 @@ typedef struct
     unsigned param_count;
     TypeDescriptor const ** params; // Allocated once in the registry
     char const ** names;            // Allocated once in the registry
+    bool is_void_return;
     bool is_variadic;
 } FunctionMetadata;
 
@@ -45,7 +46,6 @@ typedef struct
 {
     bool is_complete;
     struct_or_union_members_st members;
-    /* TODO: add members. */
 } StructMetaData;
 
 typedef struct TypeDescriptor
@@ -136,3 +136,9 @@ TypeDescriptor const * type_descriptor_get_void_type(TypeDescriptors * registry)
 int type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, char const * name);
 
 TypeDescriptor const * type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index);
+
+bool is_integer_kind(TypeDescriptor const * desc);
+
+bool is_floating_kind(TypeDescriptor const * desc);
+
+bool is_void_return(TypeDescriptor const * desc);

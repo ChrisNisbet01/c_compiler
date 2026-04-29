@@ -397,14 +397,16 @@ get_or_create_function_type(
     }
 
     // Not found: Create a new function descriptor
-    TypeDescriptor template
-        = {.kind = NCC_TYPE_KIND_FUNCTION,
-           .pointee = ret_type,
-           .function_metadata.return_type = ret_type,
-           .function_metadata.param_count = param_count,
-           .function_metadata.params = malloc(sizeof(*params) * param_count),
-           .function_metadata.names = calloc(param_count, sizeof(*param_names)),
-           .function_metadata.is_variadic = is_variadic};
+    TypeDescriptor template = {
+        .kind = NCC_TYPE_KIND_FUNCTION,
+        .pointee = ret_type,
+        .function_metadata.return_type = ret_type,
+        .function_metadata.param_count = param_count,
+        .function_metadata.params = malloc(sizeof(*params) * param_count),
+        .function_metadata.names = calloc(param_count, sizeof(*param_names)),
+        .function_metadata.is_variadic = is_variadic,
+        .function_metadata.is_void_return = LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,
+    };
 
     memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
     for (size_t i = 0; i < param_count; i++)
@@ -630,4 +632,23 @@ type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
     }
 
     return desc->struct_metadata.members.members[index].type_desc;
+}
+
+bool
+is_integer_kind(TypeDescriptor const * desc)
+{
+    LLVMTypeKind kind = LLVMGetTypeKind(desc->llvm_type);
+    return kind == LLVMIntegerTypeKind || kind == LLVMHalfTypeKind;
+}
+
+bool
+is_floating_kind(TypeDescriptor const * desc)
+{
+    return get_fp_width(desc->llvm_type) > 0;
+}
+
+bool
+is_void_return(TypeDescriptor const * desc)
+{
+    return desc->kind == NCC_TYPE_KIND_FUNCTION && desc->function_metadata.is_void_return;
 }
