@@ -587,7 +587,7 @@ add_symbol_with_struct(
     ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag, symbol_data_t const * data
 )
 {
-    if (ctx == NULL || name == NULL || value.value == NULL || value.type == NULL || ctx->current_scope == NULL)
+    if (ctx == NULL || name == NULL || value.value == NULL || ctx->current_scope == NULL)
     {
         return;
     }

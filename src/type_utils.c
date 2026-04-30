@@ -313,15 +313,17 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             {
                 current_value = evaluate_enum_value_assignment_expression(ctx, value_node, current_value);
             }
+            TypeDescriptor const * enum_type = get_or_create_builtin_type(
+                ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
+            );
+            LLVMValueRef const_val = LLVMConstInt(enum_type, current_value, true);
 
-            LLVMValueRef const_val = LLVMConstInt(ctx->ref_type.i32_type, current_value, true);
-
-            LLVMValueRef global = LLVMAddGlobal(ctx->module, ctx->ref_type.i32_type, enum_name);
+            LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type, enum_name);
             LLVMSetInitializer(global, const_val);
             LLVMSetGlobalConstant(global, true);
             LLVMSetLinkage(global, LLVMInternalLinkage);
 
-            TypedValue val = (TypedValue){.value = global, .type = ctx->ref_type.i32_type};
+            TypedValue val = create_typed_value(global, enum_type, false);
             add_symbol(ctx, enum_name, val, NULL);
 
             current_value++;

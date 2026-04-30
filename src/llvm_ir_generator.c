@@ -43,8 +43,9 @@ int evaluate_enum_value_assignment_expression(
 bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
-static TypedValue
-cast_value_to_type(ir_generator_ctx_t * ctx, TypedValue src_value, LLVMTypeRef target_type, bool zero_extend);
+static TypedValue cast_value_to_type(
+    ir_generator_ctx_t * ctx, TypedValue src_value, TypeDescriptor const * target_type, bool zero_extend
+);
 
 static type_info_t const * register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
@@ -385,28 +386,23 @@ static void
 process_initializer_list(
     ir_generator_ctx_t * ctx,
     LLVMValueRef base_ptr,
-    LLVMTypeRef element_type,
+    TypeDescriptor const * desc,
     c_grammar_node_t const * initializer_node,
     int * outer_index
 )
 {
-    if (initializer_node == NULL || base_ptr == NULL || element_type == NULL)
-    {
+    if (initializer_node == NULL || base_ptr == NULL || desc == NULL)
         return;
-    }
 
-    LLVMTypeKind kind = LLVMGetTypeKind(element_type);
-
-    // For structs, zero-initialize the entire struct first (including padding)
-    // Then process explicit initializers
-    if (kind == LLVMStructTypeKind)
+    // 1. Zero-initialize for safety (especially for structs with padding or omitted fields)
+    if (desc->kind == NCC_TYPE_KIND_STRUCT)
     {
-        LLVMValueRef size = LLVMSizeOf(element_type);
+        LLVMValueRef size = LLVMSizeOf(desc->llvm_type);
         LLVMValueRef zero = LLVMConstNull(ctx->ref_type.i8_type);
-        LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, get_type_alignment(ctx, element_type));
+        uint32_t align = get_type_alignment_desc(desc);
+        LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, align);
     }
 
-    // Use a local index for processing leaf elements at this level
     int local_index = 0;
 
     for (size_t i = 0; i < initializer_node->list.count; ++i)
@@ -415,201 +411,103 @@ process_initializer_list(
         c_grammar_node_t const * value_node = list_entry->initializer_list_entry.initializer;
         c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
 
-        // Unwrap value from INITIALIZER wrapper if present
+        // Unwrap value from INITIALIZER wrapper
         if (value_node->list.count > 0)
-        {
             value_node = value_node->list.children[0];
-        }
 
-        // Handle Designation nodes (designated initializers like .x = value or .pos.x = value)
+        // 2. Handle Designated Initializers (e.g., .x = 10 or .inner.y = 20)
         if (designation != NULL)
         {
-            // Handle nested designations (e.g., .pos.x = value has 2 identifiers: pos, x)
             LLVMValueRef current_ptr = base_ptr;
-            LLVMTypeRef current_type = element_type;
-            LLVMTypeKind current_kind = kind;
-            int field_indices[16]; // Max nesting depth
-            (void)field_indices;
-            int field_count = 0;
-            int final_local_index = 0;
-            LLVMTypeRef final_type = element_type;
+            TypeDescriptor const * current_desc = desc;
 
-            if (designation->list.count > 0)
+            for (size_t d = 0; d < designation->list.count; d++)
             {
-                // Process each field in the designation path
-                for (size_t d = 0; d < designation->list.count; d++)
+                c_grammar_node_t const * field_ident = designation->list.children[d];
+                if (field_ident->type == AST_NODE_IDENTIFIER && field_ident->text != NULL)
                 {
-                    c_grammar_node_t const * field_ident = designation->list.children[d];
-                    if (field_ident->type == AST_NODE_IDENTIFIER && field_ident->text != NULL)
-                    {
-                        char const * field_name = field_ident->text;
+                    int field_idx = type_descriptor_find_struct_field_index_from_desc(current_desc, field_ident->text);
+                    if (field_idx < 0)
+                        break;
 
-                        // For structs, find the field index by name
-                        if (current_kind == LLVMStructTypeKind)
-                        {
-                            int field_idx = find_struct_field_index(ctx, current_type, field_name);
-                            if (field_idx < 0)
-                            {
-                                // Field not found
-                                break;
-                            }
-                            field_indices[field_count++] = field_idx;
+                    LLVMValueRef indices[2]
+                        = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
+                           LLVMConstInt(
+                               ctx->ref_type.i32_type,
+                               current_desc->struct_metadata.members.members[field_idx].storage_index,
+                               false
+                           )};
 
-                            // Get the type of this field
-                            LLVMTypeRef field_type = LLVMStructGetTypeAtIndex(current_type, (unsigned)field_idx);
+                    LLVMValueRef next_ptr = LLVMBuildInBoundsGEP2(
+                        ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "designator_ptr"
+                    );
 
-                            // If there are more fields after this, navigate to the nested struct
-                            // For the final field, only navigate if we're processing a nested InitializerList
-                            if (d + 1 < designation->list.count)
-                            {
-                                // More fields coming - navigate to nested struct
-                                LLVMValueRef indices[2];
-                                indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-                                indices[1] = LLVMConstInt(ctx->ref_type.i32_type, field_idx, false);
-                                current_ptr = LLVMBuildInBoundsGEP2(
-                                    ctx->builder, current_type, current_ptr, indices, 2, "nested_ptr"
-                                );
-                                current_type = field_type;
-                                current_kind = LLVMGetTypeKind(current_type);
-                            }
-                            else
-                            {
-                                // This is the final field - store info for simple value case
-                                final_local_index = field_idx;
-                                final_type = field_type;
-                            }
-                        }
-                    }
+                    current_desc = current_desc->struct_metadata.members.members[field_idx].type_desc;
+                    current_ptr = next_ptr;
                 }
             }
 
-            // Process the value and store it at the designated position
-            // Check if value is an InitializerList (nested initializer like .inner = {.x = 1, .y = 2})
             if (value_node->type == AST_NODE_INITIALIZER_LIST)
             {
-                // Nested initializer - recursively process
-                // For nested initializers, we need current_ptr to point to the final field
-                // Navigate to the final field if not already done
-                if (field_count > 0 && final_local_index >= 0)
-                {
-                    LLVMValueRef indices[2];
-                    indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-                    indices[1] = LLVMConstInt(ctx->ref_type.i32_type, final_local_index, false);
-                    current_ptr = LLVMBuildInBoundsGEP2(
-                        ctx->builder, element_type, current_ptr, indices, 2, "nested_init_field_ptr"
-                    );
-                    current_type = final_type;
-                }
-
-                if (field_count > 0 && current_ptr && current_type)
-                {
-                    process_initializer_list(ctx, current_ptr, current_type, value_node, NULL);
-                }
+                process_initializer_list(ctx, current_ptr, current_desc, value_node, NULL);
             }
             else
             {
-                // Simple value (not an InitializerList)
-                TypedValue tvalue = process_expression(ctx, value_node);
-                if (tvalue.value && field_count > 0)
-                {
-                    LLVMValueRef elem_ptr;
-                    if (field_count > 1)
-                    {
-                        // Nested field - current_ptr already points to the parent struct's field
-                        // We need to get element 0 of that nested struct (since it's the final target)
-                        LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-                        indices[1] = LLVMConstInt(ctx->ref_type.i32_type, final_local_index, false);
-                        elem_ptr = LLVMBuildInBoundsGEP2(
-                            ctx->builder, current_type, current_ptr, indices, 2, "nested_init_ptr"
-                        );
-                    }
-                    else
-                    {
-                        // Single field
-                        LLVMValueRef indices[2];
-                        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-                        indices[1] = LLVMConstInt(ctx->ref_type.i32_type, final_local_index, false);
-                        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-                    }
-
-                    TypedValue cast_value = cast_value_to_type(ctx, tvalue, final_type, false);
-                    aligned_store(ctx, ctx->builder, cast_value.value, cast_value.type_info->llvm_type, elem_ptr);
-                }
+                TypedValue tval = process_expression(ctx, value_node);
+                TypedValue cast_val = cast_typed_value_to_desc(ctx, tval, current_desc);
+                aligned_store(ctx, ctx->builder, cast_val.value, current_desc->llvm_type, current_ptr);
             }
 
-            local_index++;
-            if (outer_index != NULL)
-            {
+            local_index++; // Update positional tracker
+            if (outer_index)
                 (*outer_index)++;
-            }
             continue;
         }
 
-        // Non-designated: handle plain INITIALIZER_LIST for arrays
-        if (value_node->type == AST_NODE_INITIALIZER_LIST && kind == LLVMArrayTypeKind)
+        // 3. Handle Positional Initializers (Standard list)
+        TypeDescriptor const * target_desc = NULL;
+        LLVMValueRef target_ptr = NULL;
+
+        if (desc->kind == NCC_TYPE_KIND_ARRAY)
         {
-            LLVMTypeRef nested_element = LLVMGetElementType(element_type);
-            LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-            indices[1] = LLVMConstInt(ctx->ref_type.i32_type, local_index, false);
-            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "elem_ptr");
-            process_initializer_list(ctx, elem_ptr, nested_element, value_node, NULL);
-            local_index++;
-            if (outer_index != NULL)
-            {
-                (*outer_index)++;
-            }
-            continue;
+            target_desc = desc->pointee;
+            LLVMValueRef indices[2]
+                = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
+                   LLVMConstInt(ctx->ref_type.i32_type, local_index, false)};
+            target_ptr = LLVMBuildInBoundsGEP2(ctx->builder, desc->llvm_type, base_ptr, indices, 2, "array_init_ptr");
         }
-
-        // For array types, create a GEP to the element and recurse
-        if (kind == LLVMArrayTypeKind && value_node->type != AST_NODE_INTEGER_LITERAL && value_node->list.count > 0)
+        else if (desc->kind == NCC_TYPE_KIND_STRUCT)
         {
-            LLVMTypeRef nested_element = LLVMGetElementType(element_type);
-            LLVMValueRef indices[2];
-            indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-            indices[1] = LLVMConstInt(ctx->ref_type.i32_type, local_index, false);
-            LLVMValueRef elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-            process_initializer_list(ctx, elem_ptr, nested_element, value_node, &local_index);
-        }
-        // Process leaf values - store to array or struct member
-        else
-        {
-            TypedValue tvalue = process_expression(ctx, value_node);
-            dump_typed_value("process_initializer process_expression result", tvalue);
-            LLVMValueRef value = tvalue.value;
-            LLVMTypeRef final_type = typed_value_get_llvm_type(&tvalue);
-            if (tvalue.value != NULL)
+            if (local_index < (int)desc->struct_metadata.members.num_members)
             {
-                debug_info("local index: %u", local_index);
-                LLVMValueRef indices[2];
-                indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-                indices[1] = LLVMConstInt(ctx->ref_type.i32_type, local_index, false);
+                target_desc = desc->struct_metadata.members.members[local_index].type_desc;
+                unsigned storage_idx = desc->struct_metadata.members.members[local_index].storage_index;
 
-                LLVMValueRef elem_ptr
-                    = LLVMBuildInBoundsGEP2(ctx->builder, element_type, base_ptr, indices, 2, "init_ptr");
-
-                // For structs, cast the value to the member type
-                if (kind == LLVMStructTypeKind)
-                {
-                    LLVMTypeRef member_type = LLVMStructGetTypeAtIndex(element_type, (unsigned)local_index);
-                    if (member_type)
-                    {
-                        TypedValue cast_value = cast_value_to_type(ctx, tvalue, member_type, false);
-                        value = cast_value.value;
-                        final_type = cast_value.type_info->llvm_type;
-                    }
-                }
-
-                aligned_store(ctx, ctx->builder, value, final_type, elem_ptr);
-                local_index++;
-                if (outer_index)
-                {
-                    (*outer_index)++;
-                }
+                LLVMValueRef indices[2]
+                    = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
+                       LLVMConstInt(ctx->ref_type.i32_type, storage_idx, false)};
+                target_ptr
+                    = LLVMBuildInBoundsGEP2(ctx->builder, desc->llvm_type, base_ptr, indices, 2, "struct_init_ptr");
             }
         }
+
+        if (target_ptr && target_desc)
+        {
+            if (value_node->type == AST_NODE_INITIALIZER_LIST)
+            {
+                process_initializer_list(ctx, target_ptr, target_desc, value_node, NULL);
+            }
+            else
+            {
+                TypedValue tval = process_expression(ctx, value_node);
+                TypedValue cast_val = cast_typed_value_to_desc(ctx, tval, target_desc);
+                aligned_store(ctx, ctx->builder, cast_val.value, target_desc->llvm_type, target_ptr);
+            }
+        }
+
+        local_index++;
+        if (outer_index)
+            (*outer_index)++;
     }
 }
 
@@ -4887,7 +4785,7 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     // Initialize using the initializer list
     if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
     {
-        process_initializer_list(ctx, alloca_inst, compound_type_desc->llvm_type, init_list_node, NULL);
+        process_initializer_list(ctx, alloca_inst, compound_type_desc, init_list_node, NULL);
     }
 
     return create_typed_value(alloca_inst, compound_type_desc, true);

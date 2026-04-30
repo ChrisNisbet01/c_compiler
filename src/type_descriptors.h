@@ -15,7 +15,6 @@ typedef enum
     NCC_TYPE_KIND_ARRAY,
     NCC_TYPE_KIND_STRUCT,
     NCC_TYPE_KIND_UNION,
-    NCC_TYPE_KIND_TYPEDEF,
     NCC_TYPE_KIND_FUNCTION,
 } type_descriptor_type_kind_t;
 
@@ -142,3 +141,5 @@ bool is_integer_kind(TypeDescriptor const * desc);
 bool is_floating_kind(TypeDescriptor const * desc);
 
 bool is_void_return(TypeDescriptor const * desc);
+
+uint32_t get_type_alignment_desc(TypeDescriptor const * desc);

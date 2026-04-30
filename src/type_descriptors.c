@@ -605,3 +605,80 @@ is_void_return(TypeDescriptor const * desc)
 {
     return desc->kind == NCC_TYPE_KIND_FUNCTION && desc->function_metadata.is_void_return;
 }
+
+uint32_t
+get_type_alignment_desc(TypeDescriptor const * desc)
+{
+    if (desc == NULL)
+    {
+        return 1;
+    }
+
+    LLVMTypeKind llvm_kind = LLVMGetTypeKind(desc->llvm_type);
+
+    if (llvm_kind == LLVMVoidTypeKind || desc->specifiers.is_void)
+    {
+        return 1;
+    }
+
+    if (is_integer_kind(desc))
+    {
+        unsigned width = LLVMGetIntTypeWidth(desc->llvm_type);
+        if (width > 32)
+        {
+            return 8;
+        }
+        if (width > 16)
+        {
+            return 4;
+        }
+        if (width > 8)
+        {
+            return 2;
+        }
+        return 1;
+    }
+
+    if (is_floating_kind(desc))
+    {
+        if (llvm_kind == LLVMFloatTypeKind)
+            return 4;
+        return 8;
+    }
+
+    switch (desc->kind)
+    {
+    case NCC_TYPE_KIND_POINTER:
+    case NCC_TYPE_KIND_FUNCTION:
+        // On 64-bit systems, pointers and 64-bit ints are 8-byte aligned
+        return 8;
+
+    case NCC_TYPE_KIND_ARRAY:
+        // Array alignment is the alignment of its element type
+        return get_type_alignment_desc(desc->pointee);
+
+    case NCC_TYPE_KIND_STRUCT:
+    case NCC_TYPE_KIND_UNION:
+    {
+        // Struct/Union alignment is the maximum alignment of any member
+        uint32_t max_align = 1;
+        for (size_t i = 0; i < desc->struct_metadata.members.num_members; ++i)
+        {
+            uint32_t member_align = get_type_alignment_desc(desc->struct_metadata.members.members[i].type_desc);
+            if (member_align > max_align)
+            {
+                max_align = member_align;
+            }
+        }
+        return max_align;
+    }
+
+    case NCC_TYPE_KIND_BUILTIN: /* Should have been caught by integer and float handling above. */
+        debug_warning("Unknown type kind %d for alignment, defaulting to 1", desc->kind);
+        return 1;
+
+    default:
+        debug_warning("Unknown type kind %d for alignment, defaulting to 1", desc->kind);
+        return 1;
+    }
+}
