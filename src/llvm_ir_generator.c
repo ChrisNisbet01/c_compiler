@@ -42,11 +42,6 @@ int evaluate_enum_value_assignment_expression(
 );
 bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
-static int find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * field_name);
-static TypedValue cast_value_to_type(
-    ir_generator_ctx_t * ctx, TypedValue src_value, TypeDescriptor const * target_type, bool zero_extend
-);
-
 static type_info_t const * register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
 );
@@ -685,27 +680,6 @@ process_initializer_list_type_desc(
         if (outer_index)
             (*outer_index)++;
     }
-}
-
-static int
-find_struct_field_index(ir_generator_ctx_t * ctx, LLVMTypeRef struct_type, char const * member_name)
-{
-    if (!struct_type || !member_name)
-        return -1;
-
-    type_info_t * info = scope_find_type_by_llvm_type(ctx->current_scope, struct_type);
-
-    if (!info)
-        return -1;
-
-    for (size_t i = 0; i < info->field_count; ++i)
-    {
-        if (info->fields[i].name && strcmp(info->fields[i].name, member_name) == 0)
-        {
-            return (int)i;
-        }
-    }
-    return -1;
 }
 
 static char const *
@@ -2185,6 +2159,9 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         return;
     }
 
+    TypeDescriptor const * previous_function_return_type = ctx->current_function_return_type;
+    ctx->current_function_return_type = type_desc->function_metadata.return_type;
+
     // --- Extract Function Name ---
     char const * func_name = NULL;
     c_grammar_node_t const * direct_decl = declarator_node->declarator.direct_declarator;
@@ -2211,6 +2188,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             LLVMTypeRef existing_type = LLVMGlobalGetValueType(existing);
             if (!function_signatures_match(existing_type, type_desc->llvm_type))
             {
+                ctx->current_function_return_type = previous_function_return_type;
                 ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
                 scope_pop(ctx);
                 return;
@@ -2218,6 +2196,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 
             if (decl->has_definition)
             {
+                ctx->current_function_return_type = previous_function_return_type;
                 ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
                 scope_pop(ctx);
                 return;
@@ -2265,6 +2244,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                 type_desc->function_metadata.param_count
             );
             scope_pop(ctx);
+            ctx->current_function_return_type = previous_function_return_type;
 
             return;
         }
@@ -2322,8 +2302,12 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     debug_info("processed parameters");
     // Process the compound statement (function body).
     process_ast_node(ctx, compound_stmt_node);
+
+    ctx->current_function_return_type = previous_function_return_type;
+
     if (ctx->errors.fatal)
     {
+        scope_pop(ctx);
         return;
     }
 
@@ -3264,9 +3248,23 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_RETURN_STATEMENT:
     {
         c_grammar_node_t const * expr_node = node->return_statement.expression;
+
+        // We need the expected return type descriptor.
+        // Assuming you store this in your context when starting a function:
+        TypeDescriptor const * expected_ret_desc = ctx->current_function_return_type;
+
+        if (expected_ret_desc == NULL)
+        {
+            debug_error("Internal Error: No return type descriptor found for current function context.");
+            return;
+        }
+
         if (expr_node != NULL)
         {
+            // 1. Process the expression
             TypedValue return_value = process_expression(ctx, expr_node);
+
+            // 2. Ensure it's an RValue (we can't return a memory address/LValue directly)
             return_value = ensure_rvalue(ctx, "return_rval", return_value);
 
             if (return_value.value == NULL)
@@ -3274,49 +3272,27 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 debug_error("Failed to process return expression.");
                 return;
             }
-            LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-            LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
 
-            return_value = cast_value_to_type(ctx, return_value, func_ret_type, true);
+            // 3. Use your new descriptor-based cast
+            // This handles converting int -> float, or promoting widths as defined by C rules.
+            TypedValue cast_val = cast_typed_value_to_desc(ctx, return_value, expected_ret_desc);
 
-            LLVMBuildRet(ctx->builder, return_value.value);
+            LLVMBuildRet(ctx->builder, cast_val.value);
         }
         else
         {
-            // Handle 'return;' for functions with no return expression.
-            // Return a zero of the function's declared return type, or build a void return if appropriate.
-            LLVMValueRef parent_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-            LLVMTypeRef func_ret_type = LLVMGetReturnType(LLVMGlobalGetValueType(parent_func));
-            if (LLVMGetTypeKind(func_ret_type) == LLVMVoidTypeKind)
+            // Handle 'return;' (no expression)
+            if (expected_ret_desc->function_metadata.is_void_return || expected_ret_desc->specifiers.is_void)
             {
                 LLVMBuildRetVoid(ctx->builder);
             }
             else
             {
-                // Create a zero constant of the correct integer/float type.
-                LLVMValueRef zero_const;
-                if (LLVMGetTypeKind(func_ret_type) == LLVMIntegerTypeKind)
-                {
-                    unsigned bits = LLVMGetIntTypeWidth(func_ret_type);
-                    LLVMTypeRef int_type = LLVMIntTypeInContext(ctx->context, bits);
-                    zero_const = LLVMConstInt(int_type, 0, false);
-                }
-                else if (LLVMGetTypeKind(func_ret_type) == LLVMFloatTypeKind)
-                {
-                    zero_const = LLVMConstReal(func_ret_type, 0.0);
-                }
-                else if (LLVMGetTypeKind(func_ret_type) == LLVMDoubleTypeKind)
-                {
-                    zero_const = LLVMConstReal(func_ret_type, 0.0);
-                }
-                else
-                {
-                    // Fallback: bitcast a zero integer of same size.
-                    unsigned bits = LLVMGetIntTypeWidth(func_ret_type);
-                    LLVMTypeRef int_type = LLVMIntTypeInContext(ctx->context, bits);
-                    zero_const = LLVMConstInt(int_type, 0, false);
-                    zero_const = LLVMBuildIntCast2(ctx->builder, zero_const, func_ret_type, false, "zero_cast");
-                }
+                // C Rule: returning nothing in a non-void function is usually a warning,
+                // but for code generation, we provide a zeroed value of the expected type.
+                debug_warning("Return without value in non-void function.");
+
+                LLVMValueRef zero_const = LLVMConstNull(expected_ret_desc->llvm_type);
                 LLVMBuildRet(ctx->builder, zero_const);
             }
         }
@@ -3988,10 +3964,10 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     // TODO: Proper support for when the first child of spec_qual is a AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER.
     c_grammar_node_t const * abstract_decl = type_name_node->type_name.abstract_declarator;
 
-    LLVMTypeRef target_type = map_type_to_llvm_t(ctx, spec_qual, abstract_decl);
+    TypeDescriptor const * cast_to_type = resolve_type_descriptor(ctx, spec_qual, abstract_decl);
     TypedValue val_to_cast = process_expression(ctx, inner_expr_node);
     val_to_cast = ensure_rvalue(ctx, "cast_rval", val_to_cast);
-    val_to_cast = cast_value_to_type(ctx, val_to_cast, target_type, false);
+    val_to_cast = cast_typed_value_to_desc(ctx, val_to_cast, cast_to_type);
 
     return val_to_cast;
 }
@@ -4172,7 +4148,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMValueRef cleared = LLVMBuildAnd(ctx->builder, current_val, llvm_clear_mask, "bf_clear");
 
         // Mask the RHS value to ensure it doesn't overflow its width
-        TypedValue casted_rhs = cast_value_to_type(ctx, rhs_res, storage_type, true);
+        TypedValue casted_rhs = cast_typed_value_to_desc(ctx, rhs_res, lhs_res.type_info);
         LLVMValueRef masked_rhs = LLVMBuildAnd(ctx->builder, casted_rhs.value, llvm_width_mask, "bf_rhs_clip");
 
         // Shift new value into position

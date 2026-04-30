@@ -316,9 +316,9 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             TypeDescriptor const * enum_type = get_or_create_builtin_type(
                 ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
             );
-            LLVMValueRef const_val = LLVMConstInt(enum_type, current_value, true);
+            LLVMValueRef const_val = LLVMConstInt(enum_type->llvm_type, current_value, true);
 
-            LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type, enum_name);
+            LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type->llvm_type, enum_name);
             LLVMSetInitializer(global, const_val);
             LLVMSetGlobalConstant(global, true);
             LLVMSetLinkage(global, LLVMInternalLinkage);

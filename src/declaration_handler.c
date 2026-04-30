@@ -219,6 +219,25 @@ search_function_pointer_declarator(c_grammar_node_t const * node)
     return NULL;
 }
 
+static c_grammar_node_t const *
+search_for_node_type(c_grammar_node_t const * node, c_grammar_node_type_t type)
+{
+    if (node == NULL)
+    {
+        return NULL;
+    }
+    for (size_t i = 0; i < node->list.count; i++)
+    {
+        c_grammar_node_t const * child = node->list.children[i];
+        if (child->type == type)
+        {
+            return child;
+        }
+    }
+
+    return NULL;
+}
+
 TypeDescriptor const *
 resolve_type_descriptor(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * decl_specifiers, c_grammar_node_t const * declarator
@@ -425,22 +444,31 @@ resolve_type_descriptor(
         suffix_list = declarator->declarator.declarator_suffix_list;
         direct_declarator = declarator->declarator.direct_declarator;
     }
+    else if (declarator->type == AST_NODE_ABSTRACT_DECLARATOR)
+    {
+        pointer_list = search_for_node_type(declarator, AST_NODE_POINTER_LIST);
+        suffix_list = search_for_node_type(declarator, AST_NODE_DECLARATOR_SUFFIX_LIST);
+    }
     else
     {
         /* What? */
         debug_error("%s Unsupported declarator type: %s", __func__, get_node_type_name_from_node(declarator));
         return NULL;
     }
+
     debug_info("1");
-    for (size_t i = pointer_list->list.count; i > 0; i--)
+    if (pointer_list != NULL)
     {
-        c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
-        TypeQualifier ptr_quals = {0};
-        if (pointer_node->list.count > 0)
+        for (size_t i = pointer_list->list.count; i > 0; i--)
         {
-            ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
+            c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
+            TypeQualifier ptr_quals = {0};
+            if (pointer_node->list.count > 0)
+            {
+                ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
+            }
+            current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
         }
-        current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
     }
     debug_info("2");
 
@@ -468,7 +496,7 @@ resolve_type_descriptor(
             }
         }
     }
-    else
+    else if (suffix_list != NULL)
     {
         debug_info("4");
         for (size_t i = suffix_list->list.count; i > 0; i--)
