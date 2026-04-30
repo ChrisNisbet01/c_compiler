@@ -174,14 +174,10 @@ ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
         container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
     }
 
-    return (TypedValue){
-        .value = container,
-        .type = val.type,
-        .is_lvalue = false,
-        .pointee_type = val.pointee_type,
-        .bit_width = val.bit_width,
-        .bit_offset = val.bit_offset,
-    };
+    val.value = container;
+    val.is_lvalue = false;
+
+    return val;
 }
 
 TypedValue
@@ -4332,9 +4328,15 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // MEMBER ACCESS: .member or ->member
             bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
             char const * member_name = suffix->identifier.identifier->text;
+            dump_typed_value("member_access", current_val);
 
             if (is_arrow)
             {
+                if (current_val.type_info == NULL)
+                {
+                    debug_error("member access current value has no type");
+                    return NullTypedValue;
+                }
                 // -> implies a pointer dereference first
                 current_val = ensure_rvalue(ctx, "arrow_deref", current_val);
                 if (current_val.type_info->kind != NCC_TYPE_KIND_POINTER)
@@ -5802,13 +5804,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     return NullTypedValue; // Return NULL if expression processing failed or not implemented.
 }
 
-static bool
-check_expression_result_has_type(TypedValue val)
-{
-    /* If the TypedValue has a value, then it must also have a type. */
-    return val.value == NULL || val.type != NULL;
-}
-
 static TypedValue
 _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line)
 {
@@ -5828,10 +5823,11 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 
     visit_stack_pop(node);
 
-    if (!check_expression_result_has_type(result))
+    if (result.value != NULL && result.type_info == NULL)
     {
         debug_error(
-            "expression result has a value but no type after evalualting node: %s", get_node_type_name_from_node(node)
+            "expression result has a value but no type descriptor after evaluating node: %s",
+            get_node_type_name_from_node(node)
         );
         print_ast(node);
         result = NullTypedValue;
@@ -5842,6 +5838,7 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         result = NullTypedValue;
     }
     debug_info("%s returning to line: %u", __func__, line);
+    dump_typed_value("process_expression result", result);
     print_ast_with_label(node, "done with");
 
     return result;

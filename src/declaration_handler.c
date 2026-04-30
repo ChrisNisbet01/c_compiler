@@ -295,7 +295,7 @@ resolve_type_descriptor(
         debug_info("%s: No typedef name found", __func__);
     }
 
-    if (existing_typedef_info == NULL)
+    if (type_spec_list == NULL && existing_typedef_info == NULL)
     {
         type_spec_list = decl_specifiers->decl_specifiers.type_specifiers;
     }
@@ -652,6 +652,11 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 new_member.type_desc = resolve_type_descriptor(ctx, type_spec, decl);
                 debug_info("resolved: %p", new_member.type_desc);
 
+                if (new_member.type_desc == NULL)
+                {
+                    continue;
+                }
+
                 c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
                 if (direct_decl->list.count > 0)
                 {
@@ -663,11 +668,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 }
                 if (new_member.name == NULL)
                 {
-                    continue;
-                }
-                if (new_member.type_desc == NULL)
-                {
-                    free(new_member.name);
                     continue;
                 }
 
@@ -688,5 +688,13 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
     object_members.num_members = num_members;
 
     debug_info("%s: got %zu members", __func__, object_members.num_members);
+    if (debug_get_level() >= DEBUG_LEVEL_INFO)
+    {
+        for (size_t i = 0; i < object_members.num_members; i++)
+        {
+            fprintf(stderr, "member %zu: %s\n", i, object_members.members[i].name);
+        }
+    }
+
     return object_members;
 }
