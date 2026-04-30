@@ -1,5 +1,7 @@
 #include "type_specifier.h"
 
+#include "ast_node_name.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -87,13 +89,19 @@ validate_type_specifiers(c_grammar_node_t const * type_specifiers)
         || (type_specifiers->type != AST_NODE_TYPE_SPECIFIERS
             && type_specifiers->type != AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST))
     {
+        debug_warning("%s: bad type: %s", __func__, get_node_type_name_from_node(type_specifiers));
         return result;
     }
 
     if (type_specifiers->list.count == 1)
     {
         c_grammar_node_t const * specifier = type_specifiers->list.children[0];
-        if (specifier->list.count == 1)
+        if (specifier->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+        {
+            /* Not really accurate, but it will do. */
+            result.is_struct_or_union_or_enum = true;
+        }
+        else if (specifier->list.count == 1)
         {
             c_grammar_node_t const * inner = specifier->list.children[0];
             if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION
