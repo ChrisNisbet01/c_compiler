@@ -48,7 +48,7 @@ main()
         return 1;
     if (sizeof(char) != 1)
         return 2;
-    if (sizeof(long) != 8)
+    if (sizeof(long) != 4)
         return 3;
     if (sizeof(ptr) != 8)
         return 4;

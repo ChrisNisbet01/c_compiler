@@ -46,6 +46,8 @@ typedef struct
 {
     bool is_complete;
     struct_or_union_members_st members;
+    uint64_t total_size;
+    uint32_t alignment;
 } StructMetaData;
 
 typedef struct
@@ -76,7 +78,7 @@ typedef struct TypeDescriptor
     ArrayMetaData array_metadata;
 } TypeDescriptor;
 
-TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
+TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout);
 
 void type_descriptors_destroy_registry(TypeDescriptors * registry);
 

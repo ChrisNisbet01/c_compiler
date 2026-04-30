@@ -479,9 +479,7 @@ get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
 uint64_t
 get_type_size(ir_generator_ctx_t * ctx, TypeDescriptor const * type)
 {
-    LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
-
-    uint64_t size_in_bytes = get_type_size_desc(data_layout, type);
+    uint64_t size_in_bytes = get_type_size_desc(ctx->data_layout, type);
     debug_info("type size: %llu", size_in_bytes);
     return size_in_bytes;
 }

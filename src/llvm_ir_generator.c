@@ -735,52 +735,6 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     return NULL;
 }
 
-static TypeDescriptor const *
-get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
-{
-    TypeDescriptor const * type_ref = NULL;
-
-    debug_info("%s type name: '%s'", __func__, type_name);
-
-    TypeDescriptor const * struct_type = find_type_descriptor_by_tag(ctx, type_name);
-    if (struct_type != NULL)
-    {
-        type_ref = struct_type;
-    }
-    // Then check for basic types
-    else if (strncmp(type_name, "int", 3) == 0)
-        type_ref = type_descriptor_get_int32_type(ctx->type_descriptors, false);
-    else if (strncmp(type_name, "char", 4) == 0)
-        type_ref = type_descriptor_get_int8_type(ctx->type_descriptors, false);
-    else if (strncmp(type_name, "void", 4) == 0)
-        type_ref = type_descriptor_get_void_type(ctx->type_descriptors);
-    else if (strncmp(type_name, "float", 5) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_float = true}, (TypeQualifier){0});
-    else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-        type_ref = get_or_create_builtin_type(
-            ctx->type_descriptors, (TypeSpecifier){.long_count = 1, .is_double = true}, (TypeQualifier){0}
-        );
-    else if (strncmp(type_name, "double", 6) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_double = true}, (TypeQualifier){0});
-    else if (strstr(type_name, "long") != NULL)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.long_count = 1}, (TypeQualifier){0});
-    else if (strncmp(type_name, "short", 5) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_short = true}, (TypeQualifier){0});
-    else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-        type_ref = type_descriptor_get_bool_type(ctx->type_descriptors, false);
-
-    if (type_ref != NULL)
-    {
-        debug_info("%s got type descriptor", __func__);
-    }
-
-    return type_ref;
-}
-
 static char const *
 search_ast_for_type_tag(c_grammar_node_t const * definition_node)
 {
@@ -1134,6 +1088,8 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         ir_generator_dispose(ctx);
         return NULL;
     }
+    ctx->module = LLVMModuleCreateWithName(module_name);
+    ctx->data_layout = LLVMGetModuleDataLayout(ctx->module);
 
     ctx->ref_type.i1_type = LLVMInt1TypeInContext(ctx->context);
     ctx->ref_type.i8_type = LLVMInt8TypeInContext(ctx->context);
@@ -1146,14 +1102,13 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     ctx->ref_type.long_double_type = LLVMX86FP80TypeInContext(ctx->context);
     ctx->ref_type.void_type = LLVMVoidTypeInContext(ctx->context);
 
-    ctx->type_descriptors = type_descriptors_create_registry(ctx->context);
+    ctx->type_descriptors = type_descriptors_create_registry(ctx->context, ctx->data_layout);
     if (ctx->type_descriptors == NULL)
     {
         ir_generator_dispose(ctx);
         return NULL;
     }
 
-    ctx->module = LLVMModuleCreateWithName(module_name);
     if (!ctx->module)
     {
         debug_error("Failed to create LLVM module.");
@@ -4257,6 +4212,74 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     return create_typed_value(alloca_inst, compound_type_desc, true);
 }
 
+static TypeDescriptor const *
+get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node_t const * qualifier_list)
+{
+    TypeDescriptor const * type_desc = NULL;
+
+    TypeSpecifierValidationResult validation_result = validate_type_specifiers(qualifier_list);
+    if (validation_result.is_valid == false)
+    {
+        debug_error("%s: Invalid type specifier list", __func__);
+        return NULL;
+    }
+    if (validation_result.is_native_type)
+    {
+        TypeSpecifier specs = build_type_specifiers(qualifier_list);
+        if (!type_specifier_is_valid(specs))
+        {
+            debug_error("%s: invalid type specs");
+            type_specifier_dump(specs, DEBUG_LEVEL_ERROR);
+        }
+        type_desc = get_or_create_builtin_type(ctx->type_descriptors, specs, (TypeQualifier){0});
+    }
+    else if (qualifier_list->list.count == 1)
+    {
+        // for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
+        {
+            c_grammar_node_t * child = qualifier_list->list.children[0];
+
+            debug_info("qualifier list child type: %s", get_node_type_name_from_node(child));
+
+            // Handle terminal type specifier (e.g., "int", "char")
+            if (child->type == AST_NODE_TYPE_SPECIFIER)
+            {
+                type_desc = resolve_type_descriptor(ctx, qualifier_list, NULL);
+            }
+            // Handle Identifier (struct name like "Point" in sizeof(struct Point))
+            else if (child->type == AST_NODE_IDENTIFIER)
+            {
+                char const * type_name = child->text;
+                type_desc = find_type_descriptor_by_tag(ctx, type_name);
+            }
+            // Handle TypedefSpecifier (typedef name in sizeof(MyType))
+            else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+            {
+                c_grammar_node_t const * specifier = child->typedef_specifier_qualifier.typedef_specifier;
+                char const * typedef_name = extract_typedef_name(specifier);
+                if (typedef_name != NULL)
+                {
+                    type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                }
+            }
+            else if (
+                child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
+                || child->type == AST_NODE_ENUM_TYPE_REF
+            )
+            {
+                char const * tag = extract_struct_or_union_or_enum_tag(child);
+                debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
+                if (tag != NULL)
+                {
+                    type_desc = find_type_descriptor_by_tag(ctx, tag);
+                }
+            }
+        }
+    }
+
+    return type_desc;
+}
+
 static TypedValue
 process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
@@ -4430,44 +4453,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
             c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-            /* FIXME - the specifier list could be something like sizeof(unsigned int), which is not handled. */
-            for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
-            {
-                c_grammar_node_t * child = qualifier_list->list.children[i];
-
-                debug_info("qualifier list child type: %s", get_node_type_name_from_node(child));
-
-                // Handle terminal type specifier (e.g., "int", "char")
-                if (child->type == AST_NODE_TYPE_SPECIFIER)
-                {
-                    if (child->text != NULL)
-                    {
-                        char const * type_name = child->text;
-
-                        target_type = get_type_from_name(ctx, type_name);
-                    }
-                    else
-                    {
-                        target_type = resolve_type_descriptor(ctx, child, NULL);
-                    }
-                }
-                // Handle Identifier (struct name like "Point" in sizeof(struct Point))
-                else if (child->type == AST_NODE_IDENTIFIER)
-                {
-                    char const * type_name = child->text;
-                    target_type = find_type_descriptor_by_tag(ctx, type_name);
-                }
-                // Handle TypedefSpecifier (typedef name in sizeof(MyType))
-                else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
-                {
-                    c_grammar_node_t const * specifier = child->typedef_specifier_qualifier.typedef_specifier;
-                    char const * typedef_name = extract_typedef_name(specifier);
-                    if (typedef_name != NULL)
-                    {
-                        target_type = find_typedef_type_descriptor(ctx, typedef_name);
-                    }
-                }
-            }
+            target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
         }
         else
         {
@@ -4492,30 +4478,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
             c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-
-            for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
-            {
-                c_grammar_node_t * child = qualifier_list->list.children[i];
-
-                if (child->type == AST_NODE_TYPE_SPECIFIER)
-                {
-                    if (child->text != NULL)
-                    {
-                        char const * type_name = child->text;
-
-                        target_type = get_type_from_name(ctx, type_name);
-                    }
-                    else
-                    {
-                        target_type = resolve_type_descriptor(ctx, child, NULL);
-                    }
-                }
-                else if (child->type == AST_NODE_IDENTIFIER)
-                {
-                    char const * type_name = child->text;
-                    target_type = find_type_descriptor_by_tag(ctx, type_name);
-                }
-            }
+            target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
         }
         else
         {

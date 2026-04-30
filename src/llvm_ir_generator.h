@@ -58,6 +58,8 @@ typedef struct ir_generator_ctx
     ir_generation_flags generation_flags;
     LLVMContextRef context;
     LLVMModuleRef module;
+    LLVMTargetDataRef data_layout;
+
     LLVMBuilderRef builder;
 
     // --- Scope-based symbol table ---

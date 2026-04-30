@@ -32,6 +32,7 @@ typedef struct TypeDescriptors
 {
     TypeDescriptor_private * head;
     LLVMContextRef context;
+    LLVMTargetDataRef data_layout;
     builtin_types builtins;
 } TypeDescriptors;
 
@@ -219,6 +220,74 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
     return register_descriptor(registry, &template);
 }
 
+/**
+ * @brief Calculates size and sets member offsets for Structs and Unions.
+ * This should be called once the TypeDescriptor's member list is fully populated.
+ */
+void
+calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * desc)
+{
+    debug_info("%s", __func__);
+    if (desc == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
+    {
+        debug_error("%s: bad type descriptor");
+        return;
+    }
+
+    uint64_t current_offset = 0;
+    uint32_t max_align = 1;
+    size_t member_count = desc->struct_metadata.members.num_members;
+
+    for (size_t i = 0; i < member_count; ++i)
+    {
+        TypeDescriptor const * mem_desc = desc->struct_metadata.members.members[i].type_desc;
+
+        uint64_t mem_size = get_type_size_desc(data_layout, mem_desc);
+        uint32_t mem_align = get_type_alignment_desc(mem_desc);
+
+        if (mem_align > max_align)
+        {
+            max_align = mem_align;
+        }
+
+        if (desc->kind == NCC_TYPE_KIND_STRUCT)
+        {
+            // 1. Add padding before the member to satisfy its alignment
+            uint64_t padding = (mem_align - (current_offset % mem_align)) % mem_align;
+            current_offset += padding;
+
+            // 2. Set the offset for this member
+            desc->struct_metadata.members.members[i].offset = current_offset;
+            debug_info("member: %zu offset: %llu size: %llu align: %u", i, current_offset, mem_size, mem_align);
+
+            //
+            // 3. Move the cursor
+            current_offset += mem_size;
+        }
+        else
+        {
+            // UNION: All members start at offset 0
+            desc->struct_metadata.members.members[i].offset = 0;
+            if (mem_size > current_offset)
+            {
+                current_offset = mem_size; // Track the largest member
+            }
+        }
+    }
+
+    // 4. Final Tail Padding
+    // The total size must be a multiple of the largest alignment found
+    uint64_t tail_padding = (max_align - (current_offset % max_align)) % max_align;
+    desc->struct_metadata.total_size = current_offset + tail_padding;
+    desc->struct_metadata.alignment = max_align;
+    debug_info(
+        "%s: total size: %llu, alignment: %u",
+        __func__,
+        desc->struct_metadata.total_size,
+        desc->struct_metadata.alignment
+    );
+}
+
 TypeDescriptor const *
 register_struct_type(
     TypeDescriptors * registry,
@@ -261,6 +330,7 @@ register_struct_type(
            .qualifiers = quals,
            .struct_metadata.is_complete = is_complete,
            .struct_metadata.members = members_template};
+    calculate_composite_size(registry->data_layout, &template);
 
     return register_descriptor(registry, &template);
 }
@@ -344,7 +414,7 @@ type_descriptors_destroy_registry(TypeDescriptors * registry)
 }
 
 TypeDescriptors *
-type_descriptors_create_registry(LLVMContextRef context)
+type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout)
 {
     if (context == NULL)
     {
@@ -358,6 +428,8 @@ type_descriptors_create_registry(LLVMContextRef context)
         return NULL;
     }
     registry->context = context;
+    registry->data_layout = data_layout;
+
     builtins_init(registry);
 
     return registry;
@@ -617,6 +689,7 @@ is_void_return(TypeDescriptor const * desc)
 uint64_t
 get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
 {
+    debug_info("%s, desc: %p", __func__, desc);
     if (desc == NULL)
     {
         return 0;
@@ -626,6 +699,7 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
 
     if (llvm_kind == LLVMVoidTypeKind || desc->specifiers.is_void)
     {
+        debug_info("is void");
         return 0;
     }
 
@@ -672,9 +746,7 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
         // This needs to account for padding!
         // Better to use LLVM's offset calculation if the struct is already lowered,
         // or your own offset tracking in the descriptor.
-        // return desc->struct_metadata.total_size;
-        /* FIXME: Use ABI size until struct_metadata supports total_size calculations. */
-        return LLVMABISizeOfType(data_layout, desc->llvm_type);
+        return desc->struct_metadata.total_size;
 
     default:
         // Fallback to LLVM's target data if available
