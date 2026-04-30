@@ -18,9 +18,6 @@
 TypedValue NullTypedValue;
 
 // Forward declarations for functions used before definition
-// Helper to map C types to LLVM types
-static LLVMTypeRef
-map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator);
 
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
@@ -61,47 +58,6 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
 static type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
-
-// Helper function to extract struct/union tag from a TypeSpecifier node
-// Returns the tag if found (struct or union definition with identifier child), or NULL
-// Only returns non-NULL when struct/union definition node is present and it contains an Identifier.
-
-static uint64_t
-get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
-{
-    if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
-    {
-        return 1;
-    }
-
-    // 1. Get the Data Layout from the module
-    // This contains the rules for your specific target (x86, ARM, etc.)
-    LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
-
-    // 2. Query the Preferred (or ABI) alignment directly as a number
-    // LLVMABIAlignmentOfType returns the actual unsigned int you want.
-    uint64_t alignment = LLVMABIAlignmentOfType(data_layout, type);
-
-    debug_info("Type kind %u has alignment: %u", LLVMGetTypeKind(type), alignment);
-
-    return alignment;
-}
-
-// Helper function to get size in bytes for a type
-static uint64_t
-get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
-{
-    if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
-    {
-        return 0;
-    }
-
-    // Get the size in bytes as a standard C integer
-    LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
-    uint64_t size_in_bytes = LLVMABISizeOfType(data_layout, type);
-    debug_info("type size: %llu", size_in_bytes);
-    return size_in_bytes;
-}
 
 // Helper wrapper for LLVMBuildStore with proper alignment
 static void
@@ -510,7 +466,7 @@ static void
 process_initializer_list_type_desc(
     ir_generator_ctx_t * ctx,
     LLVMValueRef base_ptr,
-    TypeDescriptor const * type_desc, // Swapped from LLVMTypeRef
+    TypeDescriptor const * type_desc,
     c_grammar_node_t const * initializer_node,
     int * outer_index
 )
@@ -529,7 +485,7 @@ process_initializer_list_type_desc(
         LLVMValueRef size = LLVMSizeOf(element_type);
         LLVMValueRef zero = LLVMConstNull(ctx->ref_type.i8_type);
         // Use TypeDescriptor's knowledge of alignment if available, or fallback
-        unsigned alignment = 8; // Or type_desc->alignment
+        unsigned alignment = get_type_alignment_desc(type_desc);
         LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, alignment);
     }
 
@@ -780,554 +736,54 @@ find_typedef_name_node(c_grammar_node_t const * typedef_decl)
     return NULL;
 }
 
-static LLVMTypeRef
+static TypeDescriptor const *
 get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
 {
-    LLVMTypeRef type_ref = NULL;
+    TypeDescriptor const * type_ref = NULL;
 
     debug_info("%s type name: '%s'", __func__, type_name);
 
-    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
-    if (struct_type)
+    TypeDescriptor const * struct_type = find_type_descriptor_by_tag(ctx, type_name);
+    if (struct_type != NULL)
     {
         type_ref = struct_type;
     }
     // Then check for basic types
     else if (strncmp(type_name, "int", 3) == 0)
-        type_ref = ctx->ref_type.i32_type;
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
     else if (strncmp(type_name, "char", 4) == 0)
-        type_ref = ctx->ref_type.i8_type;
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_char = true}, (TypeQualifier){0});
     else if (strncmp(type_name, "void", 4) == 0)
-        type_ref = LLVMVoidTypeInContext(ctx->context);
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_void = true}, (TypeQualifier){0});
     else if (strncmp(type_name, "float", 5) == 0)
-        type_ref = LLVMFloatTypeInContext(ctx->context);
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_float = true}, (TypeQualifier){0});
     else if (strstr(type_name, "long") != NULL && strstr(type_name, "double") != NULL)
-        type_ref = LLVMX86FP80TypeInContext(ctx->context);
+        type_ref = get_or_create_builtin_type(
+            ctx->type_descriptors, (TypeSpecifier){.long_count = 1, .is_double = true}, (TypeQualifier){0}
+        );
     else if (strncmp(type_name, "double", 6) == 0)
-        type_ref = LLVMDoubleTypeInContext(ctx->context);
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_double = true}, (TypeQualifier){0});
     else if (strstr(type_name, "long") != NULL)
-        type_ref = LLVMInt64TypeInContext(ctx->context);
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.long_count = 1}, (TypeQualifier){0});
     else if (strncmp(type_name, "short", 5) == 0)
-        type_ref = LLVMInt16TypeInContext(ctx->context);
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_short = true}, (TypeQualifier){0});
     else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-        type_ref = LLVMInt1TypeInContext(ctx->context);
+        type_ref
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
 
     if (type_ref != NULL)
     {
-        debug_info("got type kind: %d", LLVMGetTypeKind(type_ref));
+        debug_info("%s got type descriptor", __func__);
     }
 
     return type_ref;
-}
-
-static void
-dump_llvm_type(char const * label, LLVMTypeRef type)
-{
-    debug_info("%s %s (%p):", __func__, label, type);
-    if (type == NULL)
-    {
-        return;
-    }
-    debug_info("type kind: %u", LLVMGetTypeKind(type));
-}
-
-/*
- * map_type()
- *
- * Converts C-style type information from AST nodes (specifiers and declarators)
- * into a corresponding LLVMTypeRef. This handles base types, pointers,
- * and arrays by recursively processing the AST nodes to build the full
- * LLVM type representation.
- *
- * Parameters:
- *   ctx: The IR generator context.
- *   specifiers: The AST node for declaration specifiers (e.g., int, const).
- *   declarator: The AST node for the declarator (e.g., *ptr[10]).
- *
- * Returns:
- *   An LLVMTypeRef representing the equivalent C type.
- */
-static LLVMTypeRef
-map_type_to_llvm_t(ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator)
-{
-    debug_info("%s: specifier_type: %s", __func__, get_node_type_name_from_node(specifiers));
-    static int map_type_depth = 0;
-    if (map_type_depth > 64)
-    {
-        debug_error("map_type: recursion depth exceeded");
-        return ctx->ref_type.i32_type;
-    }
-    map_type_depth++;
-    LLVMTypeRef base_type = NULL;
-    int pointer_level = 0;
-    size_t array_depth = 0;
-    size_t array_capacity = 4;
-    size_t * array_sizes = malloc(array_capacity * sizeof(*array_sizes));
-
-    if (array_sizes == NULL)
-    {
-        map_type_depth--;
-        return ctx->ref_type.i32_type;
-    }
-
-    // 1. Process Specifiers (extract base type and any pointers in specifiers)
-    if (specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST && specifiers->list.count == 1)
-    {
-        c_grammar_node_t const * child = specifiers->list.children[0];
-        if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
-        {
-            specifiers = child->typedef_specifier_qualifier.typedef_specifier;
-        }
-    }
-
-    if (specifiers != NULL)
-    {
-        // Handle terminal TypeSpecifier (e.g., typedef name "IntFloat", or basic type "int", "float")
-        if (specifiers->type == AST_NODE_TYPE_SPECIFIER)
-        {
-            if (specifiers->text != NULL)
-            {
-                char const * type_name = specifiers->text;
-                base_type = get_type_from_name(ctx, type_name);
-            }
-            else
-            {
-                c_grammar_node_t const * type_specifier_node = specifiers;
-
-                // Handle terminal type specifiers (e.g., typedef names like "IntFloat")
-                if (type_specifier_node->type == AST_NODE_IDENTIFIER && type_specifier_node->text != NULL)
-                {
-                    char const * type_name = type_specifier_node->text;
-                    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
-                    if (struct_type)
-                    {
-                        base_type = struct_type;
-                    }
-                }
-                else
-                {
-                    for (size_t i = 0; i < type_specifier_node->list.count; ++i)
-                    {
-                        c_grammar_node_t * child = type_specifier_node->list.children[i];
-
-                        if (child->text != NULL
-                            && (child->type == AST_NODE_IDENTIFIER || child->type == AST_NODE_INTEGER_BASE
-                                || child->type == AST_NODE_FLOAT_BASE))
-                        {
-                            char const * type_name = child->text;
-                            base_type = get_type_from_name(ctx, type_name);
-                        }
-                        else if (child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION)
-                        {
-                            type_info_t const * info = register_struct_definition(ctx, child);
-                            if (info != NULL)
-                            {
-                                base_type = info->type_desc->llvm_type;
-                            }
-                        }
-                        else if (
-                            child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
-                            || child->type == AST_NODE_ENUM_TYPE_REF
-                        )
-                        {
-                            // Handle struct/union type reference: should have a child Identifier with the tag name
-                            char const * tag = extract_struct_or_union_or_enum_tag(type_specifier_node);
-                            if (tag != NULL)
-                            {
-                                LLVMTypeRef tagged_type = find_type_by_tag(ctx, tag);
-                                if (tagged_type != NULL)
-                                {
-                                    base_type = tagged_type;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        /* Handle TypedefSpecifier directly (e.g. from struct member type_spec) */
-        else if (specifiers->type == AST_NODE_TYPEDEF_SPECIFIER)
-        {
-            char const * typedef_name = extract_typedef_name(specifiers);
-            if (typedef_name != NULL)
-            {
-                TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
-                if (typedef_type_desc != NULL)
-                {
-                    base_type = typedef_type_desc->llvm_type;
-                }
-            }
-        }
-        /* Handle DeclarationSpecifiers - use structured fields */
-        else if (specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-        {
-            // Use the structured fields from ast_node_decl_specifiers_t
-            c_grammar_node_t const * typedef_specifier_node = specifiers->decl_specifiers.typedef_specifier;
-            c_grammar_node_t const * specifier_list = specifiers->decl_specifiers.type_specifiers;
-            debug_info(
-                "handling node type %s and specifier list %s",
-                get_node_type_name_from_node(specifiers),
-                get_node_type_name_from_node(specifier_list)
-            );
-
-            // Check for typedef name first
-            if (typedef_specifier_node != NULL)
-            {
-                char const * typedef_name = extract_typedef_name(typedef_specifier_node);
-                if (typedef_name != NULL)
-                {
-                    TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
-                    if (typedef_type_desc != NULL)
-                    {
-                        base_type = typedef_type_desc->llvm_type;
-                    }
-                }
-            }
-            // Check type specifier
-            else if (specifier_list->list.count > 0)
-            {
-                bool is_struct_or_union_or_enum = false;
-                c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
-                c_grammar_node_t const * child
-                    = type_spec_node->list.count > 0 ? type_spec_node->list.children[0] : NULL;
-                if (child != NULL)
-                {
-                    is_struct_or_union_or_enum
-                        = child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
-                          || child->type == AST_NODE_ENUM_DEFINITION || child->type == AST_NODE_STRUCT_TYPE_REF
-                          || child->type == AST_NODE_UNION_TYPE_REF || child->type == AST_NODE_ENUM_TYPE_REF;
-                }
-                if (!is_struct_or_union_or_enum)
-                {
-                    TypeSpecifier type_spec = build_type_specifiers(specifier_list);
-                    TypeDescriptor const * type_desc
-                        = get_or_create_builtin_type(ctx->type_descriptors, type_spec, (TypeQualifier){0});
-                    if (type_desc != NULL && type_desc->llvm_type != NULL)
-                    {
-                        debug_info("and got type kind: %d", LLVMGetTypeKind(type_desc->llvm_type));
-                        base_type = type_desc->llvm_type;
-                    }
-                }
-
-                if (base_type == NULL)
-                {
-                    c_grammar_node_t const * type_spec_node = specifier_list->list.children[0];
-
-                    // Handle case where type_spec_node is AST_NODE_TYPE_SPECIFIER with text (terminal)
-                    if (type_spec_node->text != NULL)
-                    {
-                        char const * type_name = type_spec_node->text;
-
-                        // First check for typedef
-                        TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, type_name);
-                        if (typedef_type_desc != NULL)
-                        {
-                            base_type = typedef_type_desc->llvm_type;
-                        }
-                        else
-                        {
-                            base_type = get_type_from_name(ctx, type_name);
-                        }
-                    }
-                    else if (type_spec_node->type == AST_NODE_TYPE_SPECIFIER && type_spec_node->list.count > 0)
-                    {
-                        debug_info("handling type specifier list with %u items", type_spec_node->list.count);
-                        // Type specifier is a list - find first child with type name text
-                        for (size_t i = 0; i < type_spec_node->list.count; ++i)
-                        {
-                            c_grammar_node_t const * child = type_spec_node->list.children[i];
-                            debug_info("processing child type: %s", get_node_type_name_from_node(child));
-                            if (child->text != NULL)
-                            {
-                                // Check for typedef first
-                                TypeDescriptor const * typedef_type_desc
-                                    = find_typedef_type_descriptor(ctx, child->text);
-                                if (typedef_type_desc != NULL)
-                                {
-                                    base_type = typedef_type_desc->llvm_type;
-                                    break;
-                                }
-                                base_type = get_type_from_name(ctx, child->text);
-                                if (base_type != NULL)
-                                {
-                                    break;
-                                }
-                            }
-                            else if (
-                                child->type == AST_NODE_STRUCT_DEFINITION || child->type == AST_NODE_UNION_DEFINITION
-                            )
-                            {
-                                type_info_t const * info = register_struct_definition(ctx, child);
-                                if (info != NULL)
-                                {
-                                    base_type = info->type_desc->llvm_type;
-                                    break;
-                                }
-                            }
-                            else if (child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF)
-                            {
-                                char const * tag = extract_struct_or_union_or_enum_tag(child);
-                                if (tag != NULL)
-                                {
-                                    base_type = find_type_by_tag(ctx, tag);
-                                    if (base_type != NULL)
-                                    {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        // Use helper to determine if this is a struct/union reference
-                        char const * struct_name = extract_struct_or_union_or_enum_tag(type_spec_node);
-                        if (struct_name != NULL)
-                        {
-                            LLVMTypeRef struct_type = find_type_by_tag(ctx, struct_name);
-                            if (struct_type != NULL)
-                            {
-                                base_type = struct_type;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    debug_info("check declarator");
-    // 2. Process Declarator (extract pointers and arrays)
-    bool is_function_pointer = false;
-    LLVMTypeRef func_ptr_param_types[16];
-    (void)func_ptr_param_types;
-    size_t func_ptr_num_params = 0;
-
-    if (declarator && declarator->type == AST_NODE_DECLARATOR)
-    {
-        pointer_level = declarator->declarator.pointer_list->list.count;
-        debug_info("is declarator and pointer level %u", pointer_level);
-        {
-            c_grammar_node_t const * direct_decl = declarator->declarator.direct_declarator;
-            // Check inside DirectDeclarator for pointers and arrays
-            // The structure can be: DirectDeclarator -> Declarator -> {Pointer, ..., DeclaratorSuffix}
-            for (size_t j = 0; j < direct_decl->list.count; ++j)
-            {
-                c_grammar_node_t * direct_child = direct_decl->list.children[j];
-                if (direct_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
-                {
-                    // Function pointer parameter: int (*func)(int, int)
-                    is_function_pointer = true;
-                    pointer_level++;
-
-                    c_grammar_node_t const * suffix_list
-                        = direct_child->function_pointer_declarator.declarator_suffix_list;
-
-                    for (size_t si = 0; si < suffix_list->list.count; si++)
-                    {
-                        c_grammar_node_t const * suffix = suffix_list->list.children[si];
-
-                        // Check for array size inside FunctionPointerDeclarator (e.g., (*ops[2]))
-                        for (size_t m = 0; m < suffix->list.count; ++m)
-                        {
-                            c_grammar_node_t * suffix_child = suffix->list.children[m];
-
-                            if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
-                            {
-                                unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
-                                if (array_depth < array_capacity)
-                                {
-                                    array_sizes[array_depth] = (size_t)size_val;
-                                    array_depth++;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        c_grammar_node_t const * suffix_list = declarator->declarator.declarator_suffix_list;
-
-        for (size_t i = 0; i < suffix_list->list.count; ++i)
-        {
-            c_grammar_node_t * suffix = suffix_list->list.children[i];
-            debug_info(
-                "map_type: suffix[%zu] type=%s count=%zu",
-                i,
-                get_node_type_name_from_type(suffix->type),
-                suffix->list.count
-            );
-            // Check if this is a function suffix (contains DeclarationSpecifiers for params)
-            // vs array suffix (contains IntegerLiteral for size)
-            bool has_function_params = false;
-            bool has_array_size = false;
-
-            c_grammar_node_t const * parameter_list = suffix;
-            if (suffix->list.count == 1)
-            {
-                if (suffix->list.children[0]->type == AST_NODE_PARAMETER_LIST)
-                {
-                    parameter_list = suffix->list.children[0];
-                }
-            }
-            for (size_t j = 0; j < parameter_list->list.count; ++j)
-            {
-                c_grammar_node_t * params_child = parameter_list->list.children[j];
-
-                debug_info("map_type: param[%zu] type=%s", j, get_node_type_name_from_type(params_child->type));
-                if (params_child->type == AST_NODE_NAMED_DECL_SPECIFIERS)
-                {
-                    // This is a function parameter type
-                    has_function_params = true;
-                    if (func_ptr_num_params < 16)
-                    {
-                        func_ptr_param_types[func_ptr_num_params++] = map_type_to_llvm_t(ctx, params_child, NULL);
-                    }
-                }
-                else if (params_child->type == AST_NODE_INTEGER_LITERAL)
-                {
-                    // This is an array size
-                    unsigned long long size_val = params_child->integer_lit.integer_literal.value;
-                    if (array_depth < array_capacity)
-                    {
-                        array_sizes[array_depth] = (size_t)size_val;
-                        array_depth++;
-                        has_array_size = true;
-                    }
-                }
-                else if (params_child->type == AST_NODE_DECLARATOR)
-                {
-                    // Function parameter with declarator (e.g., int (*func)(int))
-                    // For now, just extract the type specifier
-                    has_function_params = true;
-                    if (func_ptr_num_params < 16)
-                    {
-                        func_ptr_param_types[func_ptr_num_params++] = map_type_to_llvm_t(ctx, suffix, NULL);
-                    }
-                }
-            }
-
-            // Empty brackets [] - mark as unsized (for arrays)
-            if (!has_array_size && !has_function_params)
-            {
-                if (array_depth < array_capacity)
-                {
-                    array_sizes[array_depth] = 0;
-                    array_depth++;
-                }
-            }
-        }
-    }
-
-    // Handle Abstract Declarator (used in type names, e.g., cast expressions)
-    if (declarator != NULL && declarator->type == AST_NODE_ABSTRACT_DECLARATOR)
-    {
-        debug_info("is abstract delcarator");
-        // AbstractDeclarator = (PointerPlus DeclaratorSuffixList) | DeclaratorSuffixList
-        // The children can be: [PointerList?, DeclaratorSuffixList?]
-
-        // First child might be a pointer list
-        if (declarator->list.count > 0)
-        {
-            c_grammar_node_t const * first_child = declarator->list.children[0];
-            if (first_child->type == AST_NODE_POINTER_LIST)
-            {
-                pointer_level = first_child->list.count;
-            }
-        }
-
-        // Look for declarator suffix list (array sizes, function params)
-        for (size_t i = 0; i < declarator->list.count; ++i)
-        {
-            c_grammar_node_t const * child = declarator->list.children[i];
-            if (child->type == AST_NODE_DECLARATOR_SUFFIX_LIST)
-            {
-                for (size_t j = 0; j < child->list.count; ++j)
-                {
-                    c_grammar_node_t const * suffix = child->list.children[j];
-                    bool has_array_size = false;
-
-                    for (size_t k = 0; k < suffix->list.count; ++k)
-                    {
-                        c_grammar_node_t const * suffix_child = suffix->list.children[k];
-                        debug_info("%u child type: %s", __LINE__, get_node_type_name_from_node(suffix_child));
-
-                        if (suffix_child->type == AST_NODE_INTEGER_LITERAL)
-                        {
-                            unsigned long long size_val = suffix_child->integer_lit.integer_literal.value;
-                            if (array_depth < array_capacity)
-                            {
-                                array_sizes[array_depth] = (size_t)size_val;
-                                array_depth++;
-                                has_array_size = true;
-                            }
-                        }
-                    }
-
-                    // Empty brackets [] - unsized array
-                    if (!has_array_size && suffix->list.count > 0)
-                    {
-                        if (array_depth < array_capacity)
-                        {
-                            array_sizes[array_depth] = 0;
-                            array_depth++;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (base_type == NULL)
-    {
-        base_type = ctx->ref_type.i32_type;
-    }
-
-    // Handle function pointer - return pointer type (possibly wrapped in array)
-    if (is_function_pointer)
-    {
-        LLVMTypeRef func_ptr_type = LLVMPointerType(ctx->ref_type.i8_type, 0);
-
-        // If there are array sizes, this is an array of function pointers
-        if (array_depth > 0)
-        {
-            for (int i = (int)array_depth - 1; i >= 0; --i)
-            {
-                func_ptr_type = LLVMArrayType(func_ptr_type, (unsigned)array_sizes[i]);
-            }
-        }
-
-        free(array_sizes);
-        map_type_depth--;
-        return func_ptr_type;
-    }
-
-    // Add pointer types FIRST (before arrays, so for "char * arr[64]" we get [64 x ptr])
-    LLVMTypeRef final_type = base_type;
-    debug_info(
-        "map_type: array_depth=%zu, pointer_level=%d, base_type kind=%d",
-        array_depth,
-        pointer_level,
-        LLVMGetTypeKind(base_type)
-    );
-    debug_info("now making a pointer: level %u", pointer_level);
-    for (int i = 0; i < pointer_level; ++i)
-    {
-        final_type = LLVMPointerType(final_type, 0);
-    }
-
-    // Then build array types from innermost to outermost
-    for (int i = (int)array_depth - 1; i >= 0; --i)
-    {
-        debug_info("map_type: array_size[%d]=%zu", i, array_sizes[i]);
-        final_type = LLVMArrayType(final_type, (unsigned)array_sizes[i]);
-    }
-
-    free(array_sizes);
-    map_type_depth--;
-
-    dump_llvm_type(__func__, final_type);
-
-    return final_type;
 }
 
 static char const *
@@ -4933,14 +4389,14 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
     case UNARY_OP_SIZEOF:
     {
-        LLVMTypeRef target_type = NULL;
+        TypeDescriptor const * target_type = NULL;
 
         // Check if operand is a TypeName (e.g., sizeof(int) or sizeof(struct Point))
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
             // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
             c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-
+            /* FIXME - the specifier list could be something like sizeof(unsigned int), which is not handled. */
             for (size_t i = 0; i < qualifier_list->list.count && target_type == NULL; i++)
             {
                 c_grammar_node_t * child = qualifier_list->list.children[i];
@@ -4958,18 +4414,14 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     }
                     else
                     {
-                        target_type = map_type_to_llvm_t(ctx, child, NULL);
+                        target_type = resolve_type_descriptor(ctx, child, NULL);
                     }
                 }
                 // Handle Identifier (struct name like "Point" in sizeof(struct Point))
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
                     char const * type_name = child->text;
-                    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
-                    if (struct_type)
-                    {
-                        target_type = struct_type;
-                    }
+                    target_type = find_type_descriptor_by_tag(ctx, type_name);
                 }
                 // Handle TypedefSpecifier (typedef name in sizeof(MyType))
                 else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
@@ -4978,11 +4430,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     char const * typedef_name = extract_typedef_name(specifier);
                     if (typedef_name != NULL)
                     {
-                        TypeDescriptor const * typedef_type_desc = find_typedef_type_descriptor(ctx, typedef_name);
-                        if (typedef_type_desc != NULL && typedef_type_desc->llvm_type != NULL)
-                        {
-                            target_type = typedef_type_desc->llvm_type;
-                        }
+                        target_type = find_typedef_type_descriptor(ctx, typedef_name);
                     }
                 }
             }
@@ -4992,13 +4440,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             debug_info("Operand node type for sizeof: %s", get_node_type_name_from_node(operand_node));
             TypedValue operand_res = process_expression(ctx, operand_node);
 
-            target_type = typed_value_get_llvm_type(&operand_res);
-            debug_info(
-                "sizeof operand expression type: %d", target_type != NULL ? (int)LLVMGetTypeKind(target_type) : -1
-            );
+            target_type = operand_res.type_info;
         }
         debug_info("unary operator getting size of type: %p", target_type);
-        uint64_t sizeof_type_bytes = get_type_size(ctx, target_type);
+        uint64_t sizeof_type_bytes = get_type_size(ctx, target_type->llvm_type);
         TypeDescriptor const * sizeof_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(sizeof_desc->llvm_type, sizeof_type_bytes, false);
 
@@ -5007,7 +4452,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_ALIGNOF:
     {
         // alignof is similar to sizeof but returns alignment
-        LLVMTypeRef target_type = NULL;
+        TypeDescriptor const * target_type = NULL;
 
         // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
         if (operand_node->type == AST_NODE_TYPE_NAME)
@@ -5028,17 +4473,13 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     }
                     else
                     {
-                        target_type = map_type_to_llvm_t(ctx, child, NULL);
+                        target_type = resolve_type_descriptor(ctx, child, NULL);
                     }
                 }
                 else if (child->type == AST_NODE_IDENTIFIER)
                 {
                     char const * type_name = child->text;
-                    LLVMTypeRef struct_type = find_type_by_tag(ctx, type_name);
-                    if (struct_type)
-                    {
-                        target_type = struct_type;
-                    }
+                    target_type = find_type_descriptor_by_tag(ctx, type_name);
                 }
             }
         }
@@ -5047,13 +4488,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             debug_info("Operand node type for alignof: %s", get_node_type_name_from_node(operand_node));
             TypedValue operand_res = process_expression(ctx, operand_node);
 
-            target_type = typed_value_get_llvm_type(&operand_res);
-            debug_info(
-                "alignment operand expression type: %d", target_type != NULL ? (int)LLVMGetTypeKind(target_type) : -1
-            );
+            target_type = operand_res.type_info;
         }
-        debug_info("unary operator getting alignment of type: %p", target_type);
-        uint64_t alignment = get_type_alignment(ctx, target_type);
+        debug_info("unary operator getting alignment");
+        uint64_t alignment = get_type_alignment_desc(target_type);
         TypeDescriptor const * alignment_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(alignment_desc->llvm_type, alignment, false);
 

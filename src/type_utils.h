@@ -5,6 +5,7 @@
 #include "struct_members.h"
 
 #include <llvm-c/Core.h>
+#include <stdint.h>
 
 typedef struct TypeDescriptor TypeDescriptor;
 typedef struct TypeDescriptors TypeDescriptors;
@@ -39,3 +40,7 @@ bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * 
 char const * search_for_identifier(c_grammar_node_t const * node);
 
 unsigned get_fp_width(LLVMTypeRef type);
+
+uint64_t get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type);
+
+uint64_t get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type);

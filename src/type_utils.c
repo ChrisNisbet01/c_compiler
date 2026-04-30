@@ -469,3 +469,40 @@ get_fp_width(LLVMTypeRef type)
 
 #pragma GCC diagnostic pop
 }
+
+uint64_t
+get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
+{
+    if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
+    {
+        return 1;
+    }
+
+    // 1. Get the Data Layout from the module
+    // This contains the rules for your specific target (x86, ARM, etc.)
+    LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
+
+    // 2. Query the Preferred (or ABI) alignment directly as a number
+    // LLVMABIAlignmentOfType returns the actual unsigned int you want.
+    uint64_t alignment = LLVMABIAlignmentOfType(data_layout, type);
+
+    debug_info("Type kind %u has alignment: %u", LLVMGetTypeKind(type), alignment);
+
+    return alignment;
+}
+
+// Helper function to get size in bytes for a type
+uint64_t
+get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type)
+{
+    if (type == NULL || LLVMGetTypeKind(type) == LLVMVoidTypeKind)
+    {
+        return 0;
+    }
+
+    // Get the size in bytes as a standard C integer
+    LLVMTargetDataRef data_layout = LLVMGetModuleDataLayout(ctx->module);
+    uint64_t size_in_bytes = LLVMABISizeOfType(data_layout, type);
+    debug_info("type size: %llu", size_in_bytes);
+    return size_in_bytes;
+}
