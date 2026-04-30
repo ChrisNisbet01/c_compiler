@@ -4771,12 +4771,11 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     }
 
     // Convert condition to i1 if needed
-    LLVMTypeRef cond_type = cond_res.type;
-    if (LLVMGetTypeKind(cond_type) == LLVMIntegerTypeKind && LLVMGetIntTypeWidth(cond_type) != 1)
-    {
-        LLVMValueRef zero = LLVMConstNull(cond_type);
-        cond_res.value = LLVMBuildICmp(ctx->builder, LLVMIntNE, cond_res.value, zero, "cond_bool");
-    }
+    cond_res = cast_typed_value_to_desc(
+        ctx,
+        cond_res,
+        get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
+    );
 
     // Branch to then or else
     LLVMBuildCondBr(ctx->builder, cond_res.value, then_block, else_block);
@@ -4812,10 +4811,9 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Merge and create phi node
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
 
-    TypedValue res = {
-        .value = LLVMBuildPhi(ctx->builder, true_res.type, "cond_result"),
-        .type = true_res.type,
-    };
+    TypedValue res = create_typed_value(
+        LLVMBuildPhi(ctx->builder, true_res.type_info->llvm_type, "cond_result"), true_res.type_info, false
+    );
 
     // Add phi operands using the actual blocks where the expressions ended
     LLVMAddIncoming(res.value, &true_res.value, &true_block, 1);
@@ -4975,9 +4973,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             ir_gen_error(&ctx->errors, "Operand processing failed for unary minus");
             return NullTypedValue;
         }
-        if (operand_res.type != NULL
-            && (LLVMGetTypeKind(operand_res.type) == LLVMFloatTypeKind
-                || LLVMGetTypeKind(operand_res.type) == LLVMDoubleTypeKind))
+        if (is_floating_kind(operand_res.type_info))
         {
             operand_res.value = LLVMBuildFNeg(ctx->builder, operand_res.value, "fneg_tmp");
         }
@@ -4996,7 +4992,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         operand_res = ensure_rvalue(ctx, "un_not_rval", operand_res);
 
         // 1. Comparison produces an i1 (1-bit integer)
-        LLVMValueRef zero = LLVMConstNull(operand_res.type);
+        LLVMValueRef zero = LLVMConstNull(operand_res.type_info->llvm_type);
         LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, zero, "is_zero_tmp");
         TypeDescriptor const * bool_desc = type_descriptor_get_bool_type(ctx->type_descriptors, false);
 
@@ -5018,7 +5014,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     {
         TypedValue var_res = process_expression(ctx, operand_node);
 
-        if (var_res.value == NULL || var_res.type == NULL)
+        if (var_res.value == NULL)
         {
             return NullTypedValue;
         }
@@ -5030,21 +5026,23 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         LLVMValueRef new_val;
         if (op->op.unary.op == UNARY_OP_INC)
         {
-            LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
-            if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                new_val = LLVMBuildFAdd(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "inc_tmp");
+            if (is_floating_kind(var_res.type_info))
+                new_val = LLVMBuildFAdd(
+                    ctx->builder, original_val, LLVMConstReal(var_res.type_info->llvm_type, 1.0), "inc_tmp"
+                );
             else
                 new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
         }
         else
         {
-            LLVMTypeKind kind = LLVMGetTypeKind(var_res.type);
-            if (kind == LLVMFloatTypeKind || kind == LLVMDoubleTypeKind)
-                new_val = LLVMBuildFSub(ctx->builder, original_val, LLVMConstReal(var_res.type, 1.0), "dec_tmp");
+            if (is_floating_kind(var_res.type_info))
+                new_val = LLVMBuildFSub(
+                    ctx->builder, original_val, LLVMConstReal(var_res.type_info->llvm_type, 1.0), "dec_tmp"
+                );
             else
                 new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
         }
-        aligned_store(ctx, ctx->builder, new_val, var_res.type, var_res.value);
+        aligned_store(ctx, ctx->builder, new_val, var_res.type_info->llvm_type, var_res.value);
         var_res.value = new_val;
         var_res.is_lvalue = false;
 
@@ -5442,7 +5440,6 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     print_ast_with_label(node, __func__);
 
     TypedValue result = _process_expression(ctx, node);
-    debug_info("%s processed and result val: %p type: %p from line %u", __func__, result.value, result.type, line);
 
     visit_stack_pop(node);
 
