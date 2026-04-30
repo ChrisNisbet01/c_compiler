@@ -114,7 +114,7 @@ get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * elem
     while (curr)
     {
         if (curr->public.kind == NCC_TYPE_KIND_ARRAY && curr->public.pointee == element_type
-            && curr->public.array_size == size)
+            && curr->public.array_metadata.size == size)
         {
             return &curr->public;
         }
@@ -125,7 +125,7 @@ get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * elem
         = {.kind = NCC_TYPE_KIND_ARRAY,
            .llvm_type = LLVMArrayType(element_type->llvm_type, (unsigned)size),
            .pointee = element_type,
-           .array_size = size};
+           .array_metadata.size = size};
     return register_descriptor(registry, &template);
 }
 
@@ -478,53 +478,6 @@ find_descriptor_by_llvm_type(TypeDescriptors * registry, LLVMTypeRef type)
     }
 
     return NULL;
-}
-
-TypeDescriptor const *
-create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_type, char const * func, int line)
-{
-    debug_warning(
-        "%s:%d: No descriptor found for LLVM type %d, creating fallback", func, line, LLVMGetTypeKind(llvm_type)
-    );
-    TypeDescriptor template = {0};
-    template.llvm_type = llvm_type;
-
-    LLVMTypeKind kind = LLVMGetTypeKind(llvm_type);
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wswitch-enum"
-
-    switch (kind)
-    {
-    case LLVMIntegerTypeKind:
-        template.kind = NCC_TYPE_KIND_BUILTIN; // Or a generic INT kind
-        break;
-    case LLVMPointerTypeKind:
-        template.kind = NCC_TYPE_KIND_POINTER;
-        // Note: We can't easily know the 'pointee' here
-        // without a deep search or recursive fallback.
-        break;
-    case LLVMArrayTypeKind:
-        template.kind = NCC_TYPE_KIND_ARRAY;
-        template.array_size = LLVMGetArrayLength(llvm_type);
-        break;
-    case LLVMStructTypeKind:
-        template.kind = NCC_TYPE_KIND_STRUCT;
-        break;
-    case LLVMVoidTypeKind:
-        template.kind = NCC_TYPE_KIND_BUILTIN;
-        break;
-    case LLVMFunctionTypeKind:
-        template.kind = NCC_TYPE_KIND_FUNCTION;
-        break;
-    default:
-        break;
-    }
-
-#pragma GCC diagnostic pop
-
-    // Register it so we don't create duplicates for the same orphan type
-    return register_descriptor(registry, &template);
 }
 
 TypeDescriptor const *

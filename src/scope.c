@@ -787,7 +787,7 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
 bool
 add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition)
 {
-    if (ctx == NULL || name == NULL || func.type == NULL || func.pointee_type == NULL)
+    if (ctx == NULL || name == NULL || func.type_info == NULL)
     {
         debug_error("%s: Invalid arguments", __func__);
 
@@ -803,7 +803,9 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
     if (existing != NULL)
     {
         // Function already declared - check for signature mismatch
-        if (!function_signatures_match(existing->func.pointee_type, func.pointee_type))
+        if (!function_signatures_match(
+                existing->func.type_info->pointee->llvm_type, func.type_info->pointee->llvm_type
+            ))
         {
             return true; // Conflict detected
         }

@@ -48,6 +48,11 @@ typedef struct
     struct_or_union_members_st members;
 } StructMetaData;
 
+typedef struct
+{
+    size_t size;
+} ArrayMetaData;
+
 typedef struct TypeDescriptor
 {
     type_descriptor_type_kind_t kind;
@@ -59,7 +64,6 @@ typedef struct TypeDescriptor
 
     // Relationships
     TypeDescriptor const * pointee; // For pointers/arrays
-    size_t array_size;              // 0 for unsized (int[]), >0 for sized (int[10])
 
     /* Function-specific */
     FunctionMetadata function_metadata;
@@ -69,6 +73,7 @@ typedef struct TypeDescriptor
 
     IntegerMetadata integer_metadata;
     FloatMetadata float_metadata;
+    ArrayMetaData array_metadata;
 } TypeDescriptor;
 
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context);
@@ -107,11 +112,6 @@ get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier co
 TypeDescriptor const * type_descriptor_get_pointee(TypeDescriptor const * desc);
 
 TypeDescriptor const * find_descriptor_by_llvm_type(TypeDescriptors * registry, LLVMTypeRef type);
-
-TypeDescriptor const *
-create_fallback_descriptor_impl(TypeDescriptors * registry, LLVMTypeRef llvm_type, char const * func, int line);
-#define create_fallback_descriptor(registry, llvm_type)                                                                \
-    create_fallback_descriptor_impl(registry, llvm_type, __func__, __LINE__)
 
 TypeDescriptor const * type_descriptor_get_uint64_type(TypeDescriptors * registry, bool const_qualified);
 

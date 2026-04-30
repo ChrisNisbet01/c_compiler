@@ -293,243 +293,69 @@ cast_typed_value_to_desc(ir_generator_ctx_t * ctx, TypedValue src, TypeDescripto
 static TypedValue
 process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subscript_node, TypedValue base)
 {
-    LLVMValueRef base_ptr = base.value;
-    LLVMTypeRef base_type = base.type;
-
-    if (ctx == NULL || base_ptr == NULL || base_type == NULL || subscript_node == NULL)
+    if (ctx == NULL || base.value == NULL || base.type_info == NULL || subscript_node == NULL)
     {
         return NullTypedValue;
     }
 
-    // Extract index from first child of ArraySubscript node
+    // 1. Process the index expression
     TypedValue index_res = NullTypedValue;
     if (subscript_node->list.count >= 1)
     {
         c_grammar_node_t * index_node = subscript_node->list.children[0];
         index_res = process_expression(ctx, index_node);
+        index_res = ensure_rvalue(ctx, "subscript_index", index_res);
     }
 
     if (index_res.value == NULL)
     {
-        return index_res;
-    }
-
-    // Determine element type and build GEP based on whether base is pointer or array
-    LLVMTypeRef elem_type = NULL;
-    LLVMValueRef elem_ptr = NULL;
-
-    dump_typed_value("subscript base", base);
-
-    if (LLVMGetTypeKind(base_type) == LLVMPointerTypeKind)
-    {
-        debug_info("%s: base_type is pointer (kind=%d)", __func__, LLVMGetTypeKind(base_type));
-        LLVMValueRef ptr_val;
-
-        /* Look at the instruction type of base_ptr.
-         * If base_ptr is an Alloca, it's definitely a variable/memory location
-         * that holds our pointer. We must load it.
-         */
-        if (LLVMIsAAllocaInst(base_ptr))
-        {
-            ptr_val = aligned_load(ctx, ctx->builder, base_type, base_ptr, "ptr_load");
-            debug_info("%s: loaded pointer from alloca", __func__);
-        }
-        else
-        {
-            /* * If it's not an alloca (e.g., it's a LoadInst from o.inner),
-             * then base_ptr IS the address we want. Do NOT load again.
-             */
-            ptr_val = base_ptr;
-            debug_info("%s: using pointer value directly", __func__);
-        }
-
-        // Get the element type.
-        elem_type = base.pointee_type;
-        debug_info(
-            "%s: get_pointer_element_type returned %p (i8=%p)",
-            __func__,
-            (void *)elem_type,
-            (void *)ctx->ref_type.i8_type
-        );
-
-        if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
-        {
-            // Opaque pointer - try to find the struct type via scope
-            // Look up the pointer type in scope to find what it points to
-            type_info_t const * info = scope_find_type_by_llvm_type(ctx->current_scope, base_type);
-            debug_info("%s: scope lookup for pointer type returned %p", __func__, (void *)info);
-
-            // Try to find struct types that might be the pointee
-            // We'll iterate through known struct types and check if any matches
-            if (info == NULL)
-            {
-                // Try the opposite: look up struct types and check their pointer fields
-                // For now, scan the current scope's untagged_types for struct with pointer field matching our type
-                scope_t const * scope = ctx->current_scope;
-                for (size_t i = 0; i < scope->untagged_types.count; i++)
-                {
-                    type_info_t const * ti = &scope->untagged_types.entries[i];
-                    for (size_t j = 0; j < ti->field_count; ++j)
-                    {
-                        if (ti->fields[j].type == base_type && ti->fields[j].pointee_struct_type != NULL)
-                        {
-                            elem_type = ti->fields[j].pointee_struct_type;
-                            debug_info("%s: found pointee from field %zu of struct %zu", __func__, j, i);
-                            break;
-                        }
-                    }
-                    if (elem_type != NULL && elem_type != ctx->ref_type.i8_type)
-                    {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // If still i8 or NULL, search through all scopes for a struct with a pointer field of our type
-        if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
-        {
-            debug_info("%s: scanning scopes for pointer field", __func__);
-            // Search through current and parent scopes
-            scope_t const * scope = ctx->current_scope;
-            while (scope != NULL && (elem_type == NULL || elem_type == ctx->ref_type.i8_type))
-            {
-                // Check tagged types
-                for (size_t i = 0;
-                     i < scope->tagged_types.count && (elem_type == NULL || elem_type == ctx->ref_type.i8_type);
-                     ++i)
-                {
-                    type_info_t const * ti = &scope->tagged_types.entries[i];
-                    for (size_t j = 0; j < ti->field_count; ++j)
-                    {
-                        if (ti->fields[j].type == base_type && ti->fields[j].pointee_struct_type != NULL)
-                        {
-                            elem_type = ti->fields[j].pointee_struct_type;
-                            debug_info("%s: found pointee from tagged_types[%zu].field[%zu]", __func__, i, j);
-                            break;
-                        }
-                    }
-                }
-                // Check untagged types
-                for (size_t i = 0;
-                     i < scope->untagged_types.count && (elem_type == NULL || elem_type == ctx->ref_type.i8_type);
-                     ++i)
-                {
-                    type_info_t const * ti = &scope->untagged_types.entries[i];
-                    for (size_t j = 0; j < ti->field_count; ++j)
-                    {
-                        if (ti->fields[j].type == base_type && ti->fields[j].pointee_struct_type != NULL)
-                        {
-                            elem_type = ti->fields[j].pointee_struct_type;
-                            debug_info("%s: found pointee from untagged_types[%zu].field[%zu]", __func__, i, j);
-                            break;
-                        }
-                    }
-                }
-                scope = scope->parent;
-            }
-            if (elem_type != NULL && elem_type != ctx->ref_type.i8_type)
-            {
-                debug_info("%s: found pointee through scope scan", __func__);
-            }
-        }
-
-        // If elem_type is i8 (char*), check if the actual LLVM pointer's element is valid
-        // This handles char* and other primitive pointer types
-        if (elem_type == NULL || elem_type == ctx->ref_type.i8_type)
-        {
-            LLVMTypeRef direct_elem = LLVMGetElementType(base_type);
-            if (direct_elem != NULL && direct_elem != ctx->ref_type.i8_type)
-            {
-                elem_type = direct_elem;
-                debug_info("%s: using direct element type from LLVMGetElementType", __func__);
-            }
-            else if (direct_elem != NULL && LLVMGetTypeKind(direct_elem) == LLVMIntegerTypeKind)
-            {
-                // For char* and other integer pointers, use the element type directly
-                elem_type = direct_elem;
-                debug_info("%s: using integer element type", __func__);
-            }
-            else
-            {
-                // For char* specifically, i8 is correct - the issue was we were rejecting it
-                // when the pointer was from a non-struct context. But char* should work.
-                if (direct_elem == ctx->ref_type.i8_type)
-                {
-                    elem_type = direct_elem;
-                    debug_info("%s: using i8 for char*", __func__);
-                }
-            }
-        }
-
-        // Final fallback - if we still can't find the element type, we can't proceed
-        // But if the element type is i8 (char*), that's valid - allow it
-        // The error case is when we have an opaque struct pointer
-        if (elem_type == NULL)
-        {
-            debug_error(
-                "Cannot determine element type for pointer subscript - pointer type %p is opaque.", (void *)base_type
-            );
-            return NullTypedValue;
-        }
-
-        // If element type is i8 (char*), that's valid for string handling
-        // Only fail for i8 when it's truly an opaque struct pointer context
-        if (elem_type == ctx->ref_type.i8_type)
-        {
-            // Check if this could be a struct pointer by looking at what we have
-            // If we found this pointer in scope as a struct field, we'd have found it above
-            // So if we get here with i8, it's likely a primitive pointer like char*
-            // Allow it to proceed - this handles string subscripting
-            debug_info("%s: allowing i8 element type for string/primitive pointer", __func__);
-        }
-
-        // Validate element type
-        LLVMTypeKind elem_kind = LLVMGetTypeKind(elem_type);
-        debug_info("%s: elem_type kind=%d", __func__, elem_kind);
-
-        if (elem_kind != LLVMIntegerTypeKind && elem_kind != LLVMPointerTypeKind && elem_kind != LLVMStructTypeKind
-            && elem_kind != LLVMArrayTypeKind && elem_kind != LLVMFloatTypeKind && elem_kind != LLVMDoubleTypeKind)
-        {
-            debug_error("Invalid element type kind %d for pointer subscript.", elem_kind);
-            return NullTypedValue;
-        }
-
-        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, elem_type, ptr_val, &index_res.value, 1, "arrayidx");
-    }
-    else if (LLVMGetTypeKind(base_type) == LLVMArrayTypeKind)
-    {
-        debug_info("%s: base_type is array, using array path", __func__);
-
-        // For array: use [0, index] GEP
-        elem_type = LLVMGetElementType(base_type);
-        if (elem_type == NULL)
-        {
-            return NullTypedValue;
-        }
-        index_res = ensure_rvalue(ctx, "array_index", index_res);
-
-        LLVMValueRef indices[2];
-        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-        indices[1] = index_res.value;
-        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, base_type, base_ptr, indices, 2, "arrayidx");
-
-        TypedValue res = {
-            .value = elem_ptr,
-            .type = elem_type,
-            .pointee_type = base.pointee_type,
-            .is_lvalue = true,
-        };
-
-        return res;
-    }
-    else
-    {
-        debug_error("Invalid type for array subscript.");
         return NullTypedValue;
     }
 
-    return (TypedValue){.value = elem_ptr, .type = elem_type, .is_lvalue = true};
+    TypeDescriptor const * base_desc = base.type_info;
+    TypeDescriptor const * elem_desc = base_desc->pointee;
+    /* TODO: should support 5[a] as well as a[5]. Just a matter of swapping bases and desc. */
+
+    // Safety check: pointer or array must have a pointee
+    if (elem_desc == NULL)
+    {
+        ir_gen_error(&ctx->errors, "Subscripted value is not an array or pointer");
+        return NullTypedValue;
+    }
+
+    LLVMValueRef elem_ptr = NULL;
+
+    // 2. Build GEP based on base type kind
+    if (base_desc->kind == NCC_TYPE_KIND_POINTER)
+    {
+        // POINTER PATH: e.g., char *p; p[i]
+        // Pointer is already an RVALUE (the address).
+        // We use a 1-index GEP: ptr_val + index
+        TypedValue ptr_rval = ensure_rvalue(ctx, "subscript_ptr_base", base);
+
+        elem_ptr = LLVMBuildInBoundsGEP2(
+            ctx->builder, elem_desc->llvm_type, ptr_rval.value, &index_res.value, 1, "arrayidx"
+        );
+    }
+    else if (base_desc->kind == NCC_TYPE_KIND_ARRAY)
+    {
+        // ARRAY PATH: e.g., char a[10]; a[i]
+        // Array base is usually an LVALUE (the address of the block).
+        // We use a 2-index GEP: base_ptr + 0 offset + index
+        LLVMValueRef indices[2];
+        indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
+        indices[1] = index_res.value;
+
+        elem_ptr = LLVMBuildInBoundsGEP2(ctx->builder, base_desc->llvm_type, base.value, indices, 2, "arrayidx");
+    }
+    else
+    {
+        ir_gen_error(&ctx->errors, "Type cannot be subscripted");
+        return NullTypedValue;
+    }
+
+    // 3. Return the element as an LVALUE (so we can assign to it: a[i] = x)
+    return create_typed_value(elem_ptr, elem_desc, true);
 }
 
 static TypedValue
@@ -2378,18 +2204,16 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
 static LLVMValueRef
 create_global_variable(
     ir_generator_ctx_t * ctx,
-    LLVMTypeRef var_type,
-    LLVMTypeRef function_signature,
+    TypeDescriptor const * type_desc,
     char const * var_name,
     bool is_const,
-    c_grammar_node_t const * initializer_expr_node,
-    c_grammar_node_t const * decl_specifiers
+    c_grammar_node_t const * initializer_expr_node
 )
 {
     debug_info("Creating global for variable '%s'", var_name);
 
     /* Handle unsized array with string literal initializer */
-    bool is_unsized_array = (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && LLVMGetArrayLength(var_type) == 0);
+    bool is_unsized_array = type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->array_metadata.size == 0;
 
     if (is_unsized_array && initializer_expr_node && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
     {
@@ -2398,28 +2222,25 @@ create_global_variable(
         char const * str = decoded ? decoded : raw_text;
 
         size_t str_len = strlen(str);
-        LLVMTypeRef elem_type = LLVMGetElementType(var_type);
-        var_type = LLVMArrayType(elem_type, (unsigned)(str_len + 1));
+        TypeDescriptor const * array_desc = get_or_create_array_type(ctx->type_descriptors, type_desc, str_len + 1);
 
-        LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+        LLVMValueRef global_var = LLVMAddGlobal(ctx->module, array_desc->llvm_type, var_name);
         LLVMSetLinkage(global_var, LLVMInternalLinkage);
         LLVMSetGlobalConstant(global_var, true);
         LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
-        symbol_data_t data = {
-            .function_signature = function_signature,
-        };
 
         TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, is_const);
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, str_len + 1);
         TypedValue val = create_typed_value(global_var, arr_desc, true);
-        add_symbol(ctx, var_name, val, &data);
+        add_symbol(ctx, var_name, val, NULL);
 
         free((char *)decoded);
+
         return global_var;
     }
 
     /* Create the global variable */
-    LLVMValueRef global_var = LLVMAddGlobal(ctx->module, var_type, var_name);
+    LLVMValueRef global_var = LLVMAddGlobal(ctx->module, type_desc->llvm_type, var_name);
     LLVMSetLinkage(global_var, LLVMInternalLinkage);
     if (is_const)
     {
@@ -2427,92 +2248,57 @@ create_global_variable(
     }
 
     /* Zero-initialize by default for globals without an explicit initializer */
-    if (var_type != NULL && LLVMGetTypeKind(var_type) != LLVMVoidTypeKind)
+    if (LLVMGetTypeKind(type_desc->llvm_type) != LLVMVoidTypeKind)
     {
-        LLVMSetInitializer(global_var, LLVMConstNull(var_type));
+        LLVMSetInitializer(global_var, LLVMConstNull(type_desc->llvm_type));
     }
 
-    /* Register symbol with pointee type for pointer types */
-    LLVMTypeRef pointee_type = NULL;
-    if (var_type != NULL)
-    {
-        LLVMTypeKind kind = LLVMGetTypeKind(var_type);
-        debug_info(
-            "create_global: var_type kind=%d (ArrayKind=%d, PointerKind=%d) for '%s', type ptr=%p",
-            kind,
-            LLVMArrayTypeKind,
-            LLVMPointerTypeKind,
-            var_name,
-            (void *)var_type
-        );
-        if (kind == LLVMPointerTypeKind)
-        {
-            pointee_type = map_type_to_llvm_t(ctx, decl_specifiers, NULL);
-            debug_info("create_global: pointer type, pointee_type set");
-        }
-        else if (kind == LLVMArrayTypeKind)
-        {
-            /* For arrays of pointers (e.g., char * arr[64]), get element type directly */
-            LLVMTypeRef elem_type = LLVMGetElementType(var_type);
-            debug_info("create_global: array type, elem_type kind=%d", LLVMGetTypeKind(elem_type));
-            if (elem_type != NULL && LLVMGetTypeKind(elem_type) == LLVMPointerTypeKind)
-            {
-                pointee_type = elem_type; /* Use element type directly, don't re-parse declarator */
-                debug_info("create_global: array of pointers, pointee_type set");
-            }
-        }
-    }
-    TypedValue val = (TypedValue){
-        .value = global_var,
-        .type = var_type,
-        .pointee_type = pointee_type,
-        .is_lvalue = true,
-    };
+    TypedValue val = create_typed_value(global_var, type_desc, true);
     add_symbol(ctx, var_name, val, NULL);
 
     /* Handle explicit initializer if present */
     if (initializer_expr_node)
     {
         debug_info(
-            "Initializer expr type: %d (%s), var_type kind: %d",
+            "Initializer expr type: %d (%s)",
             initializer_expr_node->type,
-            get_node_type_name_from_node(initializer_expr_node),
-            LLVMGetTypeKind(var_type)
+            get_node_type_name_from_node(initializer_expr_node)
         );
 
-        if (LLVMGetTypeKind(var_type) == LLVMArrayTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+        if (initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
         {
-            LLVMSetInitializer(global_var, LLVMGetUndef(var_type));
-        }
-        else if (
-            LLVMGetTypeKind(var_type) == LLVMStructTypeKind && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST
-        )
-        {
-            /* Build constant aggregate for struct initializer */
-            LLVMValueRef const_aggregate = LLVMGetUndef(var_type);
-            int current_index = 0;
-
-            for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
+            if (type_desc->kind == NCC_TYPE_KIND_ARRAY)
             {
-                c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
-                c_grammar_node_t const * element_init = list_entry->initializer_list_entry.initializer;
-
-                /* Unwrap from Initializer wrapper if needed */
-                if (element_init->list.count > 0)
-                {
-                    element_init = element_init->list.children[0];
-                }
-
-                TypedValue elem_value = process_expression(ctx, element_init);
-                if (elem_value.value != NULL)
-                {
-                    const_aggregate = LLVMBuildInsertValue(
-                        ctx->builder, const_aggregate, elem_value.value, current_index, "init_elem"
-                    );
-                }
-                current_index++;
+                LLVMSetInitializer(global_var, LLVMGetUndef(type_desc->llvm_type));
             }
-            LLVMSetInitializer(global_var, const_aggregate);
+            else if (LLVMGetTypeKind(type_desc->llvm_type))
+            {
+                /* Build constant aggregate for struct initializer */
+                LLVMValueRef const_aggregate = LLVMGetUndef(type_desc->llvm_type);
+                int current_index = 0;
+
+                for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
+                {
+                    c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
+                    c_grammar_node_t const * element_init = list_entry->initializer_list_entry.initializer;
+
+                    /* Unwrap from Initializer wrapper if needed */
+                    if (element_init->list.count > 0)
+                    {
+                        element_init = element_init->list.children[0];
+                    }
+
+                    TypedValue elem_value = process_expression(ctx, element_init);
+                    if (elem_value.value != NULL)
+                    {
+                        const_aggregate = LLVMBuildInsertValue(
+                            ctx->builder, const_aggregate, elem_value.value, current_index, "init_elem"
+                        );
+                    }
+                    current_index++;
+                }
+                LLVMSetInitializer(global_var, const_aggregate);
+            }
         }
         else
         {
@@ -2551,7 +2337,6 @@ process_declarator(
     if (var_name == NULL)
         return;
 
-    LLVMTypeRef var_type = type_desc->llvm_type;
     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
     bool is_global = (current_block == NULL);
     bool is_static = false;
@@ -2574,13 +2359,14 @@ process_declarator(
                                                  ? init_decl_initializer->list.children[0]
                                                  : NULL;
 
-        create_global_variable(ctx, var_type, NULL, var_name, false, init_expr, decl_specifiers);
+        create_global_variable(ctx, type_desc, var_name, false, init_expr);
+
         return;
     }
 
     // 4. Local Storage (Stack)
     debug_info("Allocating local variable '%s'", var_name);
-    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, var_type, var_name);
+    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, type_desc->llvm_type, var_name);
 
     // 5. Add to Symbol Table
     // We no longer need struct_name or pointee_type hacks; the descriptor has it all.
@@ -2602,7 +2388,7 @@ process_declarator(
             // Scalar initialization
             TypedValue init_res = process_expression(ctx, init_node);
             TypedValue cast_val = cast_typed_value_to_desc(ctx, init_res, type_desc);
-            aligned_store(ctx, ctx->builder, cast_val.value, var_type, alloca_inst);
+            aligned_store(ctx, ctx->builder, cast_val.value, type_desc->llvm_type, alloca_inst);
         }
     }
 }
@@ -4655,17 +4441,17 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         if (strcmp(node->text, "true") == 0)
         {
-            return (TypedValue){
-                .value = LLVMConstInt(ctx->ref_type.i1_type, 1, false),
-                .type = ctx->ref_type.i1_type,
-            };
+            TypeDescriptor const * bool_desc = get_or_create_builtin_type(
+                ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0}
+            );
+            return create_typed_value(LLVMConstInt(ctx->ref_type.i1_type, 1, false), bool_desc, false);
         }
         if (strcmp(node->text, "false") == 0)
         {
-            return (TypedValue){
-                .value = LLVMConstInt(ctx->ref_type.i1_type, 0, false),
-                .type = ctx->ref_type.i1_type,
-            };
+            TypeDescriptor const * bool_desc = get_or_create_builtin_type(
+                ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0}
+            );
+            return create_typed_value(LLVMConstInt(ctx->ref_type.i1_type, 0, false), bool_desc, false);
         }
     }
 
@@ -4685,24 +4471,24 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             // For non-const globals like "static int x;", we need to load from the global
             if (initializer != NULL && LLVMIsGlobalConstant(var_res.value))
             {
-                // Return the constant initializer directly
-                return (TypedValue){
-                    .value = initializer,
-                    .type = var_res.type,
-                };
+                var_res.value = initializer;
+
+                return var_res;
             }
         }
 
         // Check if the type is an array (for file-scope or local arrays)
-        if (LLVMGetTypeKind(var_res.type) == LLVMArrayTypeKind)
+        if (var_res.type_info->kind == NCC_TYPE_KIND_ARRAY)
         {
             LLVMValueRef indices[2];
             indices[0] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
             indices[1] = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-            return (TypedValue){
+            TypedValue arr_res = {
                 .value = LLVMBuildInBoundsGEP2(ctx->builder, var_res.type, var_res.value, indices, 2, "array_ptr"),
-                .type = var_res.type,
+                .type_info = var_res.type_info,
             };
+
+            return arr_res;
         }
 
         return var_res;
@@ -4711,32 +4497,14 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         debug_info("%s: no symbol found - check functions for %s", __func__, node->text);
         // Check if it's a function name - return the function pointer
-        TypedValue func;
+
         struct function_decl_entry * decl_entry = find_function_declaration(ctx, node->text);
         if (decl_entry != NULL)
         {
             dump_typed_value("existing_func", decl_entry->func);
-            func = decl_entry->func;
+            return decl_entry->func;
         }
-        if (1 || func.type == NULL)
-        {
-            /* FIXME - For now, drop back to the old way if not found in the table. */
-            debug_info("not found in table");
-            LLVMValueRef func_val = LLVMGetNamedFunction(ctx->module, node->text);
-            if (func_val == NULL)
-            {
-                debug_info("did not find symbol '%' in LLVMGetNamedFunction", node->text);
-                return NullTypedValue;
-            }
-            func = (TypedValue){
-                .value = func_val,
-                .type = ctx->ref_type.ptr_type,
-                .pointee_type = LLVMGlobalGetValueType(func_val),
-            };
-            dump_typed_value("func from LLVM", func);
-        }
-
-        return func;
+        /* TOOD: Else what? */
     }
 
     debug_error("NULL element type for variable '%s'.", node->text);
@@ -5326,7 +5094,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             return operand_res;
         }
 
-        if (operand_res.pointee_type == NULL)
+        if (operand_res.type_info->kind != NCC_TYPE_KIND_POINTER)
         {
             ir_gen_error(
                 &ctx->errors, "Error: Dereference operand is not a pointer (value: %p)\n", (void *)operand_res.value
