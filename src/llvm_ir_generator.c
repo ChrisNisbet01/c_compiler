@@ -1200,6 +1200,9 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         add_symbol(ctx, "__FILE__", val);
     }
 
+    // Initialize error collection (any error will be fatal since max_errors=1)
+    ir_gen_error_collection_init(&ctx->errors, 1);
+
     if (ctx->generation_flags.generate_default_variables)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
@@ -1212,15 +1215,19 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
             = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
         TypedValue null_val = create_typed_value(null_const, ptr_desc, false);
         add_symbol(ctx, "NULL", null_val);
+
+        /* */
+        // hack in a function definition for printf(), auto-declare as variadic returning i32
+        // with no required arguments to support different call patterns
+        TypeDescriptor const * ret_type = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+        LLVMTypeRef ret_type_llvm = ret_type->llvm_type;
+        LLVMTypeRef func_type = LLVMFunctionType(ret_type_llvm, NULL, 0, true);
+        LLVMValueRef func = LLVMAddFunction(ctx->module, "printf", func_type);
+        TypeDescriptor const * func_desc
+            = get_or_create_function_type(ctx->type_descriptors, ret_type, NULL, NULL, 0, true);
+        TypedValue print_val = create_typed_value(func, func_desc, false);
+        add_function_declaration(ctx, "printf", print_val, false);
     }
-
-    // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1);
-
-    // Initialize function declarations tracking
-    ctx->function_declarations.entries = NULL;
-    ctx->function_declarations.count = 0;
-    ctx->function_declarations.capacity = 0;
 
     return ctx;
 }
@@ -1684,8 +1691,8 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     else
     {
         /* No existing declaration — add it now */
-        TypedValue decl = create_typed_value(NULL, type_desc, false);
-        add_function_declaration(ctx, func_name, decl, true);
+        TypedValue decl = create_typed_value(existing, type_desc, false);
+        add_function_declaration(ctx, func_name, decl, false);
     }
 
     /* Reuse existing declaration if already added (e.g. from a forward declaration),
@@ -3243,7 +3250,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // FUNCTION CALL: (args...)
             // Resolve what we are calling. If it's a function directly,
             // we call it. If it's a pointer to a function, we load it first.
+            debug_info("%s handling args list", __func__);
+            dump_typed_value("current_val before rvalue", current_val);
             TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
+            debug_info("%s rvalue", __func__);
+            dump_typed_value("callable", callable);
 
             TypeDescriptor const * func_desc = NULL;
             if (callable.type_info->kind == NCC_TYPE_KIND_FUNCTION)
@@ -3646,6 +3657,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static TypedValue
 process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
+    debug_info("%s node type: %s", __func__, get_node_type_name_from_type(node->type));
+
     // Handle built-in boolean constants
     if (node != NULL && node->text != NULL)
     {
@@ -3706,7 +3719,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         return var_res;
     }
-    else if (var_res.value == NULL)
+    else
     {
         debug_info("%s: no symbol found - check functions for %s", __func__, node->text);
         // Check if it's a function name - return the function pointer
@@ -4459,7 +4472,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             target_type = operand_res.type_info;
         }
         debug_info("unary operator getting size of type: %p", target_type);
-        uint64_t sizeof_type_bytes = get_type_size(ctx, target_type->llvm_type);
+        uint64_t sizeof_type_bytes = get_type_size(ctx, target_type);
         TypeDescriptor const * sizeof_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(sizeof_desc->llvm_type, sizeof_type_bytes, false);
 

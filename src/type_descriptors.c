@@ -238,8 +238,9 @@ register_struct_type(
         curr = curr->next;
     }
 
+    /* When registering an opaque struct there may be no members passed in. */
     struct_or_union_members_st members_template = {0};
-    if (members->num_members > 0)
+    if (members != NULL && members->num_members > 0)
     {
         members_template.num_members = members->num_members;
         members_template.members = malloc(sizeof(*members->members) * members->num_members);
@@ -402,26 +403,33 @@ get_or_create_function_type(
         .pointee = ret_type,
         .function_metadata.return_type = ret_type,
         .function_metadata.param_count = param_count,
-        .function_metadata.params = malloc(sizeof(*params) * param_count),
-        .function_metadata.names = calloc(param_count, sizeof(*param_names)),
         .function_metadata.is_variadic = is_variadic,
         .function_metadata.is_void_return = LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,
     };
 
-    memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
-    for (size_t i = 0; i < param_count; i++)
+    if (param_count > 0)
     {
-        if (param_names[i] != NULL)
+        template.function_metadata.names = calloc(param_count, sizeof(*param_names));
+        template.function_metadata.params = calloc(param_count, sizeof(*params));
+        memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
+        for (size_t i = 0; i < param_count; i++)
         {
-            template.function_metadata.names[i] = strdup(param_names[i]);
+            if (param_names[i] != NULL)
+            {
+                template.function_metadata.names[i] = strdup(param_names[i]);
+            }
         }
     }
 
     // Construct the LLVM function type
-    LLVMTypeRef * llvm_params = malloc(sizeof(*llvm_params) * param_count);
-    for (unsigned i = 0; i < param_count; i++)
+    LLVMTypeRef * llvm_params = NULL;
+    if (param_count > 0)
     {
-        llvm_params[i] = params[i]->llvm_type;
+        llvm_params = malloc(sizeof(*llvm_params) * param_count);
+        for (unsigned i = 0; i < param_count; i++)
+        {
+            llvm_params[i] = params[i]->llvm_type;
+        }
     }
     debug_info(
         "%s: creating function type for return type %d with %zu params",
@@ -604,6 +612,74 @@ bool
 is_void_return(TypeDescriptor const * desc)
 {
     return desc->kind == NCC_TYPE_KIND_FUNCTION && desc->function_metadata.is_void_return;
+}
+
+uint64_t
+get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
+{
+    if (desc == NULL)
+    {
+        return 0;
+    }
+
+    LLVMTypeKind llvm_kind = LLVMGetTypeKind(desc->llvm_type);
+
+    if (llvm_kind == LLVMVoidTypeKind || desc->specifiers.is_void)
+    {
+        return 0;
+    }
+
+    if (is_integer_kind(desc))
+    {
+        unsigned width = LLVMGetIntTypeWidth(desc->llvm_type);
+        if (width > 32)
+        {
+            return 8;
+        }
+        if (width > 16)
+        {
+            return 4;
+        }
+        if (width > 8)
+        {
+            return 2;
+        }
+        return 1;
+    }
+
+    if (is_floating_kind(desc))
+    {
+        if (llvm_kind == LLVMFloatTypeKind)
+            return 4;
+        return 8;
+    }
+
+    switch (desc->kind)
+    {
+    case NCC_TYPE_KIND_FUNCTION:
+    case NCC_TYPE_KIND_POINTER:
+        return 8; // Assuming 64-bit target
+
+    case NCC_TYPE_KIND_ARRAY:
+        return desc->array_metadata.size * get_type_size_desc(data_layout, desc->pointee);
+
+    case NCC_TYPE_KIND_BUILTIN: /* Should have been caught by integer and float handling above. */
+        debug_warning("Unknown type kind for size, defaulting to ABI");
+        return LLVMABISizeOfType(data_layout, desc->llvm_type);
+
+    case NCC_TYPE_KIND_UNION:
+    case NCC_TYPE_KIND_STRUCT:
+        // This needs to account for padding!
+        // Better to use LLVM's offset calculation if the struct is already lowered,
+        // or your own offset tracking in the descriptor.
+        // return desc->struct_metadata.total_size;
+        /* FIXME: Use ABI size until struct_metadata supports total_size calculations. */
+        return LLVMABISizeOfType(data_layout, desc->llvm_type);
+
+    default:
+        // Fallback to LLVM's target data if available
+        return LLVMABISizeOfType(data_layout, desc->llvm_type);
+    }
 }
 
 uint32_t

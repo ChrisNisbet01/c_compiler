@@ -770,6 +770,12 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
         if (entry->name != NULL && strcmp(entry->name, name) == 0)
         {
             debug_info("found");
+            LLVMValueRef func = LLVMGetNamedFunction(ctx->module, name);
+            if (entry->func.value == NULL)
+            {
+                entry->func = create_typed_value(func, entry->func.type_info, false);
+            }
+
             return entry;
         }
     }
@@ -779,7 +785,9 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
 }
 
 bool
-add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition)
+add_function_declaration_impl(
+    ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition, int line
+)
 {
     if (ctx == NULL || name == NULL || func.type_info == NULL)
     {
@@ -788,7 +796,7 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
         return false;
     }
 
-    debug_info("Adding function declaration: name='%s' has_definition=%d", name, has_definition);
+    debug_info("%s: name='%s' has_definition=%d line: %u", __func__, name, has_definition, line);
     dump_typed_value("func", func);
 
     // Check if function already exists

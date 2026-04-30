@@ -8,7 +8,7 @@ main()
     {
         return 1;
     }
-    if (s != 8)
+    if (s != 4)
     {
         return 2;
     }

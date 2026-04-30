@@ -376,8 +376,10 @@ type_kind_t scope_lookup_kind_by_type_descriptor(scope_t const * scope, TypeDesc
  * @param has_definition True if this includes a function body.
  * @return true if a conflict was detected, false otherwise.
  */
-bool add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition);
-
+bool add_function_declaration_impl(
+    ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition, int line
+);
+#define add_function_declaration(c, n, f, hd) add_function_declaration_impl((c), (n), (f), (hd), __LINE__)
 /**
  * @brief Finds a function declaration by name.
  * @param ctx The IR generator context.

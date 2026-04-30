@@ -43,4 +43,4 @@ unsigned get_fp_width(LLVMTypeRef type);
 
 uint64_t get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type);
 
-uint64_t get_type_size(ir_generator_ctx_t * ctx, LLVMTypeRef type);
+uint64_t get_type_size(ir_generator_ctx_t * ctx, TypeDescriptor const * type);
