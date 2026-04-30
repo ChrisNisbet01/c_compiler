@@ -559,6 +559,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
         debug_info("%s: spec_qual_list_type is %s", __func__, get_node_type_name_from_node(specifier_qualifier_list));
 
         c_grammar_node_t const * type_spec = NULL;
+#if 0        
         if (specifier_qualifier_list->list.count == 1
             && specifier_qualifier_list->list.children[0]->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
         {
@@ -580,7 +581,8 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
             }
         }
         /* FIXME: This unconditional assignment seems odd, considering we possibly just assigned it above. */
-        // type_spec = specifier_qualifier_list;
+#endif
+        type_spec = specifier_qualifier_list;
         if (type_spec == NULL)
         {
             continue;
