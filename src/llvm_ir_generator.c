@@ -1140,7 +1140,6 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         return NULL;
     }
 
-    /* TODO: Remove once the type registry is up and running. */
     ctx->ref_type.i1_type = LLVMInt1TypeInContext(ctx->context);
     ctx->ref_type.i8_type = LLVMInt8TypeInContext(ctx->context);
     ctx->ref_type.i16_type = LLVMInt16TypeInContext(ctx->context);
@@ -1357,26 +1356,25 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     // __FUNC__ and __func__ as string constants of the function name
     char const * func_name_macro = func_name;
     size_t flen = strlen(func_name_macro);
-    LLVMTypeRef farr_type = LLVMArrayType(ctx->ref_type.i8_type, (unsigned)(flen + 1));
-    LLVMValueRef fglobal = LLVMAddGlobal(ctx->module, farr_type, "__FUNC__");
+    TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
+    TypeDescriptor const * farr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, flen + 1);
+    LLVMValueRef fglobal = LLVMAddGlobal(ctx->module, farr_desc->llvm_type, "__FUNC__");
     LLVMSetLinkage(fglobal, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(fglobal, true);
     LLVMSetInitializer(fglobal, LLVMConstStringInContext(ctx->context, func_name_macro, (unsigned)flen, false));
 
+    TypeDescriptor const * i32_desc = type_descriptor_get_uint32_type(ctx->type_descriptors, true);
     LLVMValueRef findices[2]
-        = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
-    LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_type, fglobal, findices, 2);
+        = {LLVMConstInt(i32_desc->llvm_type, 0, false), LLVMConstInt(i32_desc->llvm_type, 0, false)};
+    LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_desc->llvm_type, fglobal, findices, 2);
 
-    TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
-    TypeDescriptor const * farr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, flen + 1);
     TypedValue fval = create_typed_value(fptr, farr_desc, false);
     add_symbol(ctx, "__FUNC__", fval, NULL);
     // __func__ alias to same value
     add_symbol(ctx, "__func__", fval, NULL);
 
     // __LINE__ as integer constant 0 (i32)
-    LLVMValueRef line_const = LLVMConstInt(ctx->ref_type.i32_type, 0, false);
-    TypeDescriptor const * i32_desc = type_descriptor_get_uint32_type(ctx->type_descriptors, true);
+    LLVMValueRef line_const = LLVMConstInt(i32_desc->llvm_type, 0, false);
     TypedValue lval = create_typed_value(line_const, i32_desc, false);
     add_symbol(ctx, "__LINE__", lval, NULL);
 }
@@ -1776,7 +1774,8 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         }
         else
         {
-            LLVMBuildRet(ctx->builder, LLVMConstInt(ctx->ref_type.i32_type, 0, false));
+            TypeDescriptor const * i32_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
+            LLVMBuildRet(ctx->builder, LLVMConstInt(i32_desc->llvm_type, 0, false));
         }
     }
 
@@ -3140,8 +3139,9 @@ process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         LLVMSetLinkage(global, LLVMPrivateLinkage);
         LLVMSetGlobalConstant(global, true);
         LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, decoded, (unsigned)len, false));
+        TypeDescriptor const * i32_desc = type_descriptor_get_uint32_type(ctx->type_descriptors, true);
         LLVMValueRef indices[2]
-            = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
+            = {LLVMConstInt(i32_desc->llvm_type, 0, false), LLVMConstInt(i32_desc->llvm_type, 0, false)};
         global_str = LLVMConstInBoundsGEP2(type_desc->llvm_type, global, indices, 2);
     }
 
@@ -3636,16 +3636,16 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         if (strcmp(node->text, "true") == 0)
         {
             TypeDescriptor const * bool_desc = get_or_create_builtin_type(
-                ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0}
+                ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){.is_const = true}
             );
-            return create_typed_value(LLVMConstInt(ctx->ref_type.i1_type, 1, false), bool_desc, false);
+            return create_typed_value(LLVMConstInt(bool_desc->llvm_type, 1, false), bool_desc, false);
         }
         if (strcmp(node->text, "false") == 0)
         {
             TypeDescriptor const * bool_desc = get_or_create_builtin_type(
                 ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0}
             );
-            return create_typed_value(LLVMConstInt(ctx->ref_type.i1_type, 0, false), bool_desc, false);
+            return create_typed_value(LLVMConstInt(bool_desc->llvm_type, 0, false), bool_desc, false);
         }
     }
 
@@ -4031,9 +4031,9 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         lhs_res.type_info = bool_type;
     }
 
-    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, ctx->ref_type.i1_type, "logical_res");
+    LLVMValueRef res_alloca = LLVMBuildAlloca(ctx->builder, bool_type->llvm_type, "logical_res");
 
-    aligned_store(ctx, ctx->builder, lhs_res.value, ctx->ref_type.i1_type, res_alloca);
+    aligned_store(ctx, ctx->builder, lhs_res.value, bool_type->llvm_type, res_alloca);
     if (is_or)
     {
         LLVMBuildCondBr(ctx->builder, lhs_res.value, merge_block, rhs_block);
