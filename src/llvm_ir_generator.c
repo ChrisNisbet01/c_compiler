@@ -3135,41 +3135,47 @@ process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * _node)
 static TypedValue
 process_string_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Handle string literals like "Hello".
     if (node->text == NULL)
-    {
         return NullTypedValue;
-    }
 
-    char const * raw_text = node->text;
-    char const * decoded = decode_string(raw_text);
+    char const * decoded = decode_string(node->text);
     size_t len = strlen(decoded);
 
-    TypeDescriptor const * base_type
+    // 1. Get the base element type (char)
+    TypeDescriptor const * char_type
         = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_char = true}, (TypeQualifier){0});
-    TypeDescriptor const * type_desc = get_or_create_array_type(ctx->type_descriptors, base_type, len + 1);
+
+    // 2. We need a Pointer-to-Char descriptor for the returned TypedValue
+    TypeDescriptor const * ptr_to_char
+        = get_or_create_pointer_type(ctx->type_descriptors, char_type, (TypeQualifier){0});
+
     LLVMValueRef global_str;
 
     if (LLVMGetInsertBlock(ctx->builder) != NULL)
     {
+        // LLVMBuildGlobalStringPtr returns a ptr to the i8 array (i8*)
         global_str = LLVMBuildGlobalStringPtr(ctx->builder, decoded, "str_tmp");
     }
     else
     {
-        /* No insert point (global scope) — create a global string constant directly */
-        LLVMValueRef global = LLVMAddGlobal(ctx->module, type_desc->llvm_type, "str_tmp");
+        // For global scope, we need the array descriptor for the initializer size
+        TypeDescriptor const * array_type = get_or_create_array_type(ctx->type_descriptors, char_type, len + 1);
+
+        LLVMValueRef global = LLVMAddGlobal(ctx->module, array_type->llvm_type, "str_tmp");
         LLVMSetLinkage(global, LLVMPrivateLinkage);
         LLVMSetGlobalConstant(global, true);
         LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, decoded, (unsigned)len, false));
-        TypeDescriptor const * i32_desc = type_descriptor_get_uint32_type(ctx->type_descriptors, true);
+
+        // Create a constant GEP to get the pointer to the first element
         LLVMValueRef indices[2]
-            = {LLVMConstInt(i32_desc->llvm_type, 0, false), LLVMConstInt(i32_desc->llvm_type, 0, false)};
-        global_str = LLVMConstInBoundsGEP2(type_desc->llvm_type, global, indices, 2);
+            = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
+        global_str = LLVMConstInBoundsGEP2(array_type->llvm_type, global, indices, 2);
     }
 
     free((char *)decoded);
 
-    return create_typed_value(global_str, base_type, false);
+    // 3. Return the pointer value with the pointer descriptor
+    return create_typed_value(global_str, ptr_to_char, false);
 }
 
 static TypedValue
