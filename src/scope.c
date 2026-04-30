@@ -583,9 +583,7 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 // --- Symbol management ---
 
 void
-add_symbol_with_struct(
-    ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag, symbol_data_t const * data
-)
+add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag)
 {
     if (ctx == NULL || name == NULL || value.value == NULL || ctx->current_scope == NULL)
     {
@@ -608,19 +606,15 @@ add_symbol_with_struct(
     new_symbol->name = strdup(name);
     new_symbol->value = value;
     new_symbol->tag_name = tag ? strdup(tag) : NULL;
-    if (data != NULL)
-    {
-        new_symbol->data = *data;
-    }
     scope->symbol_count++;
     debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
     dump_typed_value("added symbol value", value);
 }
 
 void
-add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, symbol_data_t const * data)
+add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value)
 {
-    add_symbol_with_struct(ctx, name, value, NULL, data);
+    add_symbol_with_struct(ctx, name, value, NULL);
 }
 
 static char const *

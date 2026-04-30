@@ -750,14 +750,11 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
     }
     // Then check for basic types
     else if (strncmp(type_name, "int", 3) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+        type_ref = type_descriptor_get_int32_type(ctx->type_descriptors, false);
     else if (strncmp(type_name, "char", 4) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_char = true}, (TypeQualifier){0});
+        type_ref = type_descriptor_get_int8_type(ctx->type_descriptors, false);
     else if (strncmp(type_name, "void", 4) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_void = true}, (TypeQualifier){0});
+        type_ref = type_descriptor_get_void_type(ctx->type_descriptors);
     else if (strncmp(type_name, "float", 5) == 0)
         type_ref
             = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_float = true}, (TypeQualifier){0});
@@ -775,8 +772,7 @@ get_type_from_name(ir_generator_ctx_t * ctx, char const * type_name)
         type_ref
             = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_short = true}, (TypeQualifier){0});
     else if (strncmp(type_name, "_Bool", 5) == 0 || strncmp(type_name, "bool", 4) == 0)
-        type_ref
-            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
+        type_ref = type_descriptor_get_bool_type(ctx->type_descriptors, false);
 
     if (type_ref != NULL)
     {
@@ -1201,7 +1197,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
         TypedValue val = create_typed_value(ptr, arr_desc, false);
-        add_symbol(ctx, "__FILE__", val, NULL);
+        add_symbol(ctx, "__FILE__", val);
     }
 
     if (ctx->generation_flags.generate_default_variables)
@@ -1215,7 +1211,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
         TypeDescriptor const * ptr_desc
             = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
         TypedValue null_val = create_typed_value(null_const, ptr_desc, false);
-        add_symbol(ctx, "NULL", null_val, NULL);
+        add_symbol(ctx, "NULL", null_val);
     }
 
     // Initialize error collection (any error will be fatal since max_errors=1)
@@ -1369,14 +1365,88 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_desc->llvm_type, fglobal, findices, 2);
 
     TypedValue fval = create_typed_value(fptr, farr_desc, false);
-    add_symbol(ctx, "__FUNC__", fval, NULL);
+    add_symbol(ctx, "__FUNC__", fval);
     // __func__ alias to same value
-    add_symbol(ctx, "__func__", fval, NULL);
+    add_symbol(ctx, "__func__", fval);
 
     // __LINE__ as integer constant 0 (i32)
     LLVMValueRef line_const = LLVMConstInt(i32_desc->llvm_type, 0, false);
     TypedValue lval = create_typed_value(line_const, i32_desc, false);
-    add_symbol(ctx, "__LINE__", lval, NULL);
+    add_symbol(ctx, "__LINE__", lval);
+}
+
+static LLVMValueRef
+evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * desc, c_grammar_node_t const * node)
+{
+    // Handle String Literals -> Constant Array
+    if (node->type == AST_NODE_STRING_LITERAL)
+    {
+        char const * str = decode_string(node->text);
+        LLVMValueRef c = LLVMConstStringInContext(ctx->context, str, strlen(str), false);
+        free((char *)str);
+        return c;
+    }
+
+    // Handle Initializer Lists: {1, 2, 3}
+    if (node->type == AST_NODE_INITIALIZER_LIST)
+    {
+        if (desc->kind == NCC_TYPE_KIND_ARRAY)
+        {
+            size_t count = node->list.count;
+            LLVMValueRef * elems = malloc(sizeof(LLVMValueRef) * desc->array_metadata.size);
+
+            for (uint32_t i = 0; i < desc->array_metadata.size; i++)
+            {
+                if (i < count)
+                {
+                    // Recurse for nested elements
+                    elems[i] = evaluate_constant_initializer(ctx, desc->pointee, node->list.children[i]);
+                }
+                else
+                {
+                    // Pad with zeros
+                    elems[i] = LLVMConstNull(desc->pointee->llvm_type);
+                }
+            }
+            LLVMValueRef res = LLVMConstArray(desc->pointee->llvm_type, elems, desc->array_metadata.size);
+            free(elems);
+            return res;
+        }
+
+        if (desc->kind == NCC_TYPE_KIND_STRUCT)
+        {
+            size_t field_count = desc->struct_metadata.members.num_members;
+            LLVMValueRef * fields = malloc(sizeof(LLVMValueRef) * field_count);
+
+            for (size_t i = 0; i < field_count; i++)
+            {
+                if (i < node->list.count)
+                {
+                    fields[i] = evaluate_constant_initializer(
+                        ctx, desc->struct_metadata.members.members[i].type_desc, node->list.children[i]
+                    );
+                }
+                else
+                {
+                    fields[i] = LLVMConstNull(desc->struct_metadata.members.members[i].type_desc->llvm_type);
+                }
+            }
+            // Note: Use LLVMConstNamedStruct if your descriptor holds the actual named type
+            LLVMValueRef res = LLVMConstStructInContext(ctx->context, fields, field_count, false);
+            free(fields);
+            return res;
+        }
+    }
+
+    // Simple expressions (must be constant foldable)
+    // You might need a specialized process_constant_expression here
+    TypedValue val = process_expression(ctx, node);
+    if (LLVMIsConstant(val.value))
+    {
+        return val.value;
+    }
+
+    return LLVMConstNull(desc->llvm_type);
 }
 
 /**
@@ -1408,107 +1478,53 @@ create_global_variable(
 {
     debug_info("Creating global for variable '%s'", var_name);
 
-    /* Handle unsized array with string literal initializer */
-    bool is_unsized_array = type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->array_metadata.size == 0;
+    LLVMValueRef global_var = NULL;
+    TypeDescriptor const * final_desc = type_desc;
 
-    if (is_unsized_array && initializer_expr_node && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
+    // 1. Handle unsized array with string literal: char str[] = "hello";
+    if (type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->array_metadata.size == 0 && initializer_expr_node
+        && initializer_expr_node->type == AST_NODE_STRING_LITERAL)
     {
-        char const * raw_text = initializer_expr_node->text;
-        char const * decoded = decode_string(raw_text);
-        char const * str = decoded ? decoded : raw_text;
+        char const * decoded = decode_string(initializer_expr_node->text);
+        size_t str_len = strlen(decoded ? decoded : initializer_expr_node->text) + 1;
 
-        size_t str_len = strlen(str);
-        TypeDescriptor const * array_desc = get_or_create_array_type(ctx->type_descriptors, type_desc, str_len + 1);
-
-        LLVMValueRef global_var = LLVMAddGlobal(ctx->module, array_desc->llvm_type, var_name);
-        LLVMSetLinkage(global_var, LLVMInternalLinkage);
-        LLVMSetGlobalConstant(global_var, true);
-        LLVMSetInitializer(global_var, LLVMConstStringInContext(ctx->context, str, (unsigned)str_len, false));
-
-        TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, is_const);
-        TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, str_len + 1);
-        TypedValue val = create_typed_value(global_var, arr_desc, true);
-        add_symbol(ctx, var_name, val, NULL);
-
+        // Update the descriptor to have the actual size
+        final_desc = get_or_create_array_type(ctx->type_descriptors, type_desc->pointee, str_len);
         free((char *)decoded);
-
-        return global_var;
     }
 
-    /* Create the global variable */
-    LLVMValueRef global_var = LLVMAddGlobal(ctx->module, type_desc->llvm_type, var_name);
-    LLVMSetLinkage(global_var, LLVMInternalLinkage);
+    // 2. Create the Global Identity
+    global_var = LLVMAddGlobal(ctx->module, final_desc->llvm_type, var_name);
+    LLVMSetLinkage(global_var, LLVMInternalLinkage); // Default to internal for safety
     if (is_const)
-    {
         LLVMSetGlobalConstant(global_var, true);
-    }
 
-    /* Zero-initialize by default for globals without an explicit initializer */
-    if (LLVMGetTypeKind(type_desc->llvm_type) != LLVMVoidTypeKind)
-    {
-        LLVMSetInitializer(global_var, LLVMConstNull(type_desc->llvm_type));
-    }
-
-    TypedValue val = create_typed_value(global_var, type_desc, true);
-    add_symbol(ctx, var_name, val, NULL);
-
-    /* Handle explicit initializer if present */
+    // 3. Evaluate the Initializer (Must be Constant)
     if (initializer_expr_node)
     {
-        debug_info(
-            "Initializer expr type: %d (%s)",
-            initializer_expr_node->type,
-            get_node_type_name_from_node(initializer_expr_node)
-        );
-
-        if (initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+        LLVMValueRef const_init = evaluate_constant_initializer(ctx, final_desc, initializer_expr_node);
+        if (const_init)
         {
-            if (type_desc->kind == NCC_TYPE_KIND_ARRAY)
-            {
-                LLVMSetInitializer(global_var, LLVMGetUndef(type_desc->llvm_type));
-            }
-            else if (LLVMGetTypeKind(type_desc->llvm_type))
-            {
-                /* Build constant aggregate for struct initializer */
-                LLVMValueRef const_aggregate = LLVMGetUndef(type_desc->llvm_type);
-                int current_index = 0;
-
-                for (size_t i = 0; i < initializer_expr_node->list.count; ++i)
-                {
-                    c_grammar_node_t const * list_entry = initializer_expr_node->list.children[i];
-                    c_grammar_node_t const * element_init = list_entry->initializer_list_entry.initializer;
-
-                    /* Unwrap from Initializer wrapper if needed */
-                    if (element_init->list.count > 0)
-                    {
-                        element_init = element_init->list.children[0];
-                    }
-
-                    TypedValue elem_value = process_expression(ctx, element_init);
-                    if (elem_value.value != NULL)
-                    {
-                        const_aggregate = LLVMBuildInsertValue(
-                            ctx->builder, const_aggregate, elem_value.value, current_index, "init_elem"
-                        );
-                    }
-                    current_index++;
-                }
-                LLVMSetInitializer(global_var, const_aggregate);
-            }
+            LLVMSetInitializer(global_var, const_init);
         }
         else
         {
-            TypedValue initializer_value = process_expression(ctx, initializer_expr_node);
-            if (initializer_value.value != NULL)
-            {
-                LLVMSetInitializer(global_var, initializer_value.value);
-            }
+            // Fallback to null if constant evaluation fails
+            LLVMSetInitializer(global_var, LLVMConstNull(final_desc->llvm_type));
         }
     }
+    else
+    {
+        // C standard: globals without initializers are zero-initialized
+        LLVMSetInitializer(global_var, LLVMConstNull(final_desc->llvm_type));
+    }
+
+    // 4. Add to Symbol Table
+    TypedValue val = create_typed_value(global_var, final_desc, true);
+    add_symbol(ctx, var_name, val);
 
     return global_var;
 }
-
 static void
 process_declarator(
     ir_generator_ctx_t * ctx,
@@ -1567,7 +1583,7 @@ process_declarator(
     // 5. Add to Symbol Table
     // We no longer need struct_name or pointee_type hacks; the descriptor has it all.
     TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
-    add_symbol(ctx, var_name, sym_val, NULL);
+    add_symbol(ctx, var_name, sym_val);
 
     // 6. Process Initializer
     if (init_decl_initializer != NULL && init_decl_initializer->list.count > 0)
@@ -1749,7 +1765,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 
             // If your descriptor is a struct or points to one,
             // the symbol table can now just check p_type->kind
-            add_symbol(ctx, p_name, p_val, NULL);
+            add_symbol(ctx, p_name, p_val);
         }
         debug_info("Processed parameter %zu", i);
     }

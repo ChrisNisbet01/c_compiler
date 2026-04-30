@@ -324,7 +324,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             LLVMSetLinkage(global, LLVMInternalLinkage);
 
             TypedValue val = create_typed_value(global, enum_type, false);
-            add_symbol(ctx, enum_name, val, NULL);
+            add_symbol(ctx, enum_name, val);
 
             current_value++;
         }

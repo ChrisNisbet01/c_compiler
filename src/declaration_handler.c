@@ -579,7 +579,8 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 }
             }
         }
-        type_spec = specifier_qualifier_list;
+        /* FIXME: This unconditional assignment seems odd, considering we possibly just assigned it above. */
+        // type_spec = specifier_qualifier_list;
         if (type_spec == NULL)
         {
             continue;

@@ -88,19 +88,12 @@ typedef struct pointer_qualifiers_t
     bool is_const_on_pointee;                         /* true if const is on pointee type (e.g., const char *) */
 } pointer_qualifiers_t;
 
-typedef struct symbol_data_t
-{
-    pointer_qualifiers_t pointer_qualifiers;
-    LLVMTypeRef function_signature; /* Used with function pointers. */
-} symbol_data_t;
-
 // --- Symbol Table Management ---
 typedef struct symbol
 {
     char * name;
     TypedValue value;
     char * tag_name;
-    symbol_data_t data;
 } symbol_t;
 
 // --- Scope structure for hierarchical symbol tables ---
@@ -296,9 +289,7 @@ TypeDescriptor const * scope_find_typedef_type_descriptor(scope_t const * scope,
  * @param value The LLVM value metadata.
  * @param tag The struct tag name (or NULL).
  */
-void add_symbol_with_struct(
-    ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag, symbol_data_t const * data
-);
+void add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag);
 
 /**
  * @brief Adds a symbol to a scope.
@@ -306,7 +297,7 @@ void add_symbol_with_struct(
  * @param name The symbol name.
  * @param value The LLVM value metadata.
  */
-void add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, symbol_data_t const * data);
+void add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value);
 
 /**
  * @brief Finds a symbol in a scope and returns its pointer and type.
