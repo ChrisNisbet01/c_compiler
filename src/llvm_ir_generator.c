@@ -27,7 +27,6 @@ static TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_n
 char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
 char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
 TypeDescriptor const * find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
-LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
 TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
 char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
 type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
@@ -852,7 +851,7 @@ register_tagged_struct_or_union_definition(
         return NULL;
     }
 
-    if (find_type_by_tag(ctx, tag) != NULL)
+    if (find_type_descriptor_by_tag(ctx, tag) != NULL)
     {
         return NULL;
     }

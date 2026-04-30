@@ -19,8 +19,6 @@ char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_s
 
 TypeDescriptor const * find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
 
-LLVMTypeRef find_type_by_tag(ir_generator_ctx_t * ctx, char const * name);
-
 TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
 
 char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);

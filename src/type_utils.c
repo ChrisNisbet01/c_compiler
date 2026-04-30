@@ -76,8 +76,8 @@ find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name)
     return result;
 }
 
-LLVMTypeRef
-find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
+TypeDescriptor const *
+find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name)
 {
     type_info_t * info = scope_find_tagged_struct(ctx->current_scope, name);
     if (info == NULL)
@@ -87,17 +87,6 @@ find_type_by_tag(ir_generator_ctx_t * ctx, char const * name)
     if (info == NULL)
     {
         info = scope_find_tagged_enum(ctx->current_scope, name);
-    }
-    return info ? info->type_desc->llvm_type : NULL;
-}
-
-TypeDescriptor const *
-find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name)
-{
-    type_info_t * info = scope_find_tagged_struct(ctx->current_scope, name);
-    if (info == NULL)
-    {
-        info = scope_find_tagged_union(ctx->current_scope, name);
     }
     return info ? info->type_desc : NULL;
 }
@@ -313,17 +302,12 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             {
                 current_value = evaluate_enum_value_assignment_expression(ctx, value_node, current_value);
             }
+
             TypeDescriptor const * enum_type = get_or_create_builtin_type(
                 ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
             );
             LLVMValueRef const_val = LLVMConstInt(enum_type->llvm_type, current_value, true);
-
-            LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type->llvm_type, enum_name);
-            LLVMSetInitializer(global, const_val);
-            LLVMSetGlobalConstant(global, true);
-            LLVMSetLinkage(global, LLVMInternalLinkage);
-
-            TypedValue val = create_typed_value(global, enum_type, false);
+            TypedValue val = create_typed_value(const_val, enum_type, false);
             add_symbol(ctx, enum_name, val);
 
             current_value++;
