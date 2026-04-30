@@ -15,9 +15,6 @@ typedef struct TypedValue
 
     /* type-related data. */
     TypeDescriptor const * type_info; // The high-level type descriptor for this value
-
-    /* These will eventually be removed as all info will be found in the type_info. */
-    LLVMTypeRef type; // The actual type (e.g., i32, struct.foo)
 } TypedValue;
 
 extern TypedValue NullTypedValue;
