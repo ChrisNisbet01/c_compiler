@@ -76,6 +76,11 @@ typedef struct TypeDescriptor
     IntegerMetadata integer_metadata;
     FloatMetadata float_metadata;
     ArrayMetaData array_metadata;
+
+    /* bitfield related. */
+    unsigned bit_offset;
+    unsigned bit_width;     // bit_width == 0 indicates this is not a bitfield or an unnamed bitfield
+    unsigned storage_index; // >=0 for bitfields = index of storage field
 } TypeDescriptor;
 
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout);

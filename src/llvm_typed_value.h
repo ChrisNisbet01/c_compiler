@@ -1,5 +1,7 @@
 #pragma once
 
+#include "debug.h"
+
 #include <llvm-c/Core.h>
 #include <stdbool.h>
 
@@ -8,9 +10,7 @@ typedef struct TypeDescriptor TypeDescriptor;
 typedef struct TypedValue
 {
     bool is_lvalue;
-    bool is_unsigned;
-    unsigned bit_width;
-    unsigned bit_offset;
+
     LLVMValueRef value;
 
     /* type-related data. */
@@ -20,6 +20,8 @@ typedef struct TypedValue
 extern TypedValue NullTypedValue;
 
 void dump_typed_value(char const * label, TypedValue v);
+
+void dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level);
 
 TypedValue create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue);
 

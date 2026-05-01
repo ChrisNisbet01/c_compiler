@@ -700,7 +700,15 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
     {
         for (size_t i = 0; i < object_members.num_members; i++)
         {
-            fprintf(stderr, "member %zu: %s\n", i, object_members.members[i].name);
+            fprintf(
+                stderr,
+                "member %zu: %s offset: %u, width: %u, storage: %u\n",
+                i,
+                object_members.members[i].name,
+                object_members.members[i].bit_offset,
+                object_members.members[i].bit_width,
+                object_members.members[i].storage_index
+            );
         }
     }
 

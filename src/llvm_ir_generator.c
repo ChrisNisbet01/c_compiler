@@ -117,12 +117,16 @@ ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
     LLVMValueRef container = aligned_load(ctx, ctx->builder, val.type_info->llvm_type, val.value, label);
 
     // 2. If it's a bitfield, extract the bits
-    if (val.bit_width > 0)
+    TypeDescriptor const * type_desc = val.type_info;
+    if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)
     {
-        LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, val.bit_offset, false);
-        LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << val.bit_width) - 1, false);
-        LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, container, offset, "bf_extract");
-        container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
+        if (type_desc->bit_width > 0)
+        {
+            LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, type_desc->bit_offset, false);
+            LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << type_desc->bit_width) - 1, false);
+            LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, container, offset, "bf_extract");
+            container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
+        }
     }
 
     val.value = container;
@@ -309,29 +313,6 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
     return create_typed_value(elem_ptr, elem_desc, true);
 }
 
-static TypedValue
-handle_bitfield_extraction_desc(TypedValue tval, TypeDescriptor const * struct_desc, size_t member_index)
-{
-    if (struct_desc == NULL)
-    {
-        debug_info("%s no info to extract bit_width", __func__);
-        return tval;
-    }
-
-    if (member_index >= struct_desc->struct_metadata.members.num_members
-        || struct_desc->struct_metadata.members.members[member_index].bit_width == 0)
-    {
-        return tval;
-    }
-
-    struct_field_t const * field = &struct_desc->struct_metadata.members.members[member_index];
-
-    tval.bit_width = field->bit_width;
-    tval.bit_offset = field->bit_offset;
-    debug_info("%s: bitfield width: %u offset: %u", __func__, tval.bit_width, tval.bit_offset);
-    return tval;
-}
-
 static void
 process_initializer_list(
     ir_generator_ctx_t * ctx,
@@ -378,15 +359,14 @@ process_initializer_list(
                 {
                     int field_idx = type_descriptor_find_struct_field_index_from_desc(current_desc, field_ident->text);
                     if (field_idx < 0)
+                    {
                         break;
+                    }
+                    TypeDescriptor const * field_desc = type_descriptor_get_struct_field_type(current_desc, field_idx);
 
                     LLVMValueRef indices[2]
                         = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                           LLVMConstInt(
-                               ctx->ref_type.i32_type,
-                               current_desc->struct_metadata.members.members[field_idx].storage_index,
-                               false
-                           )};
+                           LLVMConstInt(ctx->ref_type.i32_type, field_desc->storage_index, false)};
 
                     LLVMValueRef next_ptr = LLVMBuildInBoundsGEP2(
                         ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "designator_ptr"
@@ -540,7 +520,7 @@ process_initializer_list_type_desc(
                         // Navigate deeper into nested struct
                         LLVMValueRef indices[2]
                             = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                               LLVMConstInt(ctx->ref_type.i32_type, field_idx, false)};
+                               LLVMConstInt(ctx->ref_type.i32_type, field_desc->storage_index, false)};
                         current_ptr = LLVMBuildInBoundsGEP2(
                             ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "nested_ptr"
                         );
@@ -831,6 +811,20 @@ register_tagged_struct_or_union_definition(
         }
     }
 
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        fprintf(
+            stderr,
+            "%s: member %zu: %s offset: %u, width: %u, storage: %u\n",
+            __func__,
+            i,
+            members.members[i].name,
+            members.members[i].bit_offset,
+            members.members[i].bit_width,
+            members.members[i].storage_index
+        );
+    }
+
     opaque.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, tag),
@@ -914,6 +908,20 @@ add_untagged_struct_or_union_type(
                 new_struct.fields[i].name = strdup(new_struct.fields[i].name);
             }
         }
+    }
+
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        fprintf(
+            stderr,
+            "%s: member %zu: %s offset: %u, width: %u, storage: %u\n",
+            __func__,
+            i,
+            members.members[i].name,
+            members.members[i].bit_offset,
+            members.members[i].bit_width,
+            members.members[i].storage_index
+        );
     }
 
     new_struct.type_desc = register_struct_type(
@@ -3329,22 +3337,21 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 ir_gen_error(&ctx->errors, "Struct has no member named '%s'", member_name);
                 return NullTypedValue;
             }
+            debug_info("SSSSSS");
+            TypeDescriptor const * field_desc = type_descriptor_get_struct_field_type(struct_desc, field_idx);
 
             // Create the GEP
             LLVMValueRef indices[2]
                 = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                   LLVMConstInt(ctx->ref_type.i32_type, field_idx, false)};
-
-            TypeDescriptor const * field_desc = struct_desc->struct_metadata.members.members[field_idx].type_desc;
+                   LLVMConstInt(ctx->ref_type.i32_type, field_desc->storage_index, false)};
 
             LLVMValueRef member_ptr = LLVMBuildInBoundsGEP2(
                 ctx->builder, struct_desc->llvm_type, current_val.value, indices, 2, "memberptr"
             );
 
             current_val = create_typed_value(member_ptr, field_desc, true);
+            dump_typed_value("member_access", current_val);
 
-            // Handle bitfields if your struct metadata tracks them
-            current_val = handle_bitfield_extraction_desc(current_val, struct_desc, field_idx);
             break;
         }
 
@@ -3430,7 +3437,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
         lhs_res = process_expression(ctx, lhs_node);
-        dump_typed_value("assignment_lhs", lhs_res);
     }
     else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
     {
@@ -3461,6 +3467,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         // Simple variable assignment
         lhs_res = get_variable_pointer(ctx, lhs_node);
     }
+
+    dump_typed_value("assignment_lhs", lhs_res);
 
     if (lhs_res.value == NULL)
     {
@@ -3560,8 +3568,12 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     // Generate the store instruction.
     // if (is_bitfield_assign && bitfield_storage_unit_type != NULL)
-    if (lhs_res.bit_width > 0)
+    TypeDescriptor const * lhs_desc = lhs_res.type_info;
+    if (lhs_desc->bit_width > 0)
     {
+        unsigned bit_width = lhs_desc->bit_width;
+        unsigned bit_offset = lhs_desc->bit_offset;
+
         debug_info("assigning to bitfield");
         /* * 1. Target the storage unit.
          * bitfield_storage_unit_ptr is the GEP result (the address of the i32/i64).
@@ -3578,13 +3590,13 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
         // 3. PREPARE MASKS
         // width_mask: (1 << width) - 1
-        unsigned long long width_mask = (lhs_res.bit_width == 64) ? ~0ULL : (1ULL << lhs_res.bit_width) - 1;
+        unsigned long long width_mask = (bit_width == 64) ? ~0ULL : (1ULL << bit_width) - 1;
         // clear_mask: ~ (width_mask << offset)
-        unsigned long long clear_mask = ~(width_mask << lhs_res.bit_offset);
+        unsigned long long clear_mask = ~(width_mask << bit_offset);
 
         LLVMValueRef llvm_clear_mask = LLVMConstInt(storage_type, clear_mask, false);
         LLVMValueRef llvm_width_mask = LLVMConstInt(storage_type, width_mask, false);
-        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32_type, lhs_res.bit_offset, false);
+        LLVMValueRef llvm_offset = LLVMConstInt(ctx->ref_type.i32_type, bit_offset, false);
 
         // 4. MODIFY
         // Clear the old bits

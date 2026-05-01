@@ -36,31 +36,18 @@ typedef struct TypeDescriptors
     builtin_types builtins;
 } TypeDescriptors;
 
-static void
-dump_type_descriptor(TypeDescriptor const * desc, debug_level_t level)
-{
-    if (level < debug_get_level())
-    {
-        return;
-    }
-    fprintf(
-        stderr,
-        "TypeDescriptor: kind=%d llvm_type_kind=%d\n",
-        desc->kind,
-        desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1
-    );
-}
-
 // Internal helper to allocate and link a new descriptor
 static TypeDescriptor *
 register_descriptor(TypeDescriptors * registry, TypeDescriptor const * template)
 {
     debug_info("%s: Registering new descriptor kind %d", __func__, template->kind);
-    dump_type_descriptor(template, DEBUG_LEVEL_INFO);
+    dump_type_descriptor(__func__, template, DEBUG_LEVEL_INFO);
 
     TypeDescriptor_private * node = malloc(sizeof(*node));
     node->public = *template;
     debug_info("%s: new node %p", __func__, (void *)&node->public);
+    dump_type_descriptor(__func__, &node->public, DEBUG_LEVEL_INFO);
+
     type_specifier_dump(node->public.specifiers, DEBUG_LEVEL_INFO);
 
     LLVMTypeKind llvm_kind = LLVMGetTypeKind(node->public.llvm_type);
@@ -224,8 +211,9 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
  * @brief Calculates size and sets member offsets for Structs and Unions.
  * This should be called once the TypeDescriptor's member list is fully populated.
  */
-void
-calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * desc)
+
+static void
+calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const desc)
 {
     debug_info("%s", __func__);
     if (desc == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
@@ -240,7 +228,27 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * desc)
 
     for (size_t i = 0; i < member_count; ++i)
     {
-        TypeDescriptor const * mem_desc = desc->struct_metadata.members.members[i].type_desc;
+        struct_field_t * current_member = &desc->struct_metadata.members.members[i];
+        TypeDescriptor * mem_desc = (TypeDescriptor *)current_member->type_desc;
+
+        mem_desc->bit_offset = current_member->bit_offset;
+        mem_desc->bit_width = current_member->bit_width;
+        mem_desc->storage_index = current_member->storage_index;
+        debug_info(
+            "member: %u, bit offset: %u bit width: %u, storage: %u",
+            i,
+            mem_desc->bit_offset,
+            mem_desc->bit_width,
+            mem_desc->storage_index
+        );
+    }
+
+    struct_field_t * previous_member = NULL;
+
+    for (size_t i = 0; i < member_count; ++i)
+    {
+        struct_field_t * current_member = &desc->struct_metadata.members.members[i];
+        TypeDescriptor * mem_desc = (TypeDescriptor *)current_member->type_desc;
 
         uint64_t mem_size = get_type_size_desc(data_layout, mem_desc);
         uint32_t mem_align = get_type_alignment_desc(mem_desc);
@@ -252,17 +260,31 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * desc)
 
         if (desc->kind == NCC_TYPE_KIND_STRUCT)
         {
-            // 1. Add padding before the member to satisfy its alignment
-            uint64_t padding = (mem_align - (current_offset % mem_align)) % mem_align;
-            current_offset += padding;
+            if (previous_member == NULL || previous_member->storage_index != current_member->storage_index)
+            {
+                // 1. Add padding before the member to satisfy its alignment
+                uint64_t padding = (mem_align - (current_offset % mem_align)) % mem_align;
+                current_offset += padding;
+            }
 
             // 2. Set the offset for this member
             desc->struct_metadata.members.members[i].offset = current_offset;
-            debug_info("member: %zu offset: %llu size: %llu align: %u", i, current_offset, mem_size, mem_align);
+            debug_info(
+                "member: %zu offset: %llu size: %llu align: %u storage: %u",
+                i,
+                current_offset,
+                mem_size,
+                mem_align,
+                current_member->storage_index
+            );
 
-            //
-            // 3. Move the cursor
-            current_offset += mem_size;
+            if (i == member_count - 1
+                || desc->struct_metadata.members.members[i + 1].storage_index != current_member->storage_index)
+            {
+                //
+                // 3. Move the cursor
+                current_offset += mem_size;
+            }
         }
         else
         {
@@ -273,6 +295,7 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * desc)
                 current_offset = mem_size; // Track the largest member
             }
         }
+        previous_member = current_member;
     }
 
     // 4. Final Tail Padding
@@ -286,6 +309,20 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * desc)
         desc->struct_metadata.total_size,
         desc->struct_metadata.alignment
     );
+
+    for (size_t i = 0; i < member_count; ++i)
+    {
+        struct_field_t * current_member = &desc->struct_metadata.members.members[i];
+        TypeDescriptor * mem_desc = (TypeDescriptor *)current_member->type_desc;
+
+        debug_info(
+            "out member: %u, bit offset: %u bit width: %u, storage: %u",
+            i,
+            mem_desc->bit_offset,
+            mem_desc->bit_width,
+            mem_desc->storage_index
+        );
+    }
 }
 
 TypeDescriptor const *
@@ -313,12 +350,13 @@ register_struct_type(
     {
         members_template.num_members = members->num_members;
         members_template.members = malloc(sizeof(*members->members) * members->num_members);
-        memcpy(members_template.members, members->members, sizeof(*members->members) * members->num_members);
-        for (size_t i = 0; i < members->num_members; i++)
+        memcpy(members_template.members, members->members, members->num_members * sizeof(*members->members));
+        /* We need to have our own copy of the name. */
+        for (size_t i = 0; i < members_template.num_members; i++)
         {
-            if (members->members[i].name != NULL)
+            if (members_template.members[i].name != NULL)
             {
-                members_template.members[i].name = strdup(members->members[i].name);
+                members_template.members[i].name = strdup(members_template.members[i].name);
             }
         }
     }
@@ -631,6 +669,19 @@ type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, c
         return -1;
     }
 
+    for (int i = 0; i < (int)desc->struct_metadata.members.num_members; ++i)
+    {
+        struct_field_t * member = &desc->struct_metadata.members.members[i];
+        debug_info(
+            "%s member: %d offset: %u, width: %u, storage: %u",
+            __func__,
+            i,
+            member->bit_offset,
+            member->bit_width,
+            member->storage_index
+        );
+    }
+
     // Access the members list in your metadata structure
     for (int i = 0; i < (int)desc->struct_metadata.members.num_members; ++i)
     {
@@ -639,6 +690,7 @@ type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, c
         if (member_name != NULL && strcmp(member_name, name) == 0)
         {
             debug_info("%s: got member %s at index %u", __func__, name, i);
+            dump_type_descriptor(name, desc, DEBUG_LEVEL_INFO);
             return i;
         }
     }
@@ -663,8 +715,12 @@ type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
         );
         return NULL;
     }
+    struct_field_t * member = &desc->struct_metadata.members.members[index];
+    TypeDescriptor const * member_desc = member->type_desc;
 
-    return desc->struct_metadata.members.members[index].type_desc;
+    dump_type_descriptor(__func__, member_desc, DEBUG_LEVEL_INFO);
+
+    return member_desc;
 }
 
 bool
