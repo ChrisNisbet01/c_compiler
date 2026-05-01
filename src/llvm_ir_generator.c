@@ -1673,7 +1673,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         /* No existing declaration — add it now */
         TypedValue decl = create_typed_value(existing, type_desc, false);
-        add_function_declaration(ctx, func_name, decl, false);
+        add_function_declaration(ctx, func_name, decl, true);
     }
 
     /* Reuse existing declaration if already added (e.g. from a forward declaration),
