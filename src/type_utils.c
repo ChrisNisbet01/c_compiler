@@ -409,6 +409,11 @@ search_for_identifier(c_grammar_node_t const * node)
                     }
                 }
             }
+            else if (first_child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+            {
+                // FunctionPointerDeclarator: contains Pointer, Identifier, DeclaratorSuffix*
+                var_name = first_child->function_pointer_declarator.identifier->text;
+            }
         }
 
         return var_name;

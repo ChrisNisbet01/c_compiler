@@ -516,12 +516,6 @@ resolve_type_descriptor(
                 return NULL;
             }
             dump_type_descriptor(id, current, DEBUG_LEVEL_INFO);
-            LLVMValueRef alloca_val = LLVMBuildAlloca(ctx->builder, current->llvm_type, "ops");
-            debug_info("allocated");
-            TypedValue func_val = create_typed_value(alloca_val, current, true);
-            debug_info("created");
-            add_symbol(ctx, id, func_val);
-            debug_info("added");
         }
     }
     else if (suffix_list != NULL)

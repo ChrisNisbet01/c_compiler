@@ -1517,7 +1517,10 @@ process_declarator(
     // 2. Extract Identifier (Variable Name)
     char const * var_name = search_for_identifier(declarator_node);
     if (var_name == NULL)
+    {
+        debug_warning("%s: Failed to find identifier", __func__);
         return;
+    }
 
     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
     bool is_global = (current_block == NULL);
