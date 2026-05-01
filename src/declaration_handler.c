@@ -180,6 +180,7 @@ resolve_function_pointer_type(
         ctx->type_descriptors, return_type, params.types, params.names, params.count, params.is_variadic
     );
     parameter_definitions_cleanup(&params);
+
     return res;
 }
 
@@ -478,22 +479,49 @@ resolve_type_descriptor(
     {
         debug_info("3");
         current = resolve_function_pointer_type(ctx, current, param_list);
+        dump_type_descriptor("function pointer", current, DEBUG_LEVEL_INFO);
 
         /* Now handle any function pointer array suffixes. */
-        c_grammar_node_t const * func_pointer_declaration = search_function_pointer_declarator(direct_declarator);
-        if (func_pointer_declaration != NULL)
+        c_grammar_node_t const * func_pointer_declarator = search_function_pointer_declarator(direct_declarator);
+        if (func_pointer_declarator != NULL)
         {
+            c_grammar_node_t const * id_node = func_pointer_declarator->function_pointer_declarator.identifier;
+            char const * id = id_node->text;
+            if (id == NULL)
+            {
+                debug_error("function pointer declarator has no identifier");
+                return NULL;
+            }
+            debug_info("function pointer ID: %s", id);
             c_grammar_node_t const * fp_suffix_list
-                = func_pointer_declaration->function_pointer_declarator.declarator_suffix_list;
+                = func_pointer_declarator->function_pointer_declarator.declarator_suffix_list;
             debug_info(
                 "%s: found function pointer declarator, have %d array suffixes", __func__, fp_suffix_list->list.count
             );
+
+            if (current != NULL)
+            {
+                current = get_or_create_pointer_type(ctx->type_descriptors, current, (TypeQualifier){0});
+            }
+
             for (size_t i = fp_suffix_list->list.count; i > 0; i--)
             {
                 c_grammar_node_t const * suffix = fp_suffix_list->list.children[i - 1];
 
                 current = resolve_array_suffix(ctx, current, suffix);
             }
+            if (current == NULL)
+            {
+                debug_error("failed to resolve function pointer type");
+                return NULL;
+            }
+            dump_type_descriptor(id, current, DEBUG_LEVEL_INFO);
+            LLVMValueRef alloca_val = LLVMBuildAlloca(ctx->builder, current->llvm_type, "ops");
+            debug_info("allocated");
+            TypedValue func_val = create_typed_value(alloca_val, current, true);
+            debug_info("created");
+            add_symbol(ctx, id, func_val);
+            debug_info("added");
         }
     }
     else if (suffix_list != NULL)

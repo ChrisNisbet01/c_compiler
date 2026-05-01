@@ -3282,6 +3282,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // ARRAY ACCESS: [index]
             // C rule: a[i] is identical to *(a + i).
             // Array types decay to pointers here.
+            if (current_val.value == NULL)
+            {
+                debug_error("%s: NULL value while processing array subscript", __func__);
+                return NullTypedValue;
+            }
             if (current_val.type_info->kind == NCC_TYPE_KIND_ARRAY)
             {
                 // Decay array to pointer to first element
