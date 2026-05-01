@@ -1,6 +1,7 @@
 #pragma once
 
 #include "debug.h"
+#include "struct_members.h"
 
 #include <llvm-c/Core.h>
 #include <stdbool.h>
@@ -15,6 +16,8 @@ typedef struct TypedValue
 
     /* type-related data. */
     TypeDescriptor const * type_info; // The high-level type descriptor for this value
+
+    struct_bitfield_data_t bitfield;
 } TypedValue;
 
 extern TypedValue NullTypedValue;

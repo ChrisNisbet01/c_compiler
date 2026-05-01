@@ -614,7 +614,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 c_grammar_node_t * width_node = decl->list.children[width_idx];
                 if (width_node->type == AST_NODE_INTEGER_LITERAL)
                 {
-                    new_member.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
+                    new_member.bitfield.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
                 }
 
                 debug_info("resolving member: %s", new_member.name);
@@ -638,18 +638,22 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     type_bits = LLVMGetIntTypeWidth(new_member.type_desc->llvm_type);
                 }
-                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bit_width == 0)
-                    || (strlen(previous_member->name) == 0 && previous_member->bit_width == 0)
+                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bitfield.bit_width == 0)
+                    || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
                     || LLVMGetTypeKind(new_member.type_desc->llvm_type)
                            != LLVMGetTypeKind(previous_member->type_desc->llvm_type)
-                    || new_member.bit_width + previous_member->bit_offset + previous_member->bit_width > type_bits)
+                    || new_member.bitfield.bit_width + previous_member->bitfield.bit_offset
+                               + previous_member->bitfield.bit_width
+                           > type_bits)
                 {
-                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                    new_member.bitfield.storage_index
+                        = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
                 }
                 else
                 {
-                    new_member.storage_index = previous_member->storage_index;
-                    new_member.bit_offset = previous_member->bit_offset + previous_member->bit_width;
+                    new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
+                    new_member.bitfield.bit_offset
+                        = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
                 }
                 members[num_members] = new_member;
                 num_members++;
@@ -684,7 +688,8 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     previous_member = &members[num_members - 1];
                 }
-                new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                new_member.bitfield.storage_index
+                    = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
 
                 members[num_members] = new_member;
                 num_members++;
@@ -705,9 +710,9 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 "member %zu: %s offset: %u, width: %u, storage: %u\n",
                 i,
                 object_members.members[i].name,
-                object_members.members[i].bit_offset,
-                object_members.members[i].bit_width,
-                object_members.members[i].storage_index
+                object_members.members[i].bitfield.bit_offset,
+                object_members.members[i].bitfield.bit_width,
+                object_members.members[i].bitfield.storage_index
             );
         }
     }

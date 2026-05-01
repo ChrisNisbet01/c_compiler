@@ -104,6 +104,7 @@ static TypedValue
 ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
 {
     debug_info("%s: is %s, lvalue: %d", __func__, label, val.is_lvalue);
+    dump_typed_value(__func__, val);
     if (val.value == NULL)
     {
         return val;
@@ -120,10 +121,10 @@ ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
     TypeDescriptor const * type_desc = val.type_info;
     if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)
     {
-        if (type_desc->bit_width > 0)
+        if (val.bitfield.bit_width > 0)
         {
-            LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, type_desc->bit_offset, false);
-            LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << type_desc->bit_width) - 1, false);
+            LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, val.bitfield.bit_offset, false);
+            LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << val.bitfield.bit_width) - 1, false);
             LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, container, offset, "bf_extract");
             container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
         }
@@ -362,17 +363,18 @@ process_initializer_list(
                     {
                         break;
                     }
-                    TypeDescriptor const * field_desc = type_descriptor_get_struct_field_type(current_desc, field_idx);
+                    struct_field_t const * field = type_descriptor_get_struct_field_type(current_desc, field_idx);
+                    TypeDescriptor const * field_desc = field->type_desc;
 
                     LLVMValueRef indices[2]
                         = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                           LLVMConstInt(ctx->ref_type.i32_type, field_desc->storage_index, false)};
+                           LLVMConstInt(ctx->ref_type.i32_type, field->bitfield.storage_index, false)};
 
                     LLVMValueRef next_ptr = LLVMBuildInBoundsGEP2(
                         ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "designator_ptr"
                     );
 
-                    current_desc = current_desc->struct_metadata.members.members[field_idx].type_desc;
+                    current_desc = field_desc;
                     current_ptr = next_ptr;
                 }
             }
@@ -411,7 +413,7 @@ process_initializer_list(
             if (local_index < (int)desc->struct_metadata.members.num_members)
             {
                 target_desc = desc->struct_metadata.members.members[local_index].type_desc;
-                unsigned storage_idx = desc->struct_metadata.members.members[local_index].storage_index;
+                unsigned storage_idx = desc->struct_metadata.members.members[local_index].bitfield.storage_index;
 
                 LLVMValueRef indices[2]
                     = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
@@ -508,8 +510,10 @@ process_initializer_list_type_desc(
                         break;
                     }
 
-                    TypeDescriptor const * field_desc = type_descriptor_get_struct_field_type(current_desc, field_idx);
-                    if (field_desc == NULL)
+                    struct_field_t const * field = type_descriptor_get_struct_field_type(current_desc, field_idx);
+                    TypeDescriptor const * field_desc = field->type_desc;
+
+                    if (field == NULL)
                     {
                         debug_error("failed to find field '%s' type descriptor", field_name);
                         break;
@@ -520,7 +524,7 @@ process_initializer_list_type_desc(
                         // Navigate deeper into nested struct
                         LLVMValueRef indices[2]
                             = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                               LLVMConstInt(ctx->ref_type.i32_type, field_desc->storage_index, false)};
+                               LLVMConstInt(ctx->ref_type.i32_type, field->bitfield.storage_index, false)};
                         current_ptr = LLVMBuildInBoundsGEP2(
                             ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "nested_ptr"
                         );
@@ -582,7 +586,7 @@ process_initializer_list_type_desc(
         }
         else if (kind == NCC_TYPE_KIND_STRUCT)
         {
-            target_desc = type_descriptor_get_struct_field_type(type_desc, local_index);
+            target_desc = type_descriptor_get_struct_field_type(type_desc, local_index)->type_desc;
         }
 
         if (target_desc == NULL)
@@ -819,9 +823,9 @@ register_tagged_struct_or_union_definition(
             __func__,
             i,
             members.members[i].name,
-            members.members[i].bit_offset,
-            members.members[i].bit_width,
-            members.members[i].storage_index
+            members.members[i].bitfield.bit_offset,
+            members.members[i].bitfield.bit_width,
+            members.members[i].bitfield.storage_index
         );
     }
 
@@ -851,7 +855,7 @@ register_tagged_struct_or_union_definition(
     }
 
     struct_field_t * last_field = &members.members[members.num_members - 1];
-    unsigned num_storage_units = last_field->storage_index + 1;
+    unsigned num_storage_units = last_field->bitfield.storage_index + 1;
     LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
     if (field_types == NULL)
     {
@@ -861,9 +865,9 @@ register_tagged_struct_or_union_definition(
     for (size_t i = 0; i < members.num_members; i++)
     {
         struct_field_t * field = &members.members[i];
-        if (field->storage_index != (unsigned)current_storage_unit)
+        if (field->bitfield.storage_index != (unsigned)current_storage_unit)
         {
-            current_storage_unit = (int)field->storage_index;
+            current_storage_unit = (int)field->bitfield.storage_index;
             field_types[current_storage_unit] = field->type_desc->llvm_type;
         }
     }
@@ -918,9 +922,9 @@ add_untagged_struct_or_union_type(
             __func__,
             i,
             members.members[i].name,
-            members.members[i].bit_offset,
-            members.members[i].bit_width,
-            members.members[i].storage_index
+            members.members[i].bitfield.bit_offset,
+            members.members[i].bitfield.bit_width,
+            members.members[i].bitfield.storage_index
         );
     }
 
@@ -950,15 +954,15 @@ add_untagged_struct_or_union_type(
     }
 
     struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
-    unsigned num_storage_units = last_field->storage_index + 1;
+    unsigned num_storage_units = last_field->bitfield.storage_index + 1;
     LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
     int current_storage_unit = -1;
     for (size_t i = 0; i < new_struct.field_count; i++)
     {
         struct_field_t * field = &members.members[i];
-        if (field->storage_index != (unsigned)current_storage_unit)
+        if (field->bitfield.storage_index != (unsigned)current_storage_unit)
         {
-            current_storage_unit = field->storage_index;
+            current_storage_unit = field->bitfield.storage_index;
             field_types[current_storage_unit] = field->type_desc->llvm_type;
         }
     }
@@ -3337,19 +3341,20 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 ir_gen_error(&ctx->errors, "Struct has no member named '%s'", member_name);
                 return NullTypedValue;
             }
-            debug_info("SSSSSS");
-            TypeDescriptor const * field_desc = type_descriptor_get_struct_field_type(struct_desc, field_idx);
+
+            struct_field_t const * field = type_descriptor_get_struct_field_type(struct_desc, field_idx);
 
             // Create the GEP
             LLVMValueRef indices[2]
                 = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                   LLVMConstInt(ctx->ref_type.i32_type, field_desc->storage_index, false)};
+                   LLVMConstInt(ctx->ref_type.i32_type, field->bitfield.storage_index, false)};
 
             LLVMValueRef member_ptr = LLVMBuildInBoundsGEP2(
                 ctx->builder, struct_desc->llvm_type, current_val.value, indices, 2, "memberptr"
             );
 
-            current_val = create_typed_value(member_ptr, field_desc, true);
+            current_val = create_typed_value(member_ptr, field->type_desc, true);
+            current_val.bitfield = field->bitfield;
             dump_typed_value("member_access", current_val);
 
             break;
@@ -3568,11 +3573,11 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     // Generate the store instruction.
     // if (is_bitfield_assign && bitfield_storage_unit_type != NULL)
-    TypeDescriptor const * lhs_desc = lhs_res.type_info;
-    if (lhs_desc->bit_width > 0)
+    struct_bitfield_data_t const bitfield = lhs_res.bitfield;
+    if (bitfield.bit_width > 0)
     {
-        unsigned bit_width = lhs_desc->bit_width;
-        unsigned bit_offset = lhs_desc->bit_offset;
+        unsigned bit_width = bitfield.bit_width;
+        unsigned bit_offset = bitfield.bit_offset;
 
         debug_info("assigning to bitfield");
         /* * 1. Target the storage unit.
