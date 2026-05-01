@@ -14,11 +14,9 @@ type_qualifiers_dump(TypeQualifier quals, debug_level_t level)
     fprintf(stderr, "Qualifiers:\n\tconst: %d\n\tvolatile: %d\n", quals.is_const, quals.is_volatile);
 }
 
-TypeQualifier
-build_type_qualifiers(c_grammar_node_t const * qual_list)
+static TypeQualifier
+append_type_qualifiers(c_grammar_node_t const * qual_list, TypeQualifier quals)
 {
-    TypeQualifier quals = {0};
-
     if (qual_list == NULL)
     {
         return quals;
@@ -39,6 +37,34 @@ build_type_qualifiers(c_grammar_node_t const * qual_list)
         else if (strcmp(child->text, "volatile") == 0)
         {
             quals.is_volatile = true;
+        }
+    }
+
+    return quals;
+}
+
+TypeQualifier
+build_type_qualifiers(c_grammar_node_t const * qual_list)
+{
+    return append_type_qualifiers(qual_list, (TypeQualifier){0});
+}
+
+TypeQualifier
+build_type_qualifiers_from_parent(c_grammar_node_t const * parent)
+{
+    TypeQualifier quals = {0};
+
+    if (parent == NULL)
+    {
+        return quals;
+    }
+
+    for (size_t i = 0; i < parent->list.count; i++)
+    {
+        c_grammar_node_t * child = parent->list.children[i];
+        if (child->type == AST_NODE_TYPE_QUALIFERS)
+        {
+            quals = append_type_qualifiers(child, quals);
         }
     }
 

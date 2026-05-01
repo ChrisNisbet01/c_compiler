@@ -1046,7 +1046,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
 
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
     // Enums are typically represented as int, but this can be improved to use the smallest type that fits the values
-    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
+    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1069,7 +1069,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     type_info_t enum_info = {0};
 
     enum_info.kind = TYPE_KIND_ENUM;
-    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
+    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
     enum_info.tag = strdup(tag);
@@ -3510,8 +3510,11 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         print_ast_with_label(lhs_node, "LHS");
     }
 
-    // TODO: perform const checking once type descriptor conversion is complete.
-    /* if (lhs_res.type_info->qualifiers.is_const) {ERROR} */
+    if (lhs_res.type_info->qualifiers.is_const)
+    {
+        ir_gen_error(&ctx->errors, "Cannot assign to const variable");
+        return NullTypedValue;
+    }
 
     // Check for compound assignment operators (+=, -=, *=, /=, %=, etc.)
     c_grammar_node_t const * op_node = node->binary_expression.op;

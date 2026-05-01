@@ -280,10 +280,12 @@ resolve_type_descriptor(
         }
     }
 
-    c_grammar_node_t const * type_qual_list = NULL;
     TypeSpecifierValidationResult validation_result = {0};
     scope_typedef_entry_t const * existing_typedef_info = NULL;
     char const * typedef_name = NULL;
+    /* FIXME: only supported by native types right now. */
+    TypeQualifier type_quals = build_type_qualifiers_from_parent(decl_specifiers);
+
     if (decl_specifiers->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
         typedef_name = search_for_identifier(decl_specifiers);
@@ -293,7 +295,6 @@ resolve_type_descriptor(
         /* First check for a TYPEDEF_SPECIFIER, in which case there won't be any TYPE_SPECIFIERS. */
         c_grammar_node_t const * typedef_specifier_node = decl_specifiers->decl_specifiers.typedef_specifier;
         typedef_name = search_for_identifier(typedef_specifier_node);
-        type_qual_list = decl_specifiers->decl_specifiers.type_qualifiers;
     }
 
     if (typedef_name != NULL)
@@ -390,15 +391,10 @@ resolve_type_descriptor(
         }
         else if (validation_result.is_native_type)
         {
-            TypeQualifier quals = {0};
-            if (type_qual_list != NULL)
-            {
-                quals = build_type_qualifiers(type_qual_list);
-            }
             TypeSpecifier specs = build_type_specifiers(type_spec_list);
             if (type_specifier_is_valid(specs))
             {
-                current = get_or_create_builtin_type(ctx->type_descriptors, specs, quals);
+                current = get_or_create_builtin_type(ctx->type_descriptors, specs, type_quals);
             }
             else
             {

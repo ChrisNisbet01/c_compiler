@@ -303,7 +303,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             }
 
             TypeDescriptor const * enum_type = get_or_create_builtin_type(
-                ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
+                ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){.is_const = true}
             );
 
             debug_info("%s: registering: %s value: %d", __func__, enum_name, current_value);
