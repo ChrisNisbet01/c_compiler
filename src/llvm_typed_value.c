@@ -25,6 +25,8 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
         desc->kind,
         desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1
     );
+    type_specifier_dump(desc->specifiers, level);
+    type_qualifiers_dump(desc->qualifiers, level);
 }
 
 void

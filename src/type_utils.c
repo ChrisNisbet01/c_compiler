@@ -127,7 +127,6 @@ evaluate_enum_value_assignment_expression(
                 LLVMValueRef initializer = LLVMGetInitializer(symbol.value);
                 if (initializer != NULL && LLVMIsAConstantInt(initializer))
                 {
-                    debug_info("%s initializing value", __func__);
                     current_value = (int)LLVMConstIntGetZExtValue(initializer);
                 }
             }
@@ -306,8 +305,16 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             TypeDescriptor const * enum_type = get_or_create_builtin_type(
                 ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0}
             );
+
+            debug_info("%s: registering: %s value: %d", __func__, enum_name, current_value);
+
             LLVMValueRef const_val = LLVMConstInt(enum_type->llvm_type, current_value, true);
-            TypedValue val = create_typed_value(const_val, enum_type, false);
+            LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type->llvm_type, enum_name);
+            LLVMSetInitializer(global, const_val);
+            LLVMSetGlobalConstant(global, true);
+            LLVMSetLinkage(global, LLVMInternalLinkage);
+
+            TypedValue val = create_typed_value(global, enum_type, false);
             add_symbol(ctx, enum_name, val);
 
             current_value++;

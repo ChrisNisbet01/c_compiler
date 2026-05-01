@@ -114,6 +114,21 @@ ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
         return val; // Already data
     }
 
+    if (val.type_info->kind == NCC_TYPE_KIND_ARRAY)
+    {
+        // We don't load the array. We GEP to its first element to get a pointer.
+        LLVMValueRef indices[2]
+            = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
+
+        LLVMValueRef decayed_ptr
+            = LLVMBuildInBoundsGEP2(ctx->builder, val.type_info->llvm_type, val.value, indices, 2, "decay_ptr");
+
+        // Return the address as an R-value pointer
+        TypeDescriptor const * ptr_to_elem
+            = get_or_create_pointer_type(ctx->type_descriptors, val.type_info->pointee, (TypeQualifier){0});
+        return create_typed_value(decayed_ptr, ptr_to_elem, false);
+    }
+
     // Convert Lvalue to Rvalue by performing the load
     LLVMValueRef container = aligned_load(ctx, ctx->builder, val.type_info->llvm_type, val.value, label);
 
