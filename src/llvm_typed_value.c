@@ -9,6 +9,11 @@
 void
 dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level)
 {
+    if (desc == NULL)
+    {
+        return;
+    }
+
     if (level < debug_get_level())
     {
         return;
@@ -39,6 +44,7 @@ dump_typed_value(char const * label, TypedValue v)
     fprintf(stderr, "bit width: %u\n", v.bitfield.bit_width);
     fprintf(stderr, "bit offset: %u\n", v.bitfield.bit_offset);
     fprintf(stderr, "storage index: %u\n", v.bitfield.storage_index);
+
     dump_type_descriptor("val", v.type_info, DEBUG_LEVEL_INFO);
 
     fprintf(stderr, "--------------------\n\n");
