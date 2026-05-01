@@ -1185,26 +1185,30 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
         LLVMTypeRef null_type = ctx->ref_type.ptr_type;
-        LLVMValueRef null_const = LLVMConstPointerNull(null_type);
-        LLVMSetGlobalConstant(null_const, true);
+        LLVMValueRef global_null = LLVMAddGlobal(ctx->module, null_type, "NULL_REPLACEMENT");
+        LLVMValueRef null_llvm_val = LLVMConstPointerNull(null_type);
+        LLVMSetInitializer(global_null, null_llvm_val);
+        LLVMSetGlobalConstant(global_null, true);
+        LLVMSetLinkage(global_null, LLVMInternalLinkage);
 
         TypeDescriptor const * void_desc = type_descriptor_get_void_type(ctx->type_descriptors);
         TypeDescriptor const * ptr_desc
             = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
-        TypedValue null_val = create_typed_value(null_const, ptr_desc, false);
+        TypedValue null_val = create_typed_value(global_null, ptr_desc, false);
         add_symbol(ctx, "NULL", null_val);
 
-        /* */
         // hack in a function definition for printf(), auto-declare as variadic returning i32
         // with no required arguments to support different call patterns
+        char const * printf_fn_name = "printf";
+
         TypeDescriptor const * ret_type = type_descriptor_get_int32_type(ctx->type_descriptors, false);
         LLVMTypeRef ret_type_llvm = ret_type->llvm_type;
         LLVMTypeRef func_type = LLVMFunctionType(ret_type_llvm, NULL, 0, true);
-        LLVMValueRef func = LLVMAddFunction(ctx->module, "printf", func_type);
+        LLVMValueRef func = LLVMAddFunction(ctx->module, printf_fn_name, func_type);
         TypeDescriptor const * func_desc
             = get_or_create_function_type(ctx->type_descriptors, ret_type, NULL, NULL, 0, true);
         TypedValue print_val = create_typed_value(func, func_desc, false);
-        add_function_declaration(ctx, "printf", print_val, false);
+        add_function_declaration(ctx, printf_fn_name, print_val, false);
     }
 
     return ctx;
