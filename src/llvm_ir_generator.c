@@ -118,16 +118,12 @@ ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
     LLVMValueRef container = aligned_load(ctx, ctx->builder, val.type_info->llvm_type, val.value, label);
 
     // 2. If it's a bitfield, extract the bits
-    TypeDescriptor const * type_desc = val.type_info;
-    if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)
+    if (val.bitfield.bit_width > 0)
     {
-        if (val.bitfield.bit_width > 0)
-        {
-            LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, val.bitfield.bit_offset, false);
-            LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << val.bitfield.bit_width) - 1, false);
-            LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, container, offset, "bf_extract");
-            container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
-        }
+        LLVMValueRef offset = LLVMConstInt(ctx->ref_type.i32_type, val.bitfield.bit_offset, false);
+        LLVMValueRef mask = LLVMConstInt(ctx->ref_type.i32_type, (1ULL << val.bitfield.bit_width) - 1, false);
+        LLVMValueRef shifted = LLVMBuildLShr(ctx->builder, container, offset, "bf_extract");
+        container = LLVMBuildAnd(ctx->builder, shifted, mask, "bf_val");
     }
 
     val.value = container;
@@ -3329,7 +3325,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             }
 
             TypeDescriptor const * struct_desc = current_val.type_info;
-            if (struct_desc->kind != NCC_TYPE_KIND_STRUCT)
+            if (struct_desc->kind != NCC_TYPE_KIND_STRUCT && struct_desc->kind != NCC_TYPE_KIND_UNION)
             {
                 ir_gen_error(&ctx->errors, "Member access on non-struct type");
                 return NullTypedValue;

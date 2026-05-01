@@ -634,7 +634,7 @@ type_descriptor_get_void_type(TypeDescriptors * registry)
 int
 type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, char const * name)
 {
-    if (desc == NULL || name == NULL || desc->kind != NCC_TYPE_KIND_STRUCT)
+    if (desc == NULL || name == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
     {
         debug_warning("%s: Invalid struct descriptor", __func__);
         return -1;
@@ -660,7 +660,7 @@ type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, c
 struct_field_t const *
 type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
 {
-    if (desc == NULL || desc->kind != NCC_TYPE_KIND_STRUCT)
+    if (desc == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
     {
         debug_warning("%s: Invalid struct descriptor", __func__);
         return NULL;
