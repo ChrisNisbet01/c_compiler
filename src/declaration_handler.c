@@ -546,6 +546,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
         c_grammar_node_t * struct_decl = members_node->list.children[i];
         if (struct_decl == NULL || struct_decl->type != AST_NODE_STRUCT_DECLARATION)
         {
+            debug_info("struct declaration missing - skipping");
             continue;
         }
 
@@ -554,19 +555,105 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
 
         if (specifier_qualifier_list == NULL || specifier_qualifier_list->list.count == 0)
         {
+            debug_info(
+                "spec qualifiers list missing or empty (%s) - skipping",
+                get_node_type_name_from_node(specifier_qualifier_list)
+            );
             continue;
         }
         debug_info("%s: spec_qual_list_type is %s", __func__, get_node_type_name_from_node(specifier_qualifier_list));
 
         c_grammar_node_t const * type_spec = NULL;
         type_spec = specifier_qualifier_list;
-        if (type_spec == NULL)
-        {
-            continue;
-        }
 
         if (declarator_list == NULL || declarator_list->list.count == 0)
         {
+            debug_info("check for anonymous struct/union declaration");
+            // Resolve the type specifier to see if it's a struct/union
+            TypeDescriptor const * nested_type = resolve_type_descriptor(ctx, specifier_qualifier_list, NULL);
+
+            if (nested_type && (nested_type->kind == NCC_TYPE_KIND_STRUCT || nested_type->kind == NCC_TYPE_KIND_UNION))
+            {
+                debug_info(
+                    "Found anonymous nested struct/union - flattening %zu members",
+                    nested_type->struct_metadata.members.num_members
+                );
+
+                if (num_members + nested_type->struct_metadata.members.num_members >= max_num_members)
+                {
+                    debug_info("reallocing members was: %p", (void *)members);
+                    max_num_members += nested_type->struct_metadata.members.num_members;
+                    members = realloc(members, max_num_members * sizeof(*members));
+                    if (members == NULL)
+                    {
+                        debug_error("malloc failure");
+                        return object_members;
+                    }
+                    debug_info("realloced members now: %p", (void *)members);
+                }
+
+                // Pull members from the nested type into the current list
+                for (size_t m = 0; m < nested_type->struct_metadata.members.num_members; m++)
+                {
+                    // Copy the member descriptor
+                    struct_field_t const * nested_mem = &nested_type->struct_metadata.members.members[m];
+
+                    // Note: You may need to adjust storage_index or offsets here
+                    // depending on how your LLVM struct builder handles flattening.
+                    struct_field_t new_member = *nested_mem;
+                    new_member.name = strdup(nested_mem->name);
+
+                    unsigned type_bits;
+                    struct_field_t * previous_member = NULL;
+                    if (num_members > 0)
+                    {
+                        previous_member = &members[num_members - 1];
+                        type_bits = LLVMGetIntTypeWidth(previous_member->type_desc->llvm_type);
+                    }
+                    else
+                    {
+                        type_bits = LLVMGetIntTypeWidth(nested_mem->type_desc->llvm_type);
+                    }
+                    if (m == 0 || previous_member == NULL
+                        || (strlen(nested_mem->name) > 0 && nested_mem->bitfield.bit_width == 0)
+                        || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
+                        || nested_mem->bitfield.bit_width + previous_member->bitfield.bit_offset
+                                   + previous_member->bitfield.bit_width
+                               > type_bits)
+                    {
+                        if (previous_member == NULL)
+                        {
+                            debug_warning("1");
+                            new_member.bitfield.storage_index = 0;
+                        }
+                        else if (m > 0 && nested_type->kind == NCC_TYPE_KIND_UNION)
+                        {
+                            debug_warning("2: m: %zu, %u", m, previous_member->bitfield.storage_index);
+                            new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
+                        }
+                        else
+                        {
+                            debug_warning("3: m: %zu, %u", m, previous_member->bitfield.storage_index);
+                            new_member.bitfield.storage_index
+                                = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
+                        }
+                    }
+                    else
+                    {
+                        debug_warning("4: m: %zu, %u", m, previous_member->bitfield.storage_index);
+                        new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
+                        new_member.bitfield.bit_offset
+                            = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
+                    }
+                    debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
+                    members[num_members] = new_member;
+                    num_members++;
+                }
+
+                continue; // Move to the next member in the parent struct
+            }
+
+            debug_info("No declarator and not an anonymous compound type - skipping");
             continue;
         }
 
@@ -577,10 +664,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
         if (struct_decl_node->type == AST_NODE_STRUCT_DECLARATOR && struct_decl_node->list.count > 0)
         {
             c_grammar_node_t * decl = struct_decl_node->list.children[0];
-            if (decl == NULL)
-            {
-                continue;
-            }
 
             if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
             {
@@ -655,6 +738,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     new_member.bitfield.bit_offset
                         = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
                 }
+                debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
                 members[num_members] = new_member;
                 num_members++;
             }
@@ -691,6 +775,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 new_member.bitfield.storage_index
                     = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
 
+                debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
                 members[num_members] = new_member;
                 num_members++;
             }

@@ -914,7 +914,7 @@ add_untagged_struct_or_union_type(
     {
         fprintf(
             stderr,
-            "%s: member %zu: %s offset: %u, width: %u, storage: %u\n",
+            "%s: member %zu: %s bit offset: %u, bit width: %u, bit storage: %u\n",
             __func__,
             i,
             members.members[i].name,
@@ -968,6 +968,7 @@ add_untagged_struct_or_union_type(
 
     for (size_t i = 0; i < members.num_members; i++)
     {
+        debug_info("freeing: %zu %p '%s'", i, members.members[i].name, members.members[i].name);
         free(members.members[i].name);
     }
     free(members.members);
