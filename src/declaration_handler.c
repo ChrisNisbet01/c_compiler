@@ -90,7 +90,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
         // Note that the Declarator may NOT be present.
         if (!parameter_definitions_init(&params, params_list))
         {
-            ir_gen_error(&ctx->errors, "Memory error");
+            ir_gen_error(&ctx->errors, params_list, "Memory error");
             return params;
         }
         debug_info("%s: extracting %zu parameters", __func__, params.count);
@@ -327,7 +327,11 @@ resolve_type_descriptor(
 
         if (!validation_result.is_valid)
         {
-            ir_gen_error(&ctx->errors, "Neither struct/union/enum/typedef nor native type specified in declaration");
+            ir_gen_error(
+                &ctx->errors,
+                type_spec_list,
+                "Neither struct/union/enum/typedef nor native type specified in declaration"
+            );
             return NULL;
         }
         else
@@ -398,14 +402,14 @@ resolve_type_descriptor(
             }
             else
             {
-                ir_gen_error(&ctx->errors, "Invalid combination of type specifiers in declaration");
+                ir_gen_error(&ctx->errors, type_spec_list, "Invalid combination of type specifiers in declaration");
                 type_specifier_dump(specs, DEBUG_LEVEL_ERROR);
                 return NULL;
             }
         }
         else
         {
-            ir_gen_error(&ctx->errors, "Unsupported type specifier combination in declaration");
+            ir_gen_error(&ctx->errors, type_spec_node, "Unsupported type specifier combination in declaration");
             return NULL;
         }
     }

@@ -2,7 +2,7 @@
 
 #include "ast_node_name.h"
 #include "ast_print.h"
-#include "c_grammar_ast.h" // Assumes this header defines c_grammar_node_t and its node types
+#include "c_grammar_ast.h"
 #include "debug.h"
 #include "declaration_handler.h"
 #include "type_utils.h"
@@ -286,7 +286,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
     // Safety check: pointer or array must have a pointee
     if (elem_desc == NULL)
     {
-        ir_gen_error(&ctx->errors, "Subscripted value is not an array or pointer");
+        ir_gen_error(&ctx->errors, subscript_node, "Subscripted value is not an array or pointer");
         return NullTypedValue;
     }
 
@@ -317,7 +317,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
     }
     else
     {
-        ir_gen_error(&ctx->errors, "Type cannot be subscripted");
+        ir_gen_error(&ctx->errors, subscript_node, "Type cannot be subscripted");
         return NullTypedValue;
     }
 
@@ -1093,7 +1093,7 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
  * Creates LLVM context, module, and builder.
  */
 ir_generator_ctx_t *
-ir_generator_init(char const * module_name, ir_generation_flags flags)
+ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx)
 {
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
@@ -1179,7 +1179,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags)
     }
 
     // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1);
+    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
 
     if (ctx->generation_flags.generate_default_variables)
     {
@@ -1651,7 +1651,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             if (!function_signatures_match(existing_type, type_desc->llvm_type))
             {
                 ctx->current_function_return_type = previous_function_return_type;
-                ir_gen_error(&ctx->errors, "Function '%s' redeclared with different signature.", func_name);
+                ir_gen_error(&ctx->errors, node, "Function '%s' redeclared with different signature.", func_name);
                 scope_pop(ctx);
                 return;
             }
@@ -1659,7 +1659,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             if (decl->has_definition)
             {
                 ctx->current_function_return_type = previous_function_return_type;
-                ir_gen_error(&ctx->errors, "Function '%s' already has a body.", func_name);
+                ir_gen_error(&ctx->errors, node, "Function '%s' already has a body.", func_name);
                 scope_pop(ctx);
                 return;
             }
@@ -3262,7 +3262,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             if (!func_desc)
             {
-                ir_gen_error(&ctx->errors, "Expression is not a function or function pointer");
+                ir_gen_error(&ctx->errors, suffix, "Expression is not a function or function pointer");
                 return NullTypedValue;
             }
 
@@ -3345,7 +3345,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 current_val = ensure_rvalue(ctx, "arrow_deref", current_val);
                 if (current_val.type_info->kind != NCC_TYPE_KIND_POINTER)
                 {
-                    ir_gen_error(&ctx->errors, "Arrow operator used on non-pointer");
+                    ir_gen_error(&ctx->errors, suffix, "Arrow operator used on non-pointer");
                     return NullTypedValue;
                 }
                 // Move the context to the struct being pointed to
@@ -3355,14 +3355,14 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             TypeDescriptor const * struct_desc = current_val.type_info;
             if (struct_desc->kind != NCC_TYPE_KIND_STRUCT && struct_desc->kind != NCC_TYPE_KIND_UNION)
             {
-                ir_gen_error(&ctx->errors, "Member access on non-struct type");
+                ir_gen_error(&ctx->errors, suffix, "Member access on non-struct type");
                 return NullTypedValue;
             }
 
             int field_idx = type_descriptor_find_struct_field_index_from_desc(struct_desc, member_name);
             if (field_idx < 0)
             {
-                ir_gen_error(&ctx->errors, "Struct has no member named '%s'", member_name);
+                ir_gen_error(&ctx->errors, suffix, "Struct has no member named '%s'", member_name);
                 return NullTypedValue;
             }
 
@@ -3389,7 +3389,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // POSTFIX: i++ / i--
             if (!current_val.is_lvalue)
             {
-                ir_gen_error(&ctx->errors, "Postfix operator requires lvalue");
+                ir_gen_error(&ctx->errors, suffix, "Postfix operator requires lvalue");
                 return NullTypedValue;
             }
 
@@ -3484,7 +3484,7 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 = aligned_load(ctx, ctx->builder, typed_value_get_llvm_type(&lhs_res), lhs_res.value, "ptr_deref");
             if (!typed_value_switch_to_pointee(&lhs_res))
             {
-                ir_gen_error(&ctx->errors, "Failed to switch LHS to pointee type in assignment.");
+                ir_gen_error(&ctx->errors, op_node, "Failed to switch LHS to pointee type in assignment.");
                 debug_error("Failed to switch LHS to pointee type.");
                 return NullTypedValue;
             }
@@ -3512,7 +3512,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (lhs_res.type_info->qualifiers.is_const)
     {
-        ir_gen_error(&ctx->errors, "Cannot assign to const variable");
+        ir_gen_error(&ctx->errors, lhs_node, "Cannot assign to const variable");
+
         return NullTypedValue;
     }
 
@@ -3966,7 +3967,7 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
                             : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_res.value, rhs_res.value, "ge_tmp");
         break;
     default:
-        ir_gen_error(&ctx->errors, "Unknown relational operator");
+        ir_gen_error(&ctx->errors, op_node, "Unsupported relational operator");
         return NullTypedValue;
     }
 
@@ -4017,7 +4018,7 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                             : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_res.value, rhs_res.value, "ne_tmp");
         break;
     default:
-        ir_gen_error(&ctx->errors, "Unsupported equality operator");
+        ir_gen_error(&ctx->errors, op_node, "Unsupported equality operator");
         return NullTypedValue;
     }
 
@@ -4049,7 +4050,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     lhs_res = ensure_rvalue(ctx, "log_lhs_rval", lhs_res);
     if (lhs_res.value == NULL)
     {
-        ir_gen_error(&ctx->errors, "LHS processing of logical expression failed");
+        debug_error("LHS processing of logical expression failed");
         return NullTypedValue;
     }
 
@@ -4083,7 +4084,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
     if (rhs_res.value == NULL)
     {
-        ir_gen_error(&ctx->errors, "RHS processing of logical expression failed");
+        debug_error("RHS processing of logical expression failed");
         return NullTypedValue;
     }
 
@@ -4343,7 +4344,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
             if (v.value == NULL)
             {
-                ir_gen_error(&ctx->errors, "Cannot take the address of an rvalue");
+                ir_gen_error(&ctx->errors, operand_node, "Cannot take the address of an rvalue");
                 return NullTypedValue;
             }
 
@@ -4352,10 +4353,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
             if (base_desc == NULL)
             {
-                ir_gen_error(&ctx->errors, "No type information found for compound literal");
                 debug_error("No type descriptor found for compound literal, attempting fallback");
                 return NullTypedValue;
             }
+
             v = create_typed_value(
                 v.value, get_or_create_pointer_type(ctx->type_descriptors, base_desc, (TypeQualifier){0}), false
             );
@@ -4381,14 +4382,17 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_res.type_info->kind != NCC_TYPE_KIND_POINTER)
         {
             ir_gen_error(
-                &ctx->errors, "Error: Dereference operand is not a pointer (value: %p)\n", (void *)operand_res.value
+                &ctx->errors,
+                operand_node,
+                "Error: Dereference operand is not a pointer (value: %p)\n",
+                (void *)operand_res.value
             );
             return NullTypedValue;
         }
         operand_res = ensure_rvalue(ctx, "un_op_deref", operand_res);
         if (!typed_value_switch_to_pointee(&operand_res))
         {
-            ir_gen_error(&ctx->errors, "Error: Failed to switch to pointee type for dereference");
+            ir_gen_error(&ctx->errors, operand_node, "Error: Failed to switch to pointee type for dereference");
             return NullTypedValue;
         }
         operand_res.is_lvalue = true;
@@ -4401,7 +4405,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         TypedValue operand_res = process_expression(ctx, operand_node);
         if (operand_res.value == NULL)
         {
-            ir_gen_error(&ctx->errors, "Operand processing failed for unary minus");
+            debug_error("Operand processing failed for unary minus");
             return NullTypedValue;
         }
         if (is_floating_kind(operand_res.type_info))

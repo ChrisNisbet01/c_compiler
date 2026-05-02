@@ -3,11 +3,14 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // --- Error and Warning Collection Implementation ---
 
 void
-ir_gen_error_collection_init(ir_gen_error_collection_t * collection, size_t max_errors)
+ir_gen_error_collection_init(
+    ir_gen_error_collection_t * collection, size_t max_errors, epc_parser_ctx_t * parse_ctx, char const * module_name
+)
 {
     if (collection == NULL)
     {
@@ -18,6 +21,8 @@ ir_gen_error_collection_init(ir_gen_error_collection_t * collection, size_t max_
     collection->capacity = 0;
     collection->max_errors = max_errors;
     collection->fatal = false;
+    collection->parse_ctx = parse_ctx;
+    collection->module_name = strdup(module_name);
 }
 
 void
@@ -38,8 +43,43 @@ ir_gen_error_collection_free(ir_gen_error_collection_t * collection)
     collection->fatal = false;
 }
 
+static void
+print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_grammar_node_t const * node)
+{
+    epc_line_col_t line_col = epc_calculate_line_and_column(collection->parse_ctx, node->source_data.offset);
+
+    fprintf(fp, "%s:%zu:%zu\n", collection->module_name, line_col.line, line_col.col);
+
+    char * line_at_offset = epc_get_line_at_offset(collection->parse_ctx, node->source_data.offset);
+
+    if (line_at_offset == NULL)
+    {
+        return;
+    }
+
+    /* Print the line where the error occurred. */
+    fprintf(fp, "%s\n", line_at_offset);
+
+    /* Now indicate the specific part of the line where the offence occurred. */
+    size_t line_len = strlen(line_at_offset);
+
+    fprintf(fp, "%*s^", (int)line_col.col - 1, "");
+    size_t len = node->source_data.len;
+    if (len > line_len)
+    {
+        len = line_len;
+    }
+    for (size_t i = 0; i < len - 1; i++)
+    {
+        fprintf(fp, "~");
+    }
+    fprintf(fp, "\n");
+
+    free(line_at_offset);
+}
+
 bool
-ir_gen_error(ir_gen_error_collection_t * collection, char const * fmt, ...)
+ir_gen_error(ir_gen_error_collection_t * collection, c_grammar_node_t const * node, char const * fmt, ...)
 {
     if (collection == NULL || collection->fatal)
     {
@@ -65,6 +105,8 @@ ir_gen_error(ir_gen_error_collection_t * collection, char const * fmt, ...)
     // Print immediately
     fprintf(stderr, "Error: %s\n", message ? message : "(unknown)");
     free(message);
+
+    print_error_location(stderr, collection, node);
 
     // Don't add to collection if already at/over limit
     if (collection->count >= collection->max_errors)
@@ -95,10 +137,13 @@ ir_gen_error(ir_gen_error_collection_t * collection, char const * fmt, ...)
         message = malloc(len + 1);
         if (message != NULL)
         {
+            ir_gen_error_t * error = &collection->errors[collection->count];
+            error->node = node;
             va_start(args, fmt);
             vsnprintf(message, len + 1, fmt, args);
             va_end(args);
-            collection->errors[collection->count].message = message;
+            error->message = message;
+            error->node = node;
             collection->count++;
         }
     }
@@ -115,7 +160,7 @@ ir_gen_error(ir_gen_error_collection_t * collection, char const * fmt, ...)
 }
 
 void
-ir_gen_warning(ir_gen_error_collection_t * collection, char const * fmt, ...)
+ir_gen_warning(ir_gen_error_collection_t * collection, c_grammar_node_t const * node, char const * fmt, ...)
 {
     if (collection == NULL)
     {
@@ -141,6 +186,8 @@ ir_gen_warning(ir_gen_error_collection_t * collection, char const * fmt, ...)
     // Print warning (doesn't count toward error limit)
     fprintf(stderr, "Warning: %s\n", message ? message : "(unknown)");
     free(message);
+
+    print_error_location(stderr, collection, node);
 }
 
 bool

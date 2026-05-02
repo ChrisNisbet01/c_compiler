@@ -516,12 +516,12 @@ ast_max_depth(c_grammar_node_t const * node, size_t current_depth)
 }
 
 static bool
-generate_output(c_grammar_node_t const * ast_root, char const * input_filename)
+generate_output(c_grammar_node_t const * ast_root, char const * input_filename, epc_parser_ctx_t * parse_ctx)
 {
     bool success = true;
     debug_info("Starting LLVM IR Generation...");
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
-    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags);
+    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx);
 
     if (ir_ctx == NULL)
     {
@@ -868,7 +868,7 @@ main(int argc, char * argv[])
                 print_ast(ast_root);
             }
             debug_info("AST max depth: %zu", ast_max_depth(ast_root, 0));
-            if (!generate_output(ast_root, filename))
+            if (!generate_output(ast_root, filename, session.internal_parse_ctx))
             {
                 exit_code = EXIT_FAILURE;
             }

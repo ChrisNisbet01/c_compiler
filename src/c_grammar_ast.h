@@ -566,11 +566,19 @@ typedef struct ast_node_typedef_specifier_qualifier_t
     c_grammar_node_t const * post_type_qualifier;
 } ast_node_typedef_specifier_qualifier_t;
 
+typedef struct
+{
+    size_t offset;
+    size_t len;
+} input_source_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
+    input_source_data_t source_data;
 
     ast_node_list_t list;
+
     char const * text;
 
     union

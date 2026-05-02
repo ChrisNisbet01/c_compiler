@@ -49,6 +49,7 @@ create_list_node(c_grammar_node_type_t type, void ** children, int count)
         return NULL;
     }
     node->type = type;
+
     node->list.count = (size_t)count;
     if (count > 0)
     {
@@ -75,6 +76,13 @@ extract_node_text(epc_cpt_node_t * node)
     return strndup(text, text_len);
 }
 
+static void
+extract_cpt_offset_and_len(c_grammar_node_t * ast_node, epc_cpt_node_t * node)
+{
+    ast_node->source_data.offset = epc_cpt_node_get_semantic_content_offset(node);
+    ast_node->source_data.len = epc_cpt_node_get_semantic_len(node);
+}
+
 static c_grammar_node_t *
 create_terminal_node(epc_ast_builder_ctx_t * ctx, c_grammar_node_type_t type, epc_cpt_node_t * node)
 {
@@ -86,6 +94,8 @@ create_terminal_node(epc_ast_builder_ctx_t * ctx, c_grammar_node_type_t type, ep
     }
 
     ast_node->type = type;
+
+    extract_cpt_offset_and_len(ast_node, node);
 
     ast_node->text = extract_node_text(node);
     if (ast_node->text == NULL)
@@ -118,6 +128,8 @@ handle_list_node(
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "%s: Memory allocation failed", get_node_type_name_from_type(type));
     }
+
+    extract_cpt_offset_and_len(ast_node, node);
 
     return ast_node;
 }

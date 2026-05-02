@@ -1,5 +1,8 @@
 #pragma once
 
+#include "c_grammar_ast.h"
+
+#include <easy_pc/easy_pc.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -8,10 +11,13 @@
 typedef struct ir_gen_error
 {
     char * message;
+    c_grammar_node_t const * node;
 } ir_gen_error_t;
 
 typedef struct ir_gen_error_collection
 {
+    char const * module_name;
+    epc_parser_ctx_t * parse_ctx;
     ir_gen_error_t * errors;
     size_t count;
     size_t capacity;
@@ -24,7 +30,9 @@ typedef struct ir_gen_error_collection
  * @param collection The error collection to initialize.
  * @param max_errors The maximum number of errors to collect before marking as fatal.
  */
-void ir_gen_error_collection_init(ir_gen_error_collection_t * collection, size_t max_errors);
+void ir_gen_error_collection_init(
+    ir_gen_error_collection_t * collection, size_t max_errors, epc_parser_ctx_t * parse_ctx, char const * module_name
+);
 
 /**
  * @brief Frees an error collection.
@@ -38,14 +46,14 @@ void ir_gen_error_collection_free(ir_gen_error_collection_t * collection);
  * @param fmt Format string for the error message.
  * @return true if the error limit has been reached (fatal), false otherwise.
  */
-bool ir_gen_error(ir_gen_error_collection_t * collection, char const * fmt, ...);
+bool ir_gen_error(ir_gen_error_collection_t * collection, c_grammar_node_t const * node, char const * fmt, ...);
 
 /**
  * @brief Adds a warning to the collection and prints it.
  * @param collection The error collection.
  * @param fmt Format string for the warning message.
  */
-void ir_gen_warning(ir_gen_error_collection_t * collection, char const * fmt, ...);
+void ir_gen_warning(ir_gen_error_collection_t * collection, c_grammar_node_t const * node, char const * fmt, ...);
 
 /**
  * @brief Checks if any errors have been collected.
