@@ -1741,14 +1741,10 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         TypeDescriptor const * p_type_desc = type_desc->function_metadata.params[i];
         debug_info("Processing parameter %zu name: %s type desc %p", i, p_name, (void *)p_type_desc);
         LLVMTypeRef p_type = p_type_desc->llvm_type;
-        debug_info("llvm type %p", (void *)p_type);
-        debug_info("llvm type kind %d", LLVMGetTypeKind(p_type));
         LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
-        debug_info("1");
-        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, p_type, p_name != NULL ? p_name : "");
-        debug_info("2");
+        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, p_type, p_name != NULL ? p_name : "fn_param");
+
         aligned_store(ctx, ctx->builder, param_val, p_type, alloca_inst);
-        debug_info("3");
 
         if (p_name != NULL)
         {

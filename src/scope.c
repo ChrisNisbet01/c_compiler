@@ -18,6 +18,33 @@
 
 // --- Scope lifecycle ---
 
+static bool
+init_scope_symbols(scope_symbols_t * list)
+{
+    list->capacity = 16;
+    list->symbols = calloc(list->capacity, sizeof(*list->symbols));
+
+    return list->symbols != NULL;
+}
+
+static bool
+init_scope_types(scope_types_t * list)
+{
+    list->capacity = 4;
+    list->entries = calloc(list->capacity, sizeof(*list->entries));
+
+    return list->entries != NULL;
+}
+
+static bool
+init_scope_typedefs(scope_typedefs_t * list)
+{
+    list->capacity = 4;
+    list->entries = calloc(list->capacity, sizeof(*list->entries));
+
+    return list->entries != NULL;
+}
+
 scope_t *
 scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 {
@@ -31,39 +58,36 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
     scope->context = context;
     scope->builder = builder;
 
-    scope->symbols.capacity = 16;
-    scope->symbols.symbols = calloc(scope->symbols.capacity, sizeof(*scope->symbols.symbols));
-    if (!scope->symbols.symbols)
+    if (!init_scope_symbols(&scope->symbols))
     {
         scope_free(scope);
 
         return NULL;
     }
 
-    // Initialize label management
     scope->labels = labels_list_create(scope->context, scope->builder);
-
-    scope->tagged_types.capacity = 4;
-    scope->tagged_types.entries = calloc(scope->tagged_types.capacity, sizeof(*scope->tagged_types.entries));
-    if (scope->tagged_types.entries == NULL)
+    if (scope->labels == NULL)
     {
         scope_free(scope);
 
         return NULL;
     }
 
-    scope->untagged_types.capacity = 4;
-    scope->untagged_types.entries = calloc(scope->untagged_types.capacity, sizeof(*scope->untagged_types.entries));
-    if (scope->untagged_types.entries == NULL)
+    if (!init_scope_types(&scope->tagged_types))
     {
         scope_free(scope);
 
         return NULL;
     }
 
-    scope->typedefs.capacity = 4;
-    scope->typedefs.entries = calloc(scope->typedefs.capacity, sizeof(*scope->typedefs.entries));
-    if (scope->typedefs.entries == NULL)
+    if (!init_scope_types(&scope->untagged_types))
+    {
+        scope_free(scope);
+
+        return NULL;
+    }
+
+    if (!init_scope_typedefs(&scope->typedefs))
     {
         scope_free(scope);
 
@@ -81,6 +105,7 @@ free_scope_types(scope_types_t * list)
     for (size_t i = 0; i < list->count; ++i)
     {
         type_info_t * entry = &list->entries[i];
+
         free(entry->tag);
         for (size_t j = 0; j < entry->field_count; ++j)
         {
@@ -97,6 +122,7 @@ free_scope_typedefs(scope_typedefs_t * list)
     for (size_t i = 0; i < list->count; ++i)
     {
         scope_typedef_entry_t * entry = &list->entries[i];
+
         free(entry->name);
         free(entry->tag);
     }
@@ -110,6 +136,7 @@ free_scope_symbols(scope_symbols_t * list)
     for (size_t i = 0; i < list->count; ++i)
     {
         symbol_t * symbol = &list->symbols[i];
+
         free(symbol->name);
         free(symbol->tag_name);
     }
@@ -144,47 +171,22 @@ free_type_info(type_info_t * info)
     }
 
     free(info->tag);
-    if (info->fields)
+    for (size_t i = 0; i < info->field_count; ++i)
     {
-        for (size_t i = 0; i < info->field_count; ++i)
-        {
-            free(info->fields[i].name);
-        }
-        free(info->fields);
+        free(info->fields[i].name);
     }
+    free(info->fields);
 }
 
 type_info_t const *
 add_info_to_list(scope_types_t * list, type_info_t info)
 {
-    if (info.tag != NULL && info.tag[0] == '\0')
-    {
-        /* Check if tag already exists */
-        for (size_t i = 0; i < list->count; ++i)
-        {
-            type_info_t * entry = &list->entries[i];
-
-            if (entry->tag != NULL && strcmp(entry->tag, info.tag) == 0)
-            {
-                /* Same tag exists - check if kind matches */
-                if (entry->kind != info.kind)
-                {
-                    /* Kind mismatch - silently fail (keep original) */
-                    return NULL;
-                }
-                /* Same kind - update the entry */
-                free_type_info(entry);
-                *entry = info;
-                return entry;
-            }
-        }
-    }
-
-    /* New entry - add to array */
     if (list->count >= list->capacity)
     {
         size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
+
         type_info_t * new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
+
         if (new_entries == NULL)
         {
             return NULL;
@@ -197,6 +199,7 @@ add_info_to_list(scope_types_t * list, type_info_t info)
     debug_info(
         "Added type info: tag='%s', kind=%d, total count=%zu", info.tag ? info.tag : "(null)", info.kind, list->count
     );
+
     return &list->entries[list->count - 1];
 }
 

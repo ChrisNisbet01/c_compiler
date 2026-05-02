@@ -30,7 +30,11 @@ labels_list_create(LLVMContextRef context, LLVMBuilderRef builder)
     labels->builder = builder;
     labels->capacity = 16;
     labels->label = calloc(labels->capacity, sizeof(*labels->label));
-    labels->count = 0;
+    if (labels->label == NULL)
+    {
+        free(labels);
+        return NULL;
+    }
 
     return labels;
 }
