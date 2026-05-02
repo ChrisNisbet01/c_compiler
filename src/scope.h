@@ -96,15 +96,20 @@ typedef struct symbol
     char * tag_name;
 } symbol_t;
 
+typedef struct
+{
+    symbol_t * symbols;
+    size_t count;
+    size_t capacity;
+} scope_symbols_t;
+
 // --- Scope structure for hierarchical symbol tables ---
 typedef struct scope
 {
     LLVMContextRef context;
     LLVMBuilderRef builder;
-    symbol_t * symbols;
-    size_t symbol_count;
-    size_t symbol_capacity;
 
+    scope_symbols_t symbols;
     scope_types_t tagged_types;   // Tagged struct/union/enum types
     scope_types_t untagged_types; // Anonymous struct/union/enum types
     scope_typedefs_t typedefs;    // Typedef names

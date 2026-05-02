@@ -22,18 +22,21 @@ scope_t *
 scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 {
     scope_t * scope = calloc(1, sizeof(*scope));
+
     if (scope == NULL)
     {
         return NULL;
     }
+
     scope->context = context;
     scope->builder = builder;
 
-    scope->symbol_capacity = 16;
-    scope->symbols = calloc(scope->symbol_capacity, sizeof(*scope->symbols));
-    if (!scope->symbols)
+    scope->symbols.capacity = 16;
+    scope->symbols.symbols = calloc(scope->symbols.capacity, sizeof(*scope->symbols.symbols));
+    if (!scope->symbols.symbols)
     {
-        free(scope);
+        scope_free(scope);
+
         return NULL;
     }
 
@@ -42,36 +45,75 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 
     scope->tagged_types.capacity = 4;
     scope->tagged_types.entries = calloc(scope->tagged_types.capacity, sizeof(*scope->tagged_types.entries));
-    if (!scope->tagged_types.entries)
+    if (scope->tagged_types.entries == NULL)
     {
-        free(scope->symbols);
-        free(scope);
+        scope_free(scope);
+
         return NULL;
     }
 
     scope->untagged_types.capacity = 4;
     scope->untagged_types.entries = calloc(scope->untagged_types.capacity, sizeof(*scope->untagged_types.entries));
-    if (!scope->untagged_types.entries)
+    if (scope->untagged_types.entries == NULL)
     {
-        free(scope->tagged_types.entries);
-        free(scope->symbols);
-        free(scope);
+        scope_free(scope);
+
         return NULL;
     }
 
     scope->typedefs.capacity = 4;
     scope->typedefs.entries = calloc(scope->typedefs.capacity, sizeof(*scope->typedefs.entries));
-    if (!scope->typedefs.entries)
+    if (scope->typedefs.entries == NULL)
     {
-        free(scope->untagged_types.entries);
-        free(scope->tagged_types.entries);
-        free(scope->symbols);
-        free(scope);
+        scope_free(scope);
+
         return NULL;
     }
 
     scope->parent = parent;
+
     return scope;
+}
+
+static void
+free_scope_types(scope_types_t * list)
+{
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        type_info_t * entry = &list->entries[i];
+        free(entry->tag);
+        for (size_t j = 0; j < entry->field_count; ++j)
+        {
+            free(entry->fields[j].name);
+        }
+        free(entry->fields);
+    }
+    free(list->entries);
+}
+
+static void
+free_scope_typedefs(scope_typedefs_t * list)
+{
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        scope_typedef_entry_t * entry = &list->entries[i];
+        free(entry->name);
+        free(entry->tag);
+    }
+    free(list->entries);
+}
+
+static void
+free_scope_symbols(scope_symbols_t * list)
+{
+    /* Free all symbol names and struct names in this scope */
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        symbol_t * symbol = &list->symbols[i];
+        free(symbol->name);
+        free(symbol->tag_name);
+    }
+    free(list->symbols);
 }
 
 void
@@ -82,40 +124,10 @@ scope_free(scope_t * scope)
         return;
     }
 
-    /* Free all symbol names and struct names in this scope */
-    for (size_t i = 0; i < scope->symbol_count; ++i)
-    {
-        symbol_t * symbol = &scope->symbols[i];
-        free(symbol->name);
-        free(symbol->tag_name);
-    }
-    free(scope->symbols);
-
-    /* Free all local types (structs/unions) in this scope */
-    for (size_t i = 0; i < scope->tagged_types.count; ++i)
-    {
-        type_info_t * entry = &scope->tagged_types.entries[i];
-        free(entry->tag);
-        for (size_t j = 0; j < entry->field_count; ++j)
-        {
-            free(entry->fields[j].name);
-        }
-        free(entry->fields);
-    }
-    free(scope->tagged_types.entries);
-
-    /* Free all untagged structs in this scope */
-    free(scope->untagged_types.entries);
-
-    /* Free all typedefs in this scope */
-    for (size_t i = 0; i < scope->typedefs.count; ++i)
-    {
-        scope_typedef_entry_t * entry = &scope->typedefs.entries[i];
-        free(entry->name);
-        free(entry->tag);
-    }
-    free(scope->typedefs.entries);
-
+    free_scope_symbols(&scope->symbols);
+    free_scope_types(&scope->tagged_types);
+    free_scope_types(&scope->untagged_types);
+    free_scope_typedefs(&scope->typedefs);
     labels_list_destroy(scope->labels);
 
     free(scope);
@@ -592,21 +604,23 @@ add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue v
     debug_info("%s: name: %s, tag: %s", __func__, name, tag);
     scope_t * scope = ctx->current_scope;
 
-    if (scope->symbol_count >= scope->symbol_capacity)
+    if (scope->symbols.count >= scope->symbols.capacity)
     {
-        size_t new_cap = scope->symbol_capacity == 0 ? 16 : scope->symbol_capacity * 2;
-        symbol_t * new_symbols = realloc(scope->symbols, new_cap * sizeof(*new_symbols));
-        if (!new_symbols)
+        size_t new_cap = scope->symbols.capacity == 0 ? 16 : scope->symbols.capacity * 2;
+        symbol_t * new_symbols = realloc(scope->symbols.symbols, new_cap * sizeof(*new_symbols));
+        if (new_symbols == NULL)
+        {
             return;
-        scope->symbols = new_symbols;
-        scope->symbol_capacity = new_cap;
+        }
+        scope->symbols.symbols = new_symbols;
+        scope->symbols.capacity = new_cap;
     }
-    symbol_t * new_symbol = &scope->symbols[scope->symbol_count];
+    symbol_t * new_symbol = &scope->symbols.symbols[scope->symbols.count];
 
     new_symbol->name = strdup(name);
     new_symbol->value = value;
     new_symbol->tag_name = tag ? strdup(tag) : NULL;
-    scope->symbol_count++;
+    scope->symbols.count++;
     debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
     dump_typed_value("added symbol value", value);
 }
@@ -627,9 +641,9 @@ scope_find_symbol_tag_name(scope_t const * scope, char const * name)
 
     while (scope != NULL)
     {
-        for (size_t i = 0; i < scope->symbol_count; ++i)
+        for (size_t i = 0; i < scope->symbols.count; ++i)
         {
-            symbol_t * symbol = &scope->symbols[i];
+            symbol_t * symbol = &scope->symbols.symbols[i];
             if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
             {
                 return symbol->tag_name;
@@ -659,9 +673,9 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
     while (scope != NULL && name != NULL)
     {
         debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
-        for (size_t i = scope->symbol_count; i > 0; --i)
+        for (size_t i = scope->symbols.count; i > 0; --i)
         {
-            symbol_t * symbol = &scope->symbols[i - 1];
+            symbol_t * symbol = &scope->symbols.symbols[i - 1];
             if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
             {
                 dump_typed_value("Found symbol entry value", symbol->value);
