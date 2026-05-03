@@ -42,3 +42,11 @@ unsigned get_fp_width(LLVMTypeRef type);
 uint64_t get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type);
 
 uint64_t get_type_size(ir_generator_ctx_t * ctx, TypeDescriptor const * type);
+
+/**
+ * @brief Checks if two function types have matching signatures.
+ * @param type1 First function type.
+ * @param type2 Second function type.
+ * @return true if signatures match, false otherwise.
+ */
+bool function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2);

@@ -101,7 +101,7 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
     debug_info("Adding tagged type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag, info.kind);
     scope_types_t * tagged = &scope->tagged_types;
 
-    return add_info_to_list(tagged, info);
+    return scope_types_add_entry(tagged, info);
 }
 
 type_info_t const *
@@ -113,7 +113,7 @@ scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
     }
 
     scope_types_t * untagged = &scope->untagged_types;
-    type_info_t const * result = add_info_to_list(untagged, info);
+    type_info_t const * result = scope_types_add_entry(untagged, info);
     if (result != NULL && untagged_index != NULL)
     {
         *untagged_index = untagged->count - 1;
@@ -123,12 +123,12 @@ scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
 
 // --- Tagged type lookup ---
 
-type_info_t *
-scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
+static type_info_t *
+scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind)
 {
     while (scope != NULL && tag != NULL)
     {
-        type_info_t * entry = scope_types_lookup_entry_by_tag(&scope->tagged_types, tag);
+        type_info_t * entry = scope_types_lookup_entry_by_tag_and_kind(&scope->tagged_types, tag, kind);
 
         if (entry != NULL)
         {
@@ -142,14 +142,8 @@ scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
 type_info_t *
 scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind)
 {
-    type_info_t * info = scope_lookup_tagged_entry_by_tag(scope, tag);
+    type_info_t * info = scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, kind);
     if (info == NULL)
-    {
-        return NULL;
-    }
-
-    /* Found by tag - verify kind matches */
-    if (info->kind != kind)
     {
         return NULL;
     }
@@ -197,6 +191,7 @@ scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
 {
     debug_info("Finding untagged type: index=%d, kind=%d", index, kind);
     type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, index);
+
     if (entry == NULL)
     {
         debug_info("Untagged type not found for index: %d", index);
@@ -232,43 +227,6 @@ scope_find_untagged_enum(scope_t const * scope, int index)
 // --- LLVM type lookup ---
 
 type_info_t *
-scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type)
-{
-    while (scope != NULL && type != NULL)
-    {
-        debug_info("%s: Searching for LLVMTypeRef %p", __func__, (void *)type);
-
-        for (size_t i = 0; i < scope->tagged_types.count; ++i)
-        {
-            type_info_t * entry = &scope->tagged_types.entries[i];
-            debug_info("%s: Checking tagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
-            if (entry->type_desc->llvm_type == type)
-            {
-                debug_info("%s: Found match in tagged_types.", __func__);
-                return entry;
-            }
-        }
-
-        for (size_t i = 0; i < scope->untagged_types.count; ++i)
-        {
-            type_info_t * entry = &scope->untagged_types.entries[i];
-            debug_info("%s: Checking untagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
-            if (entry->type_desc->llvm_type == type)
-            {
-                debug_info("%s: Found match in untagged_types.", __func__);
-                return entry;
-            }
-        }
-
-        debug_info("%s: Searching in parent scope.", __func__);
-        scope = scope->parent;
-    }
-
-    debug_info("%s: Type %p not found in any scope.", __func__, (void *)type);
-    return NULL;
-}
-
-type_info_t *
 scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc)
 {
     if (type_desc == NULL)
@@ -277,39 +235,27 @@ scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const *
     }
     while (scope != NULL)
     {
-        debug_info(
-            "%s: Searching for LLVMTypeRef %d",
-            __func__,
-            (type_desc != NULL && type_desc->llvm_type != NULL) ? (int)LLVMGetTypeKind(type_desc->llvm_type) : -1
-        );
+        type_info_t * entry;
 
-        for (size_t i = 0; i < scope->tagged_types.count; ++i)
+        entry = scope_types_lookup_entry_by_type_descriptor(&scope->tagged_types, type_desc);
+        if (entry != NULL)
         {
-            type_info_t * entry = &scope->tagged_types.entries[i];
-            debug_info("%s: Checking tagged_type[%zu]", __func__, i);
-            if (entry->type_desc == type_desc)
-            {
-                debug_info("%s: Found match in tagged_types.", __func__);
-                return entry;
-            }
+            debug_info("%s: Found tagged type.", __func__);
+            return entry;
+        }
+        entry = scope_types_lookup_entry_by_type_descriptor(&scope->untagged_types, type_desc);
+        if (entry != NULL)
+        {
+            debug_info("%s: Found untagged type.", __func__);
+            return entry;
         }
 
-        for (size_t i = 0; i < scope->untagged_types.count; ++i)
-        {
-            type_info_t * entry = &scope->untagged_types.entries[i];
-            debug_info("%s: Checking untagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
-            if (entry->type_desc == type_desc)
-            {
-                debug_info("%s: Found match in untagged_types.", __func__);
-                return entry;
-            }
-        }
-
-        debug_info("%s: Searching in parent scope.", __func__);
         scope = scope->parent;
     }
 
-    debug_info("%s: Type descriptor %d not found in any scope.", __func__, LLVMGetTypeKind(type_desc->llvm_type));
+    debug_info("%s: Type descriptor not found.", __func__);
+    dump_type_descriptor(__func__, type_desc, DEBUG_LEVEL_INFO);
+
     return NULL;
 }
 
@@ -328,25 +274,13 @@ scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
             ? (int)LLVMGetTypeKind(entry.type_desc->pointee->llvm_type)
             : -1
     );
-    ;
+
     if (scope == NULL)
     {
         return;
     }
 
-    if (scope->typedefs.count >= scope->typedefs.capacity)
-    {
-        size_t new_cap = scope->typedefs.capacity == 0 ? 4 : scope->typedefs.capacity * 2;
-        scope_typedef_entry_t * new_entries = realloc(scope->typedefs.entries, new_cap * sizeof(*new_entries));
-        if (new_entries == NULL)
-        {
-            return;
-        }
-        scope->typedefs.entries = new_entries;
-        scope->typedefs.capacity = new_cap;
-    }
-
-    scope->typedefs.entries[scope->typedefs.count++] = entry;
+    scope_typedefs_add_entry(&scope->typedefs, entry);
 }
 
 void
@@ -394,13 +328,10 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
 {
     while (scope != NULL && name != NULL)
     {
-        for (size_t i = 0; i < scope->typedefs.count; ++i)
+        scope_typedef_entry_t * entry = scope_typedefs_lookup_entry_by_name(&scope->typedefs, name);
+        if (entry != NULL)
         {
-            scope_typedef_entry_t * entry = &scope->typedefs.entries[i];
-            if (entry->name && strcmp(entry->name, name) == 0)
-            {
-                return entry;
-            }
+            return entry;
         }
         scope = scope->parent;
     }
@@ -414,35 +345,17 @@ scope_lookup_kind_by_type_descriptor(scope_t const * scope_in, TypeDescriptor co
 
     while (scope != NULL && type_desc != NULL)
     {
-        for (size_t i = 0; i < scope->typedefs.count; ++i)
+        scope_typedef_entry_t * typedef_entry
+            = scope_typedefs_lookup_entry_by_type_descriptor(&scope->typedefs, type_desc);
+        if (typedef_entry != NULL)
         {
-            scope_typedef_entry_t * entry = &scope->typedefs.entries[i];
-            if (type_desc == entry->type_desc)
-            {
-                return entry->kind;
-            }
+            return typedef_entry->kind;
         }
 
-        for (size_t i = 0; i < scope->tagged_types.count; ++i)
+        type_info_t * type_entry = scope_find_type_by_type_descriptor(scope, type_desc);
+        if (type_entry != NULL)
         {
-            type_info_t * entry = &scope->tagged_types.entries[i];
-            debug_info("%s: Checking tagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
-            if (entry->type_desc == type_desc)
-            {
-                debug_info("%s: Found match in tagged_types.", __func__);
-                return entry->kind;
-            }
-        }
-
-        for (size_t i = 0; i < scope->untagged_types.count; ++i)
-        {
-            type_info_t * entry = &scope->untagged_types.entries[i];
-            debug_info("%s: Checking untagged_type[%zu].type = %p", __func__, i, (void *)entry->type_desc->llvm_type);
-            if (entry->type_desc == type_desc)
-            {
-                debug_info("%s: Found match in untagged_types.", __func__);
-                return entry->kind;
-            }
+            return type_entry->kind;
         }
 
         scope = scope->parent;
@@ -482,25 +395,32 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
         /* Look up the struct by tag name */
         info = scope_find_tagged_struct(scope, entry->tag);
         break;
+
     case TYPE_KIND_UNTAGGED_STRUCT:
         info = scope_find_untagged_struct(scope, entry->untagged_index);
         break;
+
     case TYPE_KIND_UNION:
         /* Look up the union by tag name */
         info = scope_find_tagged_union(scope, entry->tag);
         break;
+
     case TYPE_KIND_UNTAGGED_UNION:
         info = scope_find_untagged_union(scope, entry->untagged_index);
         break;
+
     case TYPE_KIND_ENUM:
         info = scope_find_tagged_enum(scope, entry->tag);
         break;
+
     case TYPE_KIND_UNTAGGED_ENUM:
         info = scope_find_untagged_enum(scope, entry->untagged_index);
         break;
+
     case TYPE_KIND_BUILTIN:
-        debug_info("Typedef entry has unknown kind, returning direct type_desc.");
-        return entry->type_desc;
+        debug_error("Typedef entry of builtin type has no type descriptor.");
+        return NULL;
+
     default:
         debug_error("%s: Unsupported typedef kind: %d", __func__, entry->kind);
         return NULL;
@@ -512,34 +432,26 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 // --- Symbol management ---
 
 void
-add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag)
+scope_add_symbol_with_tag(scope_t * scope, char const * name, TypedValue value, char const * tag)
 {
-    if (ctx == NULL || name == NULL || value.value == NULL || ctx->current_scope == NULL)
+    if (scope == NULL || name == NULL || value.value == NULL)
     {
+        debug_error("%s: invalid parameters");
         return;
     }
     debug_info("%s: name: %s, tag: %s", __func__, name, tag);
-    scope_t * scope = ctx->current_scope;
+    scope_symbols_add_entry_with_tag(&scope->symbols, name, value, tag);
+}
 
-    if (scope->symbols.count >= scope->symbols.capacity)
+void
+add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag)
+{
+    if (ctx == NULL)
     {
-        size_t new_cap = scope->symbols.capacity == 0 ? 16 : scope->symbols.capacity * 2;
-        symbol_t * new_symbols = realloc(scope->symbols.symbols, new_cap * sizeof(*new_symbols));
-        if (new_symbols == NULL)
-        {
-            return;
-        }
-        scope->symbols.symbols = new_symbols;
-        scope->symbols.capacity = new_cap;
+        return;
     }
-    symbol_t * new_symbol = &scope->symbols.symbols[scope->symbols.count];
 
-    new_symbol->name = strdup(name);
-    new_symbol->value = value;
-    new_symbol->tag_name = tag ? strdup(tag) : NULL;
-    scope->symbols.count++;
-    debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
-    dump_typed_value("added symbol value", value);
+    scope_add_symbol_with_tag(ctx->current_scope, name, value, tag);
 }
 
 void
@@ -548,29 +460,40 @@ add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value)
     add_symbol_with_struct(ctx, name, value, NULL);
 }
 
-static char const *
-scope_find_symbol_tag_name(scope_t const * scope, char const * name)
+static symbol_t *
+scope_find_symbol_entry(scope_t const * scope, char const * name)
 {
     if (name == NULL)
     {
         return NULL;
     }
 
-    while (scope != NULL)
+    while (scope != NULL && name != NULL)
     {
-        for (size_t i = 0; i < scope->symbols.count; ++i)
+        debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
+        symbol_t * symbol = scope_symbols_lookup_entry_by_name(&scope->symbols, name);
+        if (symbol != NULL)
         {
-            symbol_t * symbol = &scope->symbols.symbols[i];
-            if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
-            {
-                return symbol->tag_name;
-            }
+            return symbol;
         }
 
         scope = scope->parent;
     }
 
+    debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
+
     return NULL;
+}
+
+static char const *
+scope_find_symbol_tag_name(scope_t const * scope, char const * name)
+{
+    symbol_t * symbol = scope_find_symbol_entry(scope, name);
+    if (symbol == NULL)
+    {
+        return NULL;
+    }
+    return symbol->tag_name;
 }
 
 char const *
@@ -582,27 +505,6 @@ find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name)
     }
 
     return scope_find_symbol_tag_name(ctx->current_scope, name);
-}
-
-static symbol_t *
-scope_find_symbol_entry(scope_t const * scope, char const * name)
-{
-    while (scope != NULL && name != NULL)
-    {
-        debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
-        for (size_t i = scope->symbols.count; i > 0; --i)
-        {
-            symbol_t * symbol = &scope->symbols.symbols[i - 1];
-            if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
-            {
-                dump_typed_value("Found symbol entry value", symbol->value);
-                return symbol;
-            }
-        }
-        scope = scope->parent;
-    }
-    debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
-    return NULL;
 }
 
 symbol_t const *
@@ -676,108 +578,6 @@ scope_pop(ir_generator_ctx_t * ctx)
     ctx->current_scope = old_scope->parent;
     old_scope->parent = NULL; // Detach old scope from context before freeing
     scope_free(old_scope);
-}
-
-// --- Function declaration tracking ---
-
-bool
-function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2)
-{
-    return type1 == type2;
-}
-
-struct function_decl_entry *
-find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
-{
-    if (ctx == NULL || name == NULL)
-    {
-        return NULL;
-    }
-    debug_info("%s: %s", __func__, name);
-
-    for (size_t i = 0; i < ctx->function_declarations.count; ++i)
-    {
-        struct function_decl_entry * entry = &ctx->function_declarations.entries[i];
-        if (entry->name != NULL && strcmp(entry->name, name) == 0)
-        {
-            debug_info("found");
-            LLVMValueRef func = LLVMGetNamedFunction(ctx->module, name);
-            if (entry->func.value == NULL)
-            {
-                entry->func = create_typed_value(func, entry->func.type_info, false);
-            }
-
-            return entry;
-        }
-    }
-
-    debug_info("not found");
-    return NULL;
-}
-
-bool
-add_function_declaration_impl(
-    ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition, int line
-)
-{
-    if (ctx == NULL || name == NULL || func.type_info == NULL)
-    {
-        debug_error("%s: Invalid arguments", __func__);
-
-        return false;
-    }
-
-    debug_info("%s: name='%s' has_definition=%d line: %u", __func__, name, has_definition, line);
-    dump_typed_value("func", func);
-
-    // Check if function already exists
-    struct function_decl_entry * existing = find_function_declaration(ctx, name);
-
-    if (existing != NULL)
-    {
-        // Function already declared - check for signature mismatch
-        if (!function_signatures_match(
-                existing->func.type_info->pointee->llvm_type, func.type_info->pointee->llvm_type
-            ))
-        {
-            return true; // Conflict detected
-        }
-
-        // Check for redefinition
-        if (existing->has_definition && has_definition)
-        {
-            return true; // Redefinition detected
-        }
-
-        // Update definition status
-        if (has_definition && !existing->has_definition)
-        {
-            existing->has_definition = true;
-        }
-
-        return false; // No conflict
-    }
-
-    // Add new function declaration
-    if (ctx->function_declarations.count >= ctx->function_declarations.capacity)
-    {
-        size_t new_cap = ctx->function_declarations.capacity == 0 ? 4 : ctx->function_declarations.capacity * 2;
-        struct function_decl_entry * new_entries
-            = realloc(ctx->function_declarations.entries, new_cap * sizeof(*new_entries));
-        if (new_entries == NULL)
-        {
-            return false;
-        }
-        ctx->function_declarations.entries = new_entries;
-        ctx->function_declarations.capacity = new_cap;
-    }
-
-    ctx->function_declarations.entries[ctx->function_declarations.count].name = strdup(name);
-    ctx->function_declarations.entries[ctx->function_declarations.count].func = func;
-    ctx->function_declarations.entries[ctx->function_declarations.count].has_definition = has_definition;
-    ctx->function_declarations.count++;
-
-    return false;
 }
 
 LLVMBasicBlockRef

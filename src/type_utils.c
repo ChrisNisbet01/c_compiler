@@ -495,3 +495,9 @@ get_type_size(ir_generator_ctx_t * ctx, TypeDescriptor const * type)
     debug_info("type size: %llu", size_in_bytes);
     return size_in_bytes;
 }
+
+bool
+function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2)
+{
+    return type1 == type2;
+}

@@ -92,22 +92,29 @@ typedef struct
 
 void scope_types_free(scope_types_t * list);
 
+bool scope_types_init(scope_types_t * list);
+
+type_info_t const * scope_types_add_entry(scope_types_t * list, type_info_t info);
+
+type_info_t * scope_types_lookup_entry_by_tag_and_kind(scope_types_t const * list, char const * tag, type_kind_t kind);
+
+type_info_t * scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDescriptor const * type_desc);
+
+scope_typedef_entry_t * scope_typedefs_lookup_entry_by_name(scope_typedefs_t const * list, char const * name);
+
 void scope_typedefs_free(scope_typedefs_t * list);
+
+bool scope_typedefs_init(scope_typedefs_t * list);
+
+void scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry);
+
+scope_typedef_entry_t *
+scope_typedefs_lookup_entry_by_type_descriptor(scope_typedefs_t const * list, TypeDescriptor const * type_desc);
 
 void scope_symbols_free(scope_symbols_t * list);
 
 bool scope_symbols_init(scope_symbols_t * list);
 
-bool scope_types_init(scope_types_t * list);
+symbol_t * scope_symbols_lookup_entry_by_name(scope_symbols_t const * list, char const * name);
 
-bool scope_typedefs_init(scope_typedefs_t * list);
-
-/**
- * @brief Adds a type_info to a scope_types_t list.
- * @param list The list to add to.
- * @param info The type info to add.
- * @return Pointer to the added entry, or NULL on failure.
- */
-type_info_t const * add_info_to_list(scope_types_t * list, type_info_t info);
-
-type_info_t * scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag);
+void scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, TypedValue value, char const * tag);

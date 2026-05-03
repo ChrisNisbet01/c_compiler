@@ -58,6 +58,100 @@ static type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
+// --- Function declaration tracking ---
+
+static struct function_decl_entry *
+find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
+{
+    if (ctx == NULL || name == NULL)
+    {
+        return NULL;
+    }
+    debug_info("%s: %s", __func__, name);
+
+    for (size_t i = 0; i < ctx->function_declarations.count; ++i)
+    {
+        struct function_decl_entry * entry = &ctx->function_declarations.entries[i];
+        if (entry->name != NULL && strcmp(entry->name, name) == 0)
+        {
+            debug_info("found");
+            LLVMValueRef func = LLVMGetNamedFunction(ctx->module, name);
+            if (entry->func.value == NULL)
+            {
+                entry->func = create_typed_value(func, entry->func.type_info, false);
+            }
+
+            return entry;
+        }
+    }
+
+    debug_info("not found");
+    return NULL;
+}
+
+static bool
+add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition)
+{
+    if (ctx == NULL || name == NULL || func.type_info == NULL)
+    {
+        debug_error("%s: Invalid arguments", __func__);
+
+        return false;
+    }
+
+    debug_info("%s: name='%s' has_definition=%d", __func__, name, has_definition);
+    dump_typed_value("func", func);
+
+    // Check if function already exists
+    struct function_decl_entry * existing = find_function_declaration(ctx, name);
+
+    if (existing != NULL)
+    {
+        // Function already declared - check for signature mismatch
+        if (!function_signatures_match(
+                existing->func.type_info->pointee->llvm_type, func.type_info->pointee->llvm_type
+            ))
+        {
+            return true; // Conflict detected
+        }
+
+        // Check for redefinition
+        if (existing->has_definition && has_definition)
+        {
+            return true; // Redefinition detected
+        }
+
+        // Update definition status
+        if (has_definition && !existing->has_definition)
+        {
+            existing->has_definition = true;
+        }
+
+        return false; // No conflict
+    }
+
+    // Add new function declaration
+    if (ctx->function_declarations.count >= ctx->function_declarations.capacity)
+    {
+        size_t new_cap = ctx->function_declarations.capacity == 0 ? 4 : ctx->function_declarations.capacity * 2;
+        struct function_decl_entry * new_entries
+            = realloc(ctx->function_declarations.entries, new_cap * sizeof(*new_entries));
+        if (new_entries == NULL)
+        {
+            return false;
+        }
+        ctx->function_declarations.entries = new_entries;
+        ctx->function_declarations.capacity = new_cap;
+    }
+
+    ctx->function_declarations.entries[ctx->function_declarations.count].name = strdup(name);
+    ctx->function_declarations.entries[ctx->function_declarations.count].func = func;
+    ctx->function_declarations.entries[ctx->function_declarations.count].has_definition = has_definition;
+    ctx->function_declarations.count++;
+
+    return false;
+}
+
 // Helper wrapper for LLVMBuildStore with proper alignment
 static void
 aligned_store(

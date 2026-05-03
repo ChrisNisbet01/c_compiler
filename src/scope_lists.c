@@ -4,7 +4,7 @@
 #include <string.h>
 
 type_info_t const *
-add_info_to_list(scope_types_t * list, type_info_t info)
+scope_types_add_entry(scope_types_t * list, type_info_t info)
 {
     if (list->count >= list->capacity)
     {
@@ -29,7 +29,7 @@ add_info_to_list(scope_types_t * list, type_info_t info)
 }
 
 type_info_t *
-scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag)
+scope_types_lookup_entry_by_tag_and_kind(scope_types_t const * list, char const * tag, type_kind_t kind)
 {
     if (list == NULL || tag == NULL)
     {
@@ -40,8 +40,25 @@ scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag)
     {
         type_info_t * entry = &list->entries[i];
 
-        if (entry->tag != NULL && strcmp(entry->tag, tag) == 0)
+        if (entry->tag != NULL && strcmp(entry->tag, tag) == 0 && kind == entry->kind)
         {
+            return entry;
+        }
+    }
+
+    return NULL;
+}
+
+type_info_t *
+scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDescriptor const * type_desc)
+{
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        type_info_t * entry = &list->entries[i];
+        debug_info("%s: Checking tagged_type[%zu]", __func__, i);
+        if (entry->type_desc == type_desc)
+        {
+            debug_info("%s: Found match in tagged_types.", __func__);
             return entry;
         }
     }
@@ -77,6 +94,15 @@ scope_types_free(scope_types_t * list)
     free(list->entries);
 }
 
+bool
+scope_types_init(scope_types_t * list)
+{
+    list->capacity = 4;
+    list->entries = calloc(list->capacity, sizeof(*list->entries));
+
+    return list->entries != NULL;
+}
+
 void
 scope_typedefs_free(scope_typedefs_t * list)
 {
@@ -88,6 +114,63 @@ scope_typedefs_free(scope_typedefs_t * list)
         free((void *)entry->tag);
     }
     free(list->entries);
+}
+
+scope_typedef_entry_t *
+scope_typedefs_lookup_entry_by_name(scope_typedefs_t const * list, char const * name)
+{
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        scope_typedef_entry_t * entry = &list->entries[i];
+        if (entry->name && strcmp(entry->name, name) == 0)
+        {
+            return entry;
+        }
+    }
+
+    return NULL;
+}
+
+scope_typedef_entry_t *
+scope_typedefs_lookup_entry_by_type_descriptor(scope_typedefs_t const * list, TypeDescriptor const * type_desc)
+{
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        scope_typedef_entry_t * entry = &list->entries[i];
+        if (type_desc == entry->type_desc)
+        {
+            return entry;
+        }
+    }
+
+    return NULL;
+}
+
+bool
+scope_typedefs_init(scope_typedefs_t * list)
+{
+    list->capacity = 4;
+    list->entries = calloc(list->capacity, sizeof(*list->entries));
+
+    return list->entries != NULL;
+}
+
+void
+scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
+{
+    if (list->count >= list->capacity)
+    {
+        size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
+        scope_typedef_entry_t * new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
+        if (new_entries == NULL)
+        {
+            return;
+        }
+        list->entries = new_entries;
+        list->capacity = new_cap;
+    }
+
+    list->entries[list->count++] = entry;
 }
 
 void
@@ -113,20 +196,45 @@ scope_symbols_init(scope_symbols_t * list)
     return list->symbols != NULL;
 }
 
-bool
-scope_types_init(scope_types_t * list)
+void
+scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, TypedValue value, char const * tag)
 {
-    list->capacity = 4;
-    list->entries = calloc(list->capacity, sizeof(*list->entries));
+    if (list->count >= list->capacity)
+    {
+        size_t new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
+        symbol_t * new_symbols = realloc(list->symbols, new_cap * sizeof(*new_symbols));
 
-    return list->entries != NULL;
+        if (new_symbols == NULL)
+        {
+            return;
+        }
+        list->symbols = new_symbols;
+        list->capacity = new_cap;
+    }
+    symbol_t * new_symbol = &list->symbols[list->count];
+
+    new_symbol->name = strdup(name);
+    new_symbol->value = value;
+    new_symbol->tag_name = tag ? strdup(tag) : NULL;
+    list->count++;
+
+    debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
+    dump_typed_value("added symbol value", value);
 }
 
-bool
-scope_typedefs_init(scope_typedefs_t * list)
+symbol_t *
+scope_symbols_lookup_entry_by_name(scope_symbols_t const * list, char const * name)
 {
-    list->capacity = 4;
-    list->entries = calloc(list->capacity, sizeof(*list->entries));
+    for (size_t i = list->count; i > 0; --i)
+    {
+        symbol_t * symbol = &list->symbols[i - 1];
 
-    return list->entries != NULL;
+        if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
+        {
+            dump_typed_value("Found symbol entry value", symbol->value);
+            return symbol;
+        }
+    }
+
+    return NULL;
 }

@@ -163,14 +163,6 @@ type_info_t const * scope_find_untagged_enum(scope_t const * scope, int index);
  * @param type The LLVM type to search for.
  * @return Pointer to the type info, or NULL if not found.
  */
-type_info_t * scope_find_type_by_llvm_type(scope_t const * scope, LLVMTypeRef type);
-
-/**
- * @brief Finds a type by its LLVM type reference.
- * @param scope The scope to search.
- * @param type The LLVM type to search for.
- * @return Pointer to the type info, or NULL if not found.
- */
 type_info_t * scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc);
 
 // --- Typedef management ---
@@ -261,14 +253,6 @@ void scope_pop(ir_generator_ctx_t * ctx);
 // --- Internal lookup helpers (for use within scope.c) ---
 
 /**
- * @brief Looks up a tagged entry by tag name (internal helper).
- * @param scope The scope to search.
- * @param tag The tag name to search for.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t * scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag);
-
-/**
  * @brief Looks up an untagged entry by index (internal helper).
  * @param scope The scope to search.
  * @param index The index to search for.
@@ -287,33 +271,5 @@ scope_typedef_entry_t * scope_lookup_typedef_entry_by_name(scope_t const * scope
 type_kind_t scope_lookup_kind_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc);
 
 // --- Function declaration tracking ---
-
-/**
- * @brief Adds or updates a function declaration in the context.
- * @param ctx The IR generator context.
- * @param name The function name.
- * @param type The function type.
- * @param has_definition True if this includes a function body.
- * @return true if a conflict was detected, false otherwise.
- */
-bool add_function_declaration_impl(
-    ir_generator_ctx_t * ctx, char const * name, TypedValue func, bool has_definition, int line
-);
-#define add_function_declaration(c, n, f, hd) add_function_declaration_impl((c), (n), (f), (hd), __LINE__)
-/**
- * @brief Finds a function declaration by name.
- * @param ctx The IR generator context.
- * @param name The function name.
- * @return Pointer to the function declaration entry, or NULL if not found.
- */
-struct function_decl_entry * find_function_declaration(ir_generator_ctx_t * ctx, char const * name);
-
-/**
- * @brief Checks if two function types have matching signatures.
- * @param type1 First function type.
- * @param type2 Second function type.
- * @return true if signatures match, false otherwise.
- */
-bool function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2);
 
 LLVMBasicBlockRef scope_get_or_create_label(scope_t const * scope, char const * label_name);
