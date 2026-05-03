@@ -1,3 +1,4 @@
+#include <stdio.h>
 
 // Minimal test case that should trigger arrow access
 typedef struct
