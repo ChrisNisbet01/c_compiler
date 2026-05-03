@@ -129,5 +129,7 @@ int emit_to_file(LLVMModuleRef module, char const * file_path, char const * marc
 
 type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 
+type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
+
 type_info_t const *
 register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union);

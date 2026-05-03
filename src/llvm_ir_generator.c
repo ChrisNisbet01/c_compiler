@@ -50,8 +50,6 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
 static type_info_t const *
 register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id);
 
-static type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
-
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
 // --- Function declaration tracking ---
@@ -1244,7 +1242,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     return generator_add_tagged_type(ctx, enum_info);
 }
 
-static type_info_t const *
+type_info_t const *
 register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
 {
     char const * tag = search_ast_for_type_tag(enum_node);

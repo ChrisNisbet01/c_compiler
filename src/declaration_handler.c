@@ -367,6 +367,17 @@ resolve_type_descriptor(
                 }
                 current = type_info->type_desc;
             }
+            else if (inner->type == AST_NODE_ENUM_DEFINITION)
+            {
+                type_info_t const * type_info = register_enum_definition(ctx, inner);
+                if (type_info == NULL)
+                {
+                    debug_error("%s: failed to register enum definition", __func__);
+                    ir_gen_error(&ctx->errors, inner, "Failed to register enum definition");
+                    return NULL;
+                }
+                current = type_info->type_desc;
+            }
             else if (
                 inner->type == AST_NODE_STRUCT_TYPE_REF || inner->type == AST_NODE_UNION_TYPE_REF
                 || inner->type == AST_NODE_ENUM_TYPE_REF
