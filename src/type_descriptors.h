@@ -1,5 +1,6 @@
 #pragma once
 
+#include "debug.h"
 #include "scope_lists.h"
 #include "type_qualifiers.h"
 #include "type_specifier.h"
@@ -147,3 +148,5 @@ bool is_void_return(TypeDescriptor const * desc);
 uint32_t get_type_alignment_desc(TypeDescriptor const * desc);
 
 uint64_t get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc);
+
+void dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level);

@@ -24,8 +24,6 @@ extern TypedValue NullTypedValue;
 
 void dump_typed_value(char const * label, TypedValue v);
 
-void dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level);
-
 TypedValue create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue);
 
 TypeDescriptor const * typed_value_get_descriptor(TypedValue const * tv);

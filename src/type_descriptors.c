@@ -825,11 +825,36 @@ get_type_alignment_desc(TypeDescriptor const * desc)
     }
 
     case NCC_TYPE_KIND_BUILTIN: /* Should have been caught by integer and float handling above. */
-        debug_warning("Unknown type kind %d for alignment, defaulting to 1", desc->kind);
+        debug_warning("Unknown builtin type kind %d for alignment, defaulting to 1", desc->kind);
         return 1;
 
     default:
         debug_warning("Unknown type kind %d for alignment, defaulting to 1", desc->kind);
         return 1;
     }
+}
+
+void
+dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level)
+{
+    if (desc == NULL)
+    {
+        return;
+    }
+
+    if (level < debug_get_level())
+    {
+        return;
+    }
+
+    fprintf(
+        stderr,
+        "TypeDescriptor: '%s', kind=%d, llvm_type_kind=%d\n",
+        name,
+        desc->kind,
+        desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1
+    );
+
+    type_specifier_dump(desc->specifiers, level);
+    type_qualifiers_dump(desc->qualifiers, level);
 }
