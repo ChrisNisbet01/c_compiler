@@ -1,7 +1,7 @@
 #pragma once
 
 #include "debug.h"
-#include "struct_members.h"
+#include "struct_bitfield_data.h"
 
 #include <llvm-c/Core.h>
 #include <stdbool.h>

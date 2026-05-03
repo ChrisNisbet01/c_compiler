@@ -1,5 +1,6 @@
 #pragma once
 
+#include "scope_lists.h"
 #include "type_qualifiers.h"
 #include "type_specifier.h"
 #include "type_utils.h"

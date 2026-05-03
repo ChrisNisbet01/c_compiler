@@ -21,6 +21,7 @@ add_executable(${app}
   llvm_ir_generator.c
   llvm_typed_value.c
   scope.c
+  scope_lists.c
   symbol_table.c
   type_descriptors.c
   type_qualifiers.c

@@ -16,6 +16,7 @@
 
 #include "labels.h"
 #include "llvm_typed_value.h"
+#include "scope_lists.h"
 #include "struct_members.h"
 #include "type_descriptors.h"
 #include "type_utils.h"
@@ -29,79 +30,6 @@
 #include <llvm-c/Core.h>
 
 typedef struct TypeDescriptor TypeDescriptor;
-
-// --- Type kind for tagged types and typedef entries ---
-typedef enum
-{
-    TYPE_KIND_BUILTIN,         // For typedefs that refer directly to builtin types (e.g., typedef int myint;)
-    TYPE_KIND_STRUCT,          // Tagged struct
-    TYPE_KIND_UNION,           // Tagged union
-    TYPE_KIND_UNTAGGED_STRUCT, // Untagged struct (anonymous)
-    TYPE_KIND_UNTAGGED_UNION,  // Untagged union (anonymous)
-    TYPE_KIND_ENUM,            // Tagged enum
-    TYPE_KIND_UNTAGGED_ENUM    // Untagged enum (anonymous)
-} type_kind_t;
-
-// --- Type info for tagged/untagged types ---
-typedef struct type_info
-{
-    char * tag;       // The tag name (e.g., "MyStruct"), or "" for anonymous structs/unions
-    type_kind_t kind; // TYPE_KIND_STRUCT, TYPE_KIND_UNION, or TYPE_KIND_ENUM
-    TypeDescriptor const * type_desc;
-    struct_field_t * fields;
-    size_t field_count;
-} type_info_t;
-
-// --- Types (structs/unions/enums) in a scope ---
-typedef struct scope_types
-{
-    type_info_t * entries;
-    size_t count;
-    size_t capacity;
-} scope_types_t;
-
-// --- Typedef entry ---
-typedef struct scope_typedef_entry
-{
-    char * name;                      // The typedef's own name
-    type_kind_t kind;                 // Which category this refers to
-    TypeDescriptor const * type_desc; /* For native types, nested typedefs and enums(e.g. int, char) */
-    char * tag;                       // For tagged kinds - which entry in struct/union/enum list
-    int untagged_index;               // For untagged kinds - index into untagged list, -1 otherwise
-} scope_typedef_entry_t;
-
-// --- Typedefs in a scope ---
-typedef struct scope_typedefs
-{
-    scope_typedef_entry_t * entries;
-    size_t count;
-    size_t capacity;
-} scope_typedefs_t;
-
-#define MAX_POINTER_INDIRECTION_LEVELS 8
-
-typedef struct pointer_qualifiers_t
-{
-    unsigned int level;
-    bool is_const[MAX_POINTER_INDIRECTION_LEVELS];    /* const at this level (index = deref level) */
-    bool is_volatile[MAX_POINTER_INDIRECTION_LEVELS]; /* volatile at this level */
-    bool is_const_on_pointee;                         /* true if const is on pointee type (e.g., const char *) */
-} pointer_qualifiers_t;
-
-// --- Symbol Table Management ---
-typedef struct symbol
-{
-    char * name;
-    TypedValue value;
-    char * tag_name;
-} symbol_t;
-
-typedef struct
-{
-    symbol_t * symbols;
-    size_t count;
-    size_t capacity;
-} scope_symbols_t;
 
 // --- Scope structure for hierarchical symbol tables ---
 typedef struct scope
@@ -139,20 +67,6 @@ scope_t * scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef 
 void scope_free(scope_t * scope);
 
 // --- Type management ---
-
-/**
- * @brief Frees the contents of a type_info_t structure.
- * @param info The type info to free.
- */
-void free_type_info(type_info_t * info);
-
-/**
- * @brief Adds a type_info to a scope_types_t list.
- * @param list The list to add to.
- * @param info The type info to add.
- * @return Pointer to the added entry, or NULL on failure.
- */
-type_info_t const * add_info_to_list(scope_types_t * list, type_info_t info);
 
 /**
  * @brief Adds a tagged type to a scope.

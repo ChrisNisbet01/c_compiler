@@ -18,33 +18,6 @@
 
 // --- Scope lifecycle ---
 
-static bool
-init_scope_symbols(scope_symbols_t * list)
-{
-    list->capacity = 16;
-    list->symbols = calloc(list->capacity, sizeof(*list->symbols));
-
-    return list->symbols != NULL;
-}
-
-static bool
-init_scope_types(scope_types_t * list)
-{
-    list->capacity = 4;
-    list->entries = calloc(list->capacity, sizeof(*list->entries));
-
-    return list->entries != NULL;
-}
-
-static bool
-init_scope_typedefs(scope_typedefs_t * list)
-{
-    list->capacity = 4;
-    list->entries = calloc(list->capacity, sizeof(*list->entries));
-
-    return list->entries != NULL;
-}
-
 scope_t *
 scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 {
@@ -58,7 +31,7 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
     scope->context = context;
     scope->builder = builder;
 
-    if (!init_scope_symbols(&scope->symbols))
+    if (!scope_symbols_init(&scope->symbols))
     {
         scope_free(scope);
 
@@ -73,21 +46,21 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
         return NULL;
     }
 
-    if (!init_scope_types(&scope->tagged_types))
+    if (!scope_types_init(&scope->tagged_types))
     {
         scope_free(scope);
 
         return NULL;
     }
 
-    if (!init_scope_types(&scope->untagged_types))
+    if (!scope_types_init(&scope->untagged_types))
     {
         scope_free(scope);
 
         return NULL;
     }
 
-    if (!init_scope_typedefs(&scope->typedefs))
+    if (!scope_typedefs_init(&scope->typedefs))
     {
         scope_free(scope);
 
@@ -99,50 +72,6 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
     return scope;
 }
 
-static void
-free_scope_types(scope_types_t * list)
-{
-    for (size_t i = 0; i < list->count; ++i)
-    {
-        type_info_t * entry = &list->entries[i];
-
-        free(entry->tag);
-        for (size_t j = 0; j < entry->field_count; ++j)
-        {
-            free(entry->fields[j].name);
-        }
-        free(entry->fields);
-    }
-    free(list->entries);
-}
-
-static void
-free_scope_typedefs(scope_typedefs_t * list)
-{
-    for (size_t i = 0; i < list->count; ++i)
-    {
-        scope_typedef_entry_t * entry = &list->entries[i];
-
-        free(entry->name);
-        free(entry->tag);
-    }
-    free(list->entries);
-}
-
-static void
-free_scope_symbols(scope_symbols_t * list)
-{
-    /* Free all symbol names and struct names in this scope */
-    for (size_t i = 0; i < list->count; ++i)
-    {
-        symbol_t * symbol = &list->symbols[i];
-
-        free(symbol->name);
-        free(symbol->tag_name);
-    }
-    free(list->symbols);
-}
-
 void
 scope_free(scope_t * scope)
 {
@@ -151,57 +80,16 @@ scope_free(scope_t * scope)
         return;
     }
 
-    free_scope_symbols(&scope->symbols);
-    free_scope_types(&scope->tagged_types);
-    free_scope_types(&scope->untagged_types);
-    free_scope_typedefs(&scope->typedefs);
+    scope_symbols_free(&scope->symbols);
+    scope_types_free(&scope->tagged_types);
+    scope_types_free(&scope->untagged_types);
+    scope_typedefs_free(&scope->typedefs);
     labels_list_destroy(scope->labels);
 
     free(scope);
 }
 
 // --- Type management ---
-
-void
-free_type_info(type_info_t * info)
-{
-    if (info == NULL)
-    {
-        return;
-    }
-
-    free(info->tag);
-    for (size_t i = 0; i < info->field_count; ++i)
-    {
-        free(info->fields[i].name);
-    }
-    free(info->fields);
-}
-
-type_info_t const *
-add_info_to_list(scope_types_t * list, type_info_t info)
-{
-    if (list->count >= list->capacity)
-    {
-        size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
-
-        type_info_t * new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
-
-        if (new_entries == NULL)
-        {
-            return NULL;
-        }
-        list->entries = new_entries;
-        list->capacity = new_cap;
-    }
-
-    list->entries[list->count++] = info;
-    debug_info(
-        "Added type info: tag='%s', kind=%d, total count=%zu", info.tag ? info.tag : "(null)", info.kind, list->count
-    );
-
-    return &list->entries[list->count - 1];
-}
 
 type_info_t const *
 scope_add_tagged_type(scope_t * scope, type_info_t info)
@@ -240,14 +128,11 @@ scope_lookup_tagged_entry_by_tag(scope_t const * scope, char const * tag)
 {
     while (scope != NULL && tag != NULL)
     {
-        for (size_t i = 0; i < scope->tagged_types.count; ++i)
-        {
-            type_info_t * entry = &scope->tagged_types.entries[i];
+        type_info_t * entry = scope_types_lookup_entry_by_tag(&scope->tagged_types, tag);
 
-            if (entry->tag && strcmp(entry->tag, tag) == 0)
-            {
-                return entry;
-            }
+        if (entry != NULL)
+        {
+            return entry;
         }
         scope = scope->parent;
     }
