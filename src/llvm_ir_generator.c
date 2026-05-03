@@ -899,9 +899,78 @@ register_tagged_struct_or_union_definition(
         return NULL;
     }
 
-    if (generator_find_type_descriptor_by_tag(ctx, tag) != NULL)
+    type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
+    if (existing != NULL)
     {
-        /* FIXME - Already registered. What about incomplete types? */
+        if (!existing->type_desc->struct_metadata.is_complete)
+        {
+            struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
+
+            if (members.num_members > 0)
+            {
+                existing->field_count = members.num_members;
+                existing->fields = malloc(members.num_members * sizeof(*members.members));
+                memcpy(existing->fields, members.members, members.num_members * sizeof(*members.members));
+                for (size_t i = 0; i < members.num_members; i++)
+                {
+                    if (existing->fields[i].name != NULL)
+                    {
+                        existing->fields[i].name = strdup(existing->fields[i].name);
+                    }
+                }
+            }
+
+            struct_field_t * last_field = &members.members[members.num_members - 1];
+            unsigned num_storage_units = last_field->bitfield.storage_index + 1;
+            LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+            if (field_types == NULL)
+            {
+                return existing;
+            }
+            int current_storage_unit = -1;
+            for (size_t i = 0; i < members.num_members; i++)
+            {
+                struct_field_t * field = &members.members[i];
+                if (field->bitfield.storage_index != (unsigned)current_storage_unit)
+                {
+                    current_storage_unit = (int)field->bitfield.storage_index;
+                    field_types[current_storage_unit] = field->type_desc->llvm_type;
+                }
+            }
+            LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
+            free(field_types);
+
+            existing->type_desc->struct_metadata.is_complete = true;
+
+            if (members.num_members > 0)
+            {
+                existing->type_desc->struct_metadata.members.num_members = members.num_members;
+                existing->type_desc->struct_metadata.members.members = malloc(
+                    sizeof(*existing->type_desc->struct_metadata.members.members) * members.num_members
+                );
+                memcpy(
+                    existing->type_desc->struct_metadata.members.members,
+                    members.members,
+                    members.num_members * sizeof(*members.members)
+                );
+                for (size_t i = 0; i < members.num_members; i++)
+                {
+                    if (existing->type_desc->struct_metadata.members.members[i].name != NULL)
+                    {
+                        existing->type_desc->struct_metadata.members.members[i].name
+                            = strdup(existing->type_desc->struct_metadata.members.members[i].name);
+                    }
+                }
+            }
+
+            for (size_t i = 0; i < members.num_members; i++)
+            {
+                free(members.members[i].name);
+            }
+            free(members.members);
+
+            return existing;
+        }
         return NULL;
     }
 
