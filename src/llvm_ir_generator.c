@@ -5,6 +5,8 @@
 #include "c_grammar_ast.h"
 #include "debug.h"
 #include "declaration_handler.h"
+#include "enum_evaluation.h"
+#include "generator_lists.h"
 #include "type_utils.h"
 
 // Helper function to get natural alignment for a type
@@ -26,17 +28,11 @@ static TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_n
 
 char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
 char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
-TypeDescriptor const * find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
-TypeDescriptor const * find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
 char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
 type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 bool is_function_suffix(c_grammar_node_t const * suffix);
 c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
 c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
-int evaluate_enum_value_assignment_expression(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
-);
-bool register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
 static type_info_t const * register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
@@ -112,12 +108,14 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
                 existing->func.type_info->pointee->llvm_type, func.type_info->pointee->llvm_type
             ))
         {
+            debug_warning("function signature mismatch");
             return true; // Conflict detected
         }
 
         // Check for redefinition
         if (existing->has_definition && has_definition)
         {
+            debug_warning("function redefinition");
             return true; // Redefinition detected
         }
 
@@ -148,6 +146,8 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
     ctx->function_declarations.entries[ctx->function_declarations.count].func = func;
     ctx->function_declarations.entries[ctx->function_declarations.count].has_definition = has_definition;
     ctx->function_declarations.count++;
+
+    debug_info("added function: %s, count now: %zu", name, ctx->function_declarations.count);
 
     return false;
 }
@@ -879,7 +879,7 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
         is_complete,
         members
     );
-    type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
+    type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
     if (registered == NULL)
     {
         free((void *)opaque.tag);
@@ -899,8 +899,9 @@ register_tagged_struct_or_union_definition(
         return NULL;
     }
 
-    if (find_type_descriptor_by_tag(ctx, tag) != NULL)
+    if (generator_find_type_descriptor_by_tag(ctx, tag) != NULL)
     {
+        /* FIXME - Already registered. What about incomplete types? */
         return NULL;
     }
 
@@ -948,7 +949,7 @@ register_tagged_struct_or_union_definition(
         &members
     );
 
-    type_info_t const * registered = scope_add_tagged_type(ctx->current_scope, opaque);
+    type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
     if (registered == NULL)
     {
         free((void *)opaque.tag);
@@ -1047,7 +1048,7 @@ add_untagged_struct_or_union_type(
         &members
     );
 
-    type_info_t const * registered = scope_add_untagged_type(ctx->current_scope, new_struct, new_type_id);
+    type_info_t const * registered = generator_add_untagged_type(ctx, new_struct, new_type_id);
     if (registered == NULL)
     {
         free((void *)new_struct.tag);
@@ -1149,7 +1150,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
-    return scope_add_untagged_type(ctx->current_scope, enum_info, new_enum_id);
+    return generator_add_untagged_type(ctx, enum_info, new_enum_id);
 }
 
 static type_info_t const *
@@ -1171,7 +1172,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
     enum_info.tag = strdup(tag);
 
-    return scope_add_tagged_type(ctx->current_scope, enum_info);
+    return generator_add_tagged_type(ctx, enum_info);
 }
 
 static type_info_t const *
@@ -1209,6 +1210,10 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
         ir_generator_dispose(ctx);
         return NULL;
     }
+
+    // Initialize error collection (any error will be fatal since max_errors=1)
+    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
+
     ctx->module = LLVMModuleCreateWithName(module_name);
     ctx->data_layout = LLVMGetModuleDataLayout(ctx->module);
 
@@ -1246,7 +1251,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
     }
 
     // Initialize with global scope
-    ctx->current_scope = scope_create(NULL, ctx->context, ctx->builder); // NULL parent = global scope
+    ctx->current_scope = generator_scope_create(ctx); // NULL parent = global scope
     if (!ctx->current_scope)
     {
         debug_error("Failed to create global scope.");
@@ -1272,7 +1277,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
         TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
         TypedValue val = create_typed_value(ptr, arr_desc, false);
-        add_symbol(ctx, "__FILE__", val);
+        generator_add_symbol(ctx, "__FILE__", val);
     }
 
     /* Create some builtins. */
@@ -1286,11 +1291,8 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
             .type_desc = char_ptr_desc,
         };
 
-        scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+        generator_add_typedef_entry(ctx, typedef_entry);
     }
-
-    // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
 
     if (ctx->generation_flags.generate_default_variables)
     {
@@ -1306,7 +1308,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
         TypeDescriptor const * ptr_desc
             = get_or_create_pointer_type(ctx->type_descriptors, void_desc, (TypeQualifier){0});
         TypedValue null_val = create_typed_value(global_null, ptr_desc, false);
-        add_symbol(ctx, "NULL", null_val);
+        generator_add_symbol(ctx, "NULL", null_val);
 
         // hack in a function definition for printf(), auto-declare as variadic returning i32
         // with no required arguments to support different call patterns
@@ -1337,7 +1339,7 @@ pop_all_scopes(ir_generator_ctx_t * ctx)
     // Free all scopes in the chain
     while (ctx->current_scope)
     {
-        scope_pop(ctx);
+        generator_scope_pop(ctx);
     }
 }
 
@@ -1426,14 +1428,14 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
     LLVMValueRef fptr = LLVMConstInBoundsGEP2(farr_desc->llvm_type, fglobal, findices, 2);
 
     TypedValue fval = create_typed_value(fptr, farr_desc, false);
-    add_symbol(ctx, "__FUNC__", fval);
+    generator_add_symbol(ctx, "__FUNC__", fval);
     // __func__ alias to same value
-    add_symbol(ctx, "__func__", fval);
+    generator_add_symbol(ctx, "__func__", fval);
 
     // __LINE__ as integer constant 0 (i32)
     LLVMValueRef line_const = LLVMConstInt(i32_desc->llvm_type, 0, false);
     TypedValue lval = create_typed_value(line_const, i32_desc, false);
-    add_symbol(ctx, "__LINE__", lval);
+    generator_add_symbol(ctx, "__LINE__", lval);
 }
 
 static LLVMValueRef
@@ -1597,7 +1599,7 @@ create_global_variable(
 
     // 4. Add to Symbol Table
     TypedValue val = create_typed_value(global_var, final_desc, true);
-    add_symbol(ctx, var_name, val);
+    generator_add_symbol(ctx, var_name, val);
 
     return global_var;
 }
@@ -1655,7 +1657,7 @@ process_declarator(
         // Add it to your symbol table so the compiler can resolve calls to it.
         // Functions are usually treated as R-values (the address of the function).
         TypedValue func_val = create_typed_value(func, type_desc, false);
-        add_symbol(ctx, var_name, func_val);
+        generator_add_symbol(ctx, var_name, func_val);
 
         return;
     }
@@ -1677,7 +1679,7 @@ process_declarator(
     // 5. Add to Symbol Table
     // We no longer need struct_name or pointee_type hacks; the descriptor has it all.
     TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
-    add_symbol(ctx, var_name, sym_val);
+    generator_add_symbol(ctx, var_name, sym_val);
 
     // 6. Process Initializer
     if (init_decl_initializer != NULL && init_decl_initializer->list.count > 0)
@@ -1708,7 +1710,7 @@ static void
 process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     // Create function scope for parameters and body
-    scope_push(ctx);
+    generator_scope_push(ctx);
     // --- Handle Function Definition ---
     c_grammar_node_t const * decl_specifiers_node = node->function_definition.declaration_specifiers;
     c_grammar_node_t const * declarator_node = node->function_definition.declarator;
@@ -1717,7 +1719,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     if (decl_specifiers_node == NULL || declarator_node == NULL || compound_stmt_node == NULL)
     {
         debug_error("Function definition is missing declaration specifiers, declarator, or body.");
-        scope_pop(ctx);
+        generator_scope_pop(ctx);
         return;
     }
 
@@ -1759,7 +1761,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             {
                 ctx->current_function_return_type = previous_function_return_type;
                 ir_gen_error(&ctx->errors, node, "Function '%s' redeclared with different signature.", func_name);
-                scope_pop(ctx);
+                generator_scope_pop(ctx);
                 return;
             }
 
@@ -1767,7 +1769,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             {
                 ctx->current_function_return_type = previous_function_return_type;
                 ir_gen_error(&ctx->errors, node, "Function '%s' already has a body.", func_name);
-                scope_pop(ctx);
+                generator_scope_pop(ctx);
                 return;
             }
 
@@ -1812,7 +1814,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                 LLVMCountParams(func),
                 type_desc->function_metadata.param_count
             );
-            scope_pop(ctx);
+            generator_scope_pop(ctx);
             ctx->current_function_return_type = previous_function_return_type;
 
             return;
@@ -1847,7 +1849,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     if (param_list == NULL)
     {
         debug_error("failed to find_parameter list");
-        scope_pop(ctx);
+        generator_scope_pop(ctx);
         return;
     }
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
@@ -1870,7 +1872,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 
             // If your descriptor is a struct or points to one,
             // the symbol table can now just check p_type->kind
-            add_symbol(ctx, p_name, p_val);
+            generator_add_symbol(ctx, p_name, p_val);
         }
         debug_info("Processed parameter %zu", i);
     }
@@ -1885,7 +1887,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 
     if (ctx->errors.fatal)
     {
-        scope_pop(ctx);
+        generator_scope_pop(ctx);
         return;
     }
 
@@ -1906,7 +1908,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
 
     // Pop function scope
-    scope_pop(ctx);
+    generator_scope_pop(ctx);
 
     /* Clear the builder insert point so subsequent declarations don't
      * mistakenly think we're inside a function body. */
@@ -2050,9 +2052,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             debug_error("Translation unit is missing external declarations.");
             return;
         }
-        scope_push(ctx);
+        generator_scope_push(ctx);
         process_ast_node(ctx, node->translation_unit.external_declarations);
-        scope_pop(ctx);
+        generator_scope_pop(ctx);
         break;
     }
     case AST_NODE_EXTERNAL_DECLARATIONS:
@@ -2097,7 +2099,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_COMPOUND_STATEMENT:
     {
         // Create new scope for this block
-        scope_push(ctx);
+        generator_scope_push(ctx);
 
         for (size_t i = 0; i < node->list.count; ++i)
         {
@@ -2105,7 +2107,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         }
 
         // Pop block scope when exiting
-        scope_pop(ctx);
+        generator_scope_pop(ctx);
         break;
     }
     case AST_NODE_EXPRESSION_STATEMENT:
@@ -2135,7 +2137,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         {
             debug_info("Processing typedef '%s'", typedef_name);
             /* We should have a typedef of this name already registered. */
-            existing_typedef_info = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+            existing_typedef_info = generator_lookup_typedef_entry_by_name(ctx, typedef_name);
             if (existing_typedef_info != NULL)
             {
                 debug_info("Found typedef descriptor for '%s'", typedef_name);
@@ -2209,14 +2211,14 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 bool handled = false;
                 if (typedef_type_desc != NULL)
                 {
-                    type_kind_t kind = scope_lookup_kind_by_type_descriptor(ctx->current_scope, typedef_type_desc);
+                    type_kind_t kind = generator_lookup_kind_by_type_descriptor(ctx, typedef_type_desc);
                     debug_info("%s existing info: %p", __func__, (void *)existing_typedef_info);
                     scope_typedef_entry_t typedef_entry = {
                         .kind = kind,
                         .name = strdup(typedef_name),
                         .type_desc = typedef_type_desc,
                     };
-                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                    generator_add_typedef_entry(ctx, typedef_entry);
                     handled = true;
                 }
 
@@ -2248,7 +2250,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                                 if (tag_name_node != NULL && tag_name_node->type == AST_NODE_IDENTIFIER)
                                 {
-                                    scope_add_typedef_forward_decl(ctx, typedef_name, tag_name_node->text, kind);
+                                    generator_add_typedef_forward_decl(ctx, typedef_name, tag_name_node->text, kind);
                                     handled = true;
                                     break;
                                 }
@@ -2288,7 +2290,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     }
                     typedef_entry.type_desc = type_info->type_desc;
                     typedef_entry.kind = kind;
-                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                    generator_add_typedef_entry(ctx, typedef_entry);
                 }
                 else if (enum_def_node)
                 {
@@ -2312,7 +2314,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                             = register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
                     }
                     typedef_entry.type_desc = type_info->type_desc;
-                    scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                    generator_add_typedef_entry(ctx, typedef_entry);
                 }
                 else
                 {
@@ -2329,7 +2331,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                         typedef_entry.name = strdup(typedef_name);
                         typedef_entry.type_desc = type_desc;
                         typedef_entry.kind = TYPE_KIND_BUILTIN;
-                        scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+                        generator_add_typedef_entry(ctx, typedef_entry);
                     }
                     else
                     {
@@ -2893,7 +2895,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_GOTO_STATEMENT:
     {
         char const * label_name = node->goto_statement.label->text;
-        LLVMBasicBlockRef target = scope_get_or_create_label(ctx->current_scope, label_name);
+        LLVMBasicBlockRef target = generator_get_or_create_label(ctx, label_name);
         LLVMBuildBr(ctx->builder, target);
 
         // Start a new basic block for any code after goto (which is technically unreachable
@@ -2912,7 +2914,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * statement_node = node->labeled_statement.statement;
 
         char const * label_name = label_node->text;
-        LLVMBasicBlockRef label_block = scope_get_or_create_label(ctx->current_scope, label_name);
+        LLVMBasicBlockRef label_block = generator_get_or_create_label(ctx, label_name);
 
         // If the current block doesn't have a terminator, branch to the label block
         if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
@@ -3191,9 +3193,9 @@ get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifi
         return NullTypedValue;
     }
 
-    TypedValue res;
+    TypedValue res = NullTypedValue;
     debug_info("%s: %s", __func__, identifier_node->text);
-    find_symbol(ctx, identifier_node->text, &res);
+    generator_lookup_symbol_value(ctx, identifier_node->text, &res);
 
     return res;
 }
@@ -4385,8 +4387,8 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
 
     /* Look up the type - struct list or typedef list */
-    TypeDescriptor const * compound_type_desc
-        = is_typedef ? find_typedef_type_descriptor(ctx, type_name) : find_type_descriptor_by_tag(ctx, type_name);
+    TypeDescriptor const * compound_type_desc = is_typedef ? generator_find_typedef_type_descriptor(ctx, type_name)
+                                                           : generator_find_type_descriptor_by_tag(ctx, type_name);
     if (compound_type_desc == NULL || compound_type_desc->llvm_type == NULL)
     {
         debug_error("Unknown type '%s' in compound literal", type_name);
@@ -4447,8 +4449,7 @@ get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node
             // Handle Identifier (struct name like "Point" in sizeof(struct Point))
             else if (child->type == AST_NODE_IDENTIFIER)
             {
-                char const * type_name = child->text;
-                type_desc = find_type_descriptor_by_tag(ctx, type_name);
+                type_desc = generator_find_type_descriptor_by_tag(ctx, child->text);
             }
             // Handle TypedefSpecifier (typedef name in sizeof(MyType))
             else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
@@ -4457,7 +4458,7 @@ get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node
                 char const * typedef_name = extract_typedef_name(specifier);
                 if (typedef_name != NULL)
                 {
-                    type_desc = find_typedef_type_descriptor(ctx, typedef_name);
+                    type_desc = generator_find_typedef_type_descriptor(ctx, typedef_name);
                 }
             }
             else if (
@@ -4469,7 +4470,7 @@ get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node
                 debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
                 if (tag != NULL)
                 {
-                    type_desc = find_type_descriptor_by_tag(ctx, tag);
+                    type_desc = generator_find_type_descriptor_by_tag(ctx, tag);
                 }
             }
         }

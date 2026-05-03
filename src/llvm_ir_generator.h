@@ -2,7 +2,6 @@
 
 #include "c_grammar_ast.h"
 #include "ir_gen_error.h"
-#include "scope.h"
 #include "type_descriptors.h"
 #include "typed_value.h"
 

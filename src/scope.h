@@ -48,9 +48,6 @@ typedef struct scope
     struct scope * parent; // Chain to outer scope (NULL for global)
 } scope_t;
 
-// Forward declaration for context used by scope_push/scope_pop
-typedef struct ir_generator_ctx ir_generator_ctx_t;
-
 // --- Scope lifecycle ---
 
 /**
@@ -175,16 +172,6 @@ type_info_t * scope_find_type_by_type_descriptor(scope_t const * scope, TypeDesc
 void scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry);
 
 /**
- * @brief Adds a forward declaration typedef to a scope.
- * @param scope The scope to add to.
- * @param typedef_name The name of the typedef.
- * @param tag The tag name of the type being typedef'd.
- * @param kind The kind of type being typedef'd.
- */
-void
-scope_add_typedef_forward_decl(ir_generator_ctx_t * ctx, char const * typedef_name, char const * tag, type_kind_t kind);
-
-/**
  * @brief Finds a typedef by name and returns its LLVM type.
  * @param scope The scope to search.
  * @param name The typedef name to search for.
@@ -195,73 +182,7 @@ TypeDescriptor const * scope_find_typedef_type_descriptor(scope_t const * scope,
 // --- Symbol management ---
 
 /**
- * @brief Adds a symbol to a scope with associated struct tag.
- * @param ctx The IR generator context.
- * @param name The symbol name.
- * @param value The LLVM value metadata.
- * @param tag The struct tag name (or NULL).
- */
-void add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag);
-
-/**
- * @brief Adds a symbol to a scope.
- * @param ctx The IR generator context.
- * @param name The symbol name.
- * @param value The LLVM value metadata.
- */
-void add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value);
-
-/**
- * @brief Finds a symbol in a scope and returns its pointer and type.
- * @param ctx The IR generator context.
- * @param name The name of the symbol to find.
- * @param out_symbol Pointer to store the found sybol metadata.
- * @return True if the symbol was found, false otherwise.
- */
-bool find_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue * out_symbol);
-
-/**
- * @brief Finds the struct tag name associated with a symbol.
- * @param ctx The IR generator context.
- * @param name The symbol name.
- * @return The struct tag name, or NULL if not found.
- */
-char const * find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name);
-
-/**
- * @brief Finds a symbol entry by name and returns the full symbol struct.
- * @param ctx The IR generator context.
- * @param name The symbol name.
- * @return Pointer to the symbol struct, or NULL if not found.
- */
-symbol_t const * find_symbol_entry(ir_generator_ctx_t * ctx, char const * name);
-
-// --- Scope push/pop ---
-
-/**
- * @brief Pushes a new scope onto the scope stack.
- * @param ctx The IR generator context.
- */
-void scope_push(ir_generator_ctx_t * ctx);
-
-/**
- * @brief Pops the current scope from the scope stack.
- * @param ctx The IR generator context.
- */
-void scope_pop(ir_generator_ctx_t * ctx);
-
-// --- Internal lookup helpers (for use within scope.c) ---
-
-/**
- * @brief Looks up an untagged entry by index (internal helper).
- * @param scope The scope to search.
- * @param index The index to search for.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t * scope_lookup_untagged_entry_by_index(scope_t const * scope, int index);
-
-/**
- * @brief Looks up a typedef entry by name (internal helper).
+ * @brief Looks up a typedef entry by name.
  * @param scope The scope to search.
  * @param name The name to search for.
  * @return Pointer to the typedef entry, or NULL if not found.
@@ -273,3 +194,7 @@ type_kind_t scope_lookup_kind_by_type_descriptor(scope_t const * scope, TypeDesc
 // --- Function declaration tracking ---
 
 LLVMBasicBlockRef scope_get_or_create_label(scope_t const * scope, char const * label_name);
+
+void scope_add_symbol_with_tag(scope_t * scope, char const * name, TypedValue value, char const * tag);
+
+symbol_t * scope_find_symbol_entry(scope_t const * scope, char const * name);

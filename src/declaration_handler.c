@@ -3,6 +3,7 @@
 #include "ast_node_name.h"
 #include "ast_print.h"
 #include "debug.h"
+#include "generator_lists.h"
 #include "type_descriptors.h"
 #include "type_utils.h"
 
@@ -291,7 +292,7 @@ resolve_type_descriptor(
     {
         debug_info("%s: Processing typedef '%s'", __func__, typedef_name);
         /* We should have a typedef of this name already registered. */
-        existing_typedef_info = scope_lookup_typedef_entry_by_name(ctx->current_scope, typedef_name);
+        existing_typedef_info = generator_lookup_typedef_entry_by_name(ctx, typedef_name);
         if (existing_typedef_info != NULL)
         {
             debug_info("%s: Found typedef descriptor for '%s'", __func__, typedef_name);
@@ -352,7 +353,7 @@ resolve_type_descriptor(
                 char const * name = extract_typedef_name(inner);
                 if (name != NULL)
                 {
-                    current = find_typedef_type_descriptor(ctx, name);
+                    current = generator_find_typedef_type_descriptor(ctx, name);
                 }
             }
             else if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION)
@@ -368,7 +369,7 @@ resolve_type_descriptor(
                 debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
                 if (tag != NULL)
                 {
-                    current = find_type_descriptor_by_tag(ctx, tag);
+                    current = generator_find_type_descriptor_by_tag(ctx, tag);
                 }
                 if (current == NULL)
                 {

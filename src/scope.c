@@ -6,15 +6,12 @@
 #include "scope.h"
 
 #include "debug.h"
+#include "typed_value.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-// Include the full definition from the header to get ir_generator_ctx_t
-#include "llvm_ir_generator.h"
-#include "typed_value.h"
 
 // --- Scope lifecycle ---
 
@@ -171,7 +168,7 @@ scope_find_tagged_enum(scope_t const * scope, char const * tag)
 
 // --- Untagged type lookup ---
 
-type_info_t *
+static type_info_t *
 scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
 {
     while (scope != NULL && index >= 0)
@@ -281,46 +278,6 @@ scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
     }
 
     scope_typedefs_add_entry(&scope->typedefs, entry);
-}
-
-void
-scope_add_typedef_forward_decl(ir_generator_ctx_t * ctx, char const * typedef_name, char const * tag, type_kind_t kind)
-{
-    debug_info("%s: name: %s, tag: %s", __func__, typedef_name, tag);
-    scope_typedef_entry_t entry = {
-        .name = strdup(typedef_name),
-        .tag = strdup(tag),
-        .kind = kind,
-    };
-
-    /* FIXME: Need to add an 'incomplete' type into the registry, and fill it in once the typed type is defined. */
-    switch (kind)
-    {
-    case TYPE_KIND_STRUCT:
-    case TYPE_KIND_UNION:
-        debug_error("TODO: Support required for struct/union typedef forward declarations");
-        break;
-
-    case TYPE_KIND_ENUM:
-    {
-        TypeDescriptor const * enum_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
-        entry.type_desc = enum_desc;
-        type_info_t info = {
-            .tag = strdup(tag),
-            .type_desc = enum_desc,
-            .kind = kind,
-        };
-        scope_add_tagged_type(ctx->current_scope, info);
-        break;
-    }
-    case TYPE_KIND_UNTAGGED_STRUCT:
-    case TYPE_KIND_UNTAGGED_UNION:
-    case TYPE_KIND_UNTAGGED_ENUM:
-    case TYPE_KIND_BUILTIN:
-        break;
-    }
-
-    scope_add_typedef_entry(ctx->current_scope, entry);
 }
 
 scope_typedef_entry_t *
@@ -443,24 +400,7 @@ scope_add_symbol_with_tag(scope_t * scope, char const * name, TypedValue value, 
     scope_symbols_add_entry_with_tag(&scope->symbols, name, value, tag);
 }
 
-void
-add_symbol_with_struct(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag)
-{
-    if (ctx == NULL)
-    {
-        return;
-    }
-
-    scope_add_symbol_with_tag(ctx->current_scope, name, value, tag);
-}
-
-void
-add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value)
-{
-    add_symbol_with_struct(ctx, name, value, NULL);
-}
-
-static symbol_t *
+symbol_t *
 scope_find_symbol_entry(scope_t const * scope, char const * name)
 {
     if (name == NULL)
@@ -483,101 +423,6 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
     debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
 
     return NULL;
-}
-
-static char const *
-scope_find_symbol_tag_name(scope_t const * scope, char const * name)
-{
-    symbol_t * symbol = scope_find_symbol_entry(scope, name);
-    if (symbol == NULL)
-    {
-        return NULL;
-    }
-    return symbol->tag_name;
-}
-
-char const *
-find_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name)
-{
-    if (ctx == NULL)
-    {
-        return NULL;
-    }
-
-    return scope_find_symbol_tag_name(ctx->current_scope, name);
-}
-
-symbol_t const *
-find_symbol_entry(ir_generator_ctx_t * ctx, char const * name)
-{
-    if (ctx == NULL || name == NULL)
-    {
-        return NULL;
-    }
-
-    return scope_find_symbol_entry(ctx->current_scope, name);
-}
-
-static bool
-scope_find_symbol(scope_t const * scope, char const * name, TypedValue * out_symbol)
-{
-    symbol_t * symbol = scope_find_symbol_entry(scope, name);
-    if (symbol == NULL)
-    {
-        debug_info("Symbol not found for name: '%s'", name);
-        if (out_symbol != NULL)
-        {
-            *out_symbol = NullTypedValue;
-        }
-        return false;
-    }
-
-    if (out_symbol != NULL)
-    {
-        *out_symbol = symbol->value;
-    }
-
-    return true;
-}
-
-bool
-find_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue * out_symbol)
-{
-    // TODO: Refactor so that it returns TypedValue directly.
-    if (ctx == NULL)
-    {
-        return false;
-    }
-    return scope_find_symbol(ctx->current_scope, name, out_symbol);
-}
-
-// --- Scope push/pop ---
-
-void
-scope_push(ir_generator_ctx_t * ctx)
-{
-    if (!ctx)
-        return;
-
-    scope_t * new_scope = scope_create(ctx->current_scope, ctx->context, ctx->builder);
-    if (new_scope)
-    {
-        ctx->current_scope = new_scope;
-    }
-}
-
-void
-scope_pop(ir_generator_ctx_t * ctx)
-{
-    if (ctx == NULL || ctx->current_scope == NULL)
-    {
-        return;
-    }
-
-    scope_t * old_scope = ctx->current_scope;
-    ctx->current_scope = old_scope->parent;
-    old_scope->parent = NULL; // Detach old scope from context before freeing
-    scope_free(old_scope);
 }
 
 LLVMBasicBlockRef
