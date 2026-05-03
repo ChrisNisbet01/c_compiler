@@ -15,11 +15,11 @@
 #pragma once
 
 #include "labels.h"
-#include "llvm_typed_value.h"
 #include "scope_lists.h"
 #include "struct_members.h"
 #include "type_descriptors.h"
 #include "type_utils.h"
+#include "typed_value.h"
 
 #include <stdarg.h>
 #include <stdbool.h>

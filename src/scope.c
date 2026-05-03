@@ -14,7 +14,7 @@
 
 // Include the full definition from the header to get ir_generator_ctx_t
 #include "llvm_ir_generator.h"
-#include "llvm_typed_value.h"
+#include "typed_value.h"
 
 // --- Scope lifecycle ---
 

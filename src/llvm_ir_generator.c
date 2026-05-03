@@ -3530,7 +3530,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     return NullTypedValue;
                 }
                 // Move the context to the struct being pointed to
-                current_val.type_info = current_val.type_info->pointee;
+                typed_value_switch_to_pointee(&current_val);
             }
 
             TypeDescriptor const * struct_desc = current_val.type_info;
@@ -3670,8 +3670,8 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             }
             // ptr_val.value is the address of the pointer
             // We load it to get the address of the target
-            lhs_res.value
-                = aligned_load(ctx, ctx->builder, typed_value_get_llvm_type(&lhs_res), lhs_res.value, "ptr_deref");
+            lhs_res.value = aligned_load(ctx, ctx->builder, lhs_res.type_info->llvm_type, lhs_res.value, "ptr_deref");
+
             if (!typed_value_switch_to_pointee(&lhs_res))
             {
                 ir_gen_error(&ctx->errors, op_node, "Failed to switch LHS to pointee type in assignment.");

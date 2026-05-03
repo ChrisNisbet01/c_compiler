@@ -19,10 +19,10 @@ add_executable(${app}
   ir_gen_error.c
   labels.c
   llvm_ir_generator.c
-  llvm_typed_value.c
   scope.c
   scope_lists.c
   symbol_table.c
+  typed_value.c
   type_descriptors.c
   type_qualifiers.c
   type_specifier.c

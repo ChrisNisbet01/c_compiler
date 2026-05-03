@@ -1,7 +1,7 @@
 #pragma once
 
-#include "llvm_typed_value.h"
 #include "struct_bitfield_data.h"
+#include "typed_value.h"
 
 typedef struct TypeDescriptor TypeDescriptor;
 
