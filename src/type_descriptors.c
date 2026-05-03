@@ -335,7 +335,6 @@ register_struct_type(
     TypeDescriptor template
         = {.kind = is_union ? NCC_TYPE_KIND_UNION : NCC_TYPE_KIND_STRUCT,
            .llvm_type = llvm_struct,
-           .pointee = NULL, // Structs aren't pointers
            .qualifiers = quals,
            .struct_metadata.is_complete = is_complete,
            .struct_metadata.members = members_template};

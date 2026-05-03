@@ -772,8 +772,9 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
     opaque.kind = is_union ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
-    bool is_complete = false;
     struct_or_union_members_st * members = NULL;
+    bool is_complete = false;
+
     opaque.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, tag),
@@ -812,7 +813,6 @@ register_tagged_struct_or_union_definition(
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
     opaque.kind = kind;
-    bool is_complete = true;
 
     if (members.num_members > 0)
     {
@@ -842,6 +842,7 @@ register_tagged_struct_or_union_definition(
         );
     }
 
+    bool is_complete = true;
     opaque.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, tag),
@@ -911,7 +912,6 @@ add_untagged_struct_or_union_type(
     type_info_t new_struct = {0};
     new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
     new_struct.kind = kind;
-    bool is_complete = true;
 
     if (members.num_members > 0)
     {
@@ -941,6 +941,7 @@ add_untagged_struct_or_union_type(
         );
     }
 
+    bool is_complete = true;
     new_struct.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, new_struct.tag),
@@ -1400,8 +1401,13 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
             {
                 if (i < count)
                 {
+                    c_grammar_node_t const * list_entry = node->list.children[i];
+                    // c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
+                    c_grammar_node_t const * initializer = list_entry->initializer_list_entry.initializer;
+
+                    /* TODO: Support the designation. */
                     // Recurse for nested elements
-                    elems[i] = evaluate_constant_initializer(ctx, desc->pointee, node->list.children[i]);
+                    elems[i] = evaluate_constant_initializer(ctx, desc->pointee, initializer);
                 }
                 else
                 {
@@ -1423,8 +1429,13 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
             {
                 if (i < node->list.count)
                 {
+                    c_grammar_node_t const * list_entry = node->list.children[i];
+                    // c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
+                    c_grammar_node_t const * initializer = list_entry->initializer_list_entry.initializer;
+                    /* TODO: Support the designation. */
+
                     fields[i] = evaluate_constant_initializer(
-                        ctx, desc->struct_metadata.members.members[i].type_desc, node->list.children[i]
+                        ctx, desc->struct_metadata.members.members[i].type_desc, initializer
                     );
                 }
                 else
@@ -1442,6 +1453,11 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
     // Simple expressions (must be constant foldable)
     // You might need a specialized process_constant_expression here
     TypedValue val = process_expression(ctx, node);
+    if (val.value == NULL)
+    {
+        return val.value;
+    }
+
     if (LLVMIsConstant(val.value))
     {
         return val.value;
@@ -1618,6 +1634,11 @@ process_declarator(
         {
             // Scalar initialization
             TypedValue init_res = process_expression(ctx, init_node);
+            if (init_res.value == NULL)
+            {
+                return;
+            }
+
             TypedValue cast_val = cast_typed_value_to_desc(ctx, init_res, type_desc);
             aligned_store(ctx, ctx->builder, cast_val.value, type_desc->llvm_type, alloca_inst);
         }
@@ -1852,6 +1873,10 @@ process_return_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     {
         // 1. Process the expression
         TypedValue return_value = process_expression(ctx, expr_node);
+        if (return_value.value == NULL)
+        {
+            return;
+        }
         dump_typed_value("process_return", return_value);
         // 2. Ensure it's an RValue (we can't return a memory address/LValue directly)
         return_value = ensure_rvalue(ctx, "return_rval", return_value);
@@ -2032,10 +2057,8 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_EXPRESSION_STATEMENT:
     {
         c_grammar_node_t const * expr_node = node->expression_statement.expression;
-        if (expr_node != NULL)
-        {
-            process_expression(ctx, expr_node);
-        }
+
+        process_expression(ctx, expr_node);
         break;
     }
     case AST_NODE_DECLARATION:
@@ -2344,6 +2367,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         debug_info("process for post");
         LLVMPositionBuilderAtEnd(ctx->builder, post_block);
         process_expression(ctx, post_node);
+        if (ctx->errors.fatal)
+        {
+            ctx->break_target = old_break_target;
+            ctx->continue_target = old_continue_target;
+            return;
+        }
         LLVMBuildBr(ctx->builder, cond_block);
 
         // Restore old break/continue targets
@@ -2529,12 +2558,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * body_stmt = node->switch_statement.body;
 
         TypedValue switch_val = process_expression(ctx, switch_expr);
-        switch_val = ensure_rvalue(ctx, "switch_rval", switch_val);
         if (switch_val.value == NULL)
         {
             debug_error("Failed to process switch expression.");
             return;
         }
+        switch_val = ensure_rvalue(ctx, "switch_rval", switch_val);
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -2665,6 +2694,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                 if (child->list.count >= 1)
                 {
                     TypedValue case_val = process_expression(ctx, child->list.children[0]);
+                    if (case_val.value == NULL)
+                    {
+                        return;
+                    }
                     case_val = ensure_rvalue(ctx, "switch_case_rval", case_val);
                     LLVMAddCase(
                         switch_inst, case_val.value, items[i].body_block ? items[i].body_block : fallthrough_target
@@ -2736,12 +2769,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         c_grammar_node_t const * else_node = node->if_statement.else_statement;
 
         TypedValue condition_val = process_expression(ctx, condition_node);
-        condition_val = ensure_rvalue(ctx, "if_cond_rval", condition_val);
         if (condition_val.value == NULL)
         {
             debug_error("Failed to process condition for IfStatement.");
             return;
         }
+        condition_val = ensure_rvalue(ctx, "if_cond_rval", condition_val);
 
         LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
 
@@ -3268,6 +3301,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     // In C, postfix expressions group left-to-right.
     // We start with the base and then "pipe" the result through each suffix.
     TypedValue current_val = process_expression(ctx, base_node);
+    if (current_val.value == NULL)
+    {
+        return current_val;
+    }
 
     for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
     {
@@ -3315,6 +3352,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             for (size_t j = 0; j < num_args; ++j)
             {
                 TypedValue arg = process_expression(ctx, suffix->list.children[j]);
+                if (arg.value == NULL)
+                {
+                    debug_error("Failed to process condition for IfStatement.");
+                    return arg;
+                }
+
                 // Auto-cast to parameter type if available
                 if (j < func_desc->function_metadata.param_count)
                 {
@@ -3487,6 +3530,11 @@ process_cast_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     TypeDescriptor const * cast_to_type = resolve_type_descriptor(ctx, spec_qual, abstract_decl);
     TypedValue val_to_cast = process_expression(ctx, inner_expr_node);
+    if (val_to_cast.value == NULL)
+    {
+        debug_error("Failed to process inner expression in cast.");
+        return val_to_cast;
+    }
     val_to_cast = ensure_rvalue(ctx, "cast_rval", val_to_cast);
     val_to_cast = cast_typed_value_to_desc(ctx, val_to_cast, cast_to_type);
 
@@ -3508,6 +3556,10 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
         lhs_res = process_expression(ctx, lhs_node);
+        if (lhs_res.value == NULL)
+        {
+            return NullTypedValue;
+        }
     }
     else if (lhs_node->type == AST_NODE_UNARY_EXPRESSION_PREFIX)
     {
@@ -3573,13 +3625,13 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         TypedValue lhs_rres = ensure_rvalue(ctx, "assign_compound_lhs_rval", lhs_res);
         LLVMValueRef lhs_value = lhs_rres.value;
         rhs_res = process_expression(ctx, rhs_node);
-        rhs_res = ensure_rvalue(ctx, "assign_compound_rhs_rval", rhs_res);
-
         if (rhs_res.value == NULL)
         {
             debug_error("Failed to process RHS expression in compound assignment.");
             return NullTypedValue;
         }
+
+        rhs_res = ensure_rvalue(ctx, "assign_compound_rhs_rval", rhs_res);
 
         // Determine if this is a floating point operation
         bool is_float = is_floating_kind(lhs_res.type_info);
@@ -3633,12 +3685,12 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         // Process the RHS expression to get its LLVM ValueRef.
         rhs_res = process_expression(ctx, rhs_node);
-        rhs_res = ensure_rvalue(ctx, "assign_rhs_rval", rhs_res);
         if (rhs_res.value == NULL)
         {
             debug_error("Failed to process RHS expression in assignment.");
             return rhs_res;
         }
+        rhs_res = ensure_rvalue(ctx, "assign_rhs_rval", rhs_res);
     }
 
     // Generate the store instruction.
@@ -3791,10 +3843,14 @@ process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 {
     // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
     TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    if (lhs_res.value == NULL)
+    {
+        return NullTypedValue;
+    }
     lhs_res = ensure_rvalue(ctx, "bitwise_lhs_rval", lhs_res);
     TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
     rhs_res = ensure_rvalue(ctx, "bitwise_rhs_rval", rhs_res);
-    if (lhs_res.value == NULL || rhs_res.value == NULL)
+    if (rhs_res.value == NULL)
     {
         return NullTypedValue;
     }
@@ -3850,13 +3906,17 @@ process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
 {
     // Standard binary ops: [LHS, OP, RHS]
     TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    lhs_res = ensure_rvalue(ctx, "shift_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    rhs_res = ensure_rvalue(ctx, "shift_rhs_rval", rhs_res);
-    if (lhs_res.value == NULL || rhs_res.value == NULL)
+    if (lhs_res.value == NULL)
     {
         return NullTypedValue;
     }
+    lhs_res = ensure_rvalue(ctx, "shift_lhs_rval", lhs_res);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (rhs_res.value == NULL)
+    {
+        return NullTypedValue;
+    }
+    rhs_res = ensure_rvalue(ctx, "shift_rhs_rval", rhs_res);
 
     // Ensure shift amount has same integer width as lhs
     TypeDescriptor const * lhs_type = lhs_res.type_info;
@@ -3900,13 +3960,17 @@ process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
 {
     // Standard binary ops: [LHS, OP, RHS]
     TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    lhs_res = ensure_rvalue(ctx, "arith_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    rhs_res = ensure_rvalue(ctx, "arith_rhs_rval", rhs_res);
-    if (lhs_res.value == NULL || rhs_res.value == NULL)
+    if (lhs_res.value == NULL)
     {
         return NullTypedValue;
     }
+    lhs_res = ensure_rvalue(ctx, "arith_lhs_rval", lhs_res);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (rhs_res.value == NULL)
+    {
+        return NullTypedValue;
+    }
+    rhs_res = ensure_rvalue(ctx, "arith_rhs_rval", rhs_res);
     TypeDescriptor const * lhs_type = lhs_res.type_info;
     TypeDescriptor const * rhs_type = rhs_res.type_info;
 
@@ -3969,14 +4033,17 @@ process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const *
 {
     // Standard binary ops: [LHS, OP, RHS]
     TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    lhs_res = ensure_rvalue(ctx, "rel_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    rhs_res = ensure_rvalue(ctx, "rel_rhs_r_val", rhs_res);
-
-    if (lhs_res.value == NULL || rhs_res.value == NULL)
+    if (lhs_res.value == NULL)
     {
         return NullTypedValue;
     }
+    lhs_res = ensure_rvalue(ctx, "rel_lhs_rval", lhs_res);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (rhs_res.value == NULL)
+    {
+        return NullTypedValue;
+    }
+    rhs_res = ensure_rvalue(ctx, "rel_rhs_r_val", rhs_res);
 
     TypeDescriptor const * lhs_type = lhs_res.type_info;
 
@@ -4024,14 +4091,17 @@ process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 {
     // Standard binary ops: [LHS, OP, RHS]
     TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    lhs_res = ensure_rvalue(ctx, "eq_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    rhs_res = ensure_rvalue(ctx, "eq_rhs_rval", rhs_res);
-
-    if (lhs_res.value == NULL || rhs_res.value == NULL)
+    if (lhs_res.value == NULL)
     {
         return NullTypedValue;
     }
+    lhs_res = ensure_rvalue(ctx, "eq_lhs_rval", lhs_res);
+    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
+    if (rhs_res.value == NULL)
+    {
+        return NullTypedValue;
+    }
+    rhs_res = ensure_rvalue(ctx, "eq_rhs_rval", rhs_res);
 
     TypeDescriptor const * lhs_type = lhs_res.type_info;
     TypeDescriptor const * rhs_type = rhs_res.type_info;
@@ -4090,12 +4160,12 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     );
 
     TypedValue lhs_res = process_expression(ctx, lhs_node);
-    lhs_res = ensure_rvalue(ctx, "log_lhs_rval", lhs_res);
     if (lhs_res.value == NULL)
     {
         debug_error("LHS processing of logical expression failed");
         return NullTypedValue;
     }
+    lhs_res = ensure_rvalue(ctx, "log_lhs_rval", lhs_res);
 
     TypeDescriptor const * bool_type
         = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
@@ -4123,13 +4193,12 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     LLVMPositionBuilderAtEnd(ctx->builder, rhs_block);
 
     TypedValue rhs_res = process_expression(ctx, rhs_node);
-    rhs_res = ensure_rvalue(ctx, "log_rhs_rval", rhs_res);
-
     if (rhs_res.value == NULL)
     {
         debug_error("RHS processing of logical expression failed");
         return NullTypedValue;
     }
+    rhs_res = ensure_rvalue(ctx, "log_rhs_rval", rhs_res);
 
     if (is_integer_kind(rhs_res.type_info) || LLVMGetIntTypeWidth(lhs_res.type_info->llvm_type) != 1)
     {
@@ -4171,11 +4240,11 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
 
     // Evaluate condition
     TypedValue cond_res = process_expression(ctx, condition_node);
-    cond_res = ensure_rvalue(ctx, "shift_cond_rval", cond_res);
     if (cond_res.value == NULL)
     {
         return NullTypedValue;
     }
+    cond_res = ensure_rvalue(ctx, "shift_cond_rval", cond_res);
 
     // Convert condition to i1 if needed
     cond_res = cast_typed_value_to_desc(
@@ -4190,11 +4259,12 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Generate then block
     LLVMPositionBuilderAtEnd(ctx->builder, then_block);
     TypedValue true_res = process_expression(ctx, true_expr_node);
-    true_res = ensure_rvalue(ctx, "conditional_then", true_res);
     if (true_res.value == NULL)
     {
         return NullTypedValue;
     }
+    true_res = ensure_rvalue(ctx, "conditional_then", true_res);
+
     // After processing true_expr (which might be a nested ternary), the builder
     // is positioned at the nested ternary's merge block. Save this block
     // before branching to our merge block.
@@ -4204,11 +4274,12 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Generate else block
     LLVMPositionBuilderAtEnd(ctx->builder, else_block);
     TypedValue false_res = process_expression(ctx, false_expr_node);
-    false_res = ensure_rvalue(ctx, "conditional_else", false_res);
     if (false_res.value == NULL)
     {
         return false_res;
     }
+    false_res = ensure_rvalue(ctx, "conditional_else", false_res);
+
     // After processing false_expr (which might be a nested ternary), the builder
     // is positioned at the nested ternary's merge block. Save this block
     // before branching to our merge block.
@@ -4407,6 +4478,10 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             return v;
         }
         TypedValue v = process_expression(ctx, operand_node);
+        if (v.value == NULL)
+        {
+            return NullTypedValue;
+        }
 
         v.is_lvalue = false;
         // For &member or &array[i], process the expression which returns a pointer
@@ -4419,7 +4494,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_res.value == NULL)
         {
             debug_info("operand dereference failed");
-            return operand_res;
+            return NullTypedValue;
         }
 
         if (operand_res.type_info->kind != NCC_TYPE_KIND_POINTER)
@@ -4467,6 +4542,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_NOT:
     {
         TypedValue operand_res = process_expression(ctx, operand_node);
+        if (operand_res.value == NULL)
+        {
+            debug_error("Operand processing failed for unary not");
+            return NullTypedValue;
+        }
         operand_res = ensure_rvalue(ctx, "un_not_rval", operand_res);
 
         // 1. Comparison produces an i1 (1-bit integer)
@@ -4480,6 +4560,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_BITNOT:
     {
         TypedValue operand_res = process_expression(ctx, operand_node);
+        if (operand_res.value == NULL)
+        {
+            debug_error("Operand processing failed for unary bitnot");
+            return NullTypedValue;
+        }
         operand_res = ensure_rvalue(ctx, "bit_not_rval", operand_res);
 
         operand_res.value = LLVMBuildNot(ctx->builder, operand_res.value, "bitnot_tmp");
@@ -4530,6 +4615,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     case UNARY_OP_PLUS:
     {
         TypedValue var_res = process_expression(ctx, operand_node);
+        if (var_res.value == NULL)
+        {
+            debug_error("Operand processing failed for unary unary");
+            return NullTypedValue;
+        }
         var_res.is_lvalue = false;
 
         return var_res;
@@ -4550,6 +4640,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             debug_info("Operand node type for sizeof: %s", get_node_type_name_from_node(operand_node));
             TypedValue operand_res = process_expression(ctx, operand_node);
+            if (operand_res.value == NULL)
+            {
+                debug_error("Operand processing failed for unary sizeof");
+                return NullTypedValue;
+            }
 
             target_type = operand_res.type_info;
         }
@@ -4575,6 +4670,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         {
             debug_info("Operand node type for alignof: %s", get_node_type_name_from_node(operand_node));
             TypedValue operand_res = process_expression(ctx, operand_node);
+            if (operand_res.value == NULL)
+            {
+                debug_error("Operand processing failed for unary alignof");
+                return NullTypedValue;
+            }
 
             target_type = operand_res.type_info;
         }
@@ -4605,7 +4705,7 @@ process_comma_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         result = process_expression(ctx, node->list.children[i]);
         if (result.value == NULL)
         {
-            return result;
+            return NullTypedValue;
         }
     }
     return result;
@@ -4706,6 +4806,42 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return process_compound_literal(ctx, node);
     }
+
+    case AST_NODE_INITIALIZER:
+    {
+        /* Either get an InitializerList or an AssignmentExpression, which is one of two other node types. */
+        if (node->list.count == 0)
+        {
+            debug_error("initializer node has no children");
+            return NullTypedValue;
+        }
+        return process_expression(ctx, node->list.children[0]);
+    }
+
+    case AST_NODE_INITIALIZER_LIST:
+    {
+        debug_warning("need support for %s at top level", get_node_type_name_from_node(node));
+        for (size_t i = 0; i < node->list.count; ++i)
+        {
+            // c_grammar_node_t const * list_entry = node->list.children[i];
+            // c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
+            // c_grammar_node_t const * initializer = list_entry->initializer_list_entry.initializer;
+        }
+        return NullTypedValue;
+    }
+
+    case AST_NODE_EXPRESSION_STATEMENT:
+    {
+        c_grammar_node_t const * expr_node = node->expression_statement.expression;
+
+        if (expr_node == NULL)
+        {
+            debug_error("expression statement has no expression");
+            return NullTypedValue;
+        }
+        return process_expression(ctx, expr_node);
+    }
+
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
     case AST_NODE_COMPOUND_STATEMENT:
@@ -4740,7 +4876,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_CONTINUE_STATEMENT:
     case AST_NODE_RETURN_STATEMENT:
     case AST_NODE_TYPE_NAME:
-    case AST_NODE_EXPRESSION_STATEMENT:
     case AST_NODE_STRUCT_DEFINITION:
     case AST_NODE_UNION_DEFINITION:
     case AST_NODE_ENUM_DEFINITION:
@@ -4748,7 +4883,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_UNION_TYPE_REF:
     case AST_NODE_ENUM_TYPE_REF:
     case AST_NODE_TYPEDEF_DECLARATION:
-    case AST_NODE_INITIALIZER_LIST:
     case AST_NODE_LABELED_STATEMENT:
     case AST_NODE_CASE_LABEL:
     case AST_NODE_SWITCH_CASE:
@@ -4775,7 +4909,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_SWITCH_BODY_STATEMENTS:
     case AST_NODE_TYPEDEF_INIT_DECLARATION_LIST:
     case AST_NODE_ATTRIBUTE_LIST:
-    case AST_NODE_INITIALIZER:
     case AST_NODE_ASM_NAMES:
     case AST_NODE_TYPEDEF_DECLARATOR:
     case AST_NODE_TYPEDEF_DIRECT_DECLARATOR:

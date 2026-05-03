@@ -374,7 +374,7 @@ resolve_type_descriptor(
                 {
                     if (inner->type == AST_NODE_ENUM_TYPE_REF)
                     {
-                        /* What to do? */
+                        /* FIXME: What to do? */
                         return NULL;
                     }
                     type_info_t const * opaque_info
