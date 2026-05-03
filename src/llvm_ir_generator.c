@@ -350,15 +350,17 @@ process_initializer_list(
 
     int local_index = 0;
 
-    for (size_t i = 0; i < initializer_node->list.count; ++i)
+    for (size_t i = 0; i < initializer_node->list.count; i++)
     {
         c_grammar_node_t const * list_entry = initializer_node->list.children[i];
         c_grammar_node_t const * value_node = list_entry->initializer_list_entry.initializer;
         c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
 
         // Unwrap value from INITIALIZER wrapper
-        if (value_node->list.count > 0)
+        if (value_node->list.count > 0) /* Should always be true. */
+        {
             value_node = value_node->list.children[0];
+        }
 
         // 2. Handle Designated Initializers (e.g., .x = 10 or .inner.y = 20)
         if (designation != NULL)
@@ -392,7 +394,7 @@ process_initializer_list(
                 }
             }
 
-            if (value_node->type == AST_NODE_INITIALIZER_LIST)
+            if (value_node->type == AST_NODE_INITIALIZER_LIST) /* Nested intializers. */
             {
                 process_initializer_list(ctx, current_ptr, current_desc, value_node, NULL);
             }
@@ -492,7 +494,7 @@ process_initializer_list_type_desc(
         c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
 
         // Unwrap value from INITIALIZER wrapper
-        if (value_node->list.count > 0)
+        if (value_node->list.count > 0) /* Should always be true. */
         {
             value_node = value_node->list.children[0];
         }
@@ -4818,18 +4820,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return process_expression(ctx, node->list.children[0]);
     }
 
-    case AST_NODE_INITIALIZER_LIST:
-    {
-        debug_warning("need support for %s at top level", get_node_type_name_from_node(node));
-        for (size_t i = 0; i < node->list.count; ++i)
-        {
-            // c_grammar_node_t const * list_entry = node->list.children[i];
-            // c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
-            // c_grammar_node_t const * initializer = list_entry->initializer_list_entry.initializer;
-        }
-        return NullTypedValue;
-    }
-
     case AST_NODE_EXPRESSION_STATEMENT:
     {
         c_grammar_node_t const * expr_node = node->expression_statement.expression;
@@ -4842,6 +4832,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return process_expression(ctx, expr_node);
     }
 
+    case AST_NODE_INITIALIZER_LIST:
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
     case AST_NODE_COMPOUND_STATEMENT:
@@ -4932,27 +4923,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_PARAMETER_LIST:
     case AST_NODE_ELLIPSIS:
     default:
-        // Attempt to recursively process if it might yield a value.
-        if (node->list.count > 0)
-        {
-            debug_info("Default processing for list node: %s %u", get_node_type_name_from_type(node->type), node->type);
-            for (size_t i = 0; i < node->list.count; ++i)
-            {
-                TypedValue res = process_expression(ctx, node->list.children[i]);
-                if (res.value != NULL)
-                {
-                    return res; // Return the first valid result found.
-                }
-            }
-        }
-        else
-        {
-            debug_info("Ignoring terminal node %s (%u)", get_node_type_name_from_type(node->type), node->type);
-            if (node->text != NULL)
-            {
-                debug_info("text: `%s`", node->text);
-            }
-        }
+        debug_error("%s: Node type: %s is not supported at this level", __func__, get_node_type_name_from_node(node));
         break;
     }
     return NullTypedValue; // Return NULL if expression processing failed or not implemented.
