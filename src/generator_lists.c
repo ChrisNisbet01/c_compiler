@@ -252,3 +252,14 @@ generator_find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * nam
     }
     return info ? info->type_desc : NULL;
 }
+
+type_info_t *
+generator_lookup_tagged_entry_by_tag_and_kind(ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind)
+{
+    if (ctx == NULL)
+    {
+        return NULL;
+    }
+
+    return scope_lookup_tagged_entry_by_tag_and_kind(ctx->current_scope, tag, kind);
+}

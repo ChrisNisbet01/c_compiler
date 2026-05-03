@@ -358,7 +358,14 @@ resolve_type_descriptor(
             }
             else if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION)
             {
-                current = register_struct_definition(ctx, inner)->type_desc;
+                type_info_t const * type_info = register_struct_definition(ctx, inner);
+                if (type_info == NULL)
+                {
+                    debug_error("%s: failed to register struct definition", __func__);
+                    ir_gen_error(&ctx->errors, inner, "Failed to register struct definition");
+                    return NULL;
+                }
+                current = type_info->type_desc;
             }
             else if (
                 inner->type == AST_NODE_STRUCT_TYPE_REF || inner->type == AST_NODE_UNION_TYPE_REF

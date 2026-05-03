@@ -120,7 +120,7 @@ scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
 
 // --- Tagged type lookup ---
 
-static type_info_t *
+type_info_t *
 scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind)
 {
     while (scope != NULL && tag != NULL)
