@@ -1072,8 +1072,6 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
     enum_info.kind = TYPE_KIND_ENUM;
     enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
-    enum_info.fields = NULL;
-    enum_info.field_count = 0;
     enum_info.tag = strdup(tag);
 
     return scope_add_tagged_type(ctx->current_scope, enum_info);
@@ -2173,9 +2171,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
                                 if (tag_name_node != NULL && tag_name_node->type == AST_NODE_IDENTIFIER)
                                 {
-                                    scope_add_typedef_forward_decl(
-                                        ctx->current_scope, typedef_name, tag_name_node->text, kind
-                                    );
+                                    scope_add_typedef_forward_decl(ctx, typedef_name, tag_name_node->text, kind);
                                     handled = true;
                                     break;
                                 }

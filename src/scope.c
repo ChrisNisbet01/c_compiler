@@ -465,14 +465,43 @@ scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 }
 
 void
-scope_add_typedef_forward_decl(scope_t * scope, char const * typedef_name, char const * tag, type_kind_t kind)
+scope_add_typedef_forward_decl(ir_generator_ctx_t * ctx, char const * typedef_name, char const * tag, type_kind_t kind)
 {
     debug_info("%s: name: %s, tag: %s", __func__, typedef_name, tag);
-    scope_typedef_entry_t entry = {0};
-    entry.name = strdup(typedef_name);
-    entry.tag = strdup(tag);
-    entry.kind = kind;
-    scope_add_typedef_entry(scope, entry);
+    scope_typedef_entry_t entry = {
+        .name = strdup(typedef_name),
+        .tag = strdup(tag),
+        .kind = kind,
+    };
+
+    /* FIXME: Need to add an 'incomplete' type into the registry, and fill it in once the typed type is defined. */
+    switch (kind)
+    {
+    case TYPE_KIND_STRUCT:
+    case TYPE_KIND_UNION:
+        debug_error("TODO: Support required for struct/union typedef forward declarations");
+        break;
+
+    case TYPE_KIND_ENUM:
+    {
+        TypeDescriptor const * enum_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+        entry.type_desc = enum_desc;
+        type_info_t info = {
+            .tag = strdup(tag),
+            .type_desc = enum_desc,
+            .kind = kind,
+        };
+        scope_add_tagged_type(ctx->current_scope, info);
+        break;
+    }
+    case TYPE_KIND_UNTAGGED_STRUCT:
+    case TYPE_KIND_UNTAGGED_UNION:
+    case TYPE_KIND_UNTAGGED_ENUM:
+    case TYPE_KIND_BUILTIN:
+        break;
+    }
+
+    scope_add_typedef_entry(ctx->current_scope, entry);
 }
 
 scope_typedef_entry_t *

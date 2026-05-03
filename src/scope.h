@@ -275,7 +275,8 @@ void scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry);
  * @param tag The tag name of the type being typedef'd.
  * @param kind The kind of type being typedef'd.
  */
-void scope_add_typedef_forward_decl(scope_t * scope, char const * typedef_name, char const * tag, type_kind_t kind);
+void
+scope_add_typedef_forward_decl(ir_generator_ctx_t * ctx, char const * typedef_name, char const * tag, type_kind_t kind);
 
 /**
  * @brief Finds a typedef by name and returns its LLVM type.
