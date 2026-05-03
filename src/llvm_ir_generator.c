@@ -1407,43 +1407,6 @@ generate_llvm_ir(ir_generator_ctx_t * ctx, c_grammar_node_t const * ast_root)
 
 // --- AST Node Processing Logic ---
 
-/* --- Cycle detection for AST node processing --- */
-#define VISIT_STACK_MAX 4096
-static c_grammar_node_t const * visit_stack[VISIT_STACK_MAX];
-static int visit_stack_top = 0;
-
-static bool
-visit_stack_push(c_grammar_node_t const * node)
-{
-    for (int i = 0; i < visit_stack_top; i++)
-    {
-        if (visit_stack[i] == node)
-        {
-            fprintf(
-                stderr,
-                "DEBUG: cycle detected in _process_ast_node! node=%p type=%s\n",
-                (void *)node,
-                get_node_type_name_from_node(node)
-            );
-            return false; /* cycle */
-        }
-    }
-    if (visit_stack_top < VISIT_STACK_MAX)
-    {
-        visit_stack[visit_stack_top++] = node;
-    }
-    return true;
-}
-
-static void
-visit_stack_pop(c_grammar_node_t const * node)
-{
-    if (visit_stack_top > 0 && visit_stack[visit_stack_top - 1] == node)
-    {
-        visit_stack_top--;
-    }
-}
-
 static void
 add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_name)
 {
@@ -2076,11 +2039,6 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (node == NULL)
     {
         return;
-    }
-
-    if (!visit_stack_push(node))
-    {
-        return; /* cycle detected, abort */
     }
 
     switch (node->type)
@@ -3071,29 +3029,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_PARAMETER_LIST:
     case AST_NODE_ELLIPSIS:
     default:
-        // Fallback: Recursively process children for unhandled node types.
-        if (node->text != NULL && node->list.count == 0)
-        {
-            /*
-                Do nothing for terminal nodes unless handled above.
-                Shouldn't happen.
-             */
-            debug_warning("Unhandled terminal node type: %d (%s)", node->type, node->text);
-        }
-        else
-        {
-            for (size_t i = 0; i < node->list.count; ++i)
-            {
-                process_ast_node(ctx, node->list.children[i]);
-                if (ctx->errors.fatal)
-                {
-                    return;
-                }
-            }
-        }
+        print_ast_with_label(node, "unhandled");
+        debug_error("%s: Unhandled node", __func__);
         break;
     }
-    visit_stack_pop(node);
 }
 
 static void
@@ -3103,8 +3042,12 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         return; /* Stop processing if a fatal error has occurred */
     }
+
     debug_info("%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
-    print_ast_with_label(node, "process_ast");
+    if (debug_get_level() >= DEBUG_LEVEL_INFO)
+    {
+        print_ast_with_label(node, "process_ast");
+    }
 
     _process_ast_node(ctx, node);
     debug_info("processed: %s", get_node_type_name_from_node(node));
@@ -5030,16 +4973,11 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     {
         return NullTypedValue;
     }
-    if (!visit_stack_push(node))
-    {
-        return NullTypedValue; /* cycle detected */
-    }
+
     debug_info("%s from line: %u", __func__, line);
     print_ast_with_label(node, __func__);
 
     TypedValue result = _process_expression(ctx, node);
-
-    visit_stack_pop(node);
 
     if (result.value != NULL && result.type_info == NULL)
     {
