@@ -3586,6 +3586,12 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 return NullTypedValue;
             }
 
+            if (current_val.type_info->qualifiers.is_const)
+            {
+                ir_gen_error(&ctx->errors, suffix, "Cannot increment/decrement const variable");
+                return NullTypedValue;
+            }
+
             TypedValue original_val = ensure_rvalue(ctx, "postfix_orig", current_val);
             LLVMValueRef modified;
 
@@ -4686,6 +4692,18 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
         if (var_res.value == NULL)
         {
+            return NullTypedValue;
+        }
+
+        if (!var_res.is_lvalue)
+        {
+            ir_gen_error(&ctx->errors, operand_node, "Cannot increment/decrement non-lvalue");
+            return NullTypedValue;
+        }
+
+        if (var_res.type_info->qualifiers.is_const)
+        {
+            ir_gen_error(&ctx->errors, operand_node, "Cannot increment/decrement const variable");
             return NullTypedValue;
         }
 
