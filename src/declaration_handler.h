@@ -5,6 +5,21 @@
 
 #include <stdbool.h>
 
+typedef struct
+{
+    c_grammar_node_t const * decl_specifiers;
+    c_grammar_node_t const * declarator;
+} param_nodes;
+
+typedef struct
+{
+    size_t count;
+    bool is_variadic;
+    param_nodes * nodes;
+    char const ** names;
+    TypeDescriptor const ** types;
+} parameter_definitions_t;
+
 TypeSpecifier build_type_specifiers(c_grammar_node_t const * spec_list);
 
 bool type_specifier_is_valid(TypeSpecifier const spec);
@@ -19,3 +34,7 @@ TypeDescriptor const * resolve_type_descriptor(
 
 struct_or_union_members_st
 extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
+
+parameter_definitions_t extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * params_list);
+
+void parameter_definitions_cleanup(parameter_definitions_t * params);

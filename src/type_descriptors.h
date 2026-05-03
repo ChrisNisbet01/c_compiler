@@ -37,7 +37,6 @@ typedef struct
     TypeDescriptor const * return_type;
     unsigned param_count;
     TypeDescriptor const ** params; // Allocated once in the registry
-    char const ** names;            // Allocated once in the registry
     bool is_void_return;
     bool is_variadic;
 } FunctionMetadata;
@@ -103,7 +102,6 @@ TypeDescriptor const * get_or_create_function_type(
     TypeDescriptors * registry,
     TypeDescriptor const * ret_type,
     TypeDescriptor const ** params,
-    char const ** param_names,
     size_t param_count,
     bool is_variadic
 );

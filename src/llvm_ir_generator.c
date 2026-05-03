@@ -104,13 +104,15 @@ static TypedValue
 ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
 {
     debug_info("%s: is %s, lvalue: %d", __func__, label, val.is_lvalue);
-    dump_typed_value(__func__, val);
+    dump_typed_value(label, val);
     if (val.value == NULL)
     {
+        debug_warning("no value!");
         return val;
     }
     if (!val.is_lvalue)
     {
+        debug_info("already rvalue");
         return val; // Already data
     }
 
@@ -1178,6 +1180,20 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
         add_symbol(ctx, "__FILE__", val);
     }
 
+    /* Create some builtins. */
+    {
+        TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, false);
+        TypeDescriptor const * char_ptr_desc
+            = get_or_create_pointer_type(ctx->type_descriptors, char_desc, (TypeQualifier){0});
+        scope_typedef_entry_t typedef_entry = {
+            .kind = TYPE_KIND_BUILTIN,
+            .name = strdup("__builtin_va_list"),
+            .type_desc = char_ptr_desc,
+        };
+
+        scope_add_typedef_entry(ctx->current_scope, typedef_entry);
+    }
+
     // Initialize error collection (any error will be fatal since max_errors=1)
     ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
 
@@ -1200,13 +1216,11 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
         // hack in a function definition for printf(), auto-declare as variadic returning i32
         // with no required arguments to support different call patterns
         char const * printf_fn_name = "printf";
-
         TypeDescriptor const * ret_type = type_descriptor_get_int32_type(ctx->type_descriptors, false);
         LLVMTypeRef ret_type_llvm = ret_type->llvm_type;
         LLVMTypeRef func_type = LLVMFunctionType(ret_type_llvm, NULL, 0, true);
         LLVMValueRef func = LLVMAddFunction(ctx->module, printf_fn_name, func_type);
-        TypeDescriptor const * func_desc
-            = get_or_create_function_type(ctx->type_descriptors, ret_type, NULL, NULL, 0, true);
+        TypeDescriptor const * func_desc = get_or_create_function_type(ctx->type_descriptors, ret_type, NULL, 0, true);
         TypedValue print_val = create_typed_value(func, func_desc, false);
         add_function_declaration(ctx, printf_fn_name, print_val, false);
     }
@@ -1551,14 +1565,29 @@ process_declarator(
     }
 
     // 3. Global / Static Storage
-    if (is_static || is_global)
+    if (type_desc->kind == NCC_TYPE_KIND_FUNCTION)
     {
-        if (type_desc->kind == NCC_TYPE_KIND_FUNCTION)
+        // Check if the function is already in the LLVM module
+        LLVMValueRef func = LLVMGetNamedFunction(ctx->module, var_name);
+        dump_type_descriptor(var_name, type_desc, DEBUG_LEVEL_ERROR);
+        if (!func)
         {
-            debug_info("Skipping function declaration in declarator (handled by definition)");
-            return;
+            debug_info("Adding function declaration: %s", var_name);
+            func = LLVMAddFunction(ctx->module, var_name, type_desc->llvm_type);
+
+            // Standard C function declarations have "External" linkage by default
+            LLVMSetLinkage(func, LLVMExternalLinkage);
         }
 
+        // Add it to your symbol table so the compiler can resolve calls to it.
+        // Functions are usually treated as R-values (the address of the function).
+        TypedValue func_val = create_typed_value(func, type_desc, false);
+        add_symbol(ctx, var_name, func_val);
+
+        return;
+    }
+    if (is_static || is_global)
+    {
         c_grammar_node_t const * init_expr = (init_decl_initializer && init_decl_initializer->list.count > 0)
                                                  ? init_decl_initializer->list.children[0]
                                                  : NULL;
@@ -1735,11 +1764,21 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 
     // --- Handle function parameters: allocate space and store arguments ---
     debug_info("Processing %u function parameters for '%s'", type_desc->function_metadata.param_count, func_name);
-    for (size_t i = 0; i < type_desc->function_metadata.param_count; ++i)
+
+    c_grammar_node_t const * param_list = search_parameters_list_in_declarator(declarator_node);
+    if (param_list == NULL)
     {
-        char const * p_name = type_desc->function_metadata.names[i];
-        TypeDescriptor const * p_type_desc = type_desc->function_metadata.params[i];
-        debug_info("Processing parameter %zu name: %s type desc %p", i, p_name, (void *)p_type_desc);
+        debug_error("failed to find_parameter list");
+        scope_pop(ctx);
+        return;
+    }
+    parameter_definitions_t params = extract_function_parameters(ctx, param_list);
+
+    for (size_t i = 0; i < params.count; ++i)
+    {
+        char const * p_name = params.names[i];
+        TypeDescriptor const * p_type_desc = params.types[i];
+        debug_info("%s: Processing parameter %zu name: %s type desc %p", __func__, i, p_name, (void *)p_type_desc);
         LLVMTypeRef p_type = p_type_desc->llvm_type;
         LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
         LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, p_type, p_name != NULL ? p_name : "fn_param");
@@ -1757,6 +1796,9 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         }
         debug_info("Processed parameter %zu", i);
     }
+
+    parameter_definitions_cleanup(&params);
+
     debug_info("processed parameters");
     // Process the compound statement (function body).
     process_ast_node(ctx, compound_stmt_node);
@@ -1770,7 +1812,9 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
 
     // --- Add a default return if the function doesn't end with one ---
-    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    // Only add a default return if the block is valid and unterminated
+    LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
+    if (current_block && !LLVMGetBasicBlockTerminator(current_block))
     {
         if (LLVMGetTypeKind(type_desc->function_metadata.return_type->llvm_type) == LLVMVoidTypeKind)
         {
@@ -1789,6 +1833,60 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     /* Clear the builder insert point so subsequent declarations don't
      * mistakenly think we're inside a function body. */
     LLVMClearInsertionPosition(ctx->builder);
+}
+
+static void
+process_return_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    c_grammar_node_t const * expr_node = node->return_statement.expression;
+
+    // We need the expected return type descriptor.
+    // Assuming you store this in your context when starting a function:
+    TypeDescriptor const * expected_ret_desc = ctx->current_function_return_type;
+
+    if (expected_ret_desc == NULL)
+    {
+        debug_error("Internal Error: No return type descriptor found for current function context.");
+        return;
+    }
+
+    if (expr_node != NULL)
+    {
+        // 1. Process the expression
+        TypedValue return_value = process_expression(ctx, expr_node);
+        dump_typed_value("process_return", return_value);
+        // 2. Ensure it's an RValue (we can't return a memory address/LValue directly)
+        return_value = ensure_rvalue(ctx, "return_rval", return_value);
+
+        if (return_value.value == NULL)
+        {
+            debug_error("Failed to process return expression.");
+            return;
+        }
+
+        // 3. Use your new descriptor-based cast
+        // This handles converting int -> float, or promoting widths as defined by C rules.
+        TypedValue cast_val = cast_typed_value_to_desc(ctx, return_value, expected_ret_desc);
+
+        LLVMBuildRet(ctx->builder, cast_val.value);
+    }
+    else
+    {
+        // Handle 'return;' (no expression)
+        if (expected_ret_desc->function_metadata.is_void_return || expected_ret_desc->specifiers.is_void)
+        {
+            LLVMBuildRetVoid(ctx->builder);
+        }
+        else
+        {
+            // C Rule: returning nothing in a non-void function is usually a warning,
+            // but for code generation, we provide a zeroed value of the expected type.
+            debug_warning("Return without value in non-void function.");
+
+            LLVMValueRef zero_const = LLVMConstNull(expected_ret_desc->llvm_type);
+            LLVMBuildRet(ctx->builder, zero_const);
+        }
+    }
 }
 
 static void
@@ -2706,55 +2804,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_RETURN_STATEMENT:
     {
-        c_grammar_node_t const * expr_node = node->return_statement.expression;
-
-        // We need the expected return type descriptor.
-        // Assuming you store this in your context when starting a function:
-        TypeDescriptor const * expected_ret_desc = ctx->current_function_return_type;
-
-        if (expected_ret_desc == NULL)
-        {
-            debug_error("Internal Error: No return type descriptor found for current function context.");
-            return;
-        }
-
-        if (expr_node != NULL)
-        {
-            // 1. Process the expression
-            TypedValue return_value = process_expression(ctx, expr_node);
-
-            // 2. Ensure it's an RValue (we can't return a memory address/LValue directly)
-            return_value = ensure_rvalue(ctx, "return_rval", return_value);
-
-            if (return_value.value == NULL)
-            {
-                debug_error("Failed to process return expression.");
-                return;
-            }
-
-            // 3. Use your new descriptor-based cast
-            // This handles converting int -> float, or promoting widths as defined by C rules.
-            TypedValue cast_val = cast_typed_value_to_desc(ctx, return_value, expected_ret_desc);
-
-            LLVMBuildRet(ctx->builder, cast_val.value);
-        }
-        else
-        {
-            // Handle 'return;' (no expression)
-            if (expected_ret_desc->function_metadata.is_void_return || expected_ret_desc->specifiers.is_void)
-            {
-                LLVMBuildRetVoid(ctx->builder);
-            }
-            else
-            {
-                // C Rule: returning nothing in a non-void function is usually a warning,
-                // but for code generation, we provide a zeroed value of the expected type.
-                debug_warning("Return without value in non-void function.");
-
-                LLVMValueRef zero_const = LLVMConstNull(expected_ret_desc->llvm_type);
-                LLVMBuildRet(ctx->builder, zero_const);
-            }
-        }
+        process_return_statement(ctx, node);
         break;
     }
     case AST_NODE_GOTO_STATEMENT:
@@ -3735,6 +3785,7 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     debug_error("NULL element type for variable '%s'.", node->text);
+    ir_gen_error(&ctx->errors, node, "Unknown variable: '%s'", node->text);
 
     return NullTypedValue;
 }

@@ -1,6 +1,7 @@
 #include "declaration_handler.h"
 
 #include "ast_node_name.h"
+#include "ast_print.h"
 #include "debug.h"
 #include "type_descriptors.h"
 #include "type_utils.h"
@@ -9,26 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct
-{
-    c_grammar_node_t const * decl_specifiers;
-    c_grammar_node_t const * declarator;
-} param_nodes;
-
-typedef struct
-{
-    size_t count;
-    bool is_variadic;
-    param_nodes * nodes;
-    char const ** names;
-    TypeDescriptor const ** types;
-} parameter_definitions_t;
-
-static void
+void
 parameter_definitions_cleanup(parameter_definitions_t * params)
 {
     free(params->names);
     free(params->types);
+    params->count = 0;
 }
 
 static bool
@@ -43,7 +30,9 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
     size_t params_list_count = params_list_node->list.count;
     if (params_list_count > 1 && params_list_node->list.children[params_list_count - 1]->type == AST_NODE_ELLIPSIS)
     {
+        debug_info("is variadic function");
         params_list_count--; /* Exclude ellipsis from count */
+        params->is_variadic = true;
     }
     /* There are either 2 or 3 nodes per param - allocate enough space assuming 2 nodes per param. */
     params->names = calloc(params_list_count / 2, sizeof(*params->names));
@@ -78,7 +67,7 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
     return true;
 }
 
-static parameter_definitions_t
+parameter_definitions_t
 extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * params_list)
 {
     debug_info("%s", __func__);
@@ -94,7 +83,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
             return params;
         }
         debug_info("%s: extracting %zu parameters", __func__, params.count);
-        for (size_t i = 0; i < params.count; ++i)
+        for (size_t i = 0; i < params.count; i++)
         {
             c_grammar_node_t const * p_spec = params.nodes[i].decl_specifiers;
             c_grammar_node_t const * p_decl = params.nodes[i].declarator;
@@ -125,6 +114,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
                 if (p_direct != NULL && p_direct->list.count > 0)
                 {
                     c_grammar_node_t const * first_child = p_direct->list.children[0];
+                    print_ast_with_label(first_child, "direct decl child");
                     if (first_child->type == AST_NODE_IDENTIFIER)
                     {
                         params.names[i] = first_child->text;
@@ -177,7 +167,7 @@ resolve_function_pointer_type(
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
 
     TypeDescriptor const * res = get_or_create_function_type(
-        ctx->type_descriptors, return_type, params.types, params.names, params.count, params.is_variadic
+        ctx->type_descriptors, return_type, params.types, params.count, params.is_variadic
     );
     parameter_definitions_cleanup(&params);
 

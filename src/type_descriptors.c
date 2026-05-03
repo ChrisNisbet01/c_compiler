@@ -449,7 +449,6 @@ get_or_create_function_type(
     TypeDescriptors * registry,
     TypeDescriptor const * ret_type,
     TypeDescriptor const ** params,
-    char const ** param_names,
     size_t param_count,
     bool is_variadic
 )
@@ -458,7 +457,8 @@ get_or_create_function_type(
     while (curr != NULL)
     {
         if (curr->public.kind == NCC_TYPE_KIND_FUNCTION && curr->public.function_metadata.return_type == ret_type
-            && curr->public.function_metadata.param_count == param_count)
+            && curr->public.function_metadata.param_count == param_count
+            && curr->public.function_metadata.is_variadic == is_variadic)
         {
             // Check if all parameters match exactly
             bool match = true;
@@ -490,16 +490,8 @@ get_or_create_function_type(
 
     if (param_count > 0)
     {
-        template.function_metadata.names = calloc(param_count, sizeof(*param_names));
         template.function_metadata.params = calloc(param_count, sizeof(*params));
         memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
-        for (size_t i = 0; i < param_count; i++)
-        {
-            if (param_names[i] != NULL)
-            {
-                template.function_metadata.names[i] = strdup(param_names[i]);
-            }
-        }
     }
 
     // Construct the LLVM function type
@@ -513,10 +505,11 @@ get_or_create_function_type(
         }
     }
     debug_info(
-        "%s: creating function type for return type %d with %zu params",
+        "%s: creating function type for return type %d with %zu params, is variadic: %d",
         __func__,
         LLVMGetTypeKind(ret_type->llvm_type),
-        param_count
+        param_count,
+        is_variadic
     );
     template.llvm_type = LLVMFunctionType(ret_type->llvm_type, llvm_params, param_count, is_variadic);
     debug_info(

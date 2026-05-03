@@ -20,7 +20,7 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
     }
     fprintf(
         stderr,
-        "TypeDescriptor: %s, kind=%d llvm_type_kind=%d\n",
+        "TypeDescriptor: '%s', kind=%d llvm_type_kind=%d\n",
         name,
         desc->kind,
         desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1
@@ -47,7 +47,7 @@ dump_typed_value(char const * label, TypedValue v)
     fprintf(stderr, "bit offset: %u\n", v.bitfield.bit_offset);
     fprintf(stderr, "storage index: %u\n", v.bitfield.storage_index);
 
-    dump_type_descriptor("val", v.type_info, DEBUG_LEVEL_INFO);
+    dump_type_descriptor(label, v.type_info, DEBUG_LEVEL_INFO);
 
     fprintf(stderr, "--------------------\n\n");
 }
