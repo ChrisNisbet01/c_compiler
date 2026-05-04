@@ -474,19 +474,13 @@ resolve_type_descriptor(
     debug_info("1");
     if (pointer_list != NULL)
     {
-        for (size_t i = pointer_list->list.count; i > 0; i--)
+        for (size_t i = 0; i < pointer_list->list.count; i++)
         {
-            c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
+            c_grammar_node_t const * pointer_node = pointer_list->list.children[i];
             TypeQualifier ptr_quals = {0};
             if (pointer_node->list.count > 0)
             {
                 ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
-            }
-
-            if (ptr_quals.is_const || ptr_quals.is_volatile)
-            {
-                current = get_or_create_qualified_type(ctx->type_descriptors, current, ptr_quals);
-                ptr_quals = (TypeQualifier){0};
             }
 
             current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
