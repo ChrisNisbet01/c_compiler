@@ -482,6 +482,13 @@ resolve_type_descriptor(
             {
                 ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
             }
+
+            if (ptr_quals.is_const || ptr_quals.is_volatile)
+            {
+                current = get_or_create_qualified_type(ctx->type_descriptors, current, ptr_quals);
+                ptr_quals = (TypeQualifier){0};
+            }
+
             current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
         }
     }

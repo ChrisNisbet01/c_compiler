@@ -3679,10 +3679,18 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
             if (first_suffix->type == AST_NODE_MEMBER_ACCESS_DOT || first_suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
             {
                 TypedValue base_val = process_expression(ctx, lhs_node->postfix_expression.base_expression);
-                if (base_val.type_info != NULL && base_val.type_info->qualifiers.is_const)
+                if (base_val.type_info != NULL)
                 {
-                    ir_gen_error(&ctx->errors, lhs_node, "Cannot assign to member of const variable");
-                    return NullTypedValue;
+                    bool is_const = base_val.type_info->qualifiers.is_const;
+                    if (base_val.type_info->kind == NCC_TYPE_KIND_POINTER && base_val.type_info->pointee != NULL)
+                    {
+                        is_const = base_val.type_info->pointee->qualifiers.is_const;
+                    }
+                    if (is_const)
+                    {
+                        ir_gen_error(&ctx->errors, lhs_node, "Cannot assign to member of const variable");
+                        return NullTypedValue;
+                    }
                 }
             }
         }
