@@ -89,6 +89,7 @@ generator_add_tagged_symbol(ir_generator_ctx_t * ctx, char const * name, TypedVa
 void
 generator_add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value)
 {
+    debug_info("generator_add_symbol: '%s' storing type_info=%p, const=%d", name, (void*)value.type_info, value.type_info->qualifiers.is_const);
     generator_add_tagged_symbol(ctx, name, value, NULL);
 }
 

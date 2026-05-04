@@ -943,9 +943,8 @@ register_tagged_struct_or_union_definition(
             if (members.num_members > 0)
             {
                 existing->type_desc->struct_metadata.members.num_members = members.num_members;
-                existing->type_desc->struct_metadata.members.members = malloc(
-                    sizeof(*existing->type_desc->struct_metadata.members.members) * members.num_members
-                );
+                existing->type_desc->struct_metadata.members.members
+                    = malloc(sizeof(*existing->type_desc->struct_metadata.members.members) * members.num_members);
                 memcpy(
                     existing->type_desc->struct_metadata.members.members,
                     members.members,
@@ -1688,6 +1687,11 @@ process_declarator(
         debug_warning("%s: Failed to resolve type descriptor", __func__);
         return;
     }
+    debug_info(
+        "process_declarator got type with qualifiers: const=%d, volatile=%d",
+        type_desc->qualifiers.is_const,
+        type_desc->qualifiers.is_volatile
+    );
 
     // 2. Extract Identifier (Variable Name)
     char const * var_name = search_for_identifier(declarator_node);
@@ -3669,6 +3673,21 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     );
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
+        if (lhs_node->postfix_expression.postfix_parts != NULL
+            && lhs_node->postfix_expression.postfix_parts->list.count > 0)
+        {
+            c_grammar_node_t const * first_suffix = lhs_node->postfix_expression.postfix_parts->list.children[0];
+            if (first_suffix->type == AST_NODE_MEMBER_ACCESS_DOT || first_suffix->type == AST_NODE_MEMBER_ACCESS_ARROW)
+            {
+                TypedValue base_val = process_expression(ctx, lhs_node->postfix_expression.base_expression);
+                if (base_val.type_info != NULL && base_val.type_info->qualifiers.is_const)
+                {
+                    ir_gen_error(&ctx->errors, lhs_node, "Cannot assign to member of const variable");
+                    return NullTypedValue;
+                }
+            }
+        }
+
         lhs_res = process_expression(ctx, lhs_node);
         if (lhs_res.value == NULL)
         {
@@ -3703,9 +3722,12 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         // Simple variable assignment
         lhs_res = get_variable_pointer(ctx, lhs_node);
+        debug_info(
+            "process_assignment (simple var): got type_info=%p, const=%d",
+            (void *)lhs_res.type_info,
+            lhs_res.type_info->qualifiers.is_const
+        );
     }
-
-    dump_typed_value("assignment_lhs", lhs_res);
 
     if (lhs_res.value == NULL)
     {
@@ -3717,6 +3739,12 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         debug_error("expected LHS of assignment to be an lvalue, but it isn't");
         print_ast_with_label(lhs_node, "LHS");
     }
+
+    debug_info(
+        "assignment LHS type_info qualifiers: const=%d, volatile=%d",
+        lhs_res.type_info->qualifiers.is_const,
+        lhs_res.type_info->qualifiers.is_volatile
+    );
 
     if (lhs_res.type_info->qualifiers.is_const)
     {

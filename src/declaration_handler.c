@@ -336,7 +336,7 @@ resolve_type_descriptor(
         }
     }
 
-    TypeDescriptor const * current = existing_typedef_info != NULL ? existing_typedef_info->type_desc : NULL;
+    TypeDescriptor * current = existing_typedef_info != NULL ? existing_typedef_info->type_desc : NULL;
 
     debug_info("current type descriptor: %p", (void *)current);
 
@@ -427,6 +427,12 @@ resolve_type_descriptor(
     {
         debug_info("no type descriptor found, returning NULL");
         return NULL;
+    }
+
+    if (type_quals.is_const || type_quals.is_volatile)
+    {
+        current->qualifiers.is_const |= type_quals.is_const;
+        current->qualifiers.is_volatile |= type_quals.is_volatile;
     }
 
     if (declarator == NULL)
