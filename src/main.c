@@ -27,6 +27,7 @@ extern char ** environ;
 static bool compile_only_flag = false;
 static bool assembly_only_flag = false;
 static bool emit_llvm_flag = false;
+static bool emit_ast_flag = false;
 static char * output_filename = NULL;
 static char * march_target = "x86-64";
 static char * lib_names[64]; // -l flags (e.g., "m" for -lm)
@@ -241,26 +242,28 @@ epc_wrap_callbacks_t typedef_capture_callbacks = {on_capture_entry, on_capture_e
 epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit};
 
 static char *
-derive_output_filename(char const * input_path, char const * ext)
+derive_extension_from_path(char const * path, char const * ext)
 {
     char * derived;
-    char const * base = strrchr(input_path, '/');
-    base = base ? base + 1 : input_path;
+    char const * base = strrchr(path, '/');
+    base = base ? base + 1 : path;
 
     char const * dot = strrchr(base, '.');
     size_t base_len = dot ? (size_t)(dot - base) : strlen(base);
 
-    char const * dir_end = strrchr(input_path, '/');
-    size_t dir_len = dir_end ? (size_t)(dir_end - input_path + 1) : 0;
-    int res = asprintf(&derived, "%.*s%.*s.%s", (int)dir_len, input_path, (int)base_len, base, ext);
+    char const * dir_end = strrchr(path, '/');
+    size_t dir_len = dir_end ? (size_t)(dir_end - path + 1) : 0;
+    int res = asprintf(&derived, "%.*s%.*s.%s", (int)dir_len, path, (int)base_len, base, ext);
     (void)res;
-#if 0
-    memcpy(derived, input_path, dir_len);
-    memcpy(derived + dir_len, base, base_len);
-    snprintf(derived + dir_len + base_len, sizeof(derived) - dir_len - base_len, ".%s", ext);
-#endif
     return derived;
 }
+
+static char *
+derive_output_filename(char const * input_path, char const * ext)
+{
+    return derive_extension_from_path(input_path, ext);
+}
+
 
 static int
 link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
@@ -649,6 +652,7 @@ print_usage(char const * prog_name)
     fprintf(stderr, "  -S              Compile to assembly (or LLVM IR with -emit-llvm)\n");
     fprintf(stderr, "  -c              Compile to object code\n");
     fprintf(stderr, "  --emit-llvm     Emit LLVM IR instead of native output\n");
+    fprintf(stderr, "  --emit-ast      Emit the AST to an .ast file\n");
     fprintf(stderr, "  -E              Preprocess only, output to stdout\n");
     fprintf(stderr, "  --no-preprocess Skip preprocessing (default behavior before this change)\n");
     fprintf(stderr, "  -o <file>       Specify output filename\n");
@@ -666,6 +670,7 @@ main(int argc, char * argv[])
     static struct option long_options[]
         = {{"march", required_argument, 0, 'm'},
            {"emit-llvm", no_argument, 0, 'e'},
+           {"emit-ast", no_argument, 0, 'A'},
            {"help", no_argument, 0, 'h'},
            {"no-preprocess", no_argument, 0, 256},
            {"debug", required_argument, 0, 257},
@@ -673,7 +678,7 @@ main(int argc, char * argv[])
 
     int opt;
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "cSo:l:L:hEI:D:", long_options, &option_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "cSo:l:L:hEI:D:A", long_options, &option_index)) != -1)
     {
         switch (opt)
         {
@@ -711,6 +716,9 @@ main(int argc, char * argv[])
         case 'D':
             if (defines_count < 64)
                 defines[defines_count++] = optarg;
+            break;
+        case 'A':
+            emit_ast_flag = true;
             break;
         case 256: // --no-preprocess
             preprocess_flag = false;
@@ -867,6 +875,27 @@ main(int argc, char * argv[])
             {
                 print_ast(ast_root);
             }
+
+            if (emit_ast_flag)
+            {
+                char const * ast_base_path = output_filename ? output_filename : filename;
+                char * ast_filename = derive_extension_from_path(ast_base_path, "ast");
+                if (ast_filename != NULL)
+                {
+                    FILE * ast_file = fopen(ast_filename, "w");
+                    if (ast_file != NULL)
+                    {
+                        print_ast_to_stream(ast_root, ast_file);
+                        fclose(ast_file);
+                    }
+                    else
+                    {
+                        debug_error("Failed to open AST output file %s: %s", ast_filename, strerror(errno));
+                    }
+                    free(ast_filename);
+                }
+            }
+
             debug_info("AST max depth: %zu", ast_max_depth(ast_root, 0));
             if (!generate_output(ast_root, filename, session.internal_parse_ctx))
             {
