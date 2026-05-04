@@ -29,13 +29,12 @@ static TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_n
 char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
 char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
 char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
-type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
 bool is_function_suffix(c_grammar_node_t const * suffix);
 c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
 c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
 
 static type_info_t const * register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind, TypeQualifier quals
 );
 
 static type_info_t const * register_untagged_struct_or_union_definition(
@@ -889,7 +888,7 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
 
 static type_info_t const *
 register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind, TypeQualifier quals
 )
 {
     if (ctx == NULL || tag == NULL)
@@ -1009,7 +1008,7 @@ register_tagged_struct_or_union_definition(
     opaque.type_desc = register_struct_type(
         ctx->type_descriptors,
         LLVMStructCreateNamed(ctx->context, tag),
-        (TypeQualifier){0},
+        quals,
         kind == TYPE_KIND_UNION,
         is_complete,
         &members
@@ -1192,7 +1191,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
 
     type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
 
-    return register_tagged_struct_or_union_definition(ctx, type_child, struct_tag, kind);
+    return register_tagged_struct_or_union_definition(ctx, type_child, struct_tag, kind, (TypeQualifier){0});
 }
 
 static type_info_t const *
@@ -2348,7 +2347,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (struct_tag != NULL)
                     {
                         kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-                        type_info = register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind);
+                        type_info = register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind, (TypeQualifier){0});
                         typedef_entry.tag = strdup(struct_tag);
                     }
                     else

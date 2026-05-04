@@ -144,6 +144,37 @@ get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * po
 }
 
 TypeDescriptor const *
+get_or_create_qualified_type(TypeDescriptors * registry, TypeDescriptor const * base_type, TypeQualifier qualifiers)
+{
+    if (base_type == NULL)
+    {
+        return NULL;
+    }
+
+    if (!qualifiers.is_const && !qualifiers.is_volatile)
+    {
+        return base_type;
+    }
+
+    TypeDescriptor_private * curr = registry->head;
+    while (curr)
+    {
+        if (curr->public.kind == base_type->kind && curr->public.llvm_type == base_type->llvm_type
+            && qualifiers_match(&curr->public.qualifiers, &qualifiers))
+        {
+            return &curr->public;
+        }
+        curr = curr->next;
+    }
+
+    TypeDescriptor template = *base_type;
+    template.qualifiers.is_const |= qualifiers.is_const;
+    template.qualifiers.is_volatile |= qualifiers.is_volatile;
+
+    return register_descriptor(registry, &template);
+}
+
+TypeDescriptor const *
 get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs_in, TypeQualifier const quals)
 {
     TypeSpecifier specs = specs_in;

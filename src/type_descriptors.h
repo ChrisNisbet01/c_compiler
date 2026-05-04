@@ -89,6 +89,15 @@ get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * elem
 TypeDescriptor const *
 get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * pointee, TypeQualifier qualifiers);
 
+/**
+ * @brief Returns a type descriptor with the given qualifiers applied.
+ * If no qualifiers are specified, returns the original type.
+ * If qualifiers are specified, searches for an existing type with those qualifiers
+ * or creates a new one.
+ */
+TypeDescriptor const *
+get_or_create_qualified_type(TypeDescriptors * registry, TypeDescriptor const * base_type, TypeQualifier qualifiers);
+
 TypeDescriptor const * get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier specs, TypeQualifier quals);
 
 TypeDescriptor const * register_struct_type(
