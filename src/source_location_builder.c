@@ -27,6 +27,8 @@ walk_node(
         size_t original_line = node->line_marker.line_number;
         
         /* Add entry to tracker */
+        printf("DEBUG: Adding marker: pp_line=%zu, orig_line=%zu, file=%s\n", 
+               effective_preprocessed_line, original_line, node->line_marker.filename);
         source_location_tracker_add_entry(
             tracker,
             effective_preprocessed_line,
