@@ -1,10 +1,10 @@
 #pragma once
 #include "c_grammar_ast.h"
 #include "source_location.h"
+
 #include <easy_pc/easy_pc.h>
 #include <stdbool.h>
 #include <stddef.h>
-
 
 // --- Error and Warning Reporting ---
 
@@ -32,7 +32,11 @@ typedef struct ir_gen_error_collection
  * @param max_errors The maximum number of errors to collect before marking as fatal.
  */
 void ir_gen_error_collection_init(
-    ir_gen_error_collection_t * collection, size_t max_errors, epc_parser_ctx_t * parse_ctx, char const * module_name
+    ir_gen_error_collection_t * collection,
+    size_t max_errors,
+    epc_parser_ctx_t * parse_ctx,
+    char const * module_name,
+    source_location_tracker_t * loc_tracker
 );
 
 /**

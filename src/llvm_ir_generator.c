@@ -1270,8 +1270,7 @@ ir_generator_init(
     }
 
     // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
-    ctx->errors.loc_tracker = loc_tracker;
+    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);
 
     ctx->module = LLVMModuleCreateWithName(module_name);
     ctx->data_layout = LLVMGetModuleDataLayout(ctx->module);
@@ -2154,11 +2153,10 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         ast_node_preprocessor_line_marker_t const * marker = &node->line_marker;
 
-        /* 1. Get current preprocessed line from parser context */
-        epc_line_col_t pp_lc = epc_calculate_line_and_column(ctx->errors.parse_ctx, node->source_data.offset);
-
         /* 2. Update the tracker with the mapping */
-        source_location_tracker_add_entry(ctx->errors.loc_tracker, pp_lc.line, marker->line_number, marker->filename);
+        source_location_tracker_add_entry(
+            ctx->errors.loc_tracker, node->source_data.offset, marker->line_number, marker->filename
+        );
         debug_info("flags count: %zu", marker->flags_count);
         /* 3. Handle include stack based on flags */
         for (size_t i = 0; i < marker->flags_count; i++)
@@ -5098,6 +5096,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_SPECIFIERS:
     case AST_NODE_PARAMETER_LIST:
     case AST_NODE_ELLIPSIS:
+    case AST_NODE_PREPROCESSOR_LINE_MARKER:
     default:
         debug_error("%s: Node type: %s is not supported at this level", __func__, get_node_type_name_from_node(node));
         break;

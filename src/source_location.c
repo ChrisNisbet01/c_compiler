@@ -41,7 +41,10 @@ source_location_tracker_free(source_location_tracker_t * tracker)
 
 void
 source_location_tracker_add_entry(
-    source_location_tracker_t * tracker, size_t preprocessed_line, size_t original_line, char const * original_filename
+    source_location_tracker_t * tracker,
+    size_t preprocessed_offset,
+    size_t original_line,
+    char const * original_filename
 )
 {
     if (tracker == NULL)
@@ -63,7 +66,7 @@ source_location_tracker_add_entry(
 
     /* Add entry (assume entries are added in increasing order of preprocessed_line) */
     source_location_entry_t * entry = &tracker->entries[tracker->count];
-    entry->preprocessed_line = preprocessed_line;
+    entry->preprocessed_offset = preprocessed_offset;
     entry->original_line = original_line;
     entry->original_filename = strdup(original_filename);
 
@@ -124,7 +127,7 @@ source_location_tracker_pop_include(source_location_tracker_t * tracker)
 }
 
 source_location_entry_t const *
-source_location_tracker_find(source_location_tracker_t const * tracker, size_t preprocessed_line)
+source_location_tracker_find(source_location_tracker_t const * tracker, size_t preprocessed_offset)
 {
     if (tracker == NULL || tracker->count == 0)
     {
@@ -140,7 +143,7 @@ source_location_tracker_find(source_location_tracker_t const * tracker, size_t p
         int mid = lo + (hi - lo) / 2;
         source_location_entry_t const * entry = &tracker->entries[mid];
 
-        if (entry->preprocessed_line <= preprocessed_line)
+        if (entry->preprocessed_offset <= preprocessed_offset)
         {
             result = entry;
             lo = mid + 1;

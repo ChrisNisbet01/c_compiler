@@ -7,4 +7,3 @@ main()
     x = 20;
     return 0;
 }
-#include "header.h"

@@ -6,7 +6,6 @@
 #include "debug.h"
 #include "llvm_ir_generator.h"
 #include "source_location.h"
-#include "source_location_builder.h"
 #include "symbol_table.h"
 
 #include <easy_pc/easy_pc.h>
@@ -904,7 +903,9 @@ main(int argc, char * argv[])
 
             source_location_tracker_t loc_tracker;
             source_location_tracker_init(&loc_tracker);
-            build_location_tracker_from_ast(&loc_tracker, filename);
+            source_location_tracker_push_include(&loc_tracker, filename, 1);
+            /* The line to add a default entry is needed for when preprocessing is skipped. */
+            source_location_tracker_add_entry(&loc_tracker, 0, 2, filename); /* FIXME: Why 2? */
 
             if (!generate_output(ast_root, filename, session.internal_parse_ctx, &loc_tracker))
             {
