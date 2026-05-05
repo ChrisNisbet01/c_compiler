@@ -2150,6 +2150,32 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         process_ast_node(ctx, node->top_level_declaration.declaration);
         break;
     }
+    case AST_NODE_PREPROCESSOR_LINE_MARKER:
+    {
+        ast_node_preprocessor_line_marker_t const * marker = &node->line_marker;
+
+        /* 1. Get current preprocessed line from parser context */
+        epc_line_col_t pp_lc = epc_calculate_line_and_column(ctx->errors.parse_ctx, node->source_data.offset);
+
+        /* 2. Update the tracker with the mapping */
+        source_location_tracker_add_entry(ctx->errors.loc_tracker, pp_lc.line, marker->line_number, marker->filename);
+        debug_info("flags count: %zu", marker->flags_count);
+        /* 3. Handle include stack based on flags */
+        for (size_t i = 0; i < marker->flags_count; i++)
+        {
+            debug_info("marker %zu flag: %zu", i, marker->flags[i]);
+
+            if (marker->flags[i] == 1) /* Enter include */
+            {
+                source_location_tracker_push_include(ctx->errors.loc_tracker, marker->filename, marker->line_number);
+            }
+            else if (marker->flags[i] == 2) /* Exit include */
+            {
+                source_location_tracker_pop_include(ctx->errors.loc_tracker);
+            }
+        }
+        break;
+    }
     case AST_NODE_PREPROCESSOR_DIRECTIVE:
     {
         // For now, we can ignore preprocessor directives in IR generation

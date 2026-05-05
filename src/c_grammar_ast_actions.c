@@ -193,12 +193,24 @@ handle_preprocessor_line_marker(
         ast_node->line_marker.flags[i] = (size_t)flag_child->integer_lit.integer_literal.value;
     }
 
-    printf(
-        "DEBUG: Found line marker: line=%zu, file=%s\n",
+    fprintf(
+        stderr,
+        "DEBUG: Found line marker: line=%zu, file=%s, offset: %zu\n",
         ast_node->line_marker.line_number,
-        ast_node->line_marker.filename
+        ast_node->line_marker.filename,
+        ast_node->source_data.offset
     );
-
+    if (ast_node->line_marker.flags_count > 0)
+    {
+        fprintf(
+            stderr,
+            "DEBUG: %zu flags, Flags: %zu, %zu, %zu\n",
+            ast_node->line_marker.flags_count,
+            ast_node->line_marker.flags[0],
+            ast_node->line_marker.flags[1],
+            ast_node->line_marker.flags[2]
+        );
+    }
     epc_ast_push(ctx, ast_node);
 }
 
@@ -240,7 +252,8 @@ handle_external_declaration(
         return;
     }
     c_grammar_node_t const * child = children[0];
-    if (child->type != AST_NODE_TOP_LEVEL_DECLARATION && child->type != AST_NODE_PREPROCESSOR_DIRECTIVE && child->type != AST_NODE_PREPROCESSOR_LINE_MARKER)
+    if (child->type != AST_NODE_TOP_LEVEL_DECLARATION && child->type != AST_NODE_PREPROCESSOR_DIRECTIVE
+        && child->type != AST_NODE_PREPROCESSOR_LINE_MARKER)
     {
         epc_ast_builder_set_error(
             ctx,

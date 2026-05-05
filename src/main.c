@@ -4,11 +4,10 @@
 #include "c_grammar_ast_actions.h"
 #include "callbacks.h"
 #include "debug.h"
-#include "symbol_table.h"
+#include "llvm_ir_generator.h"
 #include "source_location.h"
 #include "source_location_builder.h"
-#include "llvm_ir_generator.h"
-
+#include "symbol_table.h"
 
 #include <easy_pc/easy_pc.h>
 #include <errno.h>
@@ -265,7 +264,6 @@ derive_output_filename(char const * input_path, char const * ext)
     return derive_extension_from_path(input_path, ext);
 }
 
-
 static int
 link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
 {
@@ -520,7 +518,12 @@ ast_max_depth(c_grammar_node_t const * node, size_t current_depth)
 }
 
 static bool
-generate_output(c_grammar_node_t const * ast_root, char const * input_filename, epc_parser_ctx_t * parse_ctx, source_location_tracker_t * loc_tracker)
+generate_output(
+    c_grammar_node_t const * ast_root,
+    char const * input_filename,
+    epc_parser_ctx_t * parse_ctx,
+    source_location_tracker_t * loc_tracker
+)
 {
     bool success = true;
     debug_info("Starting LLVM IR Generation...");
@@ -898,16 +901,16 @@ main(int argc, char * argv[])
             }
 
             debug_info("AST max depth: %zu", ast_max_depth(ast_root, 0));
-            
+
             source_location_tracker_t loc_tracker;
             source_location_tracker_init(&loc_tracker);
-            build_location_tracker_from_ast(&loc_tracker, ast_root, session.internal_parse_ctx, filename);
-            
+            build_location_tracker_from_ast(&loc_tracker, filename);
+
             if (!generate_output(ast_root, filename, session.internal_parse_ctx, &loc_tracker))
             {
                 exit_code = EXIT_FAILURE;
             }
-            
+
             source_location_tracker_free(&loc_tracker);
             c_grammar_node_free(ast_root, NULL);
         }

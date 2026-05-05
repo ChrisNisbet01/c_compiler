@@ -73,7 +73,7 @@ source_location_tracker_add_entry(
 void
 source_location_tracker_push_include(source_location_tracker_t * tracker, char const * filename, size_t line)
 {
-    fprintf(stdout, "%s line: %zu filename: %s\n", __func__, line, filename);
+    fprintf(stderr, "%s line: %zu filename: %s\n", __func__, line, filename);
     if (tracker == NULL)
     {
         return;
@@ -105,13 +105,21 @@ source_location_tracker_pop_include(source_location_tracker_t * tracker)
     tracker->stack_top--;
 
     fprintf(
-        stdout,
+        stderr,
         "%s line: %zu filename: %s\n",
         __func__,
         tracker->include_stack[tracker->stack_top].line,
         tracker->include_stack[tracker->stack_top].filename
     );
-
+    if (tracker->stack_top > 0)
+    {
+        fprintf(
+            stderr,
+            "top now: line: %zu filename: %s\n",
+            tracker->include_stack[tracker->stack_top - 1].line,
+            tracker->include_stack[tracker->stack_top - 1].filename
+        );
+    }
     free(tracker->include_stack[tracker->stack_top].filename);
 }
 
