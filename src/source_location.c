@@ -1,4 +1,6 @@
 #include "source_location.h"
+
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,13 +27,13 @@ source_location_tracker_free(source_location_tracker_t * tracker)
         free(tracker->entries[i].original_filename);
     }
     free(tracker->entries);
-    
+
     for (size_t i = 0; i < tracker->stack_top; i++)
     {
         free(tracker->include_stack[i].filename);
     }
     free(tracker->include_stack);
-    
+
     tracker->entries = NULL;
     tracker->count = 0;
     tracker->capacity = 0;
@@ -39,10 +41,7 @@ source_location_tracker_free(source_location_tracker_t * tracker)
 
 void
 source_location_tracker_add_entry(
-    source_location_tracker_t * tracker,
-    size_t preprocessed_line,
-    size_t original_line,
-    const char * original_filename
+    source_location_tracker_t * tracker, size_t preprocessed_line, size_t original_line, char const * original_filename
 )
 {
     if (tracker == NULL)
@@ -53,9 +52,7 @@ source_location_tracker_add_entry(
     if (tracker->count >= tracker->capacity)
     {
         size_t new_cap = tracker->capacity == 0 ? 8 : tracker->capacity * 2;
-        source_location_entry_t * new_entries = realloc(
-            tracker->entries, new_cap * sizeof(*new_entries)
-        );
+        source_location_entry_t * new_entries = realloc(tracker->entries, new_cap * sizeof(*new_entries));
         if (new_entries == NULL)
         {
             return;
@@ -63,23 +60,20 @@ source_location_tracker_add_entry(
         tracker->entries = new_entries;
         tracker->capacity = new_cap;
     }
-    
+
     /* Add entry (assume entries are added in increasing order of preprocessed_line) */
     source_location_entry_t * entry = &tracker->entries[tracker->count];
     entry->preprocessed_line = preprocessed_line;
     entry->original_line = original_line;
     entry->original_filename = strdup(original_filename);
-    
+
     tracker->count++;
 }
 
 void
-source_location_tracker_push_include(
-    source_location_tracker_t * tracker,
-    const char * filename,
-    size_t line
-)
+source_location_tracker_push_include(source_location_tracker_t * tracker, char const * filename, size_t line)
 {
+    fprintf(stdout, "%s line: %zu filename: %s\n", __func__, line, filename);
     if (tracker == NULL)
     {
         return;
@@ -87,9 +81,7 @@ source_location_tracker_push_include(
     if (tracker->stack_top >= tracker->stack_capacity)
     {
         size_t new_cap = tracker->stack_capacity == 0 ? 8 : tracker->stack_capacity * 2;
-        include_stack_entry_t * new_stack = realloc(
-            tracker->include_stack, new_cap * sizeof(*new_stack)
-        );
+        include_stack_entry_t * new_stack = realloc(tracker->include_stack, new_cap * sizeof(*new_stack));
         if (new_stack == NULL)
         {
             return;
@@ -97,7 +89,7 @@ source_location_tracker_push_include(
         tracker->include_stack = new_stack;
         tracker->stack_capacity = new_cap;
     }
-    
+
     include_stack_entry_t * entry = &tracker->include_stack[tracker->stack_top++];
     entry->filename = strdup(filename);
     entry->line = line;
@@ -111,29 +103,35 @@ source_location_tracker_pop_include(source_location_tracker_t * tracker)
         return;
     }
     tracker->stack_top--;
+
+    fprintf(
+        stdout,
+        "%s line: %zu filename: %s\n",
+        __func__,
+        tracker->include_stack[tracker->stack_top].line,
+        tracker->include_stack[tracker->stack_top].filename
+    );
+
     free(tracker->include_stack[tracker->stack_top].filename);
 }
 
-const source_location_entry_t *
-source_location_tracker_find(
-    const source_location_tracker_t * tracker,
-    size_t preprocessed_line
-)
+source_location_entry_t const *
+source_location_tracker_find(source_location_tracker_t const * tracker, size_t preprocessed_line)
 {
     if (tracker == NULL || tracker->count == 0)
     {
         return NULL;
     }
-    
+
     int lo = 0;
     int hi = (int)tracker->count - 1;
-    const source_location_entry_t * result = &tracker->entries[0];
-    
+    source_location_entry_t const * result = &tracker->entries[0];
+
     while (lo <= hi)
     {
         int mid = lo + (hi - lo) / 2;
-        const source_location_entry_t * entry = &tracker->entries[mid];
-        
+        source_location_entry_t const * entry = &tracker->entries[mid];
+
         if (entry->preprocessed_line <= preprocessed_line)
         {
             result = entry;
@@ -144,6 +142,6 @@ source_location_tracker_find(
             hi = mid - 1;
         }
     }
-    
+
     return result;
 }

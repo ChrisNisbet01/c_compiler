@@ -3112,10 +3112,6 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     debug_info("%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
-    if (debug_get_level() >= DEBUG_LEVEL_INFO)
-    {
-        print_ast_with_label(node, "process_ast");
-    }
 
     _process_ast_node(ctx, node);
     debug_info("processed: %s", get_node_type_name_from_node(node));

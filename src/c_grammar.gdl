@@ -5,7 +5,7 @@
 // --- Lexical Elements ---
 
 // Boundary check to ensure keywords and identifiers match full words
-IdBoundary = not(alpha | digit | '_');
+IdBoundary = not(alpha | digit | '_') | eoi;
 
 // Keywords - Storage Classes
 KwStatic = lexeme("static" IdBoundary);
