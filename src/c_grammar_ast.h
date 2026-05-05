@@ -554,12 +554,13 @@ typedef union ast_node_operator_t
     assignment_operator_data_t assign;
 } ast_node_operator_t;
 
+#define MAX_LINE_MARKER_FLAGS 3
 typedef struct ast_node_preprocessor_line_marker_t
 {
-    size_t line_number;        /* The line number from the marker */
-    char * filename;           /* The filename from the marker (without quotes) */
-    size_t flags_count;        /* Number of flag integers */
-    size_t * flags;            /* Array of flag values (1=enter, 2=exit, etc.) */
+    size_t line_number;                  /* The line number from the marker */
+    char const * filename;               /* The filename from the marker (without quotes) */
+    size_t flags_count;                  /* The number of flags. */
+    size_t flags[MAX_LINE_MARKER_FLAGS]; /* Array of flag values (1=enter, 2=exit, etc.) */
 } ast_node_preprocessor_line_marker_t;
 
 typedef struct ast_node_type_name_t

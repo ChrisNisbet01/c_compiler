@@ -150,6 +150,59 @@ handle_preprocessor_directive(
 }
 
 static void
+handle_preprocessor_line_marker(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    (void)user_data;
+
+    if (count < 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(ctx, "PreprocessorLineMarker: expected at least 2 children, got %u", count);
+        return;
+    }
+
+    c_grammar_node_t * ast_node
+        = handle_list_node(ctx, node, children, count, user_data, AST_NODE_PREPROCESSOR_LINE_MARKER);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+    c_grammar_node_t const * line_number_node = children[0];
+    c_grammar_node_t const * filename_node = children[1];
+
+    ast_node->line_marker.line_number = line_number_node->integer_lit.integer_literal.value;
+    /*
+        Wrapping quotes have been stripped at the parsing stage, so no further checks are necessary.
+        Note that the filename pointer points to a child node text field, so the child must not be freed before this
+        node has finished with the filename.
+    */
+    ast_node->line_marker.filename = filename_node->text;
+
+    /* Remaining children: optional flags (IntegerLiteral) */
+    ast_node->line_marker.flags_count = (size_t)(count - 2);
+    if (ast_node->line_marker.flags_count > MAX_LINE_MARKER_FLAGS)
+    {
+        ast_node->line_marker.flags_count = MAX_LINE_MARKER_FLAGS;
+    }
+    for (int i = 0; i < count; i++)
+    {
+        c_grammar_node_t * flag_child = children[i + 2];
+
+        ast_node->line_marker.flags[i] = (size_t)flag_child->integer_lit.integer_literal.value;
+    }
+
+    printf(
+        "DEBUG: Found line marker: line=%zu, file=%s\n",
+        ast_node->line_marker.line_number,
+        ast_node->line_marker.filename
+    );
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_top_level_declaration(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -3282,6 +3335,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ASM_STATEMENT, handle_asm_statement);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FUNCTION_DEFINITION, handle_function_definition);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_PREPROCESSOR_DIRECTIVE, handle_preprocessor_directive);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_PREPROCESSOR_LINE_MARKER, handle_preprocessor_line_marker);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXTERNAL_DECLARATIONS, handle_external_declarations);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_EXTERNAL_DECLARATION, handle_external_declaration);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_TOP_LEVEL_DECLARATION, handle_top_level_declaration);

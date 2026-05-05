@@ -486,7 +486,9 @@ AsmStatement = (KwAsm AttributeList LParen delimited(Expression, Comma) RParen S
 CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
 
 // Rule to match a preprocessor directive, including support for line continuations
-PreprocessorDirective = lexeme('#' ("\\" any | noneof("\n\r"))*) @AST_ACTION_PREPROCESSOR_DIRECTIVE;
+PreprocessorLineMarker = '#' IntegerLiteral StringLiteral IntegerLiteral* @AST_ACTION_PREPROCESSOR_LINE_MARKER;
+PreprocessorOther = lexeme('#' ("\\" any | noneof("\n\r"))*) @AST_ACTION_PREPROCESSOR_DIRECTIVE;
+PreprocessorDirective = PreprocessorLineMarker | PreprocessorOther;
 
 FunctionDefinition = NamedDeclarationSpecifiers Declarator CompoundStatement @AST_ACTION_FUNCTION_DEFINITION;
 
