@@ -52,6 +52,9 @@ KwContinue = lexeme("continue" IdBoundary);
 KwBreak = lexeme("break" IdBoundary);
 KwSizeof = lexeme("sizeof" IdBoundary);
 KwInline = lexeme("inline" IdBoundary) | lexeme("__inline" IdBoundary) | lexeme("__inline__" IdBoundary);
+KwVaArg = lexeme("va_arg" IdBoundary);
+KwVaArgBuiltin = lexeme("__builtin_va_arg" IdBoundary);
+VaArgExpression = (KwVaArg | KwVaArgBuiltin) LParen AssignmentExpression Comma TypeName RParen @AST_ACTION_VA_ARG;
 
 // Keywords - Extensions
 KwAlignof = lexeme("__alignof__" IdBoundary) | lexeme("_Alignof" IdBoundary);
@@ -173,6 +176,7 @@ PrimaryExpression = NumberLiteral
                   | StringLiteral
                   | CharLiteral
                   | CompoundLiteral
+                  | VaArgExpression
                   | Identifier
                   | (LParen Expression RParen);
 

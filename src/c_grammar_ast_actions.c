@@ -3281,6 +3281,32 @@ handle_ellipsis(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** chil
     epc_ast_push(ctx, ast_node);
 }
 
+static void
+handle_va_arg_expression(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count != 2)
+    {
+        free_ast_node_children(children, count, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_VA_ARG_EXPRESSION), count
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_VA_ARG_EXPRESSION);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    ast_node->va_arg_expression.args = children[0];
+    ast_node->va_arg_expression.arg_type = children[1];
+
+    epc_ast_push(ctx, ast_node);
+}
+
 void
 c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
 {
@@ -3407,4 +3433,5 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_DECLARATION_SPECIFIERS, handle_declaration_specifiers);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_PARAMETER_LIST, handle_parameter_list);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_ELLIPSIS, handle_ellipsis);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_VA_ARG, handle_va_arg_expression);
 }

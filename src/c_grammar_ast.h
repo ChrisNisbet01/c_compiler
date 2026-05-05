@@ -120,6 +120,7 @@ typedef enum
     AST_NODE_DECLARATION_SPECIFIERS,
     AST_NODE_PARAMETER_LIST,
     AST_NODE_ELLIPSIS,
+    AST_NODE_VA_ARG_EXPRESSION,
 } c_grammar_node_type_t;
 
 typedef struct
@@ -582,6 +583,12 @@ typedef struct
     size_t len;
 } input_source_data_t;
 
+typedef struct
+{
+    c_grammar_node_t const * args;
+    c_grammar_node_t const * arg_type;
+} va_arg_expression_data_t;
+
 typedef struct c_grammar_node_t
 {
     c_grammar_node_type_t type;
@@ -637,6 +644,7 @@ typedef struct c_grammar_node_t
         storage_class_data_t storage_class;
         type_qualifier_data_t type_qualifier;
         ast_node_typedef_specifier_qualifier_t typedef_specifier_qualifier;
+        va_arg_expression_data_t va_arg_expression;
     };
 } c_grammar_node_t;
 

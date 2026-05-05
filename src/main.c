@@ -84,6 +84,16 @@ session_ctx_create(void)
 
     // Pre-register common built-in types that are often used without explicit typedefs
     symbol_table_add(ctx->builtins, "__builtin_va_list");
+    // symbol_table_add(ctx->builtins, "__builtin_va_start");
+    // symbol_table_add(ctx->builtins, "__builtin_va_end");
+    // symbol_table_add(ctx->builtins, "__builtin_va_copy");
+    symbol_table_add(ctx->builtins, "__builtin_va_arg");
+
+    symbol_table_add(ctx->builtins, "va_list");
+    // symbol_table_add(ctx->builtins, "va_start");
+    // symbol_table_add(ctx->builtins, "va_end");
+    // symbol_table_add(ctx->builtins, "va_copy");
+    symbol_table_add(ctx->builtins, "va_arg");
 
     ctx->pending_names_st = symbol_table_create();
     if (ctx->pending_names_st == NULL)

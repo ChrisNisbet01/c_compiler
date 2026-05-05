@@ -1352,6 +1352,11 @@ ir_generator_init(
         generator_add_typedef_entry(ctx, typedef_entry);
     }
 
+    /*
+     * FIXME: Add function definitions for the variadic intrinics.
+     * i.e. __builtin_va_start, __builtin_va_arg, __builtin_va_end, __builtin_va_copy
+     */
+
     if (ctx->generation_flags.generate_default_variables)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
