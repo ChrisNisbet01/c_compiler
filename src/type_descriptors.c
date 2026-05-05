@@ -889,3 +889,31 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
     type_specifier_dump(desc->specifiers, level);
     type_qualifiers_dump(desc->qualifiers, level);
 }
+
+void
+type_descriptor_complete_struct(TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members)
+{
+    TypeDescriptor * type_desc = (TypeDescriptor *)type_desc_in;
+
+    type_desc->struct_metadata.is_complete = true;
+
+    if (members->num_members > 0)
+    {
+        type_desc->struct_metadata.members.num_members = members->num_members;
+        type_desc->struct_metadata.members.members
+            = malloc(sizeof(*type_desc->struct_metadata.members.members) * members->num_members);
+        memcpy(
+            type_desc->struct_metadata.members.members,
+            members->members,
+            members->num_members * sizeof(*members->members)
+        );
+        for (size_t i = 0; i < members->num_members; i++)
+        {
+            if (type_desc->struct_metadata.members.members[i].name != NULL)
+            {
+                type_desc->struct_metadata.members.members[i].name
+                    = strdup(type_desc->struct_metadata.members.members[i].name);
+            }
+        }
+    }
+}

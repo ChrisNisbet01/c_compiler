@@ -34,7 +34,11 @@ c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix)
 c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
 
 static type_info_t const * register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind, TypeQualifier quals
+    ir_generator_ctx_t * ctx,
+    c_grammar_node_t const * type_child,
+    char const * tag,
+    type_kind_t kind,
+    TypeQualifier quals
 );
 
 static type_info_t const * register_untagged_struct_or_union_definition(
@@ -888,7 +892,11 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
 
 static type_info_t const *
 register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, char const * tag, type_kind_t kind, TypeQualifier quals
+    ir_generator_ctx_t * ctx,
+    c_grammar_node_t const * type_child,
+    char const * tag,
+    type_kind_t kind,
+    TypeQualifier quals
 )
 {
     if (ctx == NULL || tag == NULL)
@@ -937,27 +945,7 @@ register_tagged_struct_or_union_definition(
             LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
             free(field_types);
 
-            existing->type_desc->struct_metadata.is_complete = true;
-
-            if (members.num_members > 0)
-            {
-                existing->type_desc->struct_metadata.members.num_members = members.num_members;
-                existing->type_desc->struct_metadata.members.members
-                    = malloc(sizeof(*existing->type_desc->struct_metadata.members.members) * members.num_members);
-                memcpy(
-                    existing->type_desc->struct_metadata.members.members,
-                    members.members,
-                    members.num_members * sizeof(*members.members)
-                );
-                for (size_t i = 0; i < members.num_members; i++)
-                {
-                    if (existing->type_desc->struct_metadata.members.members[i].name != NULL)
-                    {
-                        existing->type_desc->struct_metadata.members.members[i].name
-                            = strdup(existing->type_desc->struct_metadata.members.members[i].name);
-                    }
-                }
-            }
+            type_descriptor_complete_struct(existing->type_desc, &members);
 
             for (size_t i = 0; i < members.num_members; i++)
             {
@@ -1256,7 +1244,12 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
  * Creates LLVM context, module, and builder.
  */
 ir_generator_ctx_t *
-ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx, source_location_tracker_t * loc_tracker)
+ir_generator_init(
+    char const * module_name,
+    ir_generation_flags flags,
+    epc_parser_ctx_t * parse_ctx,
+    source_location_tracker_t * loc_tracker
+)
 {
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
@@ -2348,7 +2341,9 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
                     if (struct_tag != NULL)
                     {
                         kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-                        type_info = register_tagged_struct_or_union_definition(ctx, struct_def_node, struct_tag, kind, (TypeQualifier){0});
+                        type_info = register_tagged_struct_or_union_definition(
+                            ctx, struct_def_node, struct_tag, kind, (TypeQualifier){0}
+                        );
                         typedef_entry.tag = strdup(struct_tag);
                     }
                     else

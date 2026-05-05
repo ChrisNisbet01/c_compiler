@@ -159,3 +159,5 @@ uint32_t get_type_alignment_desc(TypeDescriptor const * desc);
 uint64_t get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc);
 
 void dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level);
+
+void type_descriptor_complete_struct(TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members);
