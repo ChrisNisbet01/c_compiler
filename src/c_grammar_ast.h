@@ -11,6 +11,7 @@ typedef enum
     AST_NODE_EXTERNAL_DECLARATIONS,
     AST_NODE_EXTERNAL_DECLARATION,
     AST_NODE_TOP_LEVEL_DECLARATION,
+    AST_NODE_PREPROCESSOR_LINE_MARKER,
     AST_NODE_PREPROCESSOR_DIRECTIVE,
     AST_NODE_FUNCTION_DEFINITION,
     AST_NODE_COMPOUND_STATEMENT,
@@ -553,6 +554,14 @@ typedef union ast_node_operator_t
     assignment_operator_data_t assign;
 } ast_node_operator_t;
 
+typedef struct ast_node_preprocessor_line_marker_t
+{
+    size_t line_number;        /* The line number from the marker */
+    char * filename;           /* The filename from the marker (without quotes) */
+    size_t flags_count;        /* Number of flag integers */
+    size_t * flags;            /* Array of flag values (1=enter, 2=exit, etc.) */
+} ast_node_preprocessor_line_marker_t;
+
 typedef struct ast_node_type_name_t
 {
     c_grammar_node_t const * specifier_qualifier_list;
@@ -592,6 +601,7 @@ typedef struct c_grammar_node_t
         ast_node_declaration_t declaration;
         ast_node_decl_specifiers_t decl_specifiers;
         ast_node_top_level_declaration_t top_level_declaration;
+        ast_node_preprocessor_line_marker_t line_marker;
         ast_node_struct_declaration_t struct_declaration;
         ast_node_labeled_statement_t labeled_statement;
         ast_node_if_statement_t if_statement;

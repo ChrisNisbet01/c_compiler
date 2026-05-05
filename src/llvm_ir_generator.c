@@ -1256,7 +1256,7 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
  * Creates LLVM context, module, and builder.
  */
 ir_generator_ctx_t *
-ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx)
+ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx, source_location_tracker_t * loc_tracker)
 {
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
     if (!ctx)
@@ -1278,6 +1278,7 @@ ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parse
 
     // Initialize error collection (any error will be fatal since max_errors=1)
     ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
+    ctx->errors.loc_tracker = loc_tracker;
 
     ctx->module = LLVMModuleCreateWithName(module_name);
     ctx->data_layout = LLVMGetModuleDataLayout(ctx->module);

@@ -1,10 +1,10 @@
 #pragma once
-
 #include "c_grammar_ast.h"
-
+#include "source_location.h"
 #include <easy_pc/easy_pc.h>
 #include <stdbool.h>
 #include <stddef.h>
+
 
 // --- Error and Warning Reporting ---
 
@@ -23,6 +23,7 @@ typedef struct ir_gen_error_collection
     size_t capacity;
     size_t max_errors; // Threshold - stop after this many (e.g., 10)
     bool fatal;        // Set to true when max_errors exceeded
+    source_location_tracker_t * loc_tracker;
 } ir_gen_error_collection_t;
 
 /**

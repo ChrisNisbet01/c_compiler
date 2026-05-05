@@ -1,9 +1,10 @@
 #include "ir_gen_error.h"
-
+#include "source_location.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 
 // --- Error and Warning Collection Implementation ---
 
@@ -46,25 +47,77 @@ ir_gen_error_collection_free(ir_gen_error_collection_t * collection)
 static void
 print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_grammar_node_t const * node)
 {
-    epc_line_col_t line_col = epc_calculate_line_and_column(collection->parse_ctx, node->source_data.offset);
-
-    fprintf(fp, "%s:%zu:%zu\n", collection->module_name, line_col.line, line_col.col);
-
-    char * line_at_offset = epc_get_line_at_offset(collection->parse_ctx, node->source_data.offset);
-
+    /* Get the preprocessed line and column */
+    epc_line_col_t pp_lc = epc_calculate_line_and_column(
+        collection->parse_ctx, node->source_data.offset
+    );
+    
+    if (collection->loc_tracker != NULL)
+    {
+        /* Look up the mapping for this preprocessed line */
+        const source_location_entry_t * entry = source_location_tracker_find(
+            collection->loc_tracker, pp_lc.line
+        );
+        
+        if (entry != NULL)
+        {
+            /* Calculate original line: entry's original_line + offset from marker */
+            size_t original_line = entry->original_line + (pp_lc.line - entry->preprocessed_line);
+            
+            fprintf(fp, "%s:%zu:%zu\n", entry->original_filename, original_line, pp_lc.col);
+            
+            /* Print "In file included from..." stack */
+            source_location_tracker_t * tracker = collection->loc_tracker;
+            for (size_t i = 0; i < tracker->stack_top; i++)
+            {
+                fprintf(
+                    fp, "In file included from %s:%zu:\n",
+                    tracker->include_stack[i].filename,
+                    tracker->include_stack[i].line
+                );
+            }
+            
+            /* Print the line from preprocessed source */
+            char * line_at_offset = epc_get_line_at_offset(
+                collection->parse_ctx, node->source_data.offset
+            );
+            if (line_at_offset != NULL)
+            {
+                fprintf(fp, "%s\n", line_at_offset);
+                fprintf(fp, "%*s^", (int)pp_lc.col - 1, "");
+                
+                size_t len = node->source_data.len;
+                size_t line_len = strlen(line_at_offset);
+                if (len > line_len)
+                {
+                    len = line_len;
+                }
+                for (size_t i = 0; i < len - 1; i++)
+                {
+                    fprintf(fp, "~");
+                }
+                fprintf(fp, "\n");
+                free(line_at_offset);
+            }
+            return;
+        }
+    }
+    
+    /* Fallback: no tracker or no mapping found */
+    fprintf(fp, "%s:%zu:%zu\n", collection->module_name, pp_lc.line, pp_lc.col);
+    
+    char * line_at_offset = epc_get_line_at_offset(
+        collection->parse_ctx, node->source_data.offset
+    );
     if (line_at_offset == NULL)
     {
         return;
     }
-
-    /* Print the line where the error occurred. */
+    
     fprintf(fp, "%s\n", line_at_offset);
-
-    /* Now indicate the specific part of the line where the offence occurred. */
-    size_t line_len = strlen(line_at_offset);
-
-    fprintf(fp, "%*s^", (int)line_col.col - 1, "");
+    fprintf(fp, "%*s^", (int)pp_lc.col - 1, "");
     size_t len = node->source_data.len;
+    size_t line_len = strlen(line_at_offset);
     if (len > line_len)
     {
         len = line_len;
@@ -74,7 +127,7 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
         fprintf(fp, "~");
     }
     fprintf(fp, "\n");
-
+    
     free(line_at_offset);
 }
 

@@ -1,9 +1,10 @@
 #pragma once
-
 #include "c_grammar_ast.h"
 #include "ir_gen_error.h"
+#include "source_location.h"
 #include "type_descriptors.h"
 #include "typed_value.h"
+
 
 // Include necessary LLVM C API headers.
 // These require LLVM to be installed and its include paths configured in CMake.
@@ -91,7 +92,7 @@ typedef struct ir_generator_ctx
  * @return A pointer to the initialized ir_generator_ctx_t, or NULL on failure.
  */
 ir_generator_ctx_t *
-ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx);
+ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx, source_location_tracker_t * loc_tracker);
 
 /**
  * @brief Generates LLVM IR from the provided Abstract Syntax Tree (AST).
