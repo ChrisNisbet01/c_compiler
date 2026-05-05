@@ -186,7 +186,7 @@ handle_preprocessor_line_marker(
     {
         ast_node->line_marker.flags_count = MAX_LINE_MARKER_FLAGS;
     }
-    for (int i = 0; i < count; i++)
+    for (size_t i = 0; i < ast_node->line_marker.flags_count; i++)
     {
         c_grammar_node_t * flag_child = children[i + 2];
 
@@ -240,14 +240,15 @@ handle_external_declaration(
         return;
     }
     c_grammar_node_t const * child = children[0];
-    if (child->type != AST_NODE_TOP_LEVEL_DECLARATION && child->type != AST_NODE_PREPROCESSOR_DIRECTIVE)
+    if (child->type != AST_NODE_TOP_LEVEL_DECLARATION && child->type != AST_NODE_PREPROCESSOR_DIRECTIVE && child->type != AST_NODE_PREPROCESSOR_LINE_MARKER)
     {
         epc_ast_builder_set_error(
             ctx,
-            "%s expected child of type %s or %s, but got %s",
+            "%s expected child of type %s, %s or %s, but got %s",
             get_node_type_name_from_type(AST_NODE_EXTERNAL_DECLARATION),
             get_node_type_name_from_type(AST_NODE_TOP_LEVEL_DECLARATION),
             get_node_type_name_from_type(AST_NODE_PREPROCESSOR_DIRECTIVE),
+            get_node_type_name_from_type(AST_NODE_PREPROCESSOR_LINE_MARKER),
             get_node_type_name_from_type(child->type)
         );
         free_ast_node_children(children, count, user_data);

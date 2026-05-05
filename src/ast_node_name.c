@@ -12,6 +12,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_EXTERNAL_DECLARATIONS] = {.name = "ExternalDeclarations"},
     [AST_NODE_EXTERNAL_DECLARATION] = {.name = "ExternalDeclaration"},
     [AST_NODE_PREPROCESSOR_DIRECTIVE] = {.name = "PreprocessorDirective"},
+    [AST_NODE_PREPROCESSOR_LINE_MARKER] = {.name = "PreprocessorLineMarker"},
     [AST_NODE_TOP_LEVEL_DECLARATION] = {.name = "TopLevelDeclaration"},
     [AST_NODE_FUNCTION_DEFINITION] = {.name = "FunctionDefinition"},
     [AST_NODE_COMPOUND_STATEMENT] = {.name = "CompoundStatement"},
