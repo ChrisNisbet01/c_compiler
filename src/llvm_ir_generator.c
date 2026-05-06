@@ -1849,6 +1849,30 @@ process_declarator(
     debug_info("Allocating local variable '%s'", var_name);
     LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, type_desc->llvm_type, var_name);
 
+    // On x86_64, the ABI requires 16-byte stack alignment (S128 in data layout)
+    // For arrays of structs with size >= 16 bytes, use 16-byte alignment
+    if (type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->pointee != NULL)
+    {
+        TypeDescriptor const * elem_desc = type_desc->pointee;
+        if (elem_desc->kind == NCC_TYPE_KIND_STRUCT)
+        {
+            uint64_t struct_size = elem_desc->struct_metadata.total_size;
+            uint32_t struct_align = elem_desc->struct_metadata.alignment;
+            debug_info("Array element struct: size=%lu, align=%u", (unsigned long)struct_size, struct_align);
+            // Use max of struct alignment or 16, but cap at 16 for stack allocations
+            uint32_t align = (struct_align > 16) ? 16 : struct_align;
+            if (align < 16 && struct_size >= 16)
+            {
+                align = 16;
+            }
+            debug_info("Setting alloca alignment to %u for var '%s'", align, var_name);
+            if (align > 1)
+            {
+                LLVMSetAlignment(alloca_inst, align);
+            }
+        }
+    }
+
     // 5. Add to Symbol Table
     // We no longer need struct_name or pointee_type hacks; the descriptor has it all.
     TypedValue sym_val = create_typed_value(alloca_inst, type_desc, true);
