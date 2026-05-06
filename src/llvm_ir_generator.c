@@ -1002,13 +1002,9 @@ register_tagged_struct_or_union_definition(
     }
 
     bool is_complete = true;
+    LLVMTypeRef struct_llvm = LLVMStructCreateNamed(ctx->context, tag);
     opaque.type_desc = register_struct_type(
-        ctx->type_descriptors,
-        LLVMStructCreateNamed(ctx->context, tag),
-        quals,
-        kind == TYPE_KIND_UNION,
-        is_complete,
-        &members
+        ctx->type_descriptors, struct_llvm, quals, kind == TYPE_KIND_UNION, is_complete, &members
     );
 
     type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
@@ -1409,26 +1405,39 @@ ir_generator_init(
     {
         // Create struct.__va_list_tag = { i32 gp_offset, i32 fp_offset, ptr overflow_arg_area, ptr reg_save_area }
         LLVMTypeRef va_list_tag_type = LLVMStructCreateNamed(ctx->context, "struct.__va_list_tag");
+        // Create struct_field_t entries for the struct type
+        // Note: type_desc must be set for calculate_composite_size to work correctly
+        TypeDescriptor const * i32_desc
+            = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+        TypeDescriptor const * ptr_desc = get_or_create_pointer_type(
+            ctx->type_descriptors, type_descriptor_get_int8_type(ctx->type_descriptors, false), (TypeQualifier){0}
+        );
+
         LLVMTypeRef fields[4] = {
-            ctx->ref_type.i32_type, // gp_offset
-            ctx->ref_type.i32_type, // fp_offset
-            ctx->ref_type.ptr_type, // overflow_arg_area
-            ctx->ref_type.ptr_type  // reg_save_area
+            i32_desc->llvm_type, // gp_offset
+            i32_desc->llvm_type, // fp_offset
+            ptr_desc->llvm_type, // overflow_arg_area
+            ptr_desc->llvm_type, // reg_save_area
         };
         LLVMStructSetBody(va_list_tag_type, fields, 4, false);
 
-        // Create struct_field_t entries for the struct type
         struct_field_t field_entries[4]
-            = {{.name = "gp_offset", .type = ctx->ref_type.i32_type},
-               {.name = "fp_offset", .type = ctx->ref_type.i32_type},
-               {.name = "overflow_arg_area", .type = ctx->ref_type.ptr_type},
-               {.name = "reg_save_area", .type = ctx->ref_type.ptr_type}};
+            = {{.name = "gp_offset", .type_desc = i32_desc, .type = i32_desc->llvm_type},
+               {.name = "fp_offset", .type_desc = i32_desc, .type = i32_desc->llvm_type},
+               {.name = "overflow_arg_area", .type_desc = ptr_desc, .type = ptr_desc->llvm_type},
+               {.name = "reg_save_area", .type_desc = ptr_desc, .type = ptr_desc->llvm_type}};
 
         struct_or_union_members_st members = {.num_members = 4, .members = field_entries};
 
         // Register the struct type
         TypeDescriptor const * va_list_tag_desc
             = register_struct_type(ctx->type_descriptors, va_list_tag_type, (TypeQualifier){0}, false, true, &members);
+
+        debug_info(
+            "va_list_tag registered: size=%lu, align=%u",
+            (unsigned long)va_list_tag_desc->struct_metadata.total_size,
+            va_list_tag_desc->struct_metadata.alignment
+        );
 
         // Create [1 x struct.__va_list_tag] array type (va_list is typedef'd as array of 1)
         TypeDescriptor const * va_list_array_desc
@@ -1442,12 +1451,16 @@ ir_generator_init(
                .tag = strdup("__va_list_tag")};
 
         generator_add_typedef_entry(ctx, typedef_entry);
+        if (ctx->generation_flags.generate_default_variables)
+        {
+            scope_typedef_entry_t unpreprocessed_typedef_entry
+                = {.kind = TYPE_KIND_STRUCT,
+                   .name = strdup("va_list"),
+                   .type_desc = va_list_array_desc,
+                   .tag = strdup("__va_list_tag")};
+            generator_add_typedef_entry(ctx, unpreprocessed_typedef_entry);
+        }
     }
-
-    /*
-     * FIXME: Add function definitions for the variadic intrinics.
-     * i.e. __builtin_va_start, __builtin_va_arg, __builtin_va_end, __builtin_va_copy
-     */
 
     if (ctx->generation_flags.generate_default_variables)
     {
