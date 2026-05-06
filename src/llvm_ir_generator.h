@@ -84,6 +84,9 @@ typedef struct ir_generator_ctx
     // Pseudo-code for your Compiler State
     int anon_counter;
 
+    // Stack alignment for the target (e.g., 16 on x86_64)
+    uint32_t stack_alignment;
+
 } ir_generator_ctx_t;
 
 /**

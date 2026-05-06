@@ -17,6 +17,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Helper to parse stack alignment from data layout string (e.g., "e-m:e-...-S128")
+// Returns 0 if not found, otherwise returns alignment in bytes
+static uint32_t
+parse_stack_alignment_from_layout(char const * layout_str)
+{
+    if (layout_str == NULL)
+    {
+        return 0;
+    }
+    // Find 'S' at the end of the data layout string (before the final '-')
+    char * s_ptr = strrchr(layout_str, 'S');
+    if (s_ptr != NULL && s_ptr > layout_str && *(s_ptr - 1) == '-')
+    {
+        return (uint32_t)atoi(s_ptr + 1) / 8;
+    }
+    return 0;
+}
+
 TypedValue NullTypedValue;
 
 // Forward declarations for functions used before definition
@@ -1350,6 +1368,16 @@ ir_generator_init(
             LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
             char * layout_str = LLVMCopyStringRepOfTargetData(data_layout);
             LLVMSetDataLayout(ctx->module, layout_str);
+
+            // Get stack alignment from data layout string (e.g., "S128" = 16 bytes)
+            ctx->stack_alignment = parse_stack_alignment_from_layout(layout_str);
+            if (ctx->stack_alignment == 0)
+            {
+                // Fallback to default x86_64 stack alignment
+                ctx->stack_alignment = 16;
+            }
+            debug_info("Stack alignment: %u", ctx->stack_alignment);
+
             LLVMDisposeMessage(layout_str);
             LLVMDisposeTargetMachine(target_machine);
         }
@@ -1849,28 +1877,26 @@ process_declarator(
     debug_info("Allocating local variable '%s'", var_name);
     LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, type_desc->llvm_type, var_name);
 
-    // On x86_64, the ABI requires 16-byte stack alignment (S128 in data layout)
-    // For arrays of structs with size >= 16 bytes, use 16-byte alignment
-    if (type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->pointee != NULL)
+    // Set alignment based on type kind:
+    // - Structs/Unions: use the struct's calculated alignment (max of member alignments)
+    // - Arrays: use stack alignment (minimum of stack alignment and element alignment)
+    // - Other types: LLVM defaults to ABI alignment (already set by LLVMBuildAlloca)
+    if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)
     {
-        TypeDescriptor const * elem_desc = type_desc->pointee;
-        if (elem_desc->kind == NCC_TYPE_KIND_STRUCT)
-        {
-            uint64_t struct_size = elem_desc->struct_metadata.total_size;
-            uint32_t struct_align = elem_desc->struct_metadata.alignment;
-            debug_info("Array element struct: size=%lu, align=%u", (unsigned long)struct_size, struct_align);
-            // Use max of struct alignment or 16, but cap at 16 for stack allocations
-            uint32_t align = (struct_align > 16) ? 16 : struct_align;
-            if (align < 16 && struct_size >= 16)
-            {
-                align = 16;
-            }
-            debug_info("Setting alloca alignment to %u for var '%s'", align, var_name);
-            if (align > 1)
-            {
-                LLVMSetAlignment(alloca_inst, align);
-            }
-        }
+        // Use the struct's calculated alignment from calculate_composite_size()
+        uint32_t align = type_desc->struct_metadata.alignment;
+        debug_info("Setting struct alloca alignment to %u for var '%s'", align, var_name);
+        LLVMSetAlignment(alloca_inst, align);
+    }
+    else if (type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->pointee != NULL)
+    {
+        // Stack arrays: use max of stack alignment or element alignment
+        // Clang uses stack alignment (e.g., 16 on x86_64) for stack arrays
+        uint32_t elem_align = get_type_alignment_desc(type_desc->pointee);
+        uint32_t align = (elem_align > ctx->stack_alignment) ? elem_align : ctx->stack_alignment;
+        debug_info("Setting array alloca alignment to %u for var '%s' (elem=%u, stack=%u)",
+                   align, var_name, elem_align, ctx->stack_alignment);
+        LLVMSetAlignment(alloca_inst, align);
     }
 
     // 5. Add to Symbol Table
