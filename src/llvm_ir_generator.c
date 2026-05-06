@@ -3159,6 +3159,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_TYPE_SPECIFIERS:
     case AST_NODE_PARAMETER_LIST:
     case AST_NODE_ELLIPSIS:
+    case AST_NODE_VA_ARG_EXPRESSION:
     default:
         print_ast_with_label(node, "unhandled");
         debug_error("%s: Unhandled node", __func__);
@@ -3457,96 +3458,77 @@ process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
     return create_typed_value(LLVMConstInt(type_desc->llvm_type, value, false), type_desc, false);
 }
 
-static void
-print_intrinsic_names(unsigned max)
-{
-    for (unsigned i = 1; i <= max; i++)
-    {
-        size_t length;
-        char const * name = LLVMIntrinsicGetName(i, &length);
-        if ((length > 5 && name[5] >= 'm'))
-        {
-            fprintf(stderr, "intrinsic ID: %u name: %.*s\n", i, (int)length, name);
-        }
-    }
-}
-
 static LLVMValueRef
 get_llvm_va_start(ir_generator_ctx_t * ctx)
 {
-    // print_intrinsic_names(2000);
-    unsigned id = LLVMLookupIntrinsicID("llvm.va_start", 13);
-    if (id == 0)
-    {
-        debug_error("couldn't find intrinsic ID for va_start. defaulting to 373");
-        id = 373;
-    }
-    debug_info("%s: id: %u", __func__, id);
-    // Instead of LLVMPointerType(LLVMInt8Type...), use this:
-    LLVMTypeRef opaque_ptr = LLVMPointerTypeInContext(ctx->context, 0);
+    char const * fn_name = "llvm.va_start";
 
-    // Some versions of LLVM handle the array of types strictly.
-    // If you have a single overload, this is the correct signature.
-    return LLVMGetIntrinsicDeclaration(ctx->module, id, &opaque_ptr, 1);
+    // 1. Try to find it if already declared
+    LLVMValueRef fn = LLVMGetNamedFunction(ctx->module, fn_name);
+    if (fn != NULL)
+    {
+        return fn;
+    }
+
+    // 2. Explicitly declare it WITHOUT mangling
+    // va_start takes one parameter: a pointer (ptr)
+    LLVMTypeRef param_types[] = {LLVMPointerTypeInContext(ctx->context, 0)};
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidTypeInContext(ctx->context), param_types, 1, false);
+
+    return LLVMAddFunction(ctx->module, fn_name, fn_type);
 }
 
 static LLVMValueRef
 get_llvm_va_end(ir_generator_ctx_t * ctx)
 {
-    // Use the specific intrinsic ID
-    unsigned int id = LLVMLookupIntrinsicID("llvm.va_end", 11);
-    if (id == 0)
+    char const * fn_name = "llvm.va_end";
+
+    // 1. Check if the intrinsic is already declared in the module
+    LLVMValueRef fn = LLVMGetNamedFunction(ctx->module, fn_name);
+    if (fn != NULL)
     {
-        debug_error("couldn't find intrinsic ID for va_end. defaulting to 372");
-        id = 372;
-    }
-    if (id == 0)
-    {
-        debug_error("couldn't find intrinsic ID for va_end. hacking in a void func");
-        // HACK: Manually declare it as a standard external void function
-        // Check if it was already declared elsewhere first
-        LLVMValueRef va_end_fn = LLVMGetNamedFunction(ctx->module, "llvm.va_end");
-
-        if (!va_end_fn)
-        {
-            // Define signature: void llvm.va_end(i8*) or void llvm.va_end(ptr)
-            LLVMTypeRef param_types[] = {LLVMPointerType(LLVMInt8Type(), 0)};
-            LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 1, 0);
-
-            // Add to module. LLVM backend treats "llvm.*" names specially
-            // even if generated as a standard function declaration.
-            va_end_fn = LLVMAddFunction(ctx->module, "llvm.va_end", fn_type);
-
-            // Match the default intrinsic calling convention
-            // LLVMSetFunctionCallConv(va_end_fn, LLCCallConv);
-        }
-        return va_end_fn;
+        return fn;
     }
 
-    debug_info("%s: id: %u", __func__, id);
+    // 2. Define the parameter type: a single pointer (ptr)
+    // Using PointerTypeInContext ensures compatibility with Opaque Pointers
+    LLVMTypeRef param_types[] = {LLVMPointerTypeInContext(ctx->context, 0)};
 
-    // va_end takes one i8* (the pointer to the va_list)
-    LLVMTypeRef opaque_ptr = LLVMPointerTypeInContext(ctx->context, 0);
-    return LLVMGetIntrinsicDeclaration(ctx->module, id, &opaque_ptr, 1);
+    // 3. Create the function type: void llvm.va_end(ptr)
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidTypeInContext(ctx->context), param_types, 1, false);
+
+    // 4. Add the function to the module with the generic intrinsic name
+    // We avoid the intrinsic API here to prevent the .p0 mangling
+    // that was confusing the x86 backend.
+    return LLVMAddFunction(ctx->module, fn_name, fn_type);
 }
 
 static LLVMValueRef
 get_llvm_va_copy(ir_generator_ctx_t * ctx)
 {
-    // Use the specific intrinsic ID
-    unsigned int id = LLVMLookupIntrinsicID("llvm.va_copy", 12);
-    if (id == 0)
+    char const * fn_name = "llvm.va_copy";
+
+    // 1. Check if already declared
+    LLVMValueRef fn = LLVMGetNamedFunction(ctx->module, fn_name);
+    if (fn != NULL)
     {
-        debug_error("couldn't find intrinsic ID for va_copy. defaulting to 371");
-        id = 371;
+        return fn;
     }
 
-    // va_copy takes two i8* parameters (dest and src)
-    LLVMTypeRef i8_ptr_type = LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
-    LLVMTypeRef arg_types[] = {i8_ptr_type, i8_ptr_type};
+    // 2. Define the parameter types: (ptr, ptr)
+    // Both destination and source are pointers to the va_list tag
+    LLVMTypeRef param_types[] = {LLVMPointerTypeInContext(ctx->context, 0), LLVMPointerTypeInContext(ctx->context, 0)};
 
-    // Note: for copy, we still pass the types used for overloading to GetIntrinsicDeclaration
-    return LLVMGetIntrinsicDeclaration(ctx->module, id, arg_types, 2);
+    // 3. Create the function type: void llvm.va_copy(ptr, ptr)
+    LLVMTypeRef fn_type = LLVMFunctionType(
+        LLVMVoidTypeInContext(ctx->context),
+        param_types,
+        2, /* Two arguments */
+        false
+    );
+
+    // 4. Add the function with the generic intrinsic name
+    return LLVMAddFunction(ctx->module, fn_name, fn_type);
 }
 
 static TypedValue
