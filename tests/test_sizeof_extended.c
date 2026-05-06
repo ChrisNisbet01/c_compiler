@@ -48,7 +48,7 @@ main()
         return 1;
     if (sizeof(char) != 1)
         return 2;
-    if (sizeof(long) != 4)
+    if (sizeof(long) != 8)
         return 3;
     if (sizeof(ptr) != 8)
         return 4;
@@ -69,7 +69,7 @@ main()
         return 11;
     if (__alignof__(char) != 1)
         return 12;
-    if (__alignof__(long) != 4)
+    if (__alignof__(long) != 8)
         return 13;
     if (__alignof__(ptr) != 8)
         return 14;

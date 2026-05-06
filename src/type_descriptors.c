@@ -215,7 +215,7 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
             llvm_type = registry->builtins.f64_type;
         }
     }
-    else if (specs.long_count > 1)
+    else if (specs.long_count > 0)
         llvm_type = registry->builtins.i64_type;
     else if (specs.is_int)
         llvm_type = registry->builtins.i32_type;

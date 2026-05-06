@@ -4,11 +4,11 @@ main()
     int a = __alignof__(long);
     int s = sizeof(long);
 
-    if (a != 4)
+    if (a != 8)
     {
         return 1;
     }
-    if (s != 4)
+    if (s != 8)
     {
         return 2;
     }

@@ -38,7 +38,7 @@ main()
         return 11;
     if (__alignof__(char) != 1)
         return 12;
-    if (__alignof__(long) != 4)
+    if (__alignof__(long) != 8)
         return 13;
 
     return 0;
