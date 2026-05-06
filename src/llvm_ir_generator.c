@@ -1257,7 +1257,8 @@ ir_generator_init(
     char const * module_name,
     ir_generation_flags flags,
     epc_parser_ctx_t * parse_ctx,
-    source_location_tracker_t * loc_tracker
+    source_location_tracker_t * loc_tracker,
+    char const * target_triple
 )
 {
     ir_generator_ctx_t * ctx = calloc(1, sizeof(*ctx));
@@ -1307,6 +1308,63 @@ ir_generator_init(
         debug_error("Failed to create LLVM module.");
         ir_generator_dispose(ctx);
         return NULL;
+    }
+
+    // Set target triple and data layout for proper ABI handling
+    char const * triple;
+    char const * triple_to_free = NULL;
+
+    if (target_triple != NULL)
+    {
+        // Convert common march values to full triples
+        if (strcmp(target_triple, "x86-64") == 0 || strcmp(target_triple, "x86_64") == 0)
+        {
+            triple = "x86_64-pc-linux-gnu";
+        }
+        else if (strcmp(target_triple, "x86") == 0 || strcmp(target_triple, "i386") == 0)
+        {
+            triple = "i386-pc-linux-gnu";
+        }
+        else if (strcmp(target_triple, "aarch64") == 0 || strcmp(target_triple, "arm64") == 0)
+        {
+            triple = "aarch64-pc-linux-gnu";
+        }
+        else
+        {
+            triple = target_triple;
+        }
+    }
+    else
+    {
+        triple = LLVMGetDefaultTargetTriple();
+        triple_to_free = triple;
+    }
+
+    LLVMSetTarget(ctx->module, triple);
+
+    LLVMTargetRef target;
+    char * error = NULL;
+    if (LLVMGetTargetFromTriple(triple, &target, &error) == 0)
+    {
+        LLVMTargetMachineRef target_machine = LLVMCreateTargetMachine(
+            target, triple, "generic", "", LLVMCodeGenLevelDefault, LLVMRelocDefault, LLVMCodeModelDefault
+        );
+        if (target_machine != NULL)
+        {
+            LLVMTargetDataRef data_layout = LLVMCreateTargetDataLayout(target_machine);
+            char * layout_str = LLVMCopyStringRepOfTargetData(data_layout);
+            LLVMSetDataLayout(ctx->module, layout_str);
+            LLVMDisposeMessage(layout_str);
+            LLVMDisposeTargetMachine(target_machine);
+        }
+    }
+    if (error)
+    {
+        LLVMDisposeMessage(error);
+    }
+    if (triple_to_free != NULL)
+    {
+        LLVMDisposeMessage((char *)triple_to_free);
     }
 
     ctx->builder = LLVMCreateBuilder();

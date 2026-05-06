@@ -538,7 +538,7 @@ generate_output(
     bool success = true;
     debug_info("Starting LLVM IR Generation...");
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
-    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker);
+    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker, march_target);
 
     if (ir_ctx == NULL)
     {
@@ -679,21 +679,21 @@ print_usage(char const * prog_name)
 }
 
 static void
-print_supported_targets()
+print_supported_targets(FILE * fp)
 {
     // Initialize everything first so the registry is full
     LLVMInitializeNativeTarget();
 
-    printf("Supported LLVM Targets:\n");
-    printf("-----------------------\n");
+    fprintf(fp, "Supported LLVM Targets:\n");
+    fprintf(fp, "-----------------------\n");
 
     LLVMTargetRef target = LLVMGetFirstTarget();
     while (target)
     {
-        printf("Name:        %s\n", LLVMGetTargetName(target));
-        printf("Description: %s\n", LLVMGetTargetDescription(target));
-        printf("Has JIT:     %s\n", LLVMTargetHasJIT(target) ? "Yes" : "No");
-        printf("-----------------------\n");
+        fprintf(fp, "Name:        %s\n", LLVMGetTargetName(target));
+        fprintf(fp, "Description: %s\n", LLVMGetTargetDescription(target));
+        fprintf(fp, "Has JIT:     %s\n", LLVMTargetHasJIT(target) ? "Yes" : "No");
+        fprintf(fp, "-----------------------\n");
         target = LLVMGetNextTarget(target);
     }
 }
@@ -786,7 +786,7 @@ main(int argc, char * argv[])
         }
     }
 
-    print_supported_targets();
+    print_supported_targets(stderr);
 
     if (optind >= argc)
     {
