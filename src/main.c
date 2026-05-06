@@ -292,7 +292,8 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     char ** argv = calloc(max_args, sizeof(*argv));
     int arg_idx = 0;
 
-    argv[arg_idx++] = strdup("cc");
+    argv[arg_idx++] = strdup("clang");
+    argv[arg_idx++] = strdup("-flto");
     argv[arg_idx++] = strdup("-no-pie");
     argv[arg_idx++] = strdup(o_path);
 
@@ -323,7 +324,7 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     argv[arg_idx++] = NULL;
 
     // Print command for user feedback
-    printf("Linking: cc -no-pie %s", o_path);
+    printf("Linking: clang -flto -no-pie %s", o_path);
     for (int i = 0; i < lib_paths_count; i++)
     {
         printf(" -L%s", lib_paths[i]);
@@ -338,7 +339,7 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     // 3. Invoke linker using posix_spawn
     pid_t pid;
     int result = 0;
-    int status = posix_spawn(&pid, "/usr/bin/cc", NULL, NULL, argv, environ);
+    int status = posix_spawn(&pid, "/usr/bin/clang", NULL, NULL, argv, environ);
     if (status != 0)
     {
         debug_error("posix_spawn failed: %s", strerror(status));
@@ -677,6 +678,26 @@ print_usage(char const * prog_name)
     fprintf(stderr, "  -h, --help      Display this help message\n");
 }
 
+static void
+print_supported_targets()
+{
+    // Initialize everything first so the registry is full
+    LLVMInitializeNativeTarget();
+
+    printf("Supported LLVM Targets:\n");
+    printf("-----------------------\n");
+
+    LLVMTargetRef target = LLVMGetFirstTarget();
+    while (target)
+    {
+        printf("Name:        %s\n", LLVMGetTargetName(target));
+        printf("Description: %s\n", LLVMGetTargetDescription(target));
+        printf("Has JIT:     %s\n", LLVMTargetHasJIT(target) ? "Yes" : "No");
+        printf("-----------------------\n");
+        target = LLVMGetNextTarget(target);
+    }
+}
+
 int
 main(int argc, char * argv[])
 {
@@ -764,6 +785,8 @@ main(int argc, char * argv[])
             return EXIT_FAILURE;
         }
     }
+
+    print_supported_targets();
 
     if (optind >= argc)
     {

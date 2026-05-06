@@ -55,6 +55,15 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
 
 static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
 
+// --- Variadic builtin helpers ---
+static LLVMValueRef get_llvm_va_start(ir_generator_ctx_t * ctx);
+static LLVMValueRef get_llvm_va_end(ir_generator_ctx_t * ctx);
+static LLVMValueRef get_llvm_va_copy(ir_generator_ctx_t * ctx);
+static TypedValue process_va_arg_expr(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
+static TypedValue process_va_start(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix);
+static TypedValue process_va_end(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix);
+static TypedValue process_va_copy(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix);
+
 // --- Function declaration tracking ---
 
 static struct function_decl_entry *
@@ -1338,16 +1347,41 @@ ir_generator_init(
         generator_add_symbol(ctx, "__FILE__", val);
     }
 
-    /* Create some builtins. */
+    /* Create va_list for x86_64 System V ABI. */
     {
-        TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, false);
-        TypeDescriptor const * char_ptr_desc
-            = get_or_create_pointer_type(ctx->type_descriptors, char_desc, (TypeQualifier){0});
-        scope_typedef_entry_t typedef_entry = {
-            .kind = TYPE_KIND_BUILTIN,
-            .name = strdup("__builtin_va_list"),
-            .type_desc = char_ptr_desc,
+        // Create struct.__va_list_tag = { i32 gp_offset, i32 fp_offset, ptr overflow_arg_area, ptr reg_save_area }
+        LLVMTypeRef va_list_tag_type = LLVMStructCreateNamed(ctx->context, "struct.__va_list_tag");
+        LLVMTypeRef fields[4] = {
+            ctx->ref_type.i32_type, // gp_offset
+            ctx->ref_type.i32_type, // fp_offset
+            ctx->ref_type.ptr_type, // overflow_arg_area
+            ctx->ref_type.ptr_type  // reg_save_area
         };
+        LLVMStructSetBody(va_list_tag_type, fields, 4, false);
+
+        // Create struct_field_t entries for the struct type
+        struct_field_t field_entries[4]
+            = {{.name = "gp_offset", .type = ctx->ref_type.i32_type},
+               {.name = "fp_offset", .type = ctx->ref_type.i32_type},
+               {.name = "overflow_arg_area", .type = ctx->ref_type.ptr_type},
+               {.name = "reg_save_area", .type = ctx->ref_type.ptr_type}};
+
+        struct_or_union_members_st members = {.num_members = 4, .members = field_entries};
+
+        // Register the struct type
+        TypeDescriptor const * va_list_tag_desc
+            = register_struct_type(ctx->type_descriptors, va_list_tag_type, (TypeQualifier){0}, false, true, &members);
+
+        // Create [1 x struct.__va_list_tag] array type (va_list is typedef'd as array of 1)
+        TypeDescriptor const * va_list_array_desc
+            = get_or_create_array_type(ctx->type_descriptors, va_list_tag_desc, 1);
+
+        // Register __builtin_va_list as the array type
+        scope_typedef_entry_t typedef_entry
+            = {.kind = TYPE_KIND_STRUCT,
+               .name = strdup("__builtin_va_list"),
+               .type_desc = va_list_array_desc,
+               .tag = strdup("__va_list_tag")};
 
         generator_add_typedef_entry(ctx, typedef_entry);
     }
@@ -3423,11 +3457,275 @@ process_character_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
     return create_typed_value(LLVMConstInt(type_desc->llvm_type, value, false), type_desc, false);
 }
 
+static void
+print_intrinsic_names(unsigned max)
+{
+    for (unsigned i = 1; i <= max; i++)
+    {
+        size_t length;
+        char const * name = LLVMIntrinsicGetName(i, &length);
+        if ((length > 5 && name[5] >= 'm'))
+        {
+            fprintf(stderr, "intrinsic ID: %u name: %.*s\n", i, (int)length, name);
+        }
+    }
+}
+
+static LLVMValueRef
+get_llvm_va_start(ir_generator_ctx_t * ctx)
+{
+    // print_intrinsic_names(2000);
+    unsigned id = LLVMLookupIntrinsicID("llvm.va_start", 13);
+    if (id == 0)
+    {
+        debug_error("couldn't find intrinsic ID for va_start. defaulting to 373");
+        id = 373;
+    }
+    debug_info("%s: id: %u", __func__, id);
+    // Instead of LLVMPointerType(LLVMInt8Type...), use this:
+    LLVMTypeRef opaque_ptr = LLVMPointerTypeInContext(ctx->context, 0);
+
+    // Some versions of LLVM handle the array of types strictly.
+    // If you have a single overload, this is the correct signature.
+    return LLVMGetIntrinsicDeclaration(ctx->module, id, &opaque_ptr, 1);
+}
+
+static LLVMValueRef
+get_llvm_va_end(ir_generator_ctx_t * ctx)
+{
+    // Use the specific intrinsic ID
+    unsigned int id = LLVMLookupIntrinsicID("llvm.va_end", 11);
+    if (id == 0)
+    {
+        debug_error("couldn't find intrinsic ID for va_end. defaulting to 372");
+        id = 372;
+    }
+    if (id == 0)
+    {
+        debug_error("couldn't find intrinsic ID for va_end. hacking in a void func");
+        // HACK: Manually declare it as a standard external void function
+        // Check if it was already declared elsewhere first
+        LLVMValueRef va_end_fn = LLVMGetNamedFunction(ctx->module, "llvm.va_end");
+
+        if (!va_end_fn)
+        {
+            // Define signature: void llvm.va_end(i8*) or void llvm.va_end(ptr)
+            LLVMTypeRef param_types[] = {LLVMPointerType(LLVMInt8Type(), 0)};
+            LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 1, 0);
+
+            // Add to module. LLVM backend treats "llvm.*" names specially
+            // even if generated as a standard function declaration.
+            va_end_fn = LLVMAddFunction(ctx->module, "llvm.va_end", fn_type);
+
+            // Match the default intrinsic calling convention
+            // LLVMSetFunctionCallConv(va_end_fn, LLCCallConv);
+        }
+        return va_end_fn;
+    }
+
+    debug_info("%s: id: %u", __func__, id);
+
+    // va_end takes one i8* (the pointer to the va_list)
+    LLVMTypeRef opaque_ptr = LLVMPointerTypeInContext(ctx->context, 0);
+    return LLVMGetIntrinsicDeclaration(ctx->module, id, &opaque_ptr, 1);
+}
+
+static LLVMValueRef
+get_llvm_va_copy(ir_generator_ctx_t * ctx)
+{
+    // Use the specific intrinsic ID
+    unsigned int id = LLVMLookupIntrinsicID("llvm.va_copy", 12);
+    if (id == 0)
+    {
+        debug_error("couldn't find intrinsic ID for va_copy. defaulting to 371");
+        id = 371;
+    }
+
+    // va_copy takes two i8* parameters (dest and src)
+    LLVMTypeRef i8_ptr_type = LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
+    LLVMTypeRef arg_types[] = {i8_ptr_type, i8_ptr_type};
+
+    // Note: for copy, we still pass the types used for overloading to GetIntrinsicDeclaration
+    return LLVMGetIntrinsicDeclaration(ctx->module, id, arg_types, 2);
+}
+
+static TypedValue
+process_va_start(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix)
+{
+    if (suffix->list.count < 1)
+    {
+        ir_gen_error(&ctx->errors, suffix, "va_start requires at least one argument");
+        return NullTypedValue;
+    }
+
+    TypedValue va_list_val = process_expression(ctx, suffix->list.children[0]);
+    if (va_list_val.value == NULL)
+    {
+        return NullTypedValue;
+    }
+
+    // Call llvm.va.start intrinsic
+    LLVMValueRef fn = get_llvm_va_start(ctx);
+    if (fn == NULL)
+    {
+        ir_gen_error(&ctx->errors, suffix, "va_start intrinsic not found");
+        return NullTypedValue;
+    }
+    LLVMTypeRef i8_ptr_type = LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidTypeInContext(ctx->context), &i8_ptr_type, 1, false);
+
+    LLVMValueRef va_list_ptr = LLVMBuildBitCast(ctx->builder, va_list_val.value, i8_ptr_type, "va_list_cast");
+
+    LLVMBuildCall2(ctx->builder, fn_type, fn, &va_list_ptr, 1, "");
+
+    return NullTypedValue;
+}
+
+static TypedValue
+process_va_end(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix)
+{
+    if (suffix->list.count < 1)
+    {
+        ir_gen_error(&ctx->errors, suffix, "va_end requires at least one argument");
+        return NullTypedValue;
+    }
+
+    TypedValue va_list_val = process_expression(ctx, suffix->list.children[0]);
+    if (va_list_val.value == NULL)
+    {
+        return NullTypedValue;
+    }
+
+    // Call llvm.va.end intrinsic
+    LLVMValueRef fn = get_llvm_va_end(ctx);
+    if (fn == NULL)
+    {
+        ir_gen_error(&ctx->errors, suffix, "va_end intrinsic not found");
+        return NullTypedValue;
+    }
+    LLVMTypeRef i8_ptr_type = LLVMPointerType(LLVMInt8TypeInContext(ctx->context), 0);
+
+    // Cast the va_list to i8* (required by the intrinsic)
+    LLVMValueRef va_list_ptr = LLVMBuildBitCast(ctx->builder, va_list_val.value, i8_ptr_type, "va_end_cast");
+
+    // The intrinsic returns void
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidTypeInContext(ctx->context), &i8_ptr_type, 1, false);
+    LLVMBuildCall2(ctx->builder, fn_type, fn, &va_list_ptr, 1, "");
+
+    return NullTypedValue;
+}
+
+static TypedValue
+process_va_copy(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix)
+{
+    if (suffix->list.count < 2)
+    {
+        ir_gen_error(&ctx->errors, suffix, "va_copy requires two arguments");
+        return NullTypedValue;
+    }
+
+    TypedValue dest_val = process_expression(ctx, suffix->list.children[0]);
+    if (dest_val.value == NULL)
+    {
+        return NullTypedValue;
+    }
+
+    TypedValue src_val = process_expression(ctx, suffix->list.children[1]);
+    if (src_val.value == NULL)
+    {
+        return NullTypedValue;
+    }
+
+    LLVMValueRef fn = get_llvm_va_copy(ctx);
+    if (fn == NULL)
+    {
+        ir_gen_error(&ctx->errors, suffix, "va_copy intrinsic not found");
+        return NullTypedValue;
+    }
+
+    LLVMValueRef args[2] = {dest_val.value, src_val.value};
+    LLVMBuildCall2(ctx->builder, LLVMGetElementType(LLVMTypeOf(fn)), fn, args, 2, "");
+
+    return NullTypedValue;
+}
+
+static TypedValue
+process_va_arg_expr(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    c_grammar_node_t const * va_list_node = node->va_arg_expression.args;
+    c_grammar_node_t const * type_name_node = node->va_arg_expression.arg_type;
+
+    debug_info("process_va_arg_expr: processing va_list");
+    TypedValue va_list_val = process_expression(ctx, va_list_node);
+    debug_info("process_va_arg_expr: got va_list_val, value=%p", (void *)va_list_val.value);
+    if (va_list_val.value == NULL)
+    {
+        return NullTypedValue;
+    }
+
+    debug_info("process_va_arg_expr: resolving target type");
+    c_grammar_node_t const * spec_qual = type_name_node->type_name.specifier_qualifier_list;
+    c_grammar_node_t const * abstract_decl = type_name_node->type_name.abstract_declarator;
+    TypeDescriptor const * target_type = resolve_type_descriptor(ctx, spec_qual, abstract_decl);
+    if (target_type == NULL)
+    {
+        ir_gen_error(&ctx->errors, type_name_node, "Could not resolve type in va_arg");
+        return NullTypedValue;
+    }
+
+    debug_info(
+        "process_va_arg_expr: building va_arg, va_list_val.value=%p, target_type=%p",
+        (void *)va_list_val.value,
+        (void *)target_type->llvm_type
+    );
+    LLVMValueRef result = LLVMBuildVAArg(ctx->builder, va_list_val.value, target_type->llvm_type, "va_arg_tmp");
+    debug_info("process_va_arg_expr: done");
+
+    return create_typed_value(result, target_type, false);
+}
+
 static TypedValue
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * base_node = node->postfix_expression.base_expression;
     c_grammar_node_t const * postfix_parts_node = node->postfix_expression.postfix_parts;
+
+    // Check for va_start, va_end, va_copy (and their __builtin_ variants) before processing the base expression
+    // These need special handling as they're not regular function calls
+    debug_info(
+        "process_postfix_expression: base_node type=%s text=%s",
+        get_node_type_name_from_node(base_node),
+        base_node && base_node->text ? base_node->text : "null"
+    );
+    if (base_node != NULL && base_node->type == AST_NODE_IDENTIFIER && base_node->text != NULL)
+    {
+        debug_info("Checking for va functions, postfix_parts count=%zu", postfix_parts_node->list.count);
+        for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
+        {
+            c_grammar_node_t * suffix = postfix_parts_node->list.children[i];
+            debug_info("suffix[%zu] type=%d", i, suffix->type);
+            if (suffix->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
+            {
+                debug_info("Found OptionalArgumentList, checking base text: %s", base_node->text);
+                if (strcmp(base_node->text, "va_start") == 0 || strcmp(base_node->text, "__builtin_va_start") == 0)
+                {
+                    debug_info("Matched va_start, calling process_va_start");
+                    return process_va_start(ctx, suffix);
+                }
+                else if (strcmp(base_node->text, "va_end") == 0 || strcmp(base_node->text, "__builtin_va_end") == 0)
+                {
+                    debug_info("Matched va_end, calling process_va_end");
+                    return process_va_end(ctx, suffix);
+                }
+                else if (strcmp(base_node->text, "va_copy") == 0 || strcmp(base_node->text, "__builtin_va_copy") == 0)
+                {
+                    debug_info("Matched va_copy, calling process_va_copy");
+                    return process_va_copy(ctx, suffix);
+                }
+                break;
+            }
+        }
+    }
 
     // 1. Resolve the base value.
     // In C, postfix expressions group left-to-right.
@@ -4927,6 +5225,10 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_POSTFIX_EXPRESSION:
     {
         return process_postfix_expression(ctx, node);
+    }
+    case AST_NODE_VA_ARG_EXPRESSION:
+    {
+        return process_va_arg_expr(ctx, node);
     }
     case AST_NODE_CAST_EXPRESSION:
     {
