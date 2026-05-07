@@ -4043,77 +4043,19 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (is_compound)
     {
-        // For compound assignment, load current LHS value
-        TypedValue lhs_rres = ensure_rvalue(ctx, "assign_compound_lhs_rval", lhs_res);
-        LLVMValueRef lhs_value = lhs_rres.value;
-        rhs_res = process_expression(ctx, rhs_node);
-        if (rhs_res.value == NULL)
-        {
-            debug_error("Failed to process RHS expression in compound assignment.");
-            return NullTypedValue;
-        }
-
-        rhs_res = ensure_rvalue(ctx, "assign_compound_rhs_rval", rhs_res);
-
-        // Determine if this is a floating point operation
-        bool is_float = is_floating_kind(lhs_res.type_info);
-
-        // Perform the operation
-        switch (assign_op_type)
-        {
-        case ASSIGN_OP_SIMPLE:
-            /* Do nothing. Shouldn't happen. Avoids compiler warning. */
-            break;
-        case ASSIGN_OP_ADD:
-            rhs_res.value = is_float ? LLVMBuildFAdd(ctx->builder, lhs_value, rhs_res.value, "fadd_tmp")
-                                     : LLVMBuildAdd(ctx->builder, lhs_value, rhs_res.value, "add_tmp");
-            break;
-        case ASSIGN_OP_SUB:
-            rhs_res.value = is_float ? LLVMBuildFSub(ctx->builder, lhs_value, rhs_res.value, "fsub_tmp")
-                                     : LLVMBuildSub(ctx->builder, lhs_value, rhs_res.value, "sub_tmp");
-            break;
-        case ASSIGN_OP_MUL:
-            rhs_res.value = is_float ? LLVMBuildFMul(ctx->builder, lhs_value, rhs_res.value, "fmul_tmp")
-                                     : LLVMBuildMul(ctx->builder, lhs_value, rhs_res.value, "mul_tmp");
-            break;
-        case ASSIGN_OP_DIV:
-            rhs_res.value = is_float ? LLVMBuildFDiv(ctx->builder, lhs_value, rhs_res.value, "fdiv_tmp")
-                                     : LLVMBuildSDiv(ctx->builder, lhs_value, rhs_res.value, "div_tmp");
-            break;
-        case ASSIGN_OP_MOD:
-            rhs_res.value = LLVMBuildSRem(ctx->builder, lhs_value, rhs_res.value, "rem_tmp");
-            break;
-        case ASSIGN_OP_AND:
-            rhs_res.value = LLVMBuildAnd(ctx->builder, lhs_value, rhs_res.value, "and_tmp");
-            break;
-        case ASSIGN_OP_OR:
-            rhs_res.value = LLVMBuildOr(ctx->builder, lhs_value, rhs_res.value, "or_tmp");
-            break;
-        case ASSIGN_OP_XOR:
-            rhs_res.value = LLVMBuildXor(ctx->builder, lhs_value, rhs_res.value, "xor_tmp");
-            break;
-        case ASSIGN_OP_SHL:
-            rhs_res.value = LLVMBuildShl(ctx->builder, lhs_value, rhs_res.value, "shl_tmp");
-            break;
-        case ASSIGN_OP_SHR:
-            rhs_res.value = LLVMBuildLShr(ctx->builder, lhs_value, rhs_res.value, "lshr_tmp");
-            break;
-        default:
-            debug_error("Unknown compound assignment operator.");
-            return NullTypedValue;
-        }
+        rhs_res = complete_binary_expression(ctx, lhs_res, node, BINARY_OP_COMPOUND_ASSIGNMENT);
     }
     else
     {
         // Process the RHS expression to get its LLVM ValueRef.
         rhs_res = process_expression(ctx, rhs_node);
-        if (rhs_res.value == NULL)
-        {
-            debug_error("Failed to process RHS expression in assignment.");
-            return rhs_res;
-        }
-        rhs_res = ensure_rvalue(ctx, "assign_rhs_rval", rhs_res);
     }
+    if (rhs_res.value == NULL)
+    {
+        debug_error("Failed to process RHS expression in assignment.");
+        return rhs_res;
+    }
+    rhs_res = ensure_rvalue(ctx, "assign_rhs_rval", rhs_res);
 
     // Generate the store instruction.
     // if (is_bitfield_assign && bitfield_storage_unit_type != NULL)

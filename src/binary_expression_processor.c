@@ -36,53 +36,183 @@ typedef struct
 {
     binary_operation_mapping_t const * operation_mapping_table;
     size_t operation_count; // Number of operations in the mapping tables
+    bool return_boolean;
 } binary_operation_details_t;
 
 // Operation mappings
 static binary_operation_mapping_t const bitwise_operations[]
-    = {{LLVMBuildAnd, NULL, NULL, NULL, 0, 0, "and_tmp"},
-       {LLVMBuildOr, NULL, NULL, NULL, 0, 0, "or_tmp"},
-       {LLVMBuildXor, NULL, NULL, NULL, 0, 0, "xor_tmp"}};
+    = {[BITWISE_OP_AND] = {
+           .int_arith_op = LLVMBuildAnd,
+           .name = "and_tmp",
+       },
+       [BITWISE_OP_OR] = {
+           .int_arith_op = LLVMBuildOr,
+           .name = "or_tmp",
+       },
+       [BITWISE_OP_XOR] = {
+           .int_arith_op = LLVMBuildXor,
+           .name = "xor_tmp",
+       }};
 
 static binary_operation_mapping_t const shift_operations[]
-    = {{LLVMBuildShl, NULL, NULL, NULL, 0, 0, "shl_tmp"}, {LLVMBuildAShr, NULL, NULL, NULL, 0, 0, "ashr_tmp"}};
+    = {[SHIFT_OP_LL] = {
+           .int_arith_op = LLVMBuildShl,
+           .name = "shl_tmp",
+       },
+       [SHIFT_OP_AR] = {
+           LLVMBuildAShr,
+           .name = "ashr_tmp",
+       }};
 
 static binary_operation_mapping_t const arithmetic_operations[]
-    = {{LLVMBuildAdd, LLVMBuildFAdd, NULL, NULL, 0, 0, "arith_add_tmp"},
-       {LLVMBuildSub, LLVMBuildFSub, NULL, NULL, 0, 0, "arith_sub_tmp"},
-       {LLVMBuildMul, LLVMBuildFMul, NULL, NULL, 0, 0, "arith_mul_tmp"},
-       {LLVMBuildSDiv, LLVMBuildFDiv, NULL, NULL, 0, 0, "arith_div_tmp"},
-       {LLVMBuildSRem, NULL, NULL, NULL, 0, 0, "arith_rem_tmp"}};
+    = {[ARITH_OP_ADD] = {
+           .int_arith_op = LLVMBuildAdd,
+           .float_arith_op = LLVMBuildFAdd,
+           .name = "arith_add_tmp",
+       },
+       [ARITH_OP_SUB] = {
+           .int_arith_op = LLVMBuildSub,
+           .float_arith_op = LLVMBuildFSub,
+           .name = "arith_sub_tmp",
+       },
+       [ARITH_OP_MUL] = {
+           .int_arith_op = LLVMBuildMul,
+           .float_arith_op = LLVMBuildFMul,
+           .name = "arith_mul_tmp",
+       },
+       [ARITH_OP_DIV] = {
+           .int_arith_op = LLVMBuildSDiv,
+           .float_arith_op = LLVMBuildFDiv,
+           .name = "arith_div_tmp",
+       },
+       [ARITH_OP_MOD] = {
+           .int_arith_op = LLVMBuildSRem,
+           .name = "arith_rem_tmp",
+       }};
 
 static binary_operation_mapping_t const relational_operations[]
-    = {{NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSLT, LLVMRealOLT, "flt_tmp"},
-       {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSGT, LLVMRealOGT, "fgt_tmp"},
-       {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSLE, LLVMRealOLE, "fle_tmp"},
-       {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSGE, LLVMRealOGE, "fge_tmp"}};
+    = {[REL_OP_LT] = {
+           .int_cmp_op = LLVMBuildICmp,
+           .float_cmp_op = LLVMBuildFCmp,
+           .int_predicate = LLVMIntSLT,
+           .float_predicate = LLVMRealOLT,
+           .name = "flt_tmp",
+       },
+       [REL_OP_GT] = {
+           .int_cmp_op = LLVMBuildICmp,
+           .float_cmp_op = LLVMBuildFCmp,
+           .int_predicate = LLVMIntSGT,
+           .float_predicate = LLVMRealOGT,
+           .name = "fgt_tmp",
+       },
+       [REL_OP_LE] = {
+           .int_cmp_op = LLVMBuildICmp,
+           .float_cmp_op = LLVMBuildFCmp,
+           .int_predicate = LLVMIntSLE,
+           .float_predicate = LLVMRealOLE,
+           .name = "fle_tmp",
+       },
+       [REL_OP_GE] = {
+           .int_cmp_op = LLVMBuildICmp,
+           .float_cmp_op = LLVMBuildFCmp,
+           .int_predicate = LLVMIntSGE,
+           .float_predicate = LLVMRealOGE,
+           .name = "fge_tmp",
+       }};
 
 static binary_operation_mapping_t const equality_operations[]
-    = {{NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntEQ, LLVMRealOEQ, "feq_tmp"},
-       {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntNE, LLVMRealONE, "fne_tmp"}};
+    = {[EQ_OP_EQ] = {
+           .int_cmp_op = LLVMBuildICmp,
+           .float_cmp_op = LLVMBuildFCmp,
+           .int_predicate = LLVMIntEQ,
+           .float_predicate = LLVMRealOEQ,
+           .name = "feq_tmp",
+       },
+       [EQ_OP_NE] = {
+           .int_cmp_op = LLVMBuildICmp,
+           .float_cmp_op = LLVMBuildFCmp,
+           .int_predicate = LLVMIntNE,
+           .float_predicate = LLVMRealONE,
+           .name = "fne_tmp",
+       }};
 
 static binary_operation_mapping_t const compound_assignment_operations[]
-    = {{LLVMBuildAdd, LLVMBuildFAdd, NULL, NULL, 0, 0, "fadd_tmp"},
-       {LLVMBuildSub, LLVMBuildFSub, NULL, NULL, 0, 0, "fsub_tmp"},
-       {LLVMBuildMul, LLVMBuildFMul, NULL, NULL, 0, 0, "fmul_tmp"},
-       {LLVMBuildSDiv, LLVMBuildFDiv, NULL, NULL, 0, 0, "fdiv_tmp"},
-       {LLVMBuildSRem, NULL, NULL, NULL, 0, 0, "rem_tmp"},
-       {LLVMBuildAnd, NULL, NULL, NULL, 0, 0, "and_tmp"},
-       {LLVMBuildOr, NULL, NULL, NULL, 0, 0, "or_tmp"},
-       {LLVMBuildXor, NULL, NULL, NULL, 0, 0, "xor_tmp"},
-       {LLVMBuildShl, NULL, NULL, NULL, 0, 0, "shl_tmp"},
-       {LLVMBuildLShr, NULL, NULL, NULL, 0, 0, "lshr_tmp"}};
+    = {[ASSIGN_OP_ADD] = {
+           .int_arith_op = LLVMBuildAdd,
+           .float_arith_op = LLVMBuildFAdd,
+           .name = "fadd_tmp",
+       },
+       [ASSIGN_OP_SUB] = {
+           .int_arith_op = LLVMBuildSub,
+           .float_arith_op = LLVMBuildFSub,
+           .name = "fsub_tmp",
+       },
+       [ASSIGN_OP_MUL] = {
+           .int_arith_op = LLVMBuildMul,
+           .float_arith_op = LLVMBuildFMul,
+           .name = "fmul_tmp",
+       },
+       [ASSIGN_OP_DIV] = {
+           .int_arith_op = LLVMBuildSDiv,
+           .float_arith_op = LLVMBuildFDiv,
+           .name = "fdiv_tmp",
+       },
+       [ASSIGN_OP_MOD] = {
+           .int_arith_op = LLVMBuildSRem,
+           .name = "rem_tmp",
+       },
+       [ASSIGN_OP_AND] = {
+           .int_arith_op = LLVMBuildAnd,
+           .name = "and_tmp",
+       },
+       [ASSIGN_OP_OR] = {
+           .int_arith_op = LLVMBuildOr,
+           .name = "or_tmp",
+       },
+       [ASSIGN_OP_XOR] = {
+           .int_arith_op = LLVMBuildXor,
+           .name = "xor_tmp",
+       },
+       [ASSIGN_OP_SHL] = {
+           .int_arith_op = LLVMBuildShl,
+           .name = "shl_tmp",
+       },
+       [ASSIGN_OP_SHR] = {
+           .int_arith_op = LLVMBuildLShr,
+           .name = "lshr_tmp",
+       }};
 
 static binary_operation_details_t const binary_operation_details[BINARY_OP_COUNT] = {
-    [BINARY_OP_BITWISE] = {bitwise_operations, ARRAY_SIZE(bitwise_operations)},
-    [BINARY_OP_SHIFT] = {shift_operations, ARRAY_SIZE(shift_operations)},
-    [BINARY_OP_ARITHMETIC] = {arithmetic_operations, ARRAY_SIZE(arithmetic_operations)},
-    [BINARY_OP_RELATIONAL] = {relational_operations, ARRAY_SIZE(relational_operations)},
-    [BINARY_OP_EQUALITY] = {equality_operations, ARRAY_SIZE(equality_operations)},
-    [BINARY_OP_COMPOUND_ASSIGNMENT] = {compound_assignment_operations, ARRAY_SIZE(compound_assignment_operations)},
+    [BINARY_OP_BITWISE] = {
+        .operation_mapping_table = bitwise_operations, 
+        .operation_count = ARRAY_SIZE(bitwise_operations), 
+        .return_boolean = false,
+    },
+    [BINARY_OP_SHIFT] = {
+        .operation_mapping_table = shift_operations, 
+        .operation_count = ARRAY_SIZE(shift_operations), 
+        .return_boolean = false,
+    },
+    [BINARY_OP_ARITHMETIC] = {
+        .operation_mapping_table = arithmetic_operations, 
+        .operation_count = ARRAY_SIZE(arithmetic_operations), 
+        .return_boolean = false,
+    },
+    [BINARY_OP_RELATIONAL] = {
+        .operation_mapping_table = relational_operations, 
+        .operation_count = ARRAY_SIZE(relational_operations), 
+        .return_boolean = true,
+    },
+    [BINARY_OP_EQUALITY] = {
+        .operation_mapping_table = equality_operations, 
+        .operation_count = ARRAY_SIZE(equality_operations), 
+        .return_boolean = true,
+    },
+    [BINARY_OP_COMPOUND_ASSIGNMENT] = {
+        .operation_mapping_table = compound_assignment_operations, 
+        .operation_count = ARRAY_SIZE(compound_assignment_operations), 
+        .return_boolean = false,
+    },
 };
 
 // Helper function to promote integer types
@@ -136,14 +266,10 @@ promote_signed_integer_operands(ir_generator_ctx_t * ctx, TypedValue * lhs_res, 
 }
 
 TypedValue
-process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, binary_operation_type_t op_type)
+complete_binary_expression(
+    ir_generator_ctx_t * ctx, TypedValue lhs_res, c_grammar_node_t const * node, binary_operation_type_t op_type
+)
 {
-    binary_operation_details_t const * details = &binary_operation_details[op_type];
-    binary_operation_mapping_t const * op_map = details->operation_mapping_table;
-    size_t op_map_size = details->operation_count;
-
-    // Process LHS and RHS expressions
-    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
     if (lhs_res.value == NULL)
     {
         return NullTypedValue;
@@ -156,6 +282,10 @@ process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
         return NullTypedValue;
     }
     rhs_res = ensure_rvalue(ctx, "rhs_rval", rhs_res);
+
+    binary_operation_details_t const * details = &binary_operation_details[op_type];
+    binary_operation_mapping_t const * op_map = details->operation_mapping_table;
+    size_t op_map_size = details->operation_count;
 
     // Promote operands as needed
     if (op_type == BINARY_OP_BITWISE || op_type == BINARY_OP_SHIFT)
@@ -206,6 +336,11 @@ process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
         equality_operator_type_t op = op_node->op.eq.op;
         op_index = (size_t)op;
     }
+    else if (op_type == BINARY_OP_COMPOUND_ASSIGNMENT)
+    {
+        assignment_operator_type_t op = op_node->op.assign.op;
+        op_index = (size_t)op;
+    }
 
     // Validate operator index
     if (op_index >= op_map_size)
@@ -244,8 +379,7 @@ process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
         return NullTypedValue;
     }
 
-    // For relational and equality operations, we need to return a boolean type
-    if (op_type == BINARY_OP_RELATIONAL || op_type == BINARY_OP_EQUALITY)
+    if (details->return_boolean)
     {
         TypeDescriptor const * bool_type
             = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
@@ -258,4 +392,16 @@ process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
     result.is_lvalue = false;
 
     return result;
+}
+
+TypedValue
+process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, binary_operation_type_t op_type)
+{
+    // Process LHS and RHS expressions
+    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
+    if (lhs_res.value == NULL)
+    {
+        return NullTypedValue;
+    }
+    return complete_binary_expression(ctx, lhs_res, node, op_type);
 }

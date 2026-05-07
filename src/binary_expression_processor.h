@@ -21,3 +21,8 @@ typedef enum
 // Generic binary expression processor
 TypedValue
 process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, binary_operation_type_t op_type);
+
+/* Use when the LHS of the expression has already been calculated. */
+TypedValue complete_binary_expression(
+    ir_generator_ctx_t * ctx, TypedValue lhs_res, c_grammar_node_t const * node, binary_operation_type_t op_type
+);
