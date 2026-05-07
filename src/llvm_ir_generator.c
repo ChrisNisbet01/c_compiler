@@ -4413,36 +4413,6 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 }
 
 static TypedValue
-process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    return process_binary_expression(ctx, node, bitwise_operations, bitwise_operations_count, "bitwise");
-}
-
-static TypedValue
-process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    return process_binary_expression(ctx, node, shift_operations, shift_operations_count, "shift");
-}
-
-static TypedValue
-process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    return process_binary_expression(ctx, node, arithmetic_operations, arithmetic_operations_count, "arithmetic");
-}
-
-static TypedValue
-process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    return process_binary_expression(ctx, node, relational_operations, relational_operations_count, "relational");
-}
-
-static TypedValue
-process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    return process_binary_expression(ctx, node, equality_operations, equality_operations_count, "equality");
-}
-
-static TypedValue
 process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * op_node = node->binary_expression.op;
@@ -5074,23 +5044,23 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_BITWISE_EXPRESSION:
     {
-        return process_bitwise_expression(ctx, node);
+        return process_binary_expression(ctx, node, BINARY_OP_BITWISE);
     }
     case AST_NODE_SHIFT_EXPRESSION:
     {
-        return process_shift_expression(ctx, node);
+        return process_binary_expression(ctx, node, BINARY_OP_SHIFT);
     }
     case AST_NODE_ARITHMETIC_EXPRESSION:
     {
-        return process_arithmetic_expression(ctx, node);
+        return process_binary_expression(ctx, node, BINARY_OP_ARITHMETIC);
     }
     case AST_NODE_RELATIONAL_EXPRESSION:
     {
-        return process_relational_expression(ctx, node);
+        return process_binary_expression(ctx, node, BINARY_OP_RELATIONAL);
     }
     case AST_NODE_EQUALITY_EXPRESSION:
     {
-        return process_equality_expression(ctx, node);
+        return process_binary_expression(ctx, node, BINARY_OP_EQUALITY);
     }
     case AST_NODE_LOGICAL_EXPRESSION:
     {
