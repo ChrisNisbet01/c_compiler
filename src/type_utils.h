@@ -7,6 +7,10 @@
 #include <llvm-c/Core.h>
 #include <stdint.h>
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#endif
+
 typedef struct TypeDescriptor TypeDescriptor;
 typedef struct TypeDescriptors TypeDescriptors;
 typedef struct scope scope_t;

@@ -39,42 +39,32 @@ typedef struct
 } binary_operation_details_t;
 
 // Operation mappings
-binary_operation_mapping_t const bitwise_operations[]
+static binary_operation_mapping_t const bitwise_operations[]
     = {{LLVMBuildAnd, NULL, NULL, NULL, 0, 0, "and_tmp"},
        {LLVMBuildOr, NULL, NULL, NULL, 0, 0, "or_tmp"},
        {LLVMBuildXor, NULL, NULL, NULL, 0, 0, "xor_tmp"}};
 
-size_t const bitwise_operations_count = sizeof(bitwise_operations) / sizeof(binary_operation_mapping_t);
-
-binary_operation_mapping_t const shift_operations[]
+static binary_operation_mapping_t const shift_operations[]
     = {{LLVMBuildShl, NULL, NULL, NULL, 0, 0, "shl_tmp"}, {LLVMBuildAShr, NULL, NULL, NULL, 0, 0, "ashr_tmp"}};
 
-size_t const shift_operations_count = sizeof(shift_operations) / sizeof(binary_operation_mapping_t);
-
-binary_operation_mapping_t const arithmetic_operations[]
+static binary_operation_mapping_t const arithmetic_operations[]
     = {{LLVMBuildAdd, LLVMBuildFAdd, NULL, NULL, 0, 0, "arith_add_tmp"},
        {LLVMBuildSub, LLVMBuildFSub, NULL, NULL, 0, 0, "arith_sub_tmp"},
        {LLVMBuildMul, LLVMBuildFMul, NULL, NULL, 0, 0, "arith_mul_tmp"},
        {LLVMBuildSDiv, LLVMBuildFDiv, NULL, NULL, 0, 0, "arith_div_tmp"},
        {LLVMBuildSRem, NULL, NULL, NULL, 0, 0, "arith_rem_tmp"}};
 
-size_t const arithmetic_operations_count = sizeof(arithmetic_operations) / sizeof(binary_operation_mapping_t);
-
-binary_operation_mapping_t const relational_operations[]
+static binary_operation_mapping_t const relational_operations[]
     = {{NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSLT, LLVMRealOLT, "flt_tmp"},
        {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSGT, LLVMRealOGT, "fgt_tmp"},
        {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSLE, LLVMRealOLE, "fle_tmp"},
        {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntSGE, LLVMRealOGE, "fge_tmp"}};
 
-size_t const relational_operations_count = sizeof(relational_operations) / sizeof(binary_operation_mapping_t);
-
-binary_operation_mapping_t const equality_operations[]
+static binary_operation_mapping_t const equality_operations[]
     = {{NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntEQ, LLVMRealOEQ, "feq_tmp"},
        {NULL, NULL, LLVMBuildICmp, LLVMBuildFCmp, LLVMIntNE, LLVMRealONE, "fne_tmp"}};
 
-size_t const equality_operations_count = sizeof(equality_operations) / sizeof(binary_operation_mapping_t);
-
-binary_operation_mapping_t const compound_assignment_operations[]
+static binary_operation_mapping_t const compound_assignment_operations[]
     = {{LLVMBuildAdd, LLVMBuildFAdd, NULL, NULL, 0, 0, "fadd_tmp"},
        {LLVMBuildSub, LLVMBuildFSub, NULL, NULL, 0, 0, "fsub_tmp"},
        {LLVMBuildMul, LLVMBuildFMul, NULL, NULL, 0, 0, "fmul_tmp"},
@@ -86,16 +76,13 @@ binary_operation_mapping_t const compound_assignment_operations[]
        {LLVMBuildShl, NULL, NULL, NULL, 0, 0, "shl_tmp"},
        {LLVMBuildLShr, NULL, NULL, NULL, 0, 0, "lshr_tmp"}};
 
-size_t const compound_assignment_operations_count
-    = sizeof(compound_assignment_operations) / sizeof(binary_operation_mapping_t);
-
 static binary_operation_details_t const binary_operation_details[BINARY_OP_COUNT] = {
-    [BINARY_OP_BITWISE] = {bitwise_operations, bitwise_operations_count},
-    [BINARY_OP_SHIFT] = {shift_operations, shift_operations_count},
-    [BINARY_OP_ARITHMETIC] = {arithmetic_operations, arithmetic_operations_count},
-    [BINARY_OP_RELATIONAL] = {relational_operations, relational_operations_count},
-    [BINARY_OP_EQUALITY] = {equality_operations, equality_operations_count},
-    [BINARY_OP_COMPOUND_ASSIGNMENT] = {compound_assignment_operations, compound_assignment_operations_count},
+    [BINARY_OP_BITWISE] = {bitwise_operations, ARRAY_SIZE(bitwise_operations)},
+    [BINARY_OP_SHIFT] = {shift_operations, ARRAY_SIZE(shift_operations)},
+    [BINARY_OP_ARITHMETIC] = {arithmetic_operations, ARRAY_SIZE(arithmetic_operations)},
+    [BINARY_OP_RELATIONAL] = {relational_operations, ARRAY_SIZE(relational_operations)},
+    [BINARY_OP_EQUALITY] = {equality_operations, ARRAY_SIZE(equality_operations)},
+    [BINARY_OP_COMPOUND_ASSIGNMENT] = {compound_assignment_operations, ARRAY_SIZE(compound_assignment_operations)},
 };
 
 // Helper function to promote integer types
