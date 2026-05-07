@@ -193,7 +193,7 @@ run_expected_fail_test() {
         echo "$c_file" >> "$FAILED_TESTS_FILE"
     else
         # ncc failed - this is GOOD (test passed)
-        echo "  EXPECTED FAILURE: ncc failed to compile as expected."
+        echo "  EXPECTED FAILURE: ncc failed to compile $c_file as expected. Check $err_file"
     fi
 
     if [ "$current_test_failed" = "true" ]; then
