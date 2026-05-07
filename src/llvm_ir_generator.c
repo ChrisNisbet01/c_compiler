@@ -4,11 +4,13 @@
 #include "ast_print.h"
 #include "binary_expression_processor.h"
 #include "c_grammar_ast.h"
+#include "compound_literal_processor.h"
 #include "debug.h"
 #include "declaration_handler.h"
 #include "enum_evaluation.h"
 #include "generator_lists.h"
 #include "type_utils.h"
+#include "unary_operations.h"
 
 // Helper function to get natural alignment for a type
 #include <llvm-c/Target.h>
@@ -17,6 +19,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
 // Helper to parse stack alignment from data layout string (e.g., "e-m:e-...-S128")
 // Returns 0 if not found, otherwise returns alignment in bytes
@@ -37,48 +41,6 @@ parse_stack_alignment_from_layout(char const * layout_str)
 }
 
 TypedValue NullTypedValue;
-
-// Forward declarations for functions used before definition
-
-static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-
-char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
-char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
-char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
-bool is_function_suffix(c_grammar_node_t const * suffix);
-c_grammar_node_t const * extract_parameter_list(c_grammar_node_t const * suffix);
-c_grammar_node_t const * search_parameters_list_in_declarator(c_grammar_node_t const * declarator_node);
-
-static type_info_t const * register_tagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx,
-    c_grammar_node_t const * type_child,
-    char const * tag,
-    type_kind_t kind,
-    TypeQualifier quals
-);
-
-static type_info_t const * register_untagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
-);
-
-static char const * search_ast_for_type_tag(c_grammar_node_t const * definition_node);
-
-static type_info_t const *
-register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, char const * tag);
-
-static type_info_t const *
-register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id);
-
-static TypedValue get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifier_node);
-
-// --- Variadic builtin helpers ---
-static LLVMValueRef get_llvm_va_start(ir_generator_ctx_t * ctx);
-static LLVMValueRef get_llvm_va_end(ir_generator_ctx_t * ctx);
-static LLVMValueRef get_llvm_va_copy(ir_generator_ctx_t * ctx);
-static TypedValue process_va_arg_expr(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-static TypedValue process_va_start(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix);
-static TypedValue process_va_end(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix);
-static TypedValue process_va_copy(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix);
 
 // --- Function declaration tracking ---
 
@@ -295,7 +257,7 @@ process_array_subscript(ir_generator_ctx_t * ctx, c_grammar_node_t const * subsc
     return create_typed_value(elem_ptr, elem_desc, true);
 }
 
-static void
+void
 process_initializer_list(
     ir_generator_ctx_t * ctx,
     LLVMValueRef base_ptr,
@@ -4358,78 +4320,7 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     return res;
 }
 
-static TypedValue
-process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    // CompoundLiteral: (type){initializer-list}
-    // e.g., (struct Pos){.x = 1, .y = 2} or (union Data){.x = 1}
-    // Structure: TypeName + InitializerList
-    // First child is TypeName, second is InitializerList
-    c_grammar_node_t const * type_name_node = node->compound_literal.type_name;
-    c_grammar_node_t const * init_list_node = node->compound_literal.initializer_list;
-
-    /* Extract type name - check struct/union keyword first, then typedef */
-    char const * type_name = NULL;
-    bool is_typedef = false;
-
-    if (type_name_node->type == AST_NODE_TYPE_NAME)
-    {
-        c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
-
-        for (size_t i = 0; i < qualifier_list->list.count && !type_name; ++i)
-        {
-            c_grammar_node_t const * child = qualifier_list->list.children[i];
-
-            if (child->type == AST_NODE_TYPEDEF_SPECIFIER)
-            {
-                /* Try typedef */
-                type_name = extract_typedef_name(child);
-                if (type_name != NULL)
-                {
-                    is_typedef = true;
-                }
-            }
-            else
-            {
-                /* Try struct/union keyword */
-                type_name = extract_struct_or_union_or_enum_tag(child);
-            }
-        }
-    }
-
-    if (type_name == NULL)
-    {
-        debug_error("Could not extract type name from compound literal");
-        return NullTypedValue;
-    }
-
-    /* Look up the type - struct list or typedef list */
-    TypeDescriptor const * compound_type_desc = is_typedef ? generator_find_typedef_type_descriptor(ctx, type_name)
-                                                           : generator_find_type_descriptor_by_tag(ctx, type_name);
-    if (compound_type_desc == NULL || compound_type_desc->llvm_type == NULL)
-    {
-        debug_error("Unknown type '%s' in compound literal", type_name);
-        return NullTypedValue;
-    }
-
-    // Create a temporary local variable (alloca) for the compound literal
-    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, compound_type_desc->llvm_type, "compound_literal_tmp");
-    if (alloca_inst == NULL)
-    {
-        debug_error("Failed to allocate compound literal");
-        return NullTypedValue;
-    }
-
-    // Initialize using the initializer list
-    if (init_list_node->type == AST_NODE_INITIALIZER_LIST)
-    {
-        process_initializer_list(ctx, alloca_inst, compound_type_desc, init_list_node, NULL);
-    }
-
-    return create_typed_value(alloca_inst, compound_type_desc, true);
-}
-
-static TypeDescriptor const *
+TypeDescriptor const *
 get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node_t const * qualifier_list)
 {
     TypeDescriptor const * type_desc = NULL;
@@ -4494,274 +4385,6 @@ get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node
     }
 
     return type_desc;
-}
-
-static TypedValue
-process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
-{
-    // Unary structure: [Operator, Operand]
-    c_grammar_node_t const * op = node->unary_expression_prefix.op;
-    c_grammar_node_t const * operand_node = node->unary_expression_prefix.operand;
-
-    switch (op->op.unary.op)
-    {
-    case UNARY_OP_ADDR:
-    {
-        // For &compound_literal, we need to create a pointer to the temp
-        // The compound literal code returns a loaded value, but we need the pointer
-        if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
-        {
-            TypedValue v = process_compound_literal(ctx, operand_node);
-
-            if (v.value == NULL)
-            {
-                ir_gen_error(&ctx->errors, operand_node, "Cannot take the address of an rvalue");
-                return NullTypedValue;
-            }
-
-            // --- The Bridge Logic ---
-            TypeDescriptor const * base_desc = v.type_info;
-
-            if (base_desc == NULL)
-            {
-                debug_error("No type descriptor found for compound literal, attempting fallback");
-                return NullTypedValue;
-            }
-
-            v = create_typed_value(
-                v.value, get_or_create_pointer_type(ctx->type_descriptors, base_desc, (TypeQualifier){0}), false
-            );
-
-            return v;
-        }
-        TypedValue v = process_expression(ctx, operand_node);
-        if (v.value == NULL)
-        {
-            return NullTypedValue;
-        }
-
-        v.is_lvalue = false;
-        // For &member or &array[i], process the expression which returns a pointer
-        return v;
-    }
-
-    case UNARY_OP_DEREF:
-    {
-        TypedValue operand_res = process_expression(ctx, operand_node);
-        if (operand_res.value == NULL)
-        {
-            debug_info("operand dereference failed");
-            return NullTypedValue;
-        }
-
-        if (operand_res.type_info->kind != NCC_TYPE_KIND_POINTER)
-        {
-            ir_gen_error(
-                &ctx->errors,
-                operand_node,
-                "Error: Dereference operand is not a pointer (value: %p)\n",
-                (void *)operand_res.value
-            );
-            return NullTypedValue;
-        }
-        operand_res = ensure_rvalue(ctx, "un_op_deref", operand_res);
-        if (!typed_value_switch_to_pointee(&operand_res))
-        {
-            ir_gen_error(&ctx->errors, operand_node, "Error: Failed to switch to pointee type for dereference");
-            return NullTypedValue;
-        }
-        operand_res.is_lvalue = true;
-
-        return operand_res;
-    }
-
-    case UNARY_OP_MINUS:
-    {
-        TypedValue operand_res = process_expression(ctx, operand_node);
-        if (operand_res.value == NULL)
-        {
-            debug_error("Operand processing failed for unary minus");
-            return NullTypedValue;
-        }
-        if (is_floating_kind(operand_res.type_info))
-        {
-            operand_res.value = LLVMBuildFNeg(ctx->builder, operand_res.value, "fneg_tmp");
-        }
-        else
-        {
-            operand_res.value = LLVMBuildNeg(ctx->builder, operand_res.value, "neg_tmp");
-        }
-        operand_res.is_lvalue = false;
-
-        return operand_res;
-    }
-
-    case UNARY_OP_NOT:
-    {
-        TypedValue operand_res = process_expression(ctx, operand_node);
-        if (operand_res.value == NULL)
-        {
-            debug_error("Operand processing failed for unary not");
-            return NullTypedValue;
-        }
-        operand_res = ensure_rvalue(ctx, "un_not_rval", operand_res);
-
-        // 1. Comparison produces an i1 (1-bit integer)
-        LLVMValueRef zero = LLVMConstNull(operand_res.type_info->llvm_type);
-        LLVMValueRef is_zero = LLVMBuildICmp(ctx->builder, LLVMIntEQ, operand_res.value, zero, "is_zero_tmp");
-        TypeDescriptor const * bool_desc = type_descriptor_get_bool_type(ctx->type_descriptors, false);
-
-        return create_typed_value(is_zero, bool_desc, false);
-    }
-
-    case UNARY_OP_BITNOT:
-    {
-        TypedValue operand_res = process_expression(ctx, operand_node);
-        if (operand_res.value == NULL)
-        {
-            debug_error("Operand processing failed for unary bitnot");
-            return NullTypedValue;
-        }
-        operand_res = ensure_rvalue(ctx, "bit_not_rval", operand_res);
-
-        operand_res.value = LLVMBuildNot(ctx->builder, operand_res.value, "bitnot_tmp");
-        operand_res.is_lvalue = false;
-        return operand_res;
-    }
-
-    case UNARY_OP_INC:
-    case UNARY_OP_DEC:
-    {
-        TypedValue var_res = process_expression(ctx, operand_node);
-
-        if (var_res.value == NULL)
-        {
-            return NullTypedValue;
-        }
-
-        if (!var_res.is_lvalue)
-        {
-            ir_gen_error(&ctx->errors, operand_node, "Cannot increment/decrement non-lvalue");
-            return NullTypedValue;
-        }
-
-        if (var_res.type_info->qualifiers.is_const)
-        {
-            ir_gen_error(&ctx->errors, operand_node, "Cannot increment/decrement const variable");
-            return NullTypedValue;
-        }
-
-        TypedValue rvalue_res = ensure_rvalue(ctx, "unary_inc_dev_rval", var_res);
-        LLVMValueRef original_val = rvalue_res.value;
-        LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32_type, 1, false);
-
-        LLVMValueRef new_val;
-        if (op->op.unary.op == UNARY_OP_INC)
-        {
-            if (is_floating_kind(var_res.type_info))
-                new_val = LLVMBuildFAdd(
-                    ctx->builder, original_val, LLVMConstReal(var_res.type_info->llvm_type, 1.0), "inc_tmp"
-                );
-            else
-                new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
-        }
-        else
-        {
-            if (is_floating_kind(var_res.type_info))
-                new_val = LLVMBuildFSub(
-                    ctx->builder, original_val, LLVMConstReal(var_res.type_info->llvm_type, 1.0), "dec_tmp"
-                );
-            else
-                new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
-        }
-        aligned_store(ctx, ctx->builder, new_val, var_res.type_info->llvm_type, var_res.value);
-        var_res.value = new_val;
-        var_res.is_lvalue = false;
-
-        return var_res;
-    }
-
-    case UNARY_OP_PLUS:
-    {
-        TypedValue var_res = process_expression(ctx, operand_node);
-        if (var_res.value == NULL)
-        {
-            debug_error("Operand processing failed for unary unary");
-            return NullTypedValue;
-        }
-        var_res.is_lvalue = false;
-
-        return var_res;
-    }
-
-    case UNARY_OP_SIZEOF:
-    {
-        TypeDescriptor const * target_type = NULL;
-
-        // Check if operand is a TypeName (e.g., sizeof(int) or sizeof(struct Point))
-        if (operand_node->type == AST_NODE_TYPE_NAME)
-        {
-            // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
-            c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-            target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
-        }
-        else
-        {
-            debug_info("Operand node type for sizeof: %s", get_node_type_name_from_node(operand_node));
-            TypedValue operand_res = process_expression(ctx, operand_node);
-            if (operand_res.value == NULL)
-            {
-                debug_error("Operand processing failed for unary sizeof");
-                return NullTypedValue;
-            }
-
-            target_type = operand_res.type_info;
-        }
-        debug_info("unary operator getting size of type: %p", target_type);
-        uint64_t sizeof_type_bytes = get_type_size(ctx, target_type);
-        TypeDescriptor const * sizeof_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
-        LLVMValueRef val = LLVMConstInt(sizeof_desc->llvm_type, sizeof_type_bytes, false);
-
-        return create_typed_value(val, sizeof_desc, false);
-    }
-    case UNARY_OP_ALIGNOF:
-    {
-        // alignof is similar to sizeof but returns alignment
-        TypeDescriptor const * target_type = NULL;
-
-        // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
-        if (operand_node->type == AST_NODE_TYPE_NAME)
-        {
-            c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-            target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
-        }
-        else
-        {
-            debug_info("Operand node type for alignof: %s", get_node_type_name_from_node(operand_node));
-            TypedValue operand_res = process_expression(ctx, operand_node);
-            if (operand_res.value == NULL)
-            {
-                debug_error("Operand processing failed for unary alignof");
-                return NullTypedValue;
-            }
-
-            target_type = operand_res.type_info;
-        }
-        debug_info("unary operator getting alignment");
-        uint64_t alignment = get_type_alignment_desc(target_type);
-        TypeDescriptor const * alignment_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
-        LLVMValueRef val = LLVMConstInt(alignment_desc->llvm_type, alignment, false);
-
-        return create_typed_value(val, alignment_desc, false);
-    }
-    default:
-    {
-        debug_error("Unknown unary operator %u.", op->op.unary.op);
-        return NullTypedValue;
-    }
-    }
-
-    return NullTypedValue; /* Shouldn't happen. */
 }
 
 static TypedValue

@@ -12,6 +12,7 @@ add_executable(${app}
   main.c
   ast_node_name.c
   ast_print.c
+  compound_literal_processor.c
   c_grammar_ast_actions.c
   debug.c
   declaration_handler.c
@@ -31,6 +32,7 @@ add_executable(${app}
   type_utils.c
   source_location.c
   binary_expression_processor.c
+  unary_operations.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -g -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)
