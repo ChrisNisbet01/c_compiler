@@ -891,7 +891,9 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
 }
 
 void
-type_descriptor_complete_struct(TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members)
+type_descriptor_complete_struct(
+    TypeDescriptors * registry, TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members
+)
 {
     TypeDescriptor * type_desc = (TypeDescriptor *)type_desc_in;
 
@@ -916,4 +918,5 @@ type_descriptor_complete_struct(TypeDescriptor const * type_desc_in, struct_or_u
             }
         }
     }
+    calculate_composite_size(registry->data_layout, type_desc);
 }

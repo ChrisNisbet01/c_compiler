@@ -10,7 +10,7 @@ scope_types_add_entry(scope_types_t * list, type_info_t info)
     {
         size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
 
-        type_info_t * new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
+        type_info_t ** new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
 
         if (new_entries == NULL)
         {
@@ -19,13 +19,24 @@ scope_types_add_entry(scope_types_t * list, type_info_t info)
         list->entries = new_entries;
         list->capacity = new_cap;
     }
+    type_info_t * new_entry = malloc(sizeof *new_entry);
+    if (new_entry == NULL)
+    {
+        return NULL;
+    }
 
-    list->entries[list->count++] = info;
+    *new_entry = info;
+
+    list->entries[list->count++] = new_entry;
     debug_info(
-        "Added type info: tag='%s', kind=%d, total count=%zu", info.tag ? info.tag : "(null)", info.kind, list->count
+        "Added type info: tag='%s', kind=%d, total count=%zu, desc: %p",
+        info.tag ? info.tag : "(null)",
+        info.kind,
+        list->count,
+        info.type_desc
     );
 
-    return &list->entries[list->count - 1];
+    return list->entries[list->count - 1];
 }
 
 type_info_t *
@@ -38,7 +49,7 @@ scope_types_lookup_entry_by_tag_and_kind(scope_types_t const * list, char const 
 
     for (size_t i = 0; i < list->count; ++i)
     {
-        type_info_t * entry = &list->entries[i];
+        type_info_t * entry = list->entries[i];
 
         if (entry->tag != NULL && strcmp(entry->tag, tag) == 0 && kind == entry->kind)
         {
@@ -54,7 +65,7 @@ scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDesc
 {
     for (size_t i = 0; i < list->count; ++i)
     {
-        type_info_t * entry = &list->entries[i];
+        type_info_t * entry = list->entries[i];
         debug_info("%s: Checking tagged_type[%zu]", __func__, i);
         if (entry->type_desc == type_desc)
         {
@@ -87,9 +98,10 @@ scope_types_free(scope_types_t * list)
 {
     for (size_t i = 0; i < list->count; ++i)
     {
-        type_info_t * entry = &list->entries[i];
+        type_info_t * entry = list->entries[i];
 
         free_type_info(entry);
+        free(entry);
     }
     free(list->entries);
 }
@@ -108,10 +120,11 @@ scope_typedefs_free(scope_typedefs_t * list)
 {
     for (size_t i = 0; i < list->count; ++i)
     {
-        scope_typedef_entry_t * entry = &list->entries[i];
+        scope_typedef_entry_t * entry = list->entries[i];
 
         free(entry->name);
         free((void *)entry->tag);
+        free(entry);
     }
     free(list->entries);
 }
@@ -121,7 +134,7 @@ scope_typedefs_lookup_entry_by_name(scope_typedefs_t const * list, char const * 
 {
     for (size_t i = 0; i < list->count; ++i)
     {
-        scope_typedef_entry_t * entry = &list->entries[i];
+        scope_typedef_entry_t * entry = list->entries[i];
         if (entry->name && strcmp(entry->name, name) == 0)
         {
             return entry;
@@ -136,7 +149,7 @@ scope_typedefs_lookup_entry_by_type_descriptor(scope_typedefs_t const * list, Ty
 {
     for (size_t i = 0; i < list->count; ++i)
     {
-        scope_typedef_entry_t * entry = &list->entries[i];
+        scope_typedef_entry_t * entry = list->entries[i];
         if (type_desc == entry->type_desc)
         {
             return entry;
@@ -161,7 +174,7 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
     if (list->count >= list->capacity)
     {
         size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
-        scope_typedef_entry_t * new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
+        scope_typedef_entry_t ** new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
         if (new_entries == NULL)
         {
             return;
@@ -170,7 +183,14 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
         list->capacity = new_cap;
     }
 
-    list->entries[list->count++] = entry;
+    scope_typedef_entry_t * new_entry = malloc(sizeof(*new_entry));
+    if (new_entry == NULL)
+    {
+        return;
+    }
+    *new_entry = entry;
+
+    list->entries[list->count++] = new_entry;
 }
 
 void
@@ -179,10 +199,11 @@ scope_symbols_free(scope_symbols_t * list)
     /* Free all symbol names and struct names in this scope */
     for (size_t i = 0; i < list->count; ++i)
     {
-        symbol_t * symbol = &list->symbols[i];
+        symbol_t * symbol = list->symbols[i];
 
         free((void *)symbol->name);
         free((void *)symbol->tag_name);
+        free(symbol);
     }
     free(list->symbols);
 }
@@ -202,7 +223,7 @@ scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, Type
     if (list->count >= list->capacity)
     {
         size_t new_cap = list->capacity == 0 ? 16 : list->capacity * 2;
-        symbol_t * new_symbols = realloc(list->symbols, new_cap * sizeof(*new_symbols));
+        symbol_t ** new_symbols = realloc(list->symbols, new_cap * sizeof(*new_symbols));
 
         if (new_symbols == NULL)
         {
@@ -211,11 +232,16 @@ scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, Type
         list->symbols = new_symbols;
         list->capacity = new_cap;
     }
-    symbol_t * new_symbol = &list->symbols[list->count];
 
+    symbol_t * new_symbol = calloc(1, sizeof(*new_symbol));
+    if (new_symbol == NULL)
+    {
+        return;
+    }
     new_symbol->name = strdup(name);
     new_symbol->value = value;
     new_symbol->tag_name = tag ? strdup(tag) : NULL;
+    list->symbols[list->count] = new_symbol;
     list->count++;
 
     debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
@@ -227,7 +253,7 @@ scope_symbols_lookup_entry_by_name(scope_symbols_t const * list, char const * na
 {
     for (size_t i = list->count; i > 0; --i)
     {
-        symbol_t * symbol = &list->symbols[i - 1];
+        symbol_t * symbol = list->symbols[i - 1];
 
         if (symbol->name != NULL && strcmp(symbol->name, name) == 0)
         {

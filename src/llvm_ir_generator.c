@@ -706,15 +706,12 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
     opaque.kind = is_union ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
     struct_or_union_members_st * members = NULL;
     bool is_complete = false;
+    LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, tag);
+    debug_info("%s: tag %s, type %p", __func__, opaque.tag, struct_type);
+    opaque.type_desc
+        = register_struct_type(ctx->type_descriptors, struct_type, (TypeQualifier){0}, is_union, is_complete, members);
+    debug_info("%s: registering opaque and opaque ype desc: %p", __func__, opaque.type_desc);
 
-    opaque.type_desc = register_struct_type(
-        ctx->type_descriptors,
-        LLVMStructCreateNamed(ctx->context, tag),
-        (TypeQualifier){0},
-        is_union,
-        is_complete,
-        members
-    );
     type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
     if (registered == NULL)
     {
@@ -777,10 +774,11 @@ register_tagged_struct_or_union_definition(
                     field_types[current_storage_unit] = field->type_desc->llvm_type;
                 }
             }
+
             LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
             free(field_types);
 
-            type_descriptor_complete_struct(existing->type_desc, &members);
+            type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
 
             for (size_t i = 0; i < members.num_members; i++)
             {

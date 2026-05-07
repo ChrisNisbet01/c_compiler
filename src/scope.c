@@ -176,7 +176,7 @@ scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
         debug_info("Looking up untagged type by index: %d", index);
         if ((size_t)index < scope->untagged_types.count)
         {
-            return &scope->untagged_types.entries[index];
+            return scope->untagged_types.entries[index];
         }
         scope = scope->parent;
     }

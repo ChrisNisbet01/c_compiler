@@ -51,7 +51,7 @@ typedef struct type_info
 
 typedef struct scope_types
 {
-    type_info_t * entries;
+    type_info_t ** entries;
     size_t count;
     size_t capacity;
 } scope_types_t;
@@ -70,7 +70,7 @@ typedef struct scope_typedef_entry
 // --- Typedefs in a scope ---
 typedef struct scope_typedefs
 {
-    scope_typedef_entry_t * entries;
+    scope_typedef_entry_t ** entries;
     size_t count;
     size_t capacity;
 } scope_typedefs_t;
@@ -85,7 +85,7 @@ typedef struct symbol
 
 typedef struct
 {
-    symbol_t * symbols;
+    symbol_t ** symbols;
     size_t count;
     size_t capacity;
 } scope_symbols_t;
