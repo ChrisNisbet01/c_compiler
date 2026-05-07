@@ -2067,6 +2067,920 @@ process_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 }
 
+static void
+process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    /* Handle TypedefDeclaration node: [KwExtension, DeclarationSpecifiers, InitDeclaratorList] */
+    c_grammar_node_t const * decl_specs = node->declaration.declaration_specifiers;
+    c_grammar_node_t const * struct_def_node = NULL;
+    c_grammar_node_t const * enum_def_node = NULL;
+    c_grammar_node_t const * specifiers_list = decl_specs->decl_specifiers.type_specifiers;
+    c_grammar_node_t const * typedef_specifier_node = decl_specs->decl_specifiers.typedef_specifier;
+    char const * typedef_name = search_for_identifier(typedef_specifier_node);
+    scope_typedef_entry_t const * existing_typedef_info = NULL;
+
+    if (typedef_name != NULL)
+    {
+        debug_info("Processing typedef '%s'", typedef_name);
+        /* We should have a typedef of this name already registered. */
+        existing_typedef_info = generator_lookup_typedef_entry_by_name(ctx, typedef_name);
+        if (existing_typedef_info != NULL)
+        {
+            debug_info("Found typedef descriptor for '%s'", typedef_name);
+        }
+        else
+        {
+            debug_info("No typedef descriptor found for '%s'", typedef_name);
+        }
+    }
+    else
+    {
+        debug_info("No typedef name found");
+    }
+
+    /* Look for struct/union/enum definition inside DeclarationSpecifiers once */
+    for (size_t i = 0; i < specifiers_list->list.count; ++i)
+    {
+        c_grammar_node_t * spec_child = specifiers_list->list.children[i];
+
+        {
+            for (size_t j = 0; j < spec_child->list.count; ++j)
+            {
+                c_grammar_node_t const * type_child = spec_child->list.children[j];
+                if (type_child
+                    && (type_child->type == AST_NODE_STRUCT_DEFINITION
+                        || type_child->type == AST_NODE_UNION_DEFINITION))
+                {
+                    struct_def_node = type_child;
+                    break;
+                }
+                else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
+                {
+                    enum_def_node = type_child;
+                    break;
+                }
+            }
+        }
+        if (struct_def_node || enum_def_node)
+        {
+            break;
+        }
+    }
+
+    /* Iterate over all TypedefInitDeclarators */
+    c_grammar_node_t const * init_declarator_list = node->declaration.init_declarator_list;
+
+    for (size_t i = 0; i < init_declarator_list->list.count; ++i)
+    {
+        c_grammar_node_t const * typedef_init_decl = init_declarator_list->list.children[i];
+
+        /* TypedefInitDeclarator -> TypedefDeclarator -> Identifier (via find_typedef_name_node) */
+        c_grammar_node_t const * typedef_decl = typedef_init_decl->init_declarator.declarator;
+
+        TypeDescriptor const * typedef_type_desc = resolve_type_descriptor(ctx, decl_specs, typedef_decl);
+        if (typedef_type_desc != NULL)
+        {
+            debug_info("%s: Got type desc for typedef", __func__);
+        }
+        else
+        {
+            debug_info("%s: Failed to get type desc for typedef", __func__);
+        }
+
+        c_grammar_node_t const * name_node = find_typedef_name_node(typedef_decl);
+
+        if (name_node != NULL && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
+        {
+            char const * typedef_name = name_node->text;
+            debug_info("Typedef: name='%s'", typedef_name);
+
+            bool handled = false;
+            if (typedef_type_desc != NULL)
+            {
+                type_kind_t kind = generator_lookup_kind_by_type_descriptor(ctx, typedef_type_desc);
+                debug_info("%s existing info: %p", __func__, (void *)existing_typedef_info);
+                scope_typedef_entry_t typedef_entry = {
+                    .kind = kind,
+                    .name = strdup(typedef_name),
+                    .type_desc = typedef_type_desc,
+                };
+                generator_add_typedef_entry(ctx, typedef_entry);
+                handled = true;
+            }
+
+            /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */
+            for (size_t j = 0; j < specifiers_list->list.count && !handled; ++j)
+            {
+                c_grammar_node_t * spec_child = specifiers_list->list.children[j];
+                {
+                    for (size_t k = 0; k < spec_child->list.count; ++k)
+                    {
+                        c_grammar_node_t const * type_child = spec_child->list.children[k];
+                        type_kind_t kind = TYPE_KIND_BUILTIN;
+                        if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
+                        {
+                            kind = TYPE_KIND_STRUCT;
+                        }
+                        else if (type_child->type == AST_NODE_UNION_TYPE_REF)
+                        {
+                            kind = TYPE_KIND_UNION;
+                        }
+                        else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
+                        {
+                            kind = TYPE_KIND_ENUM;
+                        }
+
+                        if (kind != TYPE_KIND_BUILTIN)
+                        {
+                            c_grammar_node_t const * tag_name_node = type_child->type_ref.identifier;
+
+                            if (tag_name_node != NULL && tag_name_node->type == AST_NODE_IDENTIFIER)
+                            {
+                                generator_add_typedef_forward_decl(ctx, typedef_name, tag_name_node->text, kind);
+                                handled = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (handled)
+            {
+                continue;
+            }
+
+            if (struct_def_node)
+            {
+                /* We have a full struct/union definition */
+                char const * struct_tag = search_ast_for_type_tag(struct_def_node);
+                type_kind_t kind;
+                scope_typedef_entry_t typedef_entry = {0};
+                typedef_entry.name = strdup(typedef_name);
+
+                type_info_t const * type_info;
+
+                if (struct_tag != NULL)
+                {
+                    kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
+                    type_info = register_tagged_struct_or_union_definition(
+                        ctx, struct_def_node, struct_tag, kind, (TypeQualifier){0}
+                    );
+                    typedef_entry.tag = strdup(struct_tag);
+                }
+                else
+                {
+                    kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
+                                                                               : TYPE_KIND_UNTAGGED_UNION;
+                    type_info = register_untagged_struct_or_union_definition(
+                        ctx, struct_def_node, kind, &typedef_entry.untagged_index
+                    );
+                }
+                typedef_entry.type_desc = type_info->type_desc;
+                typedef_entry.kind = kind;
+                generator_add_typedef_entry(ctx, typedef_entry);
+            }
+            else if (enum_def_node)
+            {
+                /* Register the enum values as constants */
+                char const * enum_tag = search_ast_for_type_tag(enum_def_node);
+                scope_typedef_entry_t typedef_entry = {0};
+                typedef_entry.name = strdup(typedef_name);
+
+                type_info_t const * type_info;
+
+                if (enum_tag != NULL)
+                {
+                    typedef_entry.kind = TYPE_KIND_ENUM;
+                    typedef_entry.tag = strdup(enum_tag);
+                    type_info = register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
+                }
+                else
+                {
+                    typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
+                    type_info = register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
+                }
+                typedef_entry.type_desc = type_info->type_desc;
+                generator_add_typedef_entry(ctx, typedef_entry);
+            }
+            else
+            {
+                /* Simple type typedef: e.g. typedef int my_int; */
+                c_grammar_node_t const * specifier_list = decl_specs->decl_specifiers.type_specifiers;
+                c_grammar_node_t const * qualifier_list = decl_specs->decl_specifiers.type_qualifiers;
+                TypeSpecifier const decl_type_spec = build_type_specifiers(specifier_list);
+                TypeQualifier const decl_type_qual = build_type_qualifiers(qualifier_list);
+                TypeDescriptor const * type_desc
+                    = get_or_create_builtin_type(ctx->type_descriptors, decl_type_spec, decl_type_qual);
+                if (type_desc != NULL)
+                {
+                    scope_typedef_entry_t typedef_entry = {0};
+                    typedef_entry.name = strdup(typedef_name);
+                    typedef_entry.type_desc = type_desc;
+                    typedef_entry.kind = TYPE_KIND_BUILTIN;
+                    generator_add_typedef_entry(ctx, typedef_entry);
+                }
+                else
+                {
+                    debug_info("Failed to resolve type for typedef '%s'", typedef_name);
+                    print_ast(decl_specs);
+                }
+            }
+        }
+    }
+}
+
+static void
+process_preprocessor_line_marker(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    ast_node_preprocessor_line_marker_t const * marker = &node->line_marker;
+
+    /* 2. Update the tracker with the mapping */
+    source_location_tracker_add_entry(
+        ctx->errors.loc_tracker, node->source_data.offset, marker->line_number, marker->filename
+    );
+    debug_info("flags count: %zu", marker->flags_count);
+    /* 3. Handle include stack based on flags */
+    for (size_t i = 0; i < marker->flags_count; i++)
+    {
+        debug_info("marker %zu flag: %zu", i, marker->flags[i]);
+
+        if (marker->flags[i] == 1) /* Enter include */
+        {
+            source_location_tracker_push_include(ctx->errors.loc_tracker, marker->filename, marker->line_number);
+        }
+        else if (marker->flags[i] == 2) /* Exit include */
+        {
+            source_location_tracker_pop_include(ctx->errors.loc_tracker);
+        }
+    }
+}
+
+static void
+process_for_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    c_grammar_node_t const * init_node = node->for_statement.init;
+    c_grammar_node_t const * cond_node = node->for_statement.condition;
+    c_grammar_node_t const * post_node = node->for_statement.post;
+    c_grammar_node_t const * body_node = node->for_statement.body;
+
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+    LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_cond");
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_body");
+    LLVMBasicBlockRef post_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_post");
+    LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_after");
+
+    // Save and set break/continue targets for this loop
+    LLVMBasicBlockRef old_break_target = ctx->break_target;
+    LLVMBasicBlockRef old_continue_target = ctx->continue_target;
+    ctx->break_target = after_block;
+    ctx->continue_target = post_block;
+
+    // 1. Process Init
+    debug_info("process for init");
+    process_ast_node(ctx, init_node);
+    if (ctx->errors.fatal)
+    {
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    LLVMBuildBr(ctx->builder, cond_block);
+
+    // 2. Emit Cond block
+    debug_info("process for cond");
+    LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
+    TypedValue cond_res = process_expression(ctx, cond_node);
+    if (ctx->errors.fatal)
+    {
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    if (cond_res.value != NULL)
+    {
+        // Convert condition to bool (i1) if it's not already.
+        cond_res = cast_typed_value_to_desc(
+            ctx,
+            cond_res,
+            get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
+        );
+        LLVMBuildCondBr(ctx->builder, cond_res.value, body_block, after_block);
+    }
+    else
+    {
+        // Empty condition is always true
+        LLVMBuildBr(ctx->builder, body_block);
+    }
+
+    // 3. Emit Body block
+    debug_info("process for body");
+    LLVMPositionBuilderAtEnd(ctx->builder, body_block);
+    process_ast_node(ctx, body_node);
+    if (ctx->errors.fatal)
+    {
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    // If body doesn't have terminator, jump to post
+    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    {
+        LLVMBuildBr(ctx->builder, post_block);
+    }
+
+    // 4. Emit Post block
+    debug_info("process for post");
+    LLVMPositionBuilderAtEnd(ctx->builder, post_block);
+    process_expression(ctx, post_node);
+    if (ctx->errors.fatal)
+    {
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+    LLVMBuildBr(ctx->builder, cond_block);
+
+    // Restore old break/continue targets
+    ctx->break_target = old_break_target;
+    ctx->continue_target = old_continue_target;
+
+    // 5. Continue from after block
+    LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+}
+
+static void
+process_while_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    c_grammar_node_t const * condition_node = node->while_statement.condition;
+    c_grammar_node_t const * body_node = node->while_statement.body;
+
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+    LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_cond");
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_body");
+    LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_after");
+
+    // Save and set break/continue targets for this loop
+    LLVMBasicBlockRef old_break_target = ctx->break_target;
+    LLVMBasicBlockRef old_continue_target = ctx->continue_target;
+    ctx->break_target = after_block;
+    ctx->continue_target = cond_block;
+
+    // Jump to condition block
+    LLVMBuildBr(ctx->builder, cond_block);
+
+    // --- Emit condition block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
+    TypedValue condition_res = process_expression(ctx, condition_node);
+    if (condition_res.value == NULL)
+    {
+        debug_error("Failed to process condition for WhileStatement.");
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    // Convert condition to bool (i1) if it's not already.
+    condition_res = cast_typed_value_to_desc(
+        ctx,
+        condition_res,
+        get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
+    );
+
+    LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
+
+    // --- Emit body block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, body_block);
+    process_ast_node(ctx, body_node);
+    if (ctx->errors.fatal)
+    {
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    // If the body block doesn't already have a terminator, jump back to condition
+    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    {
+        LLVMBuildBr(ctx->builder, cond_block);
+    }
+
+    // Restore old break/continue targets
+    ctx->break_target = old_break_target;
+    ctx->continue_target = old_continue_target;
+
+    // --- Continue from after block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+}
+
+static void
+process_do_while_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    c_grammar_node_t const * body_node = node->do_while_statement.body;
+    c_grammar_node_t const * condition_node = node->do_while_statement.condition;
+
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+    LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_body");
+    LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_cond");
+    LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_after");
+
+    // Save and set break/continue targets for this loop
+    LLVMBasicBlockRef old_break_target = ctx->break_target;
+    LLVMBasicBlockRef old_continue_target = ctx->continue_target;
+    ctx->break_target = after_block;
+    ctx->continue_target = cond_block;
+
+    // Jump to body block
+    LLVMBuildBr(ctx->builder, body_block);
+
+    // --- Emit body block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, body_block);
+    process_ast_node(ctx, body_node);
+    if (ctx->errors.fatal)
+    {
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    // Jump to condition
+    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    {
+        LLVMBuildBr(ctx->builder, cond_block);
+    }
+
+    // --- Emit condition block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
+    TypedValue condition_res = process_expression(ctx, condition_node);
+    if (condition_res.value == NULL)
+    {
+        debug_error("Failed to process condition for DoWhileStatement.");
+        ctx->break_target = old_break_target;
+        ctx->continue_target = old_continue_target;
+        return;
+    }
+
+    // Convert condition to bool (i1) if it's not already.
+    condition_res = cast_typed_value_to_desc(
+        ctx,
+        condition_res,
+        get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
+    );
+
+    // Restore old break/continue targets
+    ctx->break_target = old_break_target;
+    ctx->continue_target = old_continue_target;
+
+    LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
+    // --- Continue from after block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+}
+
+static void
+process_translation_unit(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (node->translation_unit.external_declarations == NULL)
+    {
+        debug_error("Translation unit is missing external declarations.");
+        return;
+    }
+    generator_scope_push(ctx);
+    process_ast_node(ctx, node->translation_unit.external_declarations);
+    generator_scope_pop(ctx);
+}
+
+static void
+process_external_declarations(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Process each external declaration (could be variable or function)
+    if (node->list.children)
+    {
+        for (size_t i = 0; i < node->list.count; ++i)
+        {
+            process_ast_node(ctx, node->list.children[i]);
+        }
+    }
+}
+
+static void
+process_external_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    if (node->external_declaration.preprocessor_directive != NULL)
+    {
+        process_ast_node(ctx, node->external_declaration.preprocessor_directive);
+    }
+    else if (node->external_declaration.top_level_declaration != NULL)
+    {
+        process_ast_node(ctx, node->external_declaration.top_level_declaration);
+    }
+}
+
+static void
+process_compound_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // Create new scope for this block
+    generator_scope_push(ctx);
+
+    for (size_t i = 0; i < node->list.count; ++i)
+    {
+        process_ast_node(ctx, node->list.children[i]);
+    }
+
+    // Pop block scope when exiting
+    generator_scope_pop(ctx);
+}
+
+static void
+process_top_level_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    process_ast_node(ctx, node->top_level_declaration.declaration);
+}
+
+static void
+process_expression_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    c_grammar_node_t const * expr_node = node->expression_statement.expression;
+
+    process_expression(ctx, expr_node);
+}
+
+static void
+process_case_label(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // CaseLabel: [case_expr, (optional) statement]
+    // If there's a statement, process it
+    if (node->list.count == 2)
+    {
+        c_grammar_node_t * stmt = node->list.children[1];
+        process_ast_node(ctx, stmt);
+    }
+}
+
+static void
+process_break_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    (void)node;
+
+    // Break statement: jump to the enclosing switch/loop's after block
+    if (ctx->break_target)
+    {
+        LLVMBuildBr(ctx->builder, ctx->break_target);
+    }
+    else
+    {
+        debug_error("break statement not within a loop or switch.");
+    }
+}
+
+static void
+process_continue_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    (void)node;
+
+    // Continue statement: jump to the enclosing loop's continue (post) block
+    if (ctx->continue_target)
+    {
+        LLVMBuildBr(ctx->builder, ctx->continue_target);
+    }
+    else
+    {
+        debug_error("continue statement not within a loop.");
+    }
+}
+
+static void
+process_switch_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // SwitchStatement: [SwitchExpression, CompoundStatement with SwitchCase/DefaultStatement]
+    // SwitchCase: [case_label1, case_label2, ..., statement1, statement2, ...]
+    //   - Case labels have type AST_NODE_CASE_LABEL
+    //   - Statements are other statement types
+    // DefaultStatement: [statement*]
+    c_grammar_node_t const * switch_expr = node->switch_statement.expression;
+    c_grammar_node_t const * body_stmt = node->switch_statement.body;
+
+    TypedValue switch_val = process_expression(ctx, switch_expr);
+    if (switch_val.value == NULL)
+    {
+        debug_error("Failed to process switch expression.");
+        return;
+    }
+    switch_val = ensure_rvalue(ctx, "switch_rval", switch_val);
+
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+    // Create after switch block
+    LLVMBasicBlockRef after_switch = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_after");
+
+    // Save the old break target and set the new one
+    LLVMBasicBlockRef old_break_target = ctx->break_target;
+    ctx->break_target = after_switch;
+
+    // Collect all SwitchCase and DefaultStatement items in order
+    typedef struct
+    {
+        bool is_default;
+        c_grammar_node_t const * node;
+        LLVMBasicBlockRef body_block;
+    } switch_item_t;
+
+    size_t num_items = 0;
+    size_t items_capacity = 16;
+    switch_item_t * items = malloc(items_capacity * sizeof(*items));
+
+    size_t default_idx = SIZE_MAX;
+
+    if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
+    {
+        for (size_t i = 0; i < body_stmt->list.count; ++i)
+        {
+            c_grammar_node_t * child = body_stmt->list.children[i];
+
+            if (child->type == AST_NODE_SWITCH_CASE)
+            {
+                if (num_items >= items_capacity)
+                {
+                    items_capacity *= 2;
+                    items = realloc(items, items_capacity * sizeof(*items));
+                }
+                items[num_items].is_default = false;
+                items[num_items].node = child;
+                items[num_items].body_block = NULL;
+                num_items++;
+            }
+            else if (child->type == AST_NODE_DEFAULT_STATEMENT)
+            {
+                if (num_items >= items_capacity)
+                {
+                    items_capacity *= 2;
+                    items = realloc(items, items_capacity * sizeof(*items));
+                }
+                items[num_items].is_default = true;
+                items[num_items].node = child;
+                items[num_items].body_block = NULL;
+                default_idx = num_items;
+                num_items++;
+            }
+        }
+    }
+
+    // Create body blocks for all items that have statements
+    for (size_t i = 0; i < num_items; i++)
+    {
+        c_grammar_node_t const * item_node = items[i].node;
+        bool has_statements = item_node->switch_case.statements->list.count > 0;
+
+        if (has_statements)
+        {
+            char block_name[64];
+            if (items[i].is_default)
+            {
+                snprintf(block_name, sizeof(block_name), "switch_default");
+            }
+            else
+            {
+                snprintf(block_name, sizeof(block_name), "case_body_%zu", i);
+            }
+            items[i].body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
+        }
+    }
+
+    // Create switch entry block
+    LLVMBasicBlockRef switch_entry = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_entry");
+    LLVMBuildBr(ctx->builder, switch_entry);
+    LLVMPositionBuilderAtEnd(ctx->builder, switch_entry);
+
+    // Determine default target
+    LLVMBasicBlockRef default_target
+        = (default_idx != SIZE_MAX && items[default_idx].body_block) ? items[default_idx].body_block : after_switch;
+
+    // Count case values for switch instruction
+    size_t num_case_values = 0;
+    for (size_t i = 0; i < num_items; i++)
+    {
+        if (!items[i].is_default)
+        {
+            // Count case labels in this SwitchCase
+            num_case_values = items[i].node->switch_case.labels->list.count;
+        }
+    }
+
+    LLVMValueRef switch_inst
+        = LLVMBuildSwitch(ctx->builder, switch_val.value, default_target, (unsigned)num_case_values);
+
+    // Add all cases to switch
+    for (size_t i = 0; i < num_items; i++)
+    {
+        if (items[i].is_default)
+        {
+            continue;
+        }
+
+        // Find fallthrough target (next item with a body block)
+        LLVMBasicBlockRef fallthrough_target = after_switch;
+        for (size_t j = i + 1; j < num_items; j++)
+        {
+            if (items[j].body_block)
+            {
+                fallthrough_target = items[j].body_block;
+                break;
+            }
+        }
+
+        // Add each case value from this SwitchCase
+        c_grammar_node_t const * switch_case_node = items[i].node;
+        for (size_t j = 0; j < switch_case_node->switch_case.labels->list.count; j++)
+        {
+            c_grammar_node_t const * child = switch_case_node->switch_case.labels->list.children[j];
+            // CaseLabel contains the case expression
+            if (child->list.count >= 1)
+            {
+                TypedValue case_val = process_expression(ctx, child->list.children[0]);
+                if (case_val.value == NULL)
+                {
+                    return;
+                }
+                case_val = ensure_rvalue(ctx, "switch_case_rval", case_val);
+                LLVMAddCase(
+                    switch_inst, case_val.value, items[i].body_block ? items[i].body_block : fallthrough_target
+                );
+            }
+        }
+    }
+
+    // Process bodies in forward order
+    for (size_t i = 0; i < num_items; i++)
+    {
+        if (!items[i].body_block)
+        {
+            continue; // No body to process (empty case that falls through)
+        }
+
+        LLVMPositionBuilderAtEnd(ctx->builder, items[i].body_block);
+
+        // Find fallthrough target
+        LLVMBasicBlockRef fallthrough_target = after_switch;
+        for (size_t j = i + 1; j < num_items; j++)
+        {
+            if (items[j].body_block)
+            {
+                fallthrough_target = items[j].body_block;
+                break;
+            }
+        }
+
+        // Process all statement children (skip CaseLabel children in SwitchCase)
+        c_grammar_node_t const * item_node = items[i].node;
+        for (size_t j = 0; j < item_node->switch_case.statements->list.count; j++)
+        {
+            c_grammar_node_t const * child = item_node->switch_case.statements->list.children[j];
+            process_ast_node(ctx, child);
+            if (ctx->errors.fatal)
+            {
+                return;
+            }
+
+            if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+            {
+                break;
+            }
+        }
+
+        // Add fallthrough if no terminator
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+        {
+            LLVMBuildBr(ctx->builder, fallthrough_target);
+        }
+    }
+
+    // Restore break target
+    ctx->break_target = old_break_target;
+
+    // Continue from after switch
+    LLVMPositionBuilderAtEnd(ctx->builder, after_switch);
+
+    free(items);
+}
+
+static void
+process_if_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
+    c_grammar_node_t const * condition_node = node->if_statement.condition;
+    c_grammar_node_t const * then_node = node->if_statement.then_statement;
+    c_grammar_node_t const * else_node = node->if_statement.else_statement;
+
+    TypedValue condition_val = process_expression(ctx, condition_node);
+    if (condition_val.value == NULL)
+    {
+        debug_error("Failed to process condition for IfStatement.");
+        return;
+    }
+    condition_val = ensure_rvalue(ctx, "if_cond_rval", condition_val);
+
+    LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+
+    LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "then");
+    LLVMBasicBlockRef else_block
+        = else_node != NULL ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
+    LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "if_merge");
+
+    // If it's an i32, we need to check if it's != 0 to get an i1
+    LLVMValueRef cond_val = condition_val.value;
+    condition_val = cast_typed_value_to_desc(
+        ctx,
+        condition_val,
+        get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
+    );
+
+    if (else_node)
+    {
+        LLVMBuildCondBr(ctx->builder, cond_val, then_block, else_block);
+    }
+    else
+    {
+        LLVMBuildCondBr(ctx->builder, cond_val, then_block, merge_block);
+    }
+
+    // --- Emit 'then' block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, then_block);
+    process_ast_node(ctx, then_node);
+    if (ctx->errors.fatal)
+    {
+        return;
+    }
+    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    {
+        LLVMBuildBr(ctx->builder, merge_block);
+    }
+
+    // --- Emit 'else' block if present ---
+    if (else_node != NULL)
+    {
+        LLVMPositionBuilderAtEnd(ctx->builder, else_block);
+        process_ast_node(ctx, else_node);
+        if (ctx->errors.fatal)
+        {
+            return;
+        }
+        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+        {
+            LLVMBuildBr(ctx->builder, merge_block);
+        }
+    }
+
+    // --- Continue from merge block ---
+    LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+}
+
+static void
+process_goto_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    char const * label_name = node->goto_statement.label->text;
+    LLVMBasicBlockRef target = generator_get_or_create_label(ctx, label_name);
+    LLVMBuildBr(ctx->builder, target);
+
+    // Start a new basic block for any code after goto (which is technically unreachable
+    // unless there's a label).
+    LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
+    LLVMBasicBlockRef unreachable = LLVMAppendBasicBlockInContext(ctx->context, func, "unreachable");
+    LLVMPositionBuilderAtEnd(ctx->builder, unreachable);
+}
+
+static void
+process_labeled_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
+{
+    // LabeledIdentifier children: [Identifier, Statement]
+
+    c_grammar_node_t const * label_node = node->labeled_statement.label;
+    c_grammar_node_t const * statement_node = node->labeled_statement.statement;
+
+    char const * label_name = label_node->text;
+    LLVMBasicBlockRef label_block = generator_get_or_create_label(ctx, label_name);
+
+    // If the current block doesn't have a terminator, branch to the label block
+    if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
+    {
+        LLVMBuildBr(ctx->builder, label_block);
+    }
+
+    // Continue building from the label block
+    LLVMPositionBuilderAtEnd(ctx->builder, label_block);
+
+    // Process the statement part of the labeled statement
+    process_ast_node(ctx, statement_node);
+    if (ctx->errors.fatal)
+    {
+        return;
+    }
+}
+
 /**
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
@@ -2083,73 +2997,27 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
     case AST_NODE_TRANSLATION_UNIT:
     {
-        if (node->translation_unit.external_declarations == NULL)
-        {
-            debug_error("Translation unit is missing external declarations.");
-            return;
-        }
-        generator_scope_push(ctx);
-        process_ast_node(ctx, node->translation_unit.external_declarations);
-        generator_scope_pop(ctx);
+        process_translation_unit(ctx, node);
         break;
     }
     case AST_NODE_EXTERNAL_DECLARATIONS:
     {
-        // Process each external declaration (could be variable or function)
-        if (node->list.children)
-        {
-            for (size_t i = 0; i < node->list.count; ++i)
-            {
-                process_ast_node(ctx, node->list.children[i]);
-            }
-        }
+        process_external_declarations(ctx, node);
         break;
     }
     case AST_NODE_EXTERNAL_DECLARATION:
     {
-        if (node->external_declaration.preprocessor_directive != NULL)
-        {
-            process_ast_node(ctx, node->external_declaration.preprocessor_directive);
-        }
-        else if (node->external_declaration.top_level_declaration != NULL)
-        {
-            process_ast_node(ctx, node->external_declaration.top_level_declaration);
-        }
+        process_external_declaration(ctx, node);
         break;
     }
     case AST_NODE_TOP_LEVEL_DECLARATION:
     {
-        process_ast_node(ctx, node->top_level_declaration.declaration);
+        process_top_level_declaration(ctx, node);
         break;
     }
     case AST_NODE_PREPROCESSOR_LINE_MARKER:
     {
-        ast_node_preprocessor_line_marker_t const * marker = &node->line_marker;
-
-        /* 2. Update the tracker with the mapping */
-        source_location_tracker_add_entry(
-            ctx->errors.loc_tracker, node->source_data.offset, marker->line_number, marker->filename
-        );
-        debug_info("flags count: %zu", marker->flags_count);
-        /* 3. Handle include stack based on flags */
-        for (size_t i = 0; i < marker->flags_count; i++)
-        {
-            debug_info("marker %zu flag: %zu", i, marker->flags[i]);
-
-            if (marker->flags[i] == 1) /* Enter include */
-            {
-                source_location_tracker_push_include(ctx->errors.loc_tracker, marker->filename, marker->line_number);
-            }
-            else if (marker->flags[i] == 2) /* Exit include */
-            {
-                source_location_tracker_pop_include(ctx->errors.loc_tracker);
-            }
-        }
-        break;
-    }
-    case AST_NODE_PREPROCESSOR_DIRECTIVE:
-    {
-        // For now, we can ignore preprocessor directives in IR generation
+        process_preprocessor_line_marker(ctx, node);
         break;
     }
     case AST_NODE_FUNCTION_DEFINITION:
@@ -2159,23 +3027,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_COMPOUND_STATEMENT:
     {
-        // Create new scope for this block
-        generator_scope_push(ctx);
-
-        for (size_t i = 0; i < node->list.count; ++i)
-        {
-            process_ast_node(ctx, node->list.children[i]);
-        }
-
-        // Pop block scope when exiting
-        generator_scope_pop(ctx);
+        process_compound_statement(ctx, node);
         break;
     }
     case AST_NODE_EXPRESSION_STATEMENT:
     {
-        c_grammar_node_t const * expr_node = node->expression_statement.expression;
-
-        process_expression(ctx, expr_node);
+        process_expression_statement(ctx, node);
         break;
     }
     case AST_NODE_DECLARATION:
@@ -2185,769 +3042,47 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_TYPEDEF_DECLARATION:
     {
-        /* Handle TypedefDeclaration node: [KwExtension, DeclarationSpecifiers, InitDeclaratorList] */
-        c_grammar_node_t const * decl_specs = node->declaration.declaration_specifiers;
-        c_grammar_node_t const * struct_def_node = NULL;
-        c_grammar_node_t const * enum_def_node = NULL;
-        c_grammar_node_t const * specifiers_list = decl_specs->decl_specifiers.type_specifiers;
-        c_grammar_node_t const * typedef_specifier_node = decl_specs->decl_specifiers.typedef_specifier;
-        char const * typedef_name = search_for_identifier(typedef_specifier_node);
-        scope_typedef_entry_t const * existing_typedef_info = NULL;
-
-        if (typedef_name != NULL)
-        {
-            debug_info("Processing typedef '%s'", typedef_name);
-            /* We should have a typedef of this name already registered. */
-            existing_typedef_info = generator_lookup_typedef_entry_by_name(ctx, typedef_name);
-            if (existing_typedef_info != NULL)
-            {
-                debug_info("Found typedef descriptor for '%s'", typedef_name);
-            }
-            else
-            {
-                debug_info("No typedef descriptor found for '%s'", typedef_name);
-            }
-        }
-        else
-        {
-            debug_info("No typedef name found");
-        }
-
-        /* Look for struct/union/enum definition inside DeclarationSpecifiers once */
-        for (size_t i = 0; i < specifiers_list->list.count; ++i)
-        {
-            c_grammar_node_t * spec_child = specifiers_list->list.children[i];
-
-            {
-                for (size_t j = 0; j < spec_child->list.count; ++j)
-                {
-                    c_grammar_node_t const * type_child = spec_child->list.children[j];
-                    if (type_child
-                        && (type_child->type == AST_NODE_STRUCT_DEFINITION
-                            || type_child->type == AST_NODE_UNION_DEFINITION))
-                    {
-                        struct_def_node = type_child;
-                        break;
-                    }
-                    else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
-                    {
-                        enum_def_node = type_child;
-                        break;
-                    }
-                }
-            }
-            if (struct_def_node || enum_def_node)
-            {
-                break;
-            }
-        }
-
-        /* Iterate over all TypedefInitDeclarators */
-        c_grammar_node_t const * init_declarator_list = node->declaration.init_declarator_list;
-
-        for (size_t i = 0; i < init_declarator_list->list.count; ++i)
-        {
-            c_grammar_node_t const * typedef_init_decl = init_declarator_list->list.children[i];
-
-            /* TypedefInitDeclarator -> TypedefDeclarator -> Identifier (via find_typedef_name_node) */
-            c_grammar_node_t const * typedef_decl = typedef_init_decl->init_declarator.declarator;
-
-            TypeDescriptor const * typedef_type_desc = resolve_type_descriptor(ctx, decl_specs, typedef_decl);
-            if (typedef_type_desc != NULL)
-            {
-                debug_info("%s: Got type desc for typedef", __func__);
-            }
-            else
-            {
-                debug_info("%s: Failed to get type desc for typedef", __func__);
-            }
-
-            c_grammar_node_t const * name_node = find_typedef_name_node(typedef_decl);
-
-            if (name_node != NULL && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
-            {
-                char const * typedef_name = name_node->text;
-                debug_info("Typedef: name='%s'", typedef_name);
-
-                bool handled = false;
-                if (typedef_type_desc != NULL)
-                {
-                    type_kind_t kind = generator_lookup_kind_by_type_descriptor(ctx, typedef_type_desc);
-                    debug_info("%s existing info: %p", __func__, (void *)existing_typedef_info);
-                    scope_typedef_entry_t typedef_entry = {
-                        .kind = kind,
-                        .name = strdup(typedef_name),
-                        .type_desc = typedef_type_desc,
-                    };
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                    handled = true;
-                }
-
-                /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */
-                for (size_t j = 0; j < specifiers_list->list.count && !handled; ++j)
-                {
-                    c_grammar_node_t * spec_child = specifiers_list->list.children[j];
-                    {
-                        for (size_t k = 0; k < spec_child->list.count; ++k)
-                        {
-                            c_grammar_node_t const * type_child = spec_child->list.children[k];
-                            type_kind_t kind = TYPE_KIND_BUILTIN;
-                            if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
-                            {
-                                kind = TYPE_KIND_STRUCT;
-                            }
-                            else if (type_child->type == AST_NODE_UNION_TYPE_REF)
-                            {
-                                kind = TYPE_KIND_UNION;
-                            }
-                            else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
-                            {
-                                kind = TYPE_KIND_ENUM;
-                            }
-
-                            if (kind != TYPE_KIND_BUILTIN)
-                            {
-                                c_grammar_node_t const * tag_name_node = type_child->type_ref.identifier;
-
-                                if (tag_name_node != NULL && tag_name_node->type == AST_NODE_IDENTIFIER)
-                                {
-                                    generator_add_typedef_forward_decl(ctx, typedef_name, tag_name_node->text, kind);
-                                    handled = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (handled)
-                {
-                    continue;
-                }
-
-                if (struct_def_node)
-                {
-                    /* We have a full struct/union definition */
-                    char const * struct_tag = search_ast_for_type_tag(struct_def_node);
-                    type_kind_t kind;
-                    scope_typedef_entry_t typedef_entry = {0};
-                    typedef_entry.name = strdup(typedef_name);
-
-                    type_info_t const * type_info;
-
-                    if (struct_tag != NULL)
-                    {
-                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-                        type_info = register_tagged_struct_or_union_definition(
-                            ctx, struct_def_node, struct_tag, kind, (TypeQualifier){0}
-                        );
-                        typedef_entry.tag = strdup(struct_tag);
-                    }
-                    else
-                    {
-                        kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
-                                                                                   : TYPE_KIND_UNTAGGED_UNION;
-                        type_info = register_untagged_struct_or_union_definition(
-                            ctx, struct_def_node, kind, &typedef_entry.untagged_index
-                        );
-                    }
-                    typedef_entry.type_desc = type_info->type_desc;
-                    typedef_entry.kind = kind;
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                }
-                else if (enum_def_node)
-                {
-                    /* Register the enum values as constants */
-                    char const * enum_tag = search_ast_for_type_tag(enum_def_node);
-                    scope_typedef_entry_t typedef_entry = {0};
-                    typedef_entry.name = strdup(typedef_name);
-
-                    type_info_t const * type_info;
-
-                    if (enum_tag != NULL)
-                    {
-                        typedef_entry.kind = TYPE_KIND_ENUM;
-                        typedef_entry.tag = strdup(enum_tag);
-                        type_info = register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
-                    }
-                    else
-                    {
-                        typedef_entry.kind = TYPE_KIND_UNTAGGED_ENUM;
-                        type_info
-                            = register_untagged_enum_definition(ctx, enum_def_node, &typedef_entry.untagged_index);
-                    }
-                    typedef_entry.type_desc = type_info->type_desc;
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                }
-                else
-                {
-                    /* Simple type typedef: e.g. typedef int my_int; */
-                    c_grammar_node_t const * specifier_list = decl_specs->decl_specifiers.type_specifiers;
-                    c_grammar_node_t const * qualifier_list = decl_specs->decl_specifiers.type_qualifiers;
-                    TypeSpecifier const decl_type_spec = build_type_specifiers(specifier_list);
-                    TypeQualifier const decl_type_qual = build_type_qualifiers(qualifier_list);
-                    TypeDescriptor const * type_desc
-                        = get_or_create_builtin_type(ctx->type_descriptors, decl_type_spec, decl_type_qual);
-                    if (type_desc != NULL)
-                    {
-                        scope_typedef_entry_t typedef_entry = {0};
-                        typedef_entry.name = strdup(typedef_name);
-                        typedef_entry.type_desc = type_desc;
-                        typedef_entry.kind = TYPE_KIND_BUILTIN;
-                        generator_add_typedef_entry(ctx, typedef_entry);
-                    }
-                    else
-                    {
-                        debug_info("Failed to resolve type for typedef '%s'", typedef_name);
-                        print_ast(decl_specs);
-                    }
-                }
-            }
-        }
+        process_typedef_declaration(ctx, node);
         break;
     }
     case AST_NODE_FOR_STATEMENT:
     {
-        c_grammar_node_t const * init_node = node->for_statement.init;
-        c_grammar_node_t const * cond_node = node->for_statement.condition;
-        c_grammar_node_t const * post_node = node->for_statement.post;
-        c_grammar_node_t const * body_node = node->for_statement.body;
-
-        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-
-        LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_cond");
-        LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_body");
-        LLVMBasicBlockRef post_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_post");
-        LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "for_after");
-
-        // Save and set break/continue targets for this loop
-        LLVMBasicBlockRef old_break_target = ctx->break_target;
-        LLVMBasicBlockRef old_continue_target = ctx->continue_target;
-        ctx->break_target = after_block;
-        ctx->continue_target = post_block;
-
-        // 1. Process Init
-        debug_info("process for init");
-        process_ast_node(ctx, init_node);
-        if (ctx->errors.fatal)
-        {
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        LLVMBuildBr(ctx->builder, cond_block);
-
-        // 2. Emit Cond block
-        debug_info("process for cond");
-        LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
-        TypedValue cond_res = process_expression(ctx, cond_node);
-        if (ctx->errors.fatal)
-        {
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        if (cond_res.value != NULL)
-        {
-            // Convert condition to bool (i1) if it's not already.
-            cond_res = cast_typed_value_to_desc(
-                ctx,
-                cond_res,
-                get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
-            );
-            LLVMBuildCondBr(ctx->builder, cond_res.value, body_block, after_block);
-        }
-        else
-        {
-            // Empty condition is always true
-            LLVMBuildBr(ctx->builder, body_block);
-        }
-
-        // 3. Emit Body block
-        debug_info("process for body");
-        LLVMPositionBuilderAtEnd(ctx->builder, body_block);
-        process_ast_node(ctx, body_node);
-        if (ctx->errors.fatal)
-        {
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        // If body doesn't have terminator, jump to post
-        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-        {
-            LLVMBuildBr(ctx->builder, post_block);
-        }
-
-        // 4. Emit Post block
-        debug_info("process for post");
-        LLVMPositionBuilderAtEnd(ctx->builder, post_block);
-        process_expression(ctx, post_node);
-        if (ctx->errors.fatal)
-        {
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-        LLVMBuildBr(ctx->builder, cond_block);
-
-        // Restore old break/continue targets
-        ctx->break_target = old_break_target;
-        ctx->continue_target = old_continue_target;
-
-        // 5. Continue from after block
-        LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+        process_for_statement(ctx, node);
         break;
     }
     case AST_NODE_WHILE_STATEMENT:
     {
-        c_grammar_node_t const * condition_node = node->while_statement.condition;
-        c_grammar_node_t const * body_node = node->while_statement.body;
-
-        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-
-        LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_cond");
-        LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_body");
-        LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "while_after");
-
-        // Save and set break/continue targets for this loop
-        LLVMBasicBlockRef old_break_target = ctx->break_target;
-        LLVMBasicBlockRef old_continue_target = ctx->continue_target;
-        ctx->break_target = after_block;
-        ctx->continue_target = cond_block;
-
-        // Jump to condition block
-        LLVMBuildBr(ctx->builder, cond_block);
-
-        // --- Emit condition block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
-        TypedValue condition_res = process_expression(ctx, condition_node);
-        if (condition_res.value == NULL)
-        {
-            debug_error("Failed to process condition for WhileStatement.");
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        // Convert condition to bool (i1) if it's not already.
-        condition_res = cast_typed_value_to_desc(
-            ctx,
-            condition_res,
-            get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
-        );
-
-        LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
-
-        // --- Emit body block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, body_block);
-        process_ast_node(ctx, body_node);
-        if (ctx->errors.fatal)
-        {
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        // If the body block doesn't already have a terminator, jump back to condition
-        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-        {
-            LLVMBuildBr(ctx->builder, cond_block);
-        }
-
-        // Restore old break/continue targets
-        ctx->break_target = old_break_target;
-        ctx->continue_target = old_continue_target;
-
-        // --- Continue from after block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+        process_while_statement(ctx, node);
         break;
     }
     case AST_NODE_DO_WHILE_STATEMENT:
     {
-        c_grammar_node_t const * body_node = node->do_while_statement.body;
-        c_grammar_node_t const * condition_node = node->do_while_statement.condition;
-
-        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-
-        LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_body");
-        LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_cond");
-        LLVMBasicBlockRef after_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "do_after");
-
-        // Save and set break/continue targets for this loop
-        LLVMBasicBlockRef old_break_target = ctx->break_target;
-        LLVMBasicBlockRef old_continue_target = ctx->continue_target;
-        ctx->break_target = after_block;
-        ctx->continue_target = cond_block;
-
-        // Jump to body block
-        LLVMBuildBr(ctx->builder, body_block);
-
-        // --- Emit body block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, body_block);
-        process_ast_node(ctx, body_node);
-        if (ctx->errors.fatal)
-        {
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        // Jump to condition
-        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-        {
-            LLVMBuildBr(ctx->builder, cond_block);
-        }
-
-        // --- Emit condition block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
-        TypedValue condition_res = process_expression(ctx, condition_node);
-        if (condition_res.value == NULL)
-        {
-            debug_error("Failed to process condition for DoWhileStatement.");
-            ctx->break_target = old_break_target;
-            ctx->continue_target = old_continue_target;
-            return;
-        }
-
-        // Convert condition to bool (i1) if it's not already.
-        condition_res = cast_typed_value_to_desc(
-            ctx,
-            condition_res,
-            get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
-        );
-
-        // Restore old break/continue targets
-        ctx->break_target = old_break_target;
-        ctx->continue_target = old_continue_target;
-
-        LLVMBuildCondBr(ctx->builder, condition_res.value, body_block, after_block);
-        // --- Continue from after block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, after_block);
+        process_do_while_statement(ctx, node);
         break;
     }
     case AST_NODE_CASE_LABEL:
     {
-        // CaseLabel: [case_expr, (optional) statement]
-        // If there's a statement, process it
-        if (node->list.count == 2)
-        {
-            c_grammar_node_t * stmt = node->list.children[1];
-            process_ast_node(ctx, stmt);
-        }
+        process_case_label(ctx, node);
         break;
     }
     case AST_NODE_BREAK_STATEMENT:
     {
-        // Break statement: jump to the enclosing switch/loop's after block
-        if (ctx->break_target)
-        {
-            LLVMBuildBr(ctx->builder, ctx->break_target);
-        }
-        else
-        {
-            debug_error("break statement not within a loop or switch.");
-        }
+        process_break_statement(ctx, node);
         break;
     }
     case AST_NODE_CONTINUE_STATEMENT:
     {
-        // Continue statement: jump to the enclosing loop's continue (post) block
-        if (ctx->continue_target)
-        {
-            LLVMBuildBr(ctx->builder, ctx->continue_target);
-        }
-        else
-        {
-            debug_error("continue statement not within a loop.");
-        }
+        process_continue_statement(ctx, node);
         break;
     }
     case AST_NODE_SWITCH_STATEMENT:
     {
-        // SwitchStatement: [SwitchExpression, CompoundStatement with SwitchCase/DefaultStatement]
-        // SwitchCase: [case_label1, case_label2, ..., statement1, statement2, ...]
-        //   - Case labels have type AST_NODE_CASE_LABEL
-        //   - Statements are other statement types
-        // DefaultStatement: [statement*]
-        c_grammar_node_t const * switch_expr = node->switch_statement.expression;
-        c_grammar_node_t const * body_stmt = node->switch_statement.body;
-
-        TypedValue switch_val = process_expression(ctx, switch_expr);
-        if (switch_val.value == NULL)
-        {
-            debug_error("Failed to process switch expression.");
-            return;
-        }
-        switch_val = ensure_rvalue(ctx, "switch_rval", switch_val);
-
-        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-
-        // Create after switch block
-        LLVMBasicBlockRef after_switch = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_after");
-
-        // Save the old break target and set the new one
-        LLVMBasicBlockRef old_break_target = ctx->break_target;
-        ctx->break_target = after_switch;
-
-        // Collect all SwitchCase and DefaultStatement items in order
-        typedef struct
-        {
-            bool is_default;
-            c_grammar_node_t const * node;
-            LLVMBasicBlockRef body_block;
-        } switch_item_t;
-
-        size_t num_items = 0;
-        size_t items_capacity = 16;
-        switch_item_t * items = malloc(items_capacity * sizeof(*items));
-
-        size_t default_idx = SIZE_MAX;
-
-        if (body_stmt && body_stmt->type == AST_NODE_COMPOUND_STATEMENT)
-        {
-            for (size_t i = 0; i < body_stmt->list.count; ++i)
-            {
-                c_grammar_node_t * child = body_stmt->list.children[i];
-
-                if (child->type == AST_NODE_SWITCH_CASE)
-                {
-                    if (num_items >= items_capacity)
-                    {
-                        items_capacity *= 2;
-                        items = realloc(items, items_capacity * sizeof(*items));
-                    }
-                    items[num_items].is_default = false;
-                    items[num_items].node = child;
-                    items[num_items].body_block = NULL;
-                    num_items++;
-                }
-                else if (child->type == AST_NODE_DEFAULT_STATEMENT)
-                {
-                    if (num_items >= items_capacity)
-                    {
-                        items_capacity *= 2;
-                        items = realloc(items, items_capacity * sizeof(*items));
-                    }
-                    items[num_items].is_default = true;
-                    items[num_items].node = child;
-                    items[num_items].body_block = NULL;
-                    default_idx = num_items;
-                    num_items++;
-                }
-            }
-        }
-
-        // Create body blocks for all items that have statements
-        for (size_t i = 0; i < num_items; i++)
-        {
-            c_grammar_node_t const * item_node = items[i].node;
-            bool has_statements = item_node->switch_case.statements->list.count > 0;
-
-            if (has_statements)
-            {
-                char block_name[64];
-                if (items[i].is_default)
-                {
-                    snprintf(block_name, sizeof(block_name), "switch_default");
-                }
-                else
-                {
-                    snprintf(block_name, sizeof(block_name), "case_body_%zu", i);
-                }
-                items[i].body_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, block_name);
-            }
-        }
-
-        // Create switch entry block
-        LLVMBasicBlockRef switch_entry = LLVMAppendBasicBlockInContext(ctx->context, current_func, "switch_entry");
-        LLVMBuildBr(ctx->builder, switch_entry);
-        LLVMPositionBuilderAtEnd(ctx->builder, switch_entry);
-
-        // Determine default target
-        LLVMBasicBlockRef default_target
-            = (default_idx != SIZE_MAX && items[default_idx].body_block) ? items[default_idx].body_block : after_switch;
-
-        // Count case values for switch instruction
-        size_t num_case_values = 0;
-        for (size_t i = 0; i < num_items; i++)
-        {
-            if (!items[i].is_default)
-            {
-                // Count case labels in this SwitchCase
-                num_case_values = items[i].node->switch_case.labels->list.count;
-            }
-        }
-
-        LLVMValueRef switch_inst
-            = LLVMBuildSwitch(ctx->builder, switch_val.value, default_target, (unsigned)num_case_values);
-
-        // Add all cases to switch
-        for (size_t i = 0; i < num_items; i++)
-        {
-            if (items[i].is_default)
-            {
-                continue;
-            }
-
-            // Find fallthrough target (next item with a body block)
-            LLVMBasicBlockRef fallthrough_target = after_switch;
-            for (size_t j = i + 1; j < num_items; j++)
-            {
-                if (items[j].body_block)
-                {
-                    fallthrough_target = items[j].body_block;
-                    break;
-                }
-            }
-
-            // Add each case value from this SwitchCase
-            c_grammar_node_t const * switch_case_node = items[i].node;
-            for (size_t j = 0; j < switch_case_node->switch_case.labels->list.count; j++)
-            {
-                c_grammar_node_t const * child = switch_case_node->switch_case.labels->list.children[j];
-                // CaseLabel contains the case expression
-                if (child->list.count >= 1)
-                {
-                    TypedValue case_val = process_expression(ctx, child->list.children[0]);
-                    if (case_val.value == NULL)
-                    {
-                        return;
-                    }
-                    case_val = ensure_rvalue(ctx, "switch_case_rval", case_val);
-                    LLVMAddCase(
-                        switch_inst, case_val.value, items[i].body_block ? items[i].body_block : fallthrough_target
-                    );
-                }
-            }
-        }
-
-        // Process bodies in forward order
-        for (size_t i = 0; i < num_items; i++)
-        {
-            if (!items[i].body_block)
-            {
-                continue; // No body to process (empty case that falls through)
-            }
-
-            LLVMPositionBuilderAtEnd(ctx->builder, items[i].body_block);
-
-            // Find fallthrough target
-            LLVMBasicBlockRef fallthrough_target = after_switch;
-            for (size_t j = i + 1; j < num_items; j++)
-            {
-                if (items[j].body_block)
-                {
-                    fallthrough_target = items[j].body_block;
-                    break;
-                }
-            }
-
-            // Process all statement children (skip CaseLabel children in SwitchCase)
-            c_grammar_node_t const * item_node = items[i].node;
-            for (size_t j = 0; j < item_node->switch_case.statements->list.count; j++)
-            {
-                c_grammar_node_t const * child = item_node->switch_case.statements->list.children[j];
-                process_ast_node(ctx, child);
-                if (ctx->errors.fatal)
-                {
-                    return;
-                }
-
-                if (LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-                {
-                    break;
-                }
-            }
-
-            // Add fallthrough if no terminator
-            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-            {
-                LLVMBuildBr(ctx->builder, fallthrough_target);
-            }
-        }
-
-        // Restore break target
-        ctx->break_target = old_break_target;
-
-        // Continue from after switch
-        LLVMPositionBuilderAtEnd(ctx->builder, after_switch);
-
-        free(items);
+        process_switch_statement(ctx, node);
         break;
     }
     case AST_NODE_IF_STATEMENT:
     {
-        debug_info("XXX");
-        // AST structure for IfStatement: [ConditionExpression, ThenStatement, (Optional) ElseStatement]
-        c_grammar_node_t const * condition_node = node->if_statement.condition;
-        c_grammar_node_t const * then_node = node->if_statement.then_statement;
-        c_grammar_node_t const * else_node = node->if_statement.else_statement;
-
-        TypedValue condition_val = process_expression(ctx, condition_node);
-        if (condition_val.value == NULL)
-        {
-            debug_error("Failed to process condition for IfStatement.");
-            return;
-        }
-        condition_val = ensure_rvalue(ctx, "if_cond_rval", condition_val);
-
-        LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-
-        LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "then");
-        LLVMBasicBlockRef else_block
-            = else_node != NULL ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
-        LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "if_merge");
-
-        // If it's an i32, we need to check if it's != 0 to get an i1
-        LLVMValueRef cond_val = condition_val.value;
-        condition_val = cast_typed_value_to_desc(
-            ctx,
-            condition_val,
-            get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0})
-        );
-
-        if (else_node)
-        {
-            LLVMBuildCondBr(ctx->builder, cond_val, then_block, else_block);
-        }
-        else
-        {
-            LLVMBuildCondBr(ctx->builder, cond_val, then_block, merge_block);
-        }
-
-        // --- Emit 'then' block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, then_block);
-        process_ast_node(ctx, then_node);
-        if (ctx->errors.fatal)
-        {
-            return;
-        }
-        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-        {
-            LLVMBuildBr(ctx->builder, merge_block);
-        }
-
-        // --- Emit 'else' block if present ---
-        if (else_node != NULL)
-        {
-            LLVMPositionBuilderAtEnd(ctx->builder, else_block);
-            process_ast_node(ctx, else_node);
-            if (ctx->errors.fatal)
-            {
-                return;
-            }
-            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-            {
-                LLVMBuildBr(ctx->builder, merge_block);
-            }
-        }
-
-        // --- Continue from merge block ---
-        LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+        process_if_statement(ctx, node);
         break;
     }
     case AST_NODE_RETURN_STATEMENT:
@@ -2957,54 +3092,23 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_GOTO_STATEMENT:
     {
-        char const * label_name = node->goto_statement.label->text;
-        LLVMBasicBlockRef target = generator_get_or_create_label(ctx, label_name);
-        LLVMBuildBr(ctx->builder, target);
-
-        // Start a new basic block for any code after goto (which is technically unreachable
-        // unless there's a label).
-        LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(ctx->builder));
-        LLVMBasicBlockRef unreachable = LLVMAppendBasicBlockInContext(ctx->context, func, "unreachable");
-        LLVMPositionBuilderAtEnd(ctx->builder, unreachable);
-
+        process_goto_statement(ctx, node);
         break;
     }
     case AST_NODE_LABELED_STATEMENT:
     {
-        // LabeledIdentifier children: [Identifier, Statement]
+        process_labeled_statement(ctx, node);
+        break;
+    }
 
-        c_grammar_node_t const * label_node = node->labeled_statement.label;
-        c_grammar_node_t const * statement_node = node->labeled_statement.statement;
-
-        char const * label_name = label_node->text;
-        LLVMBasicBlockRef label_block = generator_get_or_create_label(ctx, label_name);
-
-        // If the current block doesn't have a terminator, branch to the label block
-        if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(ctx->builder)))
-        {
-            LLVMBuildBr(ctx->builder, label_block);
-        }
-
-        // Continue building from the label block
-        LLVMPositionBuilderAtEnd(ctx->builder, label_block);
-
-        // Process the statement part of the labeled statement
-        process_ast_node(ctx, statement_node);
-        if (ctx->errors.fatal)
-        {
-            return;
-        }
+    case AST_NODE_PREPROCESSOR_DIRECTIVE:
+    {
+        // For now, we can ignore preprocessor directives in IR generation
         break;
     }
     case AST_NODE_POSTFIX_PARTS:
     case AST_NODE_STRUCT_DEFINITION:
     case AST_NODE_UNION_DEFINITION:
-    {
-        /* Probably a bug to see these nodes at this level. */
-        debug_error("Received AST node type %s at top level", get_node_type_name_from_type(node->type));
-        break;
-    }
-
     case AST_NODE_ASSIGNMENT:
     case AST_NODE_FLOAT_BASE:
     case AST_NODE_INTEGER_LITERAL:
