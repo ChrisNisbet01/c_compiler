@@ -40,3 +40,13 @@ uint64_t get_type_size(ir_generator_ctx_t * ctx, TypeDescriptor const * type);
  * @return true if signatures match, false otherwise.
  */
 bool function_signatures_match(LLVMTypeRef type1, LLVMTypeRef type2);
+
+TypedValue cast_typed_value_to_desc(ir_generator_ctx_t * ctx, TypedValue src, TypeDescriptor const * target_desc);
+
+void aligned_store(
+    ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMValueRef value, LLVMTypeRef value_type, LLVMValueRef ptr
+);
+
+// Helper wrapper for LLVMBuildLoad2 with proper alignment
+LLVMValueRef
+aligned_load(ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name);

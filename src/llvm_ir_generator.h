@@ -149,5 +149,3 @@ TypedValue ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValu
 // Forward declaration for process_expression
 TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
 #define process_expression(c, n) _process_expression_impl((c), (n), __LINE__)
-
-TypedValue cast_typed_value_to_desc(ir_generator_ctx_t * ctx, TypedValue src, TypeDescriptor const * target_desc);
