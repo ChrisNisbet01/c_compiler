@@ -707,7 +707,6 @@ handle_named_decl_specifiers(
     ast_node->decl_specifiers.storage_class = children[idx++];
     c_grammar_node_t * type_qualifiers_node = children[idx++];
     ast_node->decl_specifiers.type_qualifiers = type_qualifiers_node;
-    ast_node->decl_specifiers.type = type_qualifiers_node->type_qualifier;
 
     c_grammar_node_t * third_child = children[idx];
     if (third_child->type == AST_NODE_FUNCTION_SPECIFIER)
@@ -738,15 +737,6 @@ handle_named_decl_specifiers(
     if (idx < (size_t)count)
     {
         ast_node->decl_specifiers.trailing_type_qualifiers = children[idx++];
-        if (ast_node->decl_specifiers.trailing_type_qualifiers != NULL)
-        {
-            ast_node->decl_specifiers.type.is_const
-                |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_const;
-            ast_node->decl_specifiers.type.is_volatile
-                |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_volatile;
-            ast_node->decl_specifiers.type.is_restrict
-                |= ast_node->decl_specifiers.trailing_type_qualifiers->type_qualifier.is_restrict;
-        }
     }
 
     c_grammar_node_t const * storage_class_node = ast_node->decl_specifiers.storage_class;
@@ -3190,23 +3180,6 @@ handle_type_qualifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
     }
 
     ast_node->text = node_text;
-    if (strcmp(ast_node->text, "const") == 0)
-    {
-        ast_node->type_qualifier.is_const = true;
-    }
-    else if (strcmp(ast_node->text, "volatile") == 0)
-    {
-        ast_node->type_qualifier.is_volatile = true;
-    }
-    else if (strcmp(ast_node->text, "restrict") == 0)
-    {
-        ast_node->type_qualifier.is_restrict = true;
-    }
-
-    if (count > 0)
-    {
-        ast_node->type_qualifier.attribute = children[0];
-    }
 
     epc_ast_push(ctx, ast_node);
 }
@@ -3220,14 +3193,6 @@ handle_type_qualifiers(
     if (ast_node == NULL)
     {
         return;
-    }
-
-    for (int i = 0; i < count; i++)
-    {
-        c_grammar_node_t * child = (c_grammar_node_t *)children[i];
-        ast_node->type_qualifier.is_const |= child->type_qualifier.is_const;
-        ast_node->type_qualifier.is_volatile |= child->type_qualifier.is_volatile;
-        ast_node->type_qualifier.is_restrict |= child->type_qualifier.is_restrict;
     }
 
     epc_ast_push(ctx, ast_node);
