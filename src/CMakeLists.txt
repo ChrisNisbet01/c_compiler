@@ -30,6 +30,7 @@ add_executable(${app}
   type_specifier.c
   type_utils.c
   source_location.c
+  binary_expression_processor.c
 )
 
 target_compile_options(${app} PRIVATE -O3 -g -std=gnu11 -Wall -Wextra -Wswitch-enum -pedantic)

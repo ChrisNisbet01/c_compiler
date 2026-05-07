@@ -2,6 +2,7 @@
 
 #include "ast_node_name.h"
 #include "ast_print.h"
+#include "binary_expression_processor.h"
 #include "c_grammar_ast.h"
 #include "debug.h"
 #include "declaration_handler.h"
@@ -40,9 +41,6 @@ TypedValue NullTypedValue;
 // Forward declarations for functions used before definition
 
 static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
-
-static TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
-#define process_expression(c, n) _process_expression_impl((c), (n), __LINE__);
 
 char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
 char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
@@ -222,7 +220,7 @@ aligned_load(ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMTypeRef ty, L
     return load;
 }
 
-static TypedValue
+TypedValue
 ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
 {
     debug_info("%s: is %s, lvalue: %d", __func__, label, val.is_lvalue);
@@ -1894,8 +1892,13 @@ process_declarator(
         // Clang uses stack alignment (e.g., 16 on x86_64) for stack arrays
         uint32_t elem_align = get_type_alignment_desc(type_desc->pointee);
         uint32_t align = (elem_align > ctx->stack_alignment) ? elem_align : ctx->stack_alignment;
-        debug_info("Setting array alloca alignment to %u for var '%s' (elem=%u, stack=%u)",
-                   align, var_name, elem_align, ctx->stack_alignment);
+        debug_info(
+            "Setting array alloca alignment to %u for var '%s' (elem=%u, stack=%u)",
+            align,
+            var_name,
+            elem_align,
+            ctx->stack_alignment
+        );
         LLVMSetAlignment(alloca_inst, align);
     }
 
@@ -4412,307 +4415,31 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static TypedValue
 process_bitwise_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Bitwise ops from chainl1: [LHS, RHS], operator is implied by node type
-    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    if (lhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    lhs_res = ensure_rvalue(ctx, "bitwise_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    rhs_res = ensure_rvalue(ctx, "bitwise_rhs_rval", rhs_res);
-    if (rhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    TypeDescriptor const * lhs_type = lhs_res.type_info;
-    TypeDescriptor const * rhs_type = rhs_res.type_info;
-
-    TypedValue res = lhs_res;
-
-    // Handle type promotion for integer operands - both sides must match
-    if (is_integer_kind(lhs_type) && is_integer_kind(rhs_type))
-    {
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
-        if (lhs_bits > rhs_bits)
-        {
-            rhs_res.value = LLVMBuildZExt(ctx->builder, rhs_res.value, lhs_type->llvm_type, "promote_rhs");
-            rhs_res.type_info = lhs_type;
-            res.type_info = lhs_type;
-            /* Default to lhs value just so a value is always assigned.*/
-            res.value = lhs_res.value;
-        }
-        else if (rhs_bits > lhs_bits)
-        {
-            lhs_res.value = LLVMBuildZExt(ctx->builder, lhs_res.value, rhs_type->llvm_type, "promote_lhs");
-            lhs_res.type_info = rhs_type;
-            res.type_info = rhs_type;
-            /* Default to rhs value just so a value is always assigned.*/
-            res.value = rhs_res.value;
-        }
-    }
-
-    c_grammar_node_t const * op_node = node->binary_expression.op;
-    bitwise_operator_type_t operator= op_node->op.bitwise.op;
-
-    switch (operator)
-    {
-    case BITWISE_OP_AND:
-        res.value = LLVMBuildAnd(ctx->builder, lhs_res.value, rhs_res.value, "and_tmp");
-        break;
-    case BITWISE_OP_OR:
-        res.value = LLVMBuildOr(ctx->builder, lhs_res.value, rhs_res.value, "or_tmp");
-        break;
-    case BITWISE_OP_XOR:
-        res.value = LLVMBuildXor(ctx->builder, lhs_res.value, rhs_res.value, "xor_tmp");
-        break;
-    }
-
-    return res;
+    return process_binary_expression(ctx, node, bitwise_operations, bitwise_operations_count, "bitwise");
 }
 
 static TypedValue
 process_shift_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Standard binary ops: [LHS, OP, RHS]
-    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    if (lhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    lhs_res = ensure_rvalue(ctx, "shift_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    if (rhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    rhs_res = ensure_rvalue(ctx, "shift_rhs_rval", rhs_res);
-
-    // Ensure shift amount has same integer width as lhs
-    TypeDescriptor const * lhs_type = lhs_res.type_info;
-    TypeDescriptor const * rhs_type = rhs_res.type_info;
-
-    TypedValue res = lhs_res; /* Default to LHS value so something is always assigned. */
-
-    if (is_integer_kind(lhs_type) && is_integer_kind(rhs_type))
-    {
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
-        if (lhs_bits > rhs_bits)
-        {
-            rhs_res.value = LLVMBuildZExt(ctx->builder, rhs_res.value, lhs_type->llvm_type, "promote_shift_rhs");
-        }
-        else if (rhs_bits > lhs_bits)
-        {
-            // Shift amount larger than lhs width: truncate to lhs width
-            rhs_res.value = LLVMBuildTrunc(ctx->builder, rhs_res.value, lhs_type->llvm_type, "trunc_shift_rhs");
-        }
-    }
-
-    c_grammar_node_t const * op_node = node->binary_expression.op;
-    shift_operator_type_t operator= op_node->op.shift.op;
-
-    switch (operator)
-    {
-    case SHIFT_OP_LL:
-        res.value = LLVMBuildShl(ctx->builder, lhs_res.value, rhs_res.value, "shl_tmp");
-        break;
-    case SHIFT_OP_AR:
-        res.value = LLVMBuildAShr(ctx->builder, lhs_res.value, rhs_res.value, "ashr_tmp");
-        break;
-    }
-
-    return res;
+    return process_binary_expression(ctx, node, shift_operations, shift_operations_count, "shift");
 }
 
 static TypedValue
 process_arithmetic_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Standard binary ops: [LHS, OP, RHS]
-    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    if (lhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    lhs_res = ensure_rvalue(ctx, "arith_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    if (rhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    rhs_res = ensure_rvalue(ctx, "arith_rhs_rval", rhs_res);
-    TypeDescriptor const * lhs_type = lhs_res.type_info;
-    TypeDescriptor const * rhs_type = rhs_res.type_info;
-
-    bool is_float_op = is_floating_kind(lhs_type) || is_floating_kind(rhs_type);
-
-    // Handle type promotion for integer operands
-    // If lhs is wider than rhs (e.g., long vs int), promote rhs to match
-    TypedValue res = lhs_res;
-
-    if (!is_float_op && is_integer_kind(lhs_type) && is_integer_kind(rhs_type))
-    {
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
-        if (lhs_bits > rhs_bits)
-        {
-            rhs_res.value = LLVMBuildSExt(ctx->builder, rhs_res.value, lhs_type->llvm_type, "promote_rhs");
-            res.type_info = lhs_type;
-        }
-        else if (rhs_bits > lhs_bits)
-        {
-            lhs_res.value = LLVMBuildSExt(ctx->builder, lhs_res.value, rhs_type->llvm_type, "promote_lhs");
-            res.type_info = rhs_type;
-        }
-    }
-
-    debug_info("result bit width: %u", LLVMGetIntTypeWidth(lhs_type->llvm_type));
-    c_grammar_node_t const * op_node = node->binary_expression.op;
-    arithmetic_operator_type_t operator= op_node->op.arith.op;
-
-    switch (operator)
-    {
-    case ARITH_OP_ADD:
-        res.value = is_float_op ? LLVMBuildFAdd(ctx->builder, lhs_res.value, rhs_res.value, "arith_fadd_tmp")
-                                : LLVMBuildAdd(ctx->builder, lhs_res.value, rhs_res.value, "arith_add_tmp");
-        break;
-    case ARITH_OP_SUB:
-        res.value = is_float_op ? LLVMBuildFSub(ctx->builder, lhs_res.value, rhs_res.value, "arith_fsub_tmp")
-                                : LLVMBuildSub(ctx->builder, lhs_res.value, rhs_res.value, "arith_sub_tmp");
-        break;
-    case ARITH_OP_MUL:
-        res.value = is_float_op ? LLVMBuildFMul(ctx->builder, lhs_res.value, rhs_res.value, "arith_fmul_tmp")
-                                : LLVMBuildMul(ctx->builder, lhs_res.value, rhs_res.value, "arith_mul_tmp");
-        break;
-    case ARITH_OP_DIV:
-        res.value = is_float_op ? LLVMBuildFDiv(ctx->builder, lhs_res.value, rhs_res.value, "arith_fdiv_tmp")
-                                : LLVMBuildSDiv(ctx->builder, lhs_res.value, rhs_res.value, "arith_div_tmp");
-        break;
-    case ARITH_OP_MOD:
-        res.value = LLVMBuildSRem(ctx->builder, lhs_res.value, rhs_res.value, "arith_rem_tmp");
-        break;
-    }
-
-    res.is_lvalue = false;
-
-    return res;
+    return process_binary_expression(ctx, node, arithmetic_operations, arithmetic_operations_count, "arithmetic");
 }
 
 static TypedValue
 process_relational_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Standard binary ops: [LHS, OP, RHS]
-    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    if (lhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    lhs_res = ensure_rvalue(ctx, "rel_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    if (rhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    rhs_res = ensure_rvalue(ctx, "rel_rhs_r_val", rhs_res);
-
-    TypeDescriptor const * lhs_type = lhs_res.type_info;
-
-    rhs_res = cast_typed_value_to_desc(ctx, rhs_res, lhs_type);
-
-    bool is_float_op = is_floating_kind(lhs_type);
-
-    c_grammar_node_t const * op_node = node->binary_expression.op;
-    relational_operator_type_t operator= op_node->op.rel.op;
-
-    TypeDescriptor const * bool_type
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
-    LLVMValueRef value = NULL;
-
-    switch (operator)
-    {
-    case REL_OP_LT:
-        value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLT, lhs_res.value, rhs_res.value, "flt_tmp")
-                            : LLVMBuildICmp(ctx->builder, LLVMIntSLT, lhs_res.value, rhs_res.value, "lt_tmp");
-        break;
-    case REL_OP_GT:
-        value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGT, lhs_res.value, rhs_res.value, "fgt_tmp")
-                            : LLVMBuildICmp(ctx->builder, LLVMIntSGT, lhs_res.value, rhs_res.value, "gt_tmp");
-        break;
-    case REL_OP_LE:
-        value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOLE, lhs_res.value, rhs_res.value, "fle_tmp")
-                            : LLVMBuildICmp(ctx->builder, LLVMIntSLE, lhs_res.value, rhs_res.value, "le_tmp");
-        break;
-    case REL_OP_GE:
-        value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOGE, lhs_res.value, rhs_res.value, "fge_tmp")
-                            : LLVMBuildICmp(ctx->builder, LLVMIntSGE, lhs_res.value, rhs_res.value, "ge_tmp");
-        break;
-    default:
-        ir_gen_error(&ctx->errors, op_node, "Unsupported relational operator");
-        return NullTypedValue;
-    }
-
-    TypedValue res = create_typed_value(value, bool_type, false);
-
-    return res;
+    return process_binary_expression(ctx, node, relational_operations, relational_operations_count, "relational");
 }
 
 static TypedValue
 process_equality_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    // Standard binary ops: [LHS, OP, RHS]
-    TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
-    if (lhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    lhs_res = ensure_rvalue(ctx, "eq_lhs_rval", lhs_res);
-    TypedValue rhs_res = process_expression(ctx, node->binary_expression.right);
-    if (rhs_res.value == NULL)
-    {
-        return NullTypedValue;
-    }
-    rhs_res = ensure_rvalue(ctx, "eq_rhs_rval", rhs_res);
-
-    TypeDescriptor const * lhs_type = lhs_res.type_info;
-    TypeDescriptor const * rhs_type = rhs_res.type_info;
-
-    bool is_float_op = is_floating_kind(lhs_type);
-
-    // Handle type promotion for integer operands - both sides must match
-    if (is_integer_kind(lhs_type) && is_integer_kind(rhs_type))
-    {
-        rhs_res = cast_typed_value_to_desc(ctx, rhs_res, lhs_type);
-    }
-
-    c_grammar_node_t const * op_node = node->binary_expression.op;
-    equality_operator_type_t operator= op_node->op.eq.op;
-    debug_info("%s: now comparing results operator %d", __func__, operator);
-
-    LLVMValueRef value = NULL;
-
-    switch (operator)
-    {
-    case EQ_OP_EQ:
-        value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealOEQ, lhs_res.value, rhs_res.value, "feq_tmp")
-                            : LLVMBuildICmp(ctx->builder, LLVMIntEQ, lhs_res.value, rhs_res.value, "eq_tmp");
-        break;
-    case EQ_OP_NE:
-        value = is_float_op ? LLVMBuildFCmp(ctx->builder, LLVMRealONE, lhs_res.value, rhs_res.value, "fne_tmp")
-                            : LLVMBuildICmp(ctx->builder, LLVMIntNE, lhs_res.value, rhs_res.value, "ne_tmp");
-        break;
-    default:
-        ir_gen_error(&ctx->errors, op_node, "Unsupported equality operator");
-        return NullTypedValue;
-    }
-
-    TypeDescriptor const * bool_type
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
-    TypedValue res = create_typed_value(value, bool_type, false);
-
-    dump_typed_value("equality_result", res);
-
-    return res;
+    return process_binary_expression(ctx, node, equality_operations, equality_operations_count, "equality");
 }
 
 static TypedValue
@@ -5514,7 +5241,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     return NullTypedValue; // Return NULL if expression processing failed or not implemented.
 }
 
-static TypedValue
+TypedValue
 _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line)
 {
     if (ctx->errors.fatal)

@@ -5,7 +5,6 @@
 #include "type_descriptors.h"
 #include "typed_value.h"
 
-
 // Include necessary LLVM C API headers.
 // These require LLVM to be installed and its include paths configured in CMake.
 #include <llvm-c/Core.h>
@@ -95,8 +94,13 @@ typedef struct ir_generator_ctx
  * @param target Optional target triple string (e.g., "x86_64-pc-linux-gnu"). If NULL, uses default.
  * @return A pointer to the initialized ir_generator_ctx_t, or NULL on failure.
  */
-ir_generator_ctx_t *
-ir_generator_init(char const * module_name, ir_generation_flags flags, epc_parser_ctx_t * parse_ctx, source_location_tracker_t * loc_tracker, char const * target);
+ir_generator_ctx_t * ir_generator_init(
+    char const * module_name,
+    ir_generation_flags flags,
+    epc_parser_ctx_t * parse_ctx,
+    source_location_tracker_t * loc_tracker,
+    char const * target
+);
 
 /**
  * @brief Generates LLVM IR from the provided Abstract Syntax Tree (AST).
@@ -138,3 +142,12 @@ type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_grammar
 
 type_info_t const *
 register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union);
+
+// Helper function to ensure a value is an rvalue
+TypedValue ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val);
+
+// Forward declaration for process_expression
+TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
+#define process_expression(c, n) _process_expression_impl((c), (n), __LINE__)
+
+TypedValue cast_typed_value_to_desc(ir_generator_ctx_t * ctx, TypedValue src, TypeDescriptor const * target_desc);
