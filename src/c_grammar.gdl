@@ -444,6 +444,7 @@ SwitchBodyStatement = CompoundStatement
                     | DoWhileStatement 
                     | ForStatement
                     | Declaration
+                    | TypedefDeclaration
                     | GotoStatement 
                     | ContinueStatement 
                     | BreakStatement 
