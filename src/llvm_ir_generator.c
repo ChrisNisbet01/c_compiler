@@ -2272,6 +2272,7 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                 TypeQualifier const decl_type_qual = build_type_qualifiers(qualifier_list);
                 TypeDescriptor const * type_desc
                     = get_or_create_builtin_type(ctx->type_descriptors, decl_type_spec, decl_type_qual);
+
                 if (type_desc != NULL)
                 {
                     scope_typedef_entry_t typedef_entry = {0};
@@ -2283,7 +2284,6 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                 else
                 {
                     debug_info("Failed to resolve type for typedef '%s'", typedef_name);
-                    print_ast(decl_specs);
                 }
             }
         }
@@ -4083,7 +4083,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     if (!lhs_res.is_lvalue)
     {
         debug_error("expected LHS of assignment to be an lvalue, but it isn't");
-        print_ast_with_label(lhs_node, "LHS");
     }
 
     debug_info(
@@ -4737,7 +4736,6 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     }
 
     debug_info("%s from line: %u", __func__, line);
-    print_ast_with_label(node, __func__);
 
     TypedValue result = _process_expression(ctx, node);
 
@@ -4747,7 +4745,6 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             "expression result has a value but no type descriptor after evaluating node: %s",
             get_node_type_name_from_node(node)
         );
-        print_ast(node);
         result = NullTypedValue;
     }
     else if (ctx->errors.fatal)
@@ -4755,9 +4752,9 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         debug_error("fatal error encountered");
         result = NullTypedValue;
     }
+
     debug_info("%s returning to line: %u", __func__, line);
     dump_typed_value("process_expression result", result);
-    print_ast_with_label(node, "done with");
 
     return result;
 }
