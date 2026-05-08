@@ -1,5 +1,6 @@
 #include "generator_lists.h"
 
+#include "llvm_ir_generator.h"
 #include "scope.h"
 
 #include <string.h>
@@ -45,13 +46,25 @@ generator_add_typedef_forward_decl(
         .kind = kind,
     };
 
-    /* FIXME: Need to add an 'incomplete' type into the registry, and fill it in once the typed type is defined. */
+    /* For struct/union typedef forward declarations, we need to create an opaque type
+     * if one doesn't already exist, so that the typedef can reference it. */
     switch (kind)
     {
     case TYPE_KIND_STRUCT:
     case TYPE_KIND_UNION:
-        debug_error("TODO: Support required for struct/union typedef forward declarations");
+    {
+        bool is_union = (kind == TYPE_KIND_UNION);
+        type_info_t const * opaque_info = register_opaque_struct_or_union_definition(ctx, tag, is_union);
+        if (opaque_info != NULL)
+        {
+            entry.type_desc = opaque_info->type_desc;
+        }
+        else
+        {
+            debug_error("%s: failed to create opaque type for '%s'", __func__, tag);
+        }
         break;
+    }
 
     case TYPE_KIND_ENUM:
     {

@@ -2227,17 +2227,14 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                     debug_warning(
                         "no existing type information found in typedefs or types; %s, checking builtins", typedef_name
                     );
-                    if (type_descriptor_is_a_builtin_type(typedef_type_desc))
-                    {
-                        debug_info("is a builtin type");
-                        scope_typedef_entry_t typedef_entry = {
-                            .kind = TYPE_KIND_BUILTIN,
-                            .name = strdup(typedef_name),
-                            .type_desc = typedef_type_desc,
-                        };
-                        generator_add_typedef_entry(ctx, typedef_entry);
-                        handled = true;
-                    }
+                    debug_info("creating a builtin type.");
+                    scope_typedef_entry_t typedef_entry = {
+                        .kind = TYPE_KIND_BUILTIN,
+                        .name = strdup(typedef_name),
+                        .type_desc = typedef_type_desc,
+                    };
+                    generator_add_typedef_entry(ctx, typedef_entry);
+                    handled = true;
                 }
             }
 
