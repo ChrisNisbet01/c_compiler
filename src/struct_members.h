@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 typedef struct struct_field
 {

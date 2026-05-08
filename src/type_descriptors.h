@@ -21,7 +21,7 @@ typedef enum
 } type_descriptor_type_kind_t;
 
 typedef struct TypeDescriptors TypeDescriptors;
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 typedef struct
 {
@@ -55,7 +55,7 @@ typedef struct
     size_t size;
 } ArrayMetaData;
 
-typedef struct TypeDescriptor
+typedef struct TypeDescriptor_st
 {
     type_descriptor_type_kind_t kind;
 

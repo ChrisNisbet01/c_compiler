@@ -3,7 +3,7 @@
 #include "struct_members.h"
 #include "type_kinds.h"
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 // --- Type info for tagged/untagged types ---
 typedef struct type_info

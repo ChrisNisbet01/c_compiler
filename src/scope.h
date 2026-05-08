@@ -28,7 +28,7 @@
 // These require LLVM to be installed and its include paths configured in CMake.
 #include <llvm-c/Core.h>
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 // --- Scope structure for hierarchical symbol tables ---
 typedef struct scope

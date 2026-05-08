@@ -6,6 +6,25 @@
 type_info_t const *
 scope_types_add_entry(scope_types_t * list, type_info_t info)
 {
+    /* Update existing entry if one with the same tag and kind already exists */
+    if (info.tag != NULL)
+    {
+        type_info_t * existing = scope_types_lookup_entry_by_tag_and_kind(list, info.tag, info.kind);
+        if (existing != NULL)
+        {
+            free(existing->tag);
+            existing->tag = info.tag;
+            existing->type_desc = info.type_desc;
+            existing->kind = info.kind;
+            if (info.fields != NULL)
+            {
+                existing->fields = info.fields;
+                existing->field_count = info.field_count;
+            }
+            return existing;
+        }
+    }
+
     if (list->count >= list->capacity)
     {
         size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
@@ -171,6 +190,26 @@ scope_typedefs_init(scope_typedefs_t * list)
 void
 scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
 {
+    /* Update existing entry if one with the same name already exists */
+    for (size_t i = 0; i < list->count; ++i)
+    {
+        scope_typedef_entry_t * existing = list->entries[i];
+        if (existing->name != NULL && entry.name != NULL && strcmp(existing->name, entry.name) == 0)
+        {
+            free(existing->name);
+            existing->name = entry.name;
+            existing->type_desc = entry.type_desc;
+            existing->kind = entry.kind;
+            if (existing->tag != NULL)
+            {
+                free((void *)existing->tag);
+            }
+            existing->tag = entry.tag;
+            existing->untagged_index = entry.untagged_index;
+            return;
+        }
+    }
+
     if (list->count >= list->capacity)
     {
         size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;

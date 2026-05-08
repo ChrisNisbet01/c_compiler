@@ -6,7 +6,7 @@
 #include <llvm-c/Core.h>
 #include <stdbool.h>
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 typedef struct TypedValue
 {

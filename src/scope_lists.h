@@ -6,7 +6,7 @@
 #include "type_kinds.h"
 #include "typed_value.h"
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 #include <llvm-c/Core.h>
 #include <stdbool.h>

@@ -11,3 +11,4 @@ a.out.ll
 /build_asan/
 *.ll
 *.o
+*.err

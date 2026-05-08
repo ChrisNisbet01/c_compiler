@@ -702,9 +702,18 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
         return NULL;
     }
 
+    type_kind_t kind = is_union ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
+
+    /* Return existing tagged type if already registered */
+    type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
+    if (existing != NULL)
+    {
+        return existing;
+    }
+
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
-    opaque.kind = is_union ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
+    opaque.kind = kind;
     struct_or_union_members_st * members = NULL;
     bool is_complete = false;
     LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, tag);
@@ -2100,6 +2109,15 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     char const * typedef_name = search_for_identifier(typedef_specifier_node);
     scope_typedef_entry_t const * existing_typedef_info = NULL;
 
+    fprintf(
+        stderr,
+        "DEBUG process_typedef_declaration: node_type=%s, typedef_name=%s, specifiers_list=%p, typedef_specifier=%p\n",
+        get_node_type_name_from_node(decl_specs),
+        typedef_name ? typedef_name : "(null)",
+        (void *)specifiers_list,
+        (void *)typedef_specifier_node
+    );
+
     if (typedef_name != NULL)
     {
         debug_info("Processing typedef '%s'", typedef_name);
@@ -2256,6 +2274,11 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                     type_info = register_untagged_struct_or_union_definition(
                         ctx, struct_def_node, kind, &typedef_entry.untagged_index
                     );
+                }
+                if (type_info == NULL)
+                {
+                    debug_error("%s: failed to register struct/union");
+                    return;
                 }
                 typedef_entry.type_desc = type_info->type_desc;
                 typedef_entry.kind = kind;

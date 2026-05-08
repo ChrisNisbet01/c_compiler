@@ -11,7 +11,7 @@
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #endif
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 typedef struct TypeDescriptors TypeDescriptors;
 typedef struct scope scope_t;
 

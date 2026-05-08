@@ -289,6 +289,16 @@ resolve_type_descriptor(
 
     c_grammar_node_t const * type_spec_list = NULL;
 
+    if (decl_specifiers->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+    {
+        decl_specifiers = decl_specifiers->typedef_specifier_qualifier.typedef_specifier;
+        if (decl_specifiers == NULL)
+        {
+            debug_info("%s: no decl_specifiers extracted from TypedefSpecifierQualifier", __func__);
+            return NULL;
+        }
+    }
+
     if (decl_specifiers->type == AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST)
     {
         c_grammar_node_t const * child = decl_specifiers->list.children[0];
@@ -347,7 +357,7 @@ resolve_type_descriptor(
         debug_info("%s: No typedef name found", __func__);
     }
 
-    if (type_spec_list == NULL && existing_typedef_info == NULL)
+    if (type_spec_list == NULL && decl_specifiers->type != AST_NODE_TYPEDEF_SPECIFIER)
     {
         type_spec_list = decl_specifiers->decl_specifiers.type_specifiers;
     }
@@ -401,6 +411,9 @@ resolve_type_descriptor(
             }
             else if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION)
             {
+                fprintf(stderr, "DEBUG resolve_type_descriptor: processing STRUCT_DEFINITION, current was %p, tag='%s'\n",
+                        (void *)current,
+                        inner->struct_definition.identifier ? inner->struct_definition.identifier->text : "(anon)");
                 type_info_t const * type_info = register_struct_definition(ctx, inner);
                 if (type_info == NULL)
                 {

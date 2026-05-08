@@ -5,7 +5,7 @@
 #include <llvm-c/Core.h>
 #include <stdint.h>
 
-typedef struct TypeDescriptor TypeDescriptor;
+typedef struct TypeDescriptor_st TypeDescriptor;
 
 char * generate_anon_name(ir_generator_ctx_t * ctx, char const * prefix);
 
