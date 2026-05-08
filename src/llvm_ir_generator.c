@@ -2109,15 +2109,6 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     char const * typedef_name = search_for_identifier(typedef_specifier_node);
     scope_typedef_entry_t const * existing_typedef_info = NULL;
 
-    fprintf(
-        stderr,
-        "DEBUG process_typedef_declaration: node_type=%s, typedef_name=%s, specifiers_list=%p, typedef_specifier=%p\n",
-        get_node_type_name_from_node(decl_specs),
-        typedef_name ? typedef_name : "(null)",
-        (void *)specifiers_list,
-        (void *)typedef_specifier_node
-    );
-
     if (typedef_name != NULL)
     {
         debug_info("Processing typedef '%s'", typedef_name);

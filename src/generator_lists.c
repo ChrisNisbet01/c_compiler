@@ -256,6 +256,11 @@ generator_find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * nam
     {
         info = scope_find_tagged_enum(ctx->current_scope, name);
     }
+    debug_info("%s: found: %p", __func__, info);
+    if (info != NULL)
+    {
+        dump_type_descriptor(__func__, info->type_desc, DEBUG_LEVEL_INFO);
+    }
     return info ? info->type_desc : NULL;
 }
 

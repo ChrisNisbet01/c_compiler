@@ -55,7 +55,7 @@ typedef struct
     size_t size;
 } ArrayMetaData;
 
-typedef struct TypeDescriptor_st
+struct TypeDescriptor_st
 {
     type_descriptor_type_kind_t kind;
 
@@ -76,7 +76,7 @@ typedef struct TypeDescriptor_st
     IntegerMetadata integer_metadata;
     FloatMetadata float_metadata;
     ArrayMetaData array_metadata;
-} TypeDescriptor;
+};
 
 TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout);
 
