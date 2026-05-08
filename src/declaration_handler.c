@@ -230,6 +230,49 @@ search_for_node_type(c_grammar_node_t const * node, c_grammar_node_type_t type)
     return NULL;
 }
 
+static TypeDescriptor const *
+apply_typedef_nested_pointers(
+    ir_generator_ctx_t * ctx,
+    TypeDescriptor const * current,
+    c_grammar_node_t const * direct_declarator
+)
+{
+    if (direct_declarator == NULL)
+    {
+        return current;
+    }
+    c_grammar_node_t const * nested
+        = direct_declarator->typedef_direct_declarator.nested_typedef_declarator;
+    if (nested == NULL)
+    {
+        return current;
+    }
+
+    /* Apply the nested TYPEDEF_DECLARATOR's pointer_list. */
+    c_grammar_node_t const * nested_ptr_list = nested->typedef_declarator.pointer_list;
+    if (nested_ptr_list != NULL)
+    {
+        for (size_t i = 0; i < nested_ptr_list->list.count; i++)
+        {
+            c_grammar_node_t const * pointer_node = nested_ptr_list->list.children[i];
+            TypeQualifier ptr_quals = {0};
+            if (pointer_node->list.count > 0)
+            {
+                ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
+            }
+            current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
+        }
+    }
+
+    /* Recurse into further nesting inside the nested declarator. */
+    if (nested->type == AST_NODE_TYPEDEF_DECLARATOR)
+    {
+        current = apply_typedef_nested_pointers(ctx, current, nested->typedef_declarator.direct_declarator);
+    }
+
+    return current;
+}
+
 TypeDescriptor const *
 resolve_type_descriptor(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * decl_specifiers, c_grammar_node_t const * declarator
@@ -451,6 +494,18 @@ resolve_type_descriptor(
         pointer_list = declarator->typedef_declarator.pointer_list;
         suffix_list = declarator->typedef_declarator.declarator_suffix_list;
         direct_declarator = declarator->typedef_declarator.direct_declarator;
+        if (suffix_list != NULL && suffix_list->list.count > 0)
+        {
+            c_grammar_node_t const * suffix = suffix_list->list.children[0];
+            if (suffix->type == AST_NODE_DECLARATOR_SUFFIX && suffix->list.count > 0)
+            {
+                c_grammar_node_t const * parameters_list = suffix->list.children[0];
+                if (parameters_list->type == AST_NODE_PARAMETER_LIST)
+                {
+                    param_list = parameters_list;
+                }
+            }
+        }
     }
     else if (declarator->type == AST_NODE_DECLARATOR)
     {
@@ -472,7 +527,17 @@ resolve_type_descriptor(
     }
 
     debug_info("1");
-    if (pointer_list != NULL)
+
+    bool is_function = param_list != NULL;
+
+    /*
+     * For TYPEDEF_DECLARATOR with a function parameter list, the pointer_list
+     * wraps the function type (not the return type). The pointer list must
+     * be applied after the function type is created, so defer it here.
+     */
+    bool defer_pointers = (is_function && declarator->type == AST_NODE_TYPEDEF_DECLARATOR);
+
+    if (!defer_pointers && pointer_list != NULL)
     {
         for (size_t i = 0; i < pointer_list->list.count; i++)
         {
@@ -488,13 +553,35 @@ resolve_type_descriptor(
     }
     debug_info("2");
 
-    bool is_function = param_list != NULL;
-
     if (is_function)
     {
         debug_info("3");
         current = resolve_function_pointer_type(ctx, current, param_list);
         dump_type_descriptor("function pointer", current, DEBUG_LEVEL_INFO);
+
+        /*
+         * Apply deferred pointers from TYPEDEF_DECLARATOR.
+         * These come from the outer pointer_list and also from nested
+         * TYPEDEF_DECLARATORs inside the direct_declarator (from parentheses
+         * around the declarator, e.g. `typedef void (*func_t)(void)`).
+         */
+        if (defer_pointers)
+        {
+            if (pointer_list != NULL)
+            {
+                for (size_t i = 0; i < pointer_list->list.count; i++)
+                {
+                    c_grammar_node_t const * pointer_node = pointer_list->list.children[i];
+                    TypeQualifier ptr_quals = {0};
+                    if (pointer_node->list.count > 0)
+                    {
+                        ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
+                    }
+                    current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
+                }
+            }
+            current = apply_typedef_nested_pointers(ctx, current, direct_declarator);
+        }
 
         /* Now handle any function pointer array suffixes. */
         c_grammar_node_t const * func_pointer_declarator = search_function_pointer_declarator(direct_declarator);
@@ -784,6 +871,15 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 debug_info("resolving declarator");
                 new_member.type_desc = resolve_type_descriptor(ctx, type_spec, decl);
                 debug_info("resolved: %p", new_member.type_desc);
+                if (new_member.type_desc != NULL)
+                {
+                    debug_info(
+                        "%s: llvm_type %p, kind %d",
+                        __func__,
+                        (void *)new_member.type_desc->llvm_type,
+                        LLVMGetTypeKind(new_member.type_desc->llvm_type)
+                    );
+                }
 
                 if (new_member.type_desc == NULL)
                 {

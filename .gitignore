@@ -8,3 +8,5 @@ a.out.ll
 /build_reldbg/
 /tests/ncc/
 /.slickedit/
+/build_asan/
+*.ll
