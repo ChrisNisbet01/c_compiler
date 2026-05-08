@@ -873,7 +873,7 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
         return;
     }
 
-    if (level < debug_get_level())
+    if (!debug_is_enabled(level))
     {
         return;
     }

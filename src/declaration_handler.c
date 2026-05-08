@@ -115,7 +115,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
                 if (p_direct != NULL && p_direct->list.count > 0)
                 {
                     c_grammar_node_t const * first_child = p_direct->list.children[0];
-                    print_ast_with_label(first_child, "direct decl child");
+
                     if (first_child->type == AST_NODE_IDENTIFIER)
                     {
                         params.names[i] = first_child->text;

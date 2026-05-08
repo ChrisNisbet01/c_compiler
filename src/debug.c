@@ -25,7 +25,7 @@ debug_get_level(void)
 bool
 debug_is_enabled(debug_level_t level)
 {
-    return level >= current_level;
+    return current_level > DEBUG_LEVEL_OFF && level >= current_level;
 }
 
 void

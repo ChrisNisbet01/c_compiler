@@ -813,8 +813,7 @@ register_tagged_struct_or_union_definition(
 
     for (size_t i = 0; i < members.num_members; i++)
     {
-        fprintf(
-            stderr,
+        debug_info(
             "%s: member %zu: %s offset: %u, width: %u, storage: %u\n",
             __func__,
             i,
@@ -908,8 +907,7 @@ add_untagged_struct_or_union_type(
 
     for (size_t i = 0; i < members.num_members; i++)
     {
-        fprintf(
-            stderr,
+        debug_info(
             "%s: member %zu: %s bit offset: %u, bit width: %u, bit storage: %u\n",
             __func__,
             i,
@@ -4516,7 +4514,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NullTypedValue;
     }
 
-    fprintf(stderr, "%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
+    debug_info("%s node type: %s (%u)", __func__, get_node_type_name_from_node(node), node->type);
 
     switch (node->type)
     {

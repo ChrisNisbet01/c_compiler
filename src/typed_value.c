@@ -9,6 +9,11 @@
 void
 dump_typed_value(char const * label, TypedValue v)
 {
+    if (!debug_is_enabled(DEBUG_LEVEL_INFO))
+    {
+        return;
+    }
+
     fprintf(stderr, "--------------------\n");
     fprintf(stderr, "TypedValue: %s\n", label);
     fprintf(stderr, "\tType descriptor: %p\n", (void *)v.type_info);

@@ -9,7 +9,7 @@
 void
 type_specifier_dump(TypeSpecifier spec, debug_level_t level)
 {
-    if (level < debug_get_level())
+    if (!debug_is_enabled(level))
     {
         return;
     }

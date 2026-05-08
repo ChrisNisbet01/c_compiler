@@ -6,7 +6,7 @@
 void
 type_qualifiers_dump(TypeQualifier quals, debug_level_t level)
 {
-    if (level < debug_get_level())
+    if (!debug_is_enabled(level))
     {
         return;
     }

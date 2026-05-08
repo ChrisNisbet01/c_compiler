@@ -193,24 +193,6 @@ handle_preprocessor_line_marker(
         ast_node->line_marker.flags[i] = (size_t)flag_child->integer_lit.integer_literal.value;
     }
 
-    fprintf(
-        stderr,
-        "DEBUG: Found line marker: line=%zu, file=%s, offset: %zu\n",
-        ast_node->line_marker.line_number,
-        ast_node->line_marker.filename,
-        ast_node->source_data.offset
-    );
-    if (ast_node->line_marker.flags_count > 0)
-    {
-        fprintf(
-            stderr,
-            "DEBUG: %zu flags, Flags: %zu, %zu, %zu\n",
-            ast_node->line_marker.flags_count,
-            ast_node->line_marker.flags[0],
-            ast_node->line_marker.flags[1],
-            ast_node->line_marker.flags[2]
-        );
-    }
     epc_ast_push(ctx, ast_node);
 }
 
