@@ -1,6 +1,7 @@
 #include "type_descriptors.h"
 
 #include "debug.h"
+#include "type_utils.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -35,6 +36,33 @@ typedef struct TypeDescriptors
     LLVMTargetDataRef data_layout;
     builtin_types builtins;
 } TypeDescriptors;
+
+static unsigned
+get_fp_width(LLVMTypeRef type)
+{
+    LLVMTypeKind kind = LLVMGetTypeKind(type);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch-enum"
+
+    switch (kind)
+    {
+    case LLVMHalfTypeKind:
+        return 16;
+    case LLVMFloatTypeKind:
+        return 32;
+    case LLVMDoubleTypeKind:
+        return 64;
+    case LLVMX86_FP80TypeKind:
+        return 80;
+    case LLVMFP128TypeKind:
+        return 128;
+    default:
+        return 0; // Not a floating-point type
+    }
+
+#pragma GCC diagnostic pop
+}
 
 // Internal helper to allocate and link a new descriptor
 static TypeDescriptor *

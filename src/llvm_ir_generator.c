@@ -9,6 +9,7 @@
 #include "declaration_handler.h"
 #include "enum_evaluation.h"
 #include "generator_lists.h"
+#include "ir_utils.h"
 #include "type_utils.h"
 #include "unary_operations.h"
 
@@ -1451,10 +1452,10 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
         // constant and return a constexpr GEP (pointer to first element).
         if (desc != NULL && desc->kind == NCC_TYPE_KIND_POINTER)
         {
-            TypeDescriptor const * char_type
-                = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_char = true}, (TypeQualifier){0});
-            TypeDescriptor const * array_type
-                = get_or_create_array_type(ctx->type_descriptors, char_type, len + 1);
+            TypeDescriptor const * char_type = get_or_create_builtin_type(
+                ctx->type_descriptors, (TypeSpecifier){.is_char = true}, (TypeQualifier){0}
+            );
+            TypeDescriptor const * array_type = get_or_create_array_type(ctx->type_descriptors, char_type, len + 1);
 
             LLVMValueRef global = LLVMAddGlobal(ctx->module, array_type->llvm_type, ".str");
             LLVMSetLinkage(global, LLVMPrivateLinkage);
@@ -1462,10 +1463,8 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
             LLVMSetUnnamedAddr(global, LLVMGlobalUnnamedAddr);
             LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, str, (unsigned)len, false));
 
-            LLVMValueRef indices[2] = {
-                LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                LLVMConstInt(ctx->ref_type.i32_type, 0, false)
-            };
+            LLVMValueRef indices[2]
+                = {LLVMConstInt(ctx->ref_type.i32_type, 0, false), LLVMConstInt(ctx->ref_type.i32_type, 0, false)};
             LLVMValueRef gep = LLVMConstInBoundsGEP2(array_type->llvm_type, global, indices, 2);
             free((char *)str);
             return gep;
@@ -2913,8 +2912,6 @@ process_if_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         = else_node != NULL ? LLVMAppendBasicBlockInContext(ctx->context, current_func, "else") : NULL;
     LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(ctx->context, current_func, "if_merge");
 
-    // If it's an i32, we need to check if it's != 0 to get an i1
-    LLVMValueRef cond_val = condition_val.value;
     condition_val = cast_typed_value_to_desc(
         ctx,
         condition_val,
@@ -2923,11 +2920,11 @@ process_if_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     if (else_node)
     {
-        LLVMBuildCondBr(ctx->builder, cond_val, then_block, else_block);
+        LLVMBuildCondBr(ctx->builder, condition_val.value, then_block, else_block);
     }
     else
     {
-        LLVMBuildCondBr(ctx->builder, cond_val, then_block, merge_block);
+        LLVMBuildCondBr(ctx->builder, condition_val.value, then_block, merge_block);
     }
 
     // --- Emit 'then' block ---

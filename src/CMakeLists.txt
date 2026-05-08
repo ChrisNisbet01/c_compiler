@@ -20,6 +20,7 @@ add_executable(${app}
   generator_lists.c
   hash_table.c
   ir_gen_error.c
+  ir_utils.c
   labels.c
   llvm_ir_generator.c
   scope.c

@@ -3,8 +3,8 @@
 #include "c_grammar_ast.h"
 #include "compound_literal_processor.h"
 #include "debug.h"
+#include "ir_utils.h"
 #include "llvm_ir_generator.h"
-#include "type_utils.h"
 #include "typed_value.h"
 
 #include <llvm-c/Core.h>

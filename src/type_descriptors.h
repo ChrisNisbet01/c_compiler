@@ -1,10 +1,9 @@
 #pragma once
 
 #include "debug.h"
-#include "scope_lists.h"
+#include "struct_members.h"
 #include "type_qualifiers.h"
 #include "type_specifier.h"
-#include "type_utils.h"
 
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h> // For target initialization, etc.

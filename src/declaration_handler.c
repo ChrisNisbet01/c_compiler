@@ -232,17 +232,14 @@ search_for_node_type(c_grammar_node_t const * node, c_grammar_node_type_t type)
 
 static TypeDescriptor const *
 apply_typedef_nested_pointers(
-    ir_generator_ctx_t * ctx,
-    TypeDescriptor const * current,
-    c_grammar_node_t const * direct_declarator
+    ir_generator_ctx_t * ctx, TypeDescriptor const * current, c_grammar_node_t const * direct_declarator
 )
 {
     if (direct_declarator == NULL)
     {
         return current;
     }
-    c_grammar_node_t const * nested
-        = direct_declarator->typedef_direct_declarator.nested_typedef_declarator;
+    c_grammar_node_t const * nested = direct_declarator->typedef_direct_declarator.nested_typedef_declarator;
     if (nested == NULL)
     {
         return current;
@@ -383,7 +380,7 @@ resolve_type_descriptor(
 
     debug_info("current type descriptor: %p", (void *)current);
 
-    if (current == NULL && type_spec_list != NULL && type_spec_list->list.count > 0)
+    if (type_spec_list != NULL && type_spec_list->list.count > 0)
     {
         c_grammar_node_t const * type_spec_node = type_spec_list->list.children[0];
 
@@ -393,10 +390,13 @@ resolve_type_descriptor(
 
             if (inner->type == AST_NODE_TYPEDEF_SPECIFIER)
             {
-                char const * name = extract_typedef_name(inner);
-                if (name != NULL)
+                if (current == NULL)
                 {
-                    current = generator_find_typedef_type_descriptor(ctx, name);
+                    char const * name = extract_typedef_name(inner);
+                    if (name != NULL)
+                    {
+                        current = generator_find_typedef_type_descriptor(ctx, name);
+                    }
                 }
             }
             else if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION)
@@ -412,40 +412,47 @@ resolve_type_descriptor(
             }
             else if (inner->type == AST_NODE_ENUM_DEFINITION)
             {
-                type_info_t const * type_info = register_enum_definition(ctx, inner);
-                if (type_info == NULL)
+                if (current == NULL)
                 {
-                    debug_error("%s: failed to register enum definition", __func__);
-                    ir_gen_error(&ctx->errors, inner, "Failed to register enum definition");
-                    return NULL;
+                    type_info_t const * type_info = register_enum_definition(ctx, inner);
+                    if (type_info == NULL)
+                    {
+                        debug_error("%s: failed to register enum definition", __func__);
+                        ir_gen_error(&ctx->errors, inner, "Failed to register enum definition");
+                        return NULL;
+                    }
+                    current = type_info->type_desc;
                 }
-                current = type_info->type_desc;
             }
             else if (
                 inner->type == AST_NODE_STRUCT_TYPE_REF || inner->type == AST_NODE_UNION_TYPE_REF
                 || inner->type == AST_NODE_ENUM_TYPE_REF
             )
             {
-                char const * tag = extract_struct_or_union_or_enum_tag(inner);
-                debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
-                if (tag != NULL)
-                {
-                    current = generator_find_type_descriptor_by_tag(ctx, tag);
-                }
                 if (current == NULL)
                 {
-                    if (inner->type == AST_NODE_ENUM_TYPE_REF)
+                    char const * tag = extract_struct_or_union_or_enum_tag(inner);
+                    debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
+                    if (tag != NULL)
                     {
-                        /* FIXME: What to do? */
-                        return NULL;
+                        current = generator_find_type_descriptor_by_tag(ctx, tag);
                     }
-                    type_info_t const * opaque_info
-                        = register_opaque_struct_or_union_definition(ctx, tag, inner->type == AST_NODE_UNION_TYPE_REF);
-                    current = opaque_info->type_desc;
+                    if (current == NULL)
+                    {
+                        if (inner->type == AST_NODE_ENUM_TYPE_REF)
+                        {
+                            /* FIXME: What to do? */
+                            return NULL;
+                        }
+                        type_info_t const * opaque_info = register_opaque_struct_or_union_definition(
+                            ctx, tag, inner->type == AST_NODE_UNION_TYPE_REF
+                        );
+                        current = opaque_info->type_desc;
+                    }
                 }
             }
         }
-        else if (validation_result.is_native_type)
+        else if (validation_result.is_native_type && current == NULL)
         {
             TypeSpecifier specs = build_type_specifiers(type_spec_list);
             if (type_specifier_is_valid(specs))
@@ -459,7 +466,7 @@ resolve_type_descriptor(
                 return NULL;
             }
         }
-        else
+        else if (current == NULL)
         {
             ir_gen_error(&ctx->errors, type_spec_node, "Unsupported type specifier combination in declaration");
             return NULL;

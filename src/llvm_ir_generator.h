@@ -1,6 +1,8 @@
 #pragma once
 #include "c_grammar_ast.h"
 #include "ir_gen_error.h"
+#include "scope.h"
+#include "scope_typedef.h"
 #include "source_location.h"
 #include "type_descriptors.h"
 #include "typed_value.h"
@@ -14,8 +16,6 @@
 #include <stdbool.h>
 
 typedef struct TypeDescriptors TypeDescriptors;
-typedef struct scope scope_t;
-typedef struct type_info type_info_t;
 
 struct function_decl_entry
 {

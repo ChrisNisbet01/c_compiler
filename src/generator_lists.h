@@ -1,7 +1,12 @@
 #pragma once
 
 #include "llvm_ir_generator.h"
+#include "scope_typedef.h"
+#include "struct_members.h"
+#include "symbols.h"
 #include "type_descriptors.h"
+#include "type_kinds.h"
+#include "typed_value.h"
 
 // --- Scope push/pop ---
 

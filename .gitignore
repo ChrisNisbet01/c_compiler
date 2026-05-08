@@ -10,3 +10,4 @@ a.out.ll
 /.slickedit/
 /build_asan/
 *.ll
+*.o

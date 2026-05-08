@@ -1,6 +1,7 @@
 #include "compound_literal_processor.h"
 
 #include "generator_lists.h"
+#include "type_utils.h"
 
 TypedValue
 process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)

@@ -1,6 +1,7 @@
 #include "binary_expression_processor.h"
 
 #include "debug.h"
+#include "ir_utils.h"
 #include "llvm_ir_generator.h"
 #include "type_utils.h"
 
@@ -354,6 +355,73 @@ complete_binary_expression(
 
     // Perform the operation
     LLVMValueRef result_value = NULL;
+
+    // Handle pointer arithmetic: ptr +/- integer (requires GEP, not add/sub)
+    if ((op_type == BINARY_OP_ARITHMETIC || op_type == BINARY_OP_COMPOUND_ASSIGNMENT)
+        && (op_index == ARITH_OP_ADD || op_index == ARITH_OP_SUB || op_index == ASSIGN_OP_ADD
+            || op_index == ASSIGN_OP_SUB))
+    {
+        TypeDescriptor const * ptr_type = NULL;
+        LLVMValueRef ptr_val = NULL;
+        LLVMValueRef idx_val = NULL;
+
+        if (lhs_res.type_info != NULL && lhs_res.type_info->kind == NCC_TYPE_KIND_POINTER && rhs_res.type_info != NULL
+            && is_integer_kind(rhs_res.type_info))
+        {
+            ptr_type = lhs_res.type_info;
+            ptr_val = lhs_res.value;
+            idx_val = rhs_res.value;
+        }
+        else if (
+            rhs_res.type_info != NULL && rhs_res.type_info->kind == NCC_TYPE_KIND_POINTER && lhs_res.type_info != NULL
+            && is_integer_kind(lhs_res.type_info) && op_index == ARITH_OP_ADD
+        )
+        {
+            ptr_type = rhs_res.type_info;
+            ptr_val = rhs_res.value;
+            idx_val = lhs_res.value;
+        }
+
+        if (ptr_type != NULL)
+        {
+            if (op_index == ARITH_OP_SUB || op_index == ASSIGN_OP_SUB)
+            {
+                idx_val = LLVMBuildNeg(ctx->builder, idx_val, "neg_idx");
+            }
+            result_value = LLVMBuildInBoundsGEP2(
+                ctx->builder, ptr_type->pointee->llvm_type, ptr_val, &idx_val, 1, "ptr_add_tmp"
+            );
+            // Return result with the pointer type
+            TypedValue result = create_typed_value(result_value, ptr_type, false);
+            return result;
+        }
+    }
+
+    // Handle pointer subtraction: ptr - ptr (requires ptrtoint + sub + div by element size)
+    if (op_type == BINARY_OP_ARITHMETIC && op_index == ARITH_OP_SUB && lhs_res.type_info != NULL
+        && lhs_res.type_info->kind == NCC_TYPE_KIND_POINTER && rhs_res.type_info != NULL
+        && rhs_res.type_info->kind == NCC_TYPE_KIND_POINTER)
+    {
+        LLVMTypeRef int64_type = LLVMInt64TypeInContext(ctx->context);
+        LLVMValueRef lhs_int = LLVMBuildPtrToInt(ctx->builder, lhs_res.value, int64_type, "ptr_sub_lhs");
+        LLVMValueRef rhs_int = LLVMBuildPtrToInt(ctx->builder, rhs_res.value, int64_type, "ptr_sub_rhs");
+        LLVMValueRef diff = LLVMBuildSub(ctx->builder, lhs_int, rhs_int, "ptr_sub_diff");
+
+        if (lhs_res.type_info->pointee != NULL)
+        {
+            uint64_t pointee_size = get_type_size(ctx, lhs_res.type_info->pointee);
+            if (pointee_size > 1)
+            {
+                LLVMValueRef size_val = LLVMConstInt(int64_type, pointee_size, false);
+                diff = LLVMBuildSDiv(ctx->builder, diff, size_val, "ptr_sub_elems");
+            }
+        }
+
+        result_value = LLVMBuildIntToPtr(ctx->builder, diff, lhs_res.type_info->llvm_type, "ptr_sub_result");
+        TypedValue result = create_typed_value(result_value, lhs_res.type_info, false);
+        return result;
+    }
+
     if (is_float_op && mapping->float_arith_op != NULL)
     {
         result_value = mapping->float_arith_op(ctx->builder, lhs_res.value, rhs_res.value, mapping->name);

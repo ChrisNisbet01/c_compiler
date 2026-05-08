@@ -18,7 +18,6 @@
 #include "scope_lists.h"
 #include "struct_members.h"
 #include "type_descriptors.h"
-#include "type_utils.h"
 #include "typed_value.h"
 
 #include <stdarg.h>
@@ -101,8 +100,7 @@ type_info_t * scope_find_tagged_type(scope_t const * scope, char const * tag, ty
  */
 type_info_t * scope_find_tagged_struct(scope_t const * scope, char const * tag);
 
-type_info_t *
-scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind);
+type_info_t * scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind);
 
 /**
  * @brief Finds a tagged union by tag name.
