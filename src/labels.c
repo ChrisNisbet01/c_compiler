@@ -7,7 +7,7 @@ struct label_list_t
 {
     LLVMContextRef context;
     LLVMBuilderRef builder;
-    label_t * label;
+    label_t ** label;
     size_t count;
     size_t capacity;
 };
@@ -48,7 +48,10 @@ labels_list_destroy(label_list_t * labels)
     }
     for (size_t i = 0; i < labels->count; i++)
     {
-        free(labels->label[i].name);
+        label_t * label = labels->label[i];
+
+        free(label->name);
+        free(label);
     }
     free(labels->label);
     free(labels);
@@ -65,16 +68,17 @@ labels_get_or_create_label(label_list_t * labels, char const * name)
 
     for (size_t i = 0; i < labels->count; i++)
     {
-        if (labels->label[i].name != NULL && strcmp(labels->label[i].name, name) == 0)
+        label_t * label = labels->label[i];
+        if (label->name != NULL && strcmp(label->name, name) == 0)
         {
-            return labels->label[i].block;
+            return label->block;
         }
     }
 
     if (labels->count >= labels->capacity)
     {
         size_t new_cap = labels->capacity == 0 ? 16 : labels->capacity * 2;
-        label_t * new_labels = realloc(labels->label, new_cap * sizeof(label_t));
+        label_t ** new_labels = realloc(labels->label, new_cap * sizeof(*new_labels));
         if (new_labels == NULL)
         {
             return NULL;
@@ -83,11 +87,18 @@ labels_get_or_create_label(label_list_t * labels, char const * name)
         labels->capacity = new_cap;
     }
 
+    label_t * label = calloc(1, sizeof(*label));
+    if (label == NULL)
+    {
+        return NULL;
+    }
+
     LLVMValueRef current_func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(labels->builder));
     LLVMBasicBlockRef block = LLVMAppendBasicBlockInContext(labels->context, current_func, name);
 
-    labels->label[labels->count].name = strdup(name);
-    labels->label[labels->count].block = block;
+    label->name = strdup(name);
+    label->block = block;
+    labels->label[labels->count] = label;
     labels->count++;
 
     return block;
