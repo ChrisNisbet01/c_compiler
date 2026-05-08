@@ -1441,11 +1441,37 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
 static LLVMValueRef
 evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * desc, c_grammar_node_t const * node)
 {
-    // Handle String Literals -> Constant Array
+    // Handle String Literals
     if (node->type == AST_NODE_STRING_LITERAL)
     {
         char const * str = decode_string(node->text);
-        LLVMValueRef c = LLVMConstStringInContext(ctx->context, str, strlen(str), false);
+        size_t len = strlen(str);
+
+        // When initializing a pointer (e.g., char *p = "hello"), create a string
+        // constant and return a constexpr GEP (pointer to first element).
+        if (desc != NULL && desc->kind == NCC_TYPE_KIND_POINTER)
+        {
+            TypeDescriptor const * char_type
+                = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_char = true}, (TypeQualifier){0});
+            TypeDescriptor const * array_type
+                = get_or_create_array_type(ctx->type_descriptors, char_type, len + 1);
+
+            LLVMValueRef global = LLVMAddGlobal(ctx->module, array_type->llvm_type, ".str");
+            LLVMSetLinkage(global, LLVMPrivateLinkage);
+            LLVMSetGlobalConstant(global, true);
+            LLVMSetUnnamedAddr(global, LLVMGlobalUnnamedAddr);
+            LLVMSetInitializer(global, LLVMConstStringInContext(ctx->context, str, (unsigned)len, false));
+
+            LLVMValueRef indices[2] = {
+                LLVMConstInt(ctx->ref_type.i32_type, 0, false),
+                LLVMConstInt(ctx->ref_type.i32_type, 0, false)
+            };
+            LLVMValueRef gep = LLVMConstInBoundsGEP2(array_type->llvm_type, global, indices, 2);
+            free((char *)str);
+            return gep;
+        }
+
+        LLVMValueRef c = LLVMConstStringInContext(ctx->context, str, (unsigned)len, false);
         free((char *)str);
         return c;
     }
