@@ -8,3 +8,4 @@ bool is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void 
 
 extern epc_wrap_callbacks_t typedef_capture_callbacks;
 extern epc_wrap_callbacks_t typedef_commit_callbacks;
+extern epc_wrap_callbacks_t typedef_scope_callbacks;

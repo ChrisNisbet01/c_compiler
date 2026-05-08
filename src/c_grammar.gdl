@@ -468,7 +468,7 @@ SwitchCase = CaseLabels SwitchBodyStatements @AST_ACTION_SWITCH_CASE;
 LabeledDefaultStatement = KwDefault Colon SwitchBodyStatements @AST_ACTION_DEFAULT_STATEMENT;
 
 // SwitchCompoundStatement is used inside switch to allow SwitchCase and default at top level
-SwitchCompoundStatement = LBrace (SwitchCase | LabeledDefaultStatement | SwitchBodyStatement)* RBrace @AST_ACTION_COMPOUND_STATEMENT;
+SwitchCompoundStatement = wrap(LBrace (SwitchCase | LabeledDefaultStatement | SwitchBodyStatement)* RBrace, typedef_scope_callbacks, NULL) @AST_ACTION_COMPOUND_STATEMENT;
 
 LabeledStatement = Identifier Colon Statement @AST_ACTION_LABELED_STATEMENT;
 
@@ -488,7 +488,7 @@ BreakStatement = KwBreak Semicolon @AST_ACTION_BREAK_STATEMENT;
 ReturnStatement = (KwReturn Expression? Semicolon) @AST_ACTION_RETURN_STATEMENT;
 AsmStatement = (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
 
-CompoundStatement = LBrace Statement* RBrace @AST_ACTION_COMPOUND_STATEMENT;
+CompoundStatement = wrap(LBrace Statement* RBrace, typedef_scope_callbacks, NULL) @AST_ACTION_COMPOUND_STATEMENT;
 
 // Rule to match a preprocessor directive, including support for line continuations
 PreprocessorIntegerLiteral = lexeme(IntegerLiteral);

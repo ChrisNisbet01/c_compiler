@@ -47,9 +47,16 @@ static int defines_count = 0;
 
 // --- Transactional Context ---
 
+typedef struct typedef_scope typedef_scope_t;
+struct typedef_scope
+{
+    symbol_table_t * names;
+    typedef_scope_t * parent;
+};
+
 typedef struct
 {
-    symbol_table_t * symbols;          // For user-defined typedefs
+    typedef_scope_t * typedef_scopes;  // Scope stack for typedef names (current = top)
     symbol_table_t * builtins;         // For pre-registered built-in types
     symbol_table_t * pending_names_st; // For pending names
 
@@ -57,6 +64,73 @@ typedef struct
     int marker_top;
     int marker_capacity;
 } parse_session_ctx_t;
+
+// --- Typedef Scope Stack Helpers ---
+
+static void
+typedef_scope_push(parse_session_ctx_t * session)
+{
+    typedef_scope_t * scope = calloc(1, sizeof(*scope));
+    if (scope == NULL)
+    {
+        return;
+    }
+
+    scope->names = symbol_table_create();
+    if (scope->names == NULL)
+    {
+        free(scope);
+        return;
+    }
+
+    scope->parent = session->typedef_scopes;
+    session->typedef_scopes = scope;
+}
+
+static void
+typedef_scope_pop(parse_session_ctx_t * session)
+{
+    typedef_scope_t * scope = session->typedef_scopes;
+    if (scope == NULL)
+    {
+        return;
+    }
+
+    session->typedef_scopes = scope->parent;
+    symbol_table_free(scope->names);
+    free(scope);
+}
+
+static void
+typedef_scope_add(parse_session_ctx_t * session, char const * name)
+{
+    if (session->typedef_scopes != NULL)
+    {
+        symbol_table_add(session->typedef_scopes->names, name);
+    }
+}
+
+static bool
+typedef_scope_contains(parse_session_ctx_t * session, char const * name)
+{
+    for (typedef_scope_t * scope = session->typedef_scopes; scope != NULL; scope = scope->parent)
+    {
+        if (symbol_table_contains(scope->names, name))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void
+typedef_scope_free_all(parse_session_ctx_t * session)
+{
+    while (session->typedef_scopes != NULL)
+    {
+        typedef_scope_pop(session);
+    }
+}
 
 parse_session_ctx_t *
 session_ctx_create(void)
@@ -67,8 +141,8 @@ session_ctx_create(void)
         return NULL;
     }
 
-    ctx->symbols = symbol_table_create();
-    if (ctx->symbols == NULL)
+    typedef_scope_push(ctx);
+    if (ctx->typedef_scopes == NULL)
     {
         free(ctx);
         return NULL;
@@ -77,7 +151,7 @@ session_ctx_create(void)
     ctx->builtins = symbol_table_create();
     if (ctx->builtins == NULL)
     {
-        symbol_table_free(ctx->symbols);
+        typedef_scope_free_all(ctx);
         free(ctx);
         return NULL;
     }
@@ -99,7 +173,7 @@ session_ctx_create(void)
     if (ctx->pending_names_st == NULL)
     {
         symbol_table_free(ctx->builtins);
-        symbol_table_free(ctx->symbols);
+        typedef_scope_free_all(ctx);
         free(ctx);
         return NULL;
     }
@@ -110,7 +184,7 @@ session_ctx_create(void)
     {
         symbol_table_free(ctx->pending_names_st);
         symbol_table_free(ctx->builtins);
-        symbol_table_free(ctx->symbols);
+        typedef_scope_free_all(ctx);
         free(ctx);
         return NULL;
     }
@@ -125,7 +199,7 @@ session_ctx_free(parse_session_ctx_t * ctx)
         return;
     }
 
-    symbol_table_free(ctx->symbols);
+    typedef_scope_free_all(ctx);
     symbol_table_free(ctx->builtins);
     symbol_table_free(ctx->pending_names_st);
     free(ctx->marker_stack);
@@ -154,7 +228,7 @@ is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void * par
     }
 
     bool found
-        = symbol_table_contains(session->symbols, name_copy) || symbol_table_contains(session->builtins, name_copy);
+        = typedef_scope_contains(session, name_copy) || symbol_table_contains(session->builtins, name_copy);
 
     free(name_copy);
     return found;
@@ -239,7 +313,7 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * p
     {
         for (size_t i = marker; i < symbol_table_count(session->pending_names_st); i++)
         {
-            symbol_table_add(session->symbols, symbol_table_name_at(session->pending_names_st, i));
+            typedef_scope_add(session, symbol_table_name_at(session->pending_names_st, i));
         }
     }
     symbol_table_clear_from(session->pending_names_st, marker);
@@ -249,6 +323,35 @@ on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * p
 
 epc_wrap_callbacks_t typedef_capture_callbacks = {on_capture_entry, on_capture_exit};
 epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit};
+
+// --- Scope Entry/Exit Callbacks ---
+
+static void
+on_scope_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
+{
+    (void)parser;
+    (void)parser_data;
+    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    if (session != NULL)
+    {
+        typedef_scope_push(session);
+    }
+}
+
+static bool
+on_scope_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
+{
+    (void)parser_data;
+    (void)result;
+    parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
+    if (session != NULL)
+    {
+        typedef_scope_pop(session);
+    }
+    return true;
+}
+
+epc_wrap_callbacks_t typedef_scope_callbacks = {on_scope_entry, on_scope_exit};
 
 static char *
 derive_extension_from_path(char const * path, char const * ext)
