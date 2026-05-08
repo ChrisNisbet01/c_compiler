@@ -12,3 +12,4 @@ a.out.ll
 *.ll
 *.o
 *.err
+*.ast

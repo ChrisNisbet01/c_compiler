@@ -181,6 +181,17 @@ generator_lookup_typedef_entry_by_name(ir_generator_ctx_t * ctx, char const * na
     return scope_lookup_typedef_entry_by_name(ctx->current_scope, name);
 }
 
+scope_typedef_entry_t *
+generator_lookup_typedef_entry_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc)
+{
+    if (ctx == NULL)
+    {
+        return NULL;
+    }
+
+    return scope_lookup_typedef_entry_by_type_descriptor(ctx->current_scope, type_desc);
+}
+
 type_info_t const *
 generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info)
 {
@@ -225,16 +236,15 @@ generator_add_typedef_entry(ir_generator_ctx_t * ctx, scope_typedef_entry_t entr
     scope_add_typedef_entry(ctx->current_scope, entry);
 }
 
-type_kind_t
-generator_lookup_kind_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc)
+type_info_t *
+generator_lookup_type_info_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc)
 {
-    /* FIXME: Something about needing this function smells. */
     if (ctx == NULL)
     {
-        return TYPE_KIND_BUILTIN;
+        return NULL;
     }
 
-    return scope_lookup_kind_by_type_descriptor(ctx->current_scope, type_desc);
+    return scope_lookup_type_info_by_type_descriptor(ctx->current_scope, type_desc);
 }
 
 TypeDescriptor const *

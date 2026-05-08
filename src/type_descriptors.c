@@ -948,3 +948,9 @@ type_descriptor_complete_struct(
     }
     calculate_composite_size(registry->data_layout, type_desc);
 }
+
+bool
+type_descriptor_is_a_builtin_type(TypeDescriptor const * desc)
+{
+    return desc != NULL && desc->kind == NCC_TYPE_KIND_BUILTIN;
+}

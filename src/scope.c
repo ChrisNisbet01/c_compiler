@@ -295,30 +295,42 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
     return NULL;
 }
 
-type_kind_t
-scope_lookup_kind_by_type_descriptor(scope_t const * scope_in, TypeDescriptor const * type_desc)
+scope_typedef_entry_t *
+scope_lookup_typedef_entry_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc)
 {
-    scope_t const * scope = scope_in;
-
     while (scope != NULL && type_desc != NULL)
     {
         scope_typedef_entry_t * typedef_entry
             = scope_typedefs_lookup_entry_by_type_descriptor(&scope->typedefs, type_desc);
         if (typedef_entry != NULL)
         {
-            return typedef_entry->kind;
-        }
-
-        type_info_t * type_entry = scope_find_type_by_type_descriptor(scope, type_desc);
-        if (type_entry != NULL)
-        {
-            return type_entry->kind;
+            return typedef_entry;
         }
 
         scope = scope->parent;
     }
 
-    return TYPE_KIND_BUILTIN;
+    return NULL;
+}
+
+type_info_t *
+scope_lookup_type_info_by_type_descriptor(scope_t const * scope_in, TypeDescriptor const * type_desc)
+{
+    scope_t const * scope = scope_in;
+
+    while (scope != NULL && type_desc != NULL)
+    {
+        type_info_t * type_entry = scope_find_type_by_type_descriptor(scope, type_desc);
+
+        if (type_entry != NULL)
+        {
+            return type_entry;
+        }
+
+        scope = scope->parent;
+    }
+
+    return NULL;
 }
 
 TypeDescriptor const *

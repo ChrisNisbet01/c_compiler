@@ -2109,6 +2109,8 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     char const * typedef_name = search_for_identifier(typedef_specifier_node);
     scope_typedef_entry_t const * existing_typedef_info = NULL;
 
+    print_ast_with_label_to_stream(node, __func__, stderr);
+
     if (typedef_name != NULL)
     {
         debug_info("Processing typedef '%s'", typedef_name);
@@ -2187,15 +2189,56 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             bool handled = false;
             if (typedef_type_desc != NULL)
             {
-                type_kind_t kind = generator_lookup_kind_by_type_descriptor(ctx, typedef_type_desc);
-                debug_info("%s existing info: %p", __func__, (void *)existing_typedef_info);
-                scope_typedef_entry_t typedef_entry = {
-                    .kind = kind,
-                    .name = strdup(typedef_name),
-                    .type_desc = typedef_type_desc,
-                };
-                generator_add_typedef_entry(ctx, typedef_entry);
-                handled = true;
+                scope_typedef_entry_t const * typedef_entry
+                    = generator_lookup_typedef_entry_by_type_descriptor(ctx, typedef_type_desc);
+                if (typedef_entry != NULL)
+                {
+                    debug_info("%s found existing typedef info: %p", __func__, (void *)existing_typedef_info);
+                    scope_typedef_entry_t new_typedef_entry = {
+                        .kind = typedef_entry->kind,
+                        .tag = typedef_entry->tag != NULL ? strdup(typedef_entry->tag) : NULL,
+                        .name = strdup(typedef_name),
+                        .type_desc = typedef_type_desc,
+                    };
+                    generator_add_typedef_entry(ctx, new_typedef_entry);
+                    handled = true;
+                }
+                if (!handled)
+                {
+                    debug_info("not found in typedef entry table, searching type info");
+                    type_info_t const * type_info
+                        = generator_lookup_type_info_by_type_descriptor(ctx, typedef_type_desc);
+
+                    if (type_info != NULL)
+                    {
+                        debug_info("%s: found existing type info: %p", __func__, (void *)existing_typedef_info);
+                        scope_typedef_entry_t typedef_entry = {
+                            .kind = type_info->kind,
+                            .tag = type_info->tag != NULL ? strdup(type_info->tag) : NULL,
+                            .name = strdup(typedef_name),
+                            .type_desc = typedef_type_desc,
+                        };
+                        generator_add_typedef_entry(ctx, typedef_entry);
+                        handled = true;
+                    }
+                }
+                if (!handled)
+                {
+                    debug_warning(
+                        "no existing type information found in typedefs or types; %s, checking builtins", typedef_name
+                    );
+                    if (type_descriptor_is_a_builtin_type(typedef_type_desc))
+                    {
+                        debug_info("is a builtin type");
+                        scope_typedef_entry_t typedef_entry = {
+                            .kind = TYPE_KIND_BUILTIN,
+                            .name = strdup(typedef_name),
+                            .type_desc = typedef_type_desc,
+                        };
+                        generator_add_typedef_entry(ctx, typedef_entry);
+                        handled = true;
+                    }
+                }
             }
 
             /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */

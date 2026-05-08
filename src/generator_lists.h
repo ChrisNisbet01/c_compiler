@@ -79,6 +79,9 @@ LLVMBasicBlockRef generator_get_or_create_label(ir_generator_ctx_t * ctx, char c
 
 scope_typedef_entry_t * generator_lookup_typedef_entry_by_name(ir_generator_ctx_t * ctx, char const * name);
 
+scope_typedef_entry_t *
+generator_lookup_typedef_entry_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc);
+
 type_info_t const * generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info);
 
 type_info_t const * generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info, int * untagged_index);
@@ -87,7 +90,7 @@ scope_t * generator_scope_create(ir_generator_ctx_t * ctx);
 
 void generator_add_typedef_entry(ir_generator_ctx_t * ctx, scope_typedef_entry_t entry);
 
-type_kind_t generator_lookup_kind_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc);
+type_info_t * generator_lookup_type_info_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc);
 
 TypeDescriptor const * generator_find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
 

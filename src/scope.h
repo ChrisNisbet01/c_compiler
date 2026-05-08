@@ -161,7 +161,7 @@ type_info_t const * scope_find_untagged_enum(scope_t const * scope, int index);
  * @param type The LLVM type to search for.
  * @return Pointer to the type info, or NULL if not found.
  */
-type_info_t * scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc);
+type_info_t * scope_lookup_type_info_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc);
 
 // --- Typedef management ---
 
@@ -190,7 +190,8 @@ TypeDescriptor const * scope_find_typedef_type_descriptor(scope_t const * scope,
  */
 scope_typedef_entry_t * scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name);
 
-type_kind_t scope_lookup_kind_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc);
+scope_typedef_entry_t *
+scope_lookup_typedef_entry_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc);
 
 // --- Function declaration tracking ---
 
