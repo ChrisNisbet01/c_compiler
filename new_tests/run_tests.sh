@@ -57,7 +57,7 @@ run_test() {
     echo "--- Testing: $c_file ---"
 
     # Clean up previous output
-    rm -f "$ll_file" "$o_file" "$exe_file" "$err_file"
+    rm -f "$ll_file" "$o_file" "$exe_file" "$err_file" "$OUTPUT_DIR/${base_name}.ast"
 
     # Build ncc command with optional --no-preprocess flag
     NCC_CMD=("$NCC_COMPILER")
@@ -65,8 +65,7 @@ run_test() {
         NCC_CMD+=("--no-preprocess")
     fi
     NCC_CMD+=("--debug=info")
-    
-    # 1. Compile C file to LLVM IR using ncc (-S -emit-llvm)
+    NCC_CMD+=("--emit-ast")
     echo "  [NCC] Compiling $c_file -> $ll_file"
     if ! "${NCC_CMD[@]}" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
         echo "  ERROR: ncc compilation failed for $c_file. Check $err_file"
@@ -175,7 +174,7 @@ run_expected_fail_test() {
     echo "--- Testing (expected to fail): $c_file ---"
 
     # Clean up previous output
-    rm -f "$ll_file" "$err_file"
+    rm -f "$ll_file" "$err_file" "$OUTPUT_DIR/${base_name}.ast"
 
     # Build ncc command with optional --no-preprocess flag
     NCC_CMD=("$NCC_COMPILER")
@@ -183,8 +182,7 @@ run_expected_fail_test() {
         NCC_CMD+=("--no-preprocess")
     fi
     NCC_CMD+=("--debug=info")
-    
-    # For expected-to-fail tests, we EXPECT ncc to fail
+    NCC_CMD+=("--emit-ast")
     echo "  [NCC] Compiling (expecting failure) $c_file -> $ll_file"
     if "${NCC_CMD[@]}" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
         # ncc succeeded - this is BAD (test failed)
@@ -195,7 +193,7 @@ run_expected_fail_test() {
         echo "$c_file" >> "$FAILED_TESTS_FILE"
     else
         # ncc failed - this is GOOD (test passed)
-        echo "  EXPECTED FAILURE: ncc failed to compile as expected."
+        echo "  EXPECTED FAILURE: ncc failed to compile $c_file as expected. Check $err_file"
     fi
 
     if [ "$current_test_failed" = "true" ]; then
