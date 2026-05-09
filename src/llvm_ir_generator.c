@@ -1968,8 +1968,8 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         }
         else
         {
-            TypeDescriptor const * i32_desc = type_descriptor_get_int32_type(ctx->type_descriptors, true);
-            LLVMBuildRet(ctx->builder, LLVMConstInt(i32_desc->llvm_type, 0, false));
+            /* Be sure to use the return type of the function. */
+            LLVMBuildRet(ctx->builder, LLVMConstNull(type_desc->function_metadata.return_type->llvm_type));
         }
     }
 
@@ -4384,9 +4384,8 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
         }
     }
 
-    TypedValue res = create_typed_value(
-        LLVMBuildPhi(ctx->builder, common_type->llvm_type, "cond_result"), common_type, false
-    );
+    TypedValue res
+        = create_typed_value(LLVMBuildPhi(ctx->builder, common_type->llvm_type, "cond_result"), common_type, false);
 
     // Add phi operands using the actual blocks where the expressions ended
     LLVMAddIncoming(res.value, &true_res.value, &true_block, 1);

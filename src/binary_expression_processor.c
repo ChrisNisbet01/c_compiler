@@ -293,7 +293,7 @@ complete_binary_expression(
     {
         promote_integer_operands(ctx, &lhs_res, &rhs_res);
     }
-    else if (op_type == BINARY_OP_ARITHMETIC)
+    else if (op_type == BINARY_OP_ARITHMETIC || op_type == BINARY_OP_COMPOUND_ASSIGNMENT)
     {
         promote_signed_integer_operands(ctx, &lhs_res, &rhs_res);
     }
