@@ -2,11 +2,12 @@ NCC := ../build/src/ncc
 SRC_DIR := ../src
 GENERATED_DIR := ../build/src/generated
 EASY_PC_INC := /home/chris/projects/easy_pc/include
-EASY_PC_LIB := ../build/_deps/easy_pc-build/lib/libeasy_pc.so.0.2.0
+EASY_PC_LIB := ../build/easy_pc-build/lib/libeasy_pc.so.0.2.0
 LLVM_INC := /usr/include/llvm-c-20 /usr/include/llvm-20
 LLVM_LDFLAGS := $(shell llvm-config-20 --ldflags)
 LLVM_LIBS := $(shell llvm-config-20 --link-shared --libs)
 CLANG := /usr/bin/clang-20
+LDFLAGS := -Wl,-rpath,$(abspath $(dir $(EASY_PC_LIB)))
 LINK := /usr/bin/clang-20
 
 CFLAGS := -c -O3 -g
@@ -26,6 +27,7 @@ SRC_FILES := \
 	generator_lists.c \
 	hash_table.c \
 	ir_gen_error.c \
+	ir_utils.c \
 	labels.c \
 	llvm_ir_generator.c \
 	scope.c \
@@ -52,7 +54,7 @@ TARGET := ncc
 all: $(TARGET)
 
 $(TARGET): $(ALL_O)
-	$(LINK) -o $@ $^ $(EASY_PC_LIB) $(LLVM_LDFLAGS) $(LLVM_LIBS) -lstdc++ -lm
+	$(LINK) -o $@ $^ $(LDFLAGS) $(EASY_PC_LIB) $(LLVM_LDFLAGS) $(LLVM_LIBS) -lstdc++ -lm
 
 %.ll: $(SRC_DIR)/%.c $(NCC)
 	$(NCC) -S --debug=info --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<

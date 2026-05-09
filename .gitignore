@@ -13,3 +13,4 @@ a.out.ll
 *.o
 *.err
 *.ast
+/self_build/ncc
