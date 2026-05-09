@@ -1585,6 +1585,7 @@ create_global_variable(
     TypeDescriptor const * type_desc,
     char const * var_name,
     bool is_const,
+    bool is_static,
     c_grammar_node_t const * initializer_expr_node
 )
 {
@@ -1606,8 +1607,19 @@ create_global_variable(
     }
 
     // 2. Create the Global Identity
-    global_var = LLVMAddGlobal(ctx->module, final_desc->llvm_type, var_name);
-    LLVMSetLinkage(global_var, LLVMInternalLinkage); // Default to internal for safety
+    global_var = LLVMGetNamedGlobal(ctx->module, var_name);
+    if (global_var == NULL)
+    {
+        global_var = LLVMAddGlobal(ctx->module, final_desc->llvm_type, var_name);
+    }
+    if (is_static)
+    {
+        LLVMSetLinkage(global_var, LLVMInternalLinkage);
+    }
+    else
+    {
+        LLVMSetLinkage(global_var, LLVMExternalLinkage);
+    }
     if (is_const)
         LLVMSetGlobalConstant(global_var, true);
 
@@ -1672,10 +1684,12 @@ process_declarator(
     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
     bool is_global = (current_block == NULL);
     bool is_static = false;
+    bool is_extern = false;
 
     if (decl_specifiers != NULL && decl_specifiers->type == AST_NODE_NAMED_DECL_SPECIFIERS)
     {
         is_static = decl_specifiers->decl_specifiers.storage.has_static;
+        is_extern = decl_specifiers->decl_specifiers.storage.has_extern;
     }
 
     // 3. Global / Static Storage
@@ -1690,7 +1704,14 @@ process_declarator(
             func = LLVMAddFunction(ctx->module, var_name, type_desc->llvm_type);
 
             // Standard C function declarations have "External" linkage by default
-            LLVMSetLinkage(func, LLVMExternalLinkage);
+            if (is_static)
+            {
+                LLVMSetLinkage(func, LLVMInternalLinkage);
+            }
+            else
+            {
+                LLVMSetLinkage(func, LLVMExternalLinkage);
+            }
         }
 
         // Add it to your symbol table so the compiler can resolve calls to it.
@@ -1700,13 +1721,35 @@ process_declarator(
 
         return;
     }
+
+    // Handle extern variable declarations at file scope (without initializer)
+    if (is_extern && is_global)
+    {
+        c_grammar_node_t const * init_expr = (init_decl_initializer && init_decl_initializer->list.count > 0)
+                                                 ? init_decl_initializer->list.children[0]
+                                                 : NULL;
+        if (init_expr == NULL)
+        {
+            /* Create an external reference — defined in another translation unit */
+            LLVMValueRef global = LLVMGetNamedGlobal(ctx->module, var_name);
+            if (global == NULL)
+            {
+                global = LLVMAddGlobal(ctx->module, type_desc->llvm_type, var_name);
+                LLVMSetLinkage(global, LLVMExternalLinkage);
+            }
+            TypedValue val = create_typed_value(global, type_desc, true);
+            generator_add_symbol(ctx, var_name, val);
+            return;
+        }
+    }
+
     if (is_static || is_global)
     {
         c_grammar_node_t const * init_expr = (init_decl_initializer && init_decl_initializer->list.count > 0)
                                                  ? init_decl_initializer->list.children[0]
                                                  : NULL;
 
-        create_global_variable(ctx, type_desc, var_name, false, init_expr);
+        create_global_variable(ctx, type_desc, var_name, false, is_static, init_expr);
 
         return;
     }
@@ -1895,6 +1938,19 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         debug_info("Added function");
     }
 
+    bool is_static = false;
+    if (decl_specifiers_node != NULL && decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS)
+    {
+        is_static = decl_specifiers_node->decl_specifiers.storage.has_static;
+    }
+    if (is_static)
+    {
+        LLVMSetLinkage(func, LLVMInternalLinkage);
+    }
+    else
+    {
+        LLVMSetLinkage(func, LLVMExternalLinkage);
+    }
     // Create a basic block for the function's entry point.
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
     LLVMPositionBuilderAtEnd(ctx->builder, entry_block);

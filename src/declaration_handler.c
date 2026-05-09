@@ -108,6 +108,15 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
                     = get_or_create_pointer_type(ctx->type_descriptors, params.types[i], (TypeQualifier){0});
             }
 
+            if (params.types[i]->kind == NCC_TYPE_KIND_ARRAY)
+            {
+                debug_info(
+                    "%s: parameter %zu is an array type - converting to pointer type (decay)", __func__, i
+                );
+                params.types[i]
+                    = get_or_create_pointer_type(ctx->type_descriptors, params.types[i]->pointee, (TypeQualifier){0});
+            }
+
             if (p_decl != NULL)
             {
                 c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
