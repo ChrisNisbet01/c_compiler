@@ -2102,66 +2102,9 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 {
     /* Handle TypedefDeclaration node: [KwExtension, DeclarationSpecifiers, InitDeclaratorList] */
     c_grammar_node_t const * decl_specs = node->declaration.declaration_specifiers;
-    c_grammar_node_t const * struct_def_node = NULL;
-    c_grammar_node_t const * enum_def_node = NULL;
-    c_grammar_node_t const * specifiers_list = decl_specs->decl_specifiers.type_specifiers;
-    c_grammar_node_t const * typedef_specifier_node = decl_specs->decl_specifiers.typedef_specifier;
-    char const * typedef_name = search_for_identifier(typedef_specifier_node);
-    scope_typedef_entry_t const * existing_typedef_info = NULL;
-
-    print_ast_with_label_to_stream(node, __func__, stderr);
-
-    if (typedef_name != NULL)
-    {
-        debug_info("Processing typedef '%s'", typedef_name);
-        /* We should have a typedef of this name already registered. */
-        existing_typedef_info = generator_lookup_typedef_entry_by_name(ctx, typedef_name);
-        if (existing_typedef_info != NULL)
-        {
-            debug_info("Found typedef descriptor for '%s'", typedef_name);
-        }
-        else
-        {
-            debug_info("No typedef descriptor found for '%s'", typedef_name);
-        }
-    }
-    else
-    {
-        debug_info("No typedef name found");
-    }
-
-    /* Look for struct/union/enum definition inside DeclarationSpecifiers once */
-    for (size_t i = 0; i < specifiers_list->list.count; ++i)
-    {
-        c_grammar_node_t * spec_child = specifiers_list->list.children[i];
-
-        {
-            for (size_t j = 0; j < spec_child->list.count; ++j)
-            {
-                c_grammar_node_t const * type_child = spec_child->list.children[j];
-                if (type_child
-                    && (type_child->type == AST_NODE_STRUCT_DEFINITION
-                        || type_child->type == AST_NODE_UNION_DEFINITION))
-                {
-                    struct_def_node = type_child;
-                    break;
-                }
-                else if (type_child && type_child->type == AST_NODE_ENUM_DEFINITION)
-                {
-                    enum_def_node = type_child;
-                    break;
-                }
-            }
-        }
-        if (struct_def_node || enum_def_node)
-        {
-            break;
-        }
-    }
-
-    /* Iterate over all TypedefInitDeclarators */
     c_grammar_node_t const * init_declarator_list = node->declaration.init_declarator_list;
 
+    /* Iterate over all TypedefInitDeclarators */
     for (size_t i = 0; i < init_declarator_list->list.count; ++i)
     {
         c_grammar_node_t const * typedef_init_decl = init_declarator_list->list.children[i];
@@ -2170,67 +2113,49 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         c_grammar_node_t const * typedef_decl = typedef_init_decl->init_declarator.declarator;
 
         TypeDescriptor const * typedef_type_desc = resolve_type_descriptor(ctx, decl_specs, typedef_decl);
-        if (typedef_type_desc != NULL)
+        if (typedef_type_desc == NULL)
         {
-            debug_info("%s: Got type desc for typedef", __func__);
-        }
-        else
-        {
-            debug_info("%s: Failed to get type desc for typedef", __func__);
+            debug_error("%s: Failed to get type desc for typedef", __func__);
+            return;
         }
 
         c_grammar_node_t const * name_node = find_typedef_name_node(typedef_decl);
-
-        if (name_node != NULL && name_node->type == AST_NODE_IDENTIFIER && name_node->text != NULL)
+        if (name_node == NULL || name_node->type != AST_NODE_IDENTIFIER || name_node->text == NULL)
         {
-            char const * typedef_name = name_node->text;
-            debug_info("Typedef: name='%s'", typedef_name);
+            debug_error("%s: Failed to find typedef name", __func__);
+            return;
+        }
+        char const * typedef_name = name_node->text;
+        debug_info("Typedef: name='%s'", typedef_name);
 
-            bool handled = false;
-            if (typedef_type_desc != NULL)
+        bool handled = false;
+        if (typedef_type_desc != NULL)
+        {
+            scope_typedef_entry_t const * typedef_entry
+                = generator_lookup_typedef_entry_by_type_descriptor(ctx, typedef_type_desc);
+            if (typedef_entry != NULL)
             {
-                scope_typedef_entry_t const * typedef_entry
-                    = generator_lookup_typedef_entry_by_type_descriptor(ctx, typedef_type_desc);
-                if (typedef_entry != NULL)
-                {
-                    debug_info("%s found existing typedef info: %p", __func__, (void *)existing_typedef_info);
-                    scope_typedef_entry_t new_typedef_entry = {
-                        .kind = typedef_entry->kind,
-                        .tag = typedef_entry->tag != NULL ? strdup(typedef_entry->tag) : NULL,
-                        .name = strdup(typedef_name),
-                        .type_desc = typedef_type_desc,
-                    };
-                    generator_add_typedef_entry(ctx, new_typedef_entry);
-                    handled = true;
-                }
-                if (!handled)
-                {
-                    debug_info("not found in typedef entry table, searching type info");
-                    type_info_t const * type_info
-                        = generator_lookup_type_info_by_type_descriptor(ctx, typedef_type_desc);
+                debug_info("%s found existing typedef entry", __func__);
+                scope_typedef_entry_t new_typedef_entry = {
+                    .kind = typedef_entry->kind,
+                    .tag = typedef_entry->tag != NULL ? strdup(typedef_entry->tag) : NULL,
+                    .name = strdup(typedef_name),
+                    .type_desc = typedef_type_desc,
+                };
+                generator_add_typedef_entry(ctx, new_typedef_entry);
+                handled = true;
+            }
+            if (!handled)
+            {
+                debug_info("not found in typedef entry table, searching type info");
+                type_info_t const * type_info = generator_lookup_type_info_by_type_descriptor(ctx, typedef_type_desc);
 
-                    if (type_info != NULL)
-                    {
-                        debug_info("%s: found existing type info: %p", __func__, (void *)existing_typedef_info);
-                        scope_typedef_entry_t typedef_entry = {
-                            .kind = type_info->kind,
-                            .tag = type_info->tag != NULL ? strdup(type_info->tag) : NULL,
-                            .name = strdup(typedef_name),
-                            .type_desc = typedef_type_desc,
-                        };
-                        generator_add_typedef_entry(ctx, typedef_entry);
-                        handled = true;
-                    }
-                }
-                if (!handled)
+                if (type_info != NULL)
                 {
-                    /* This could be something like a pointer to an existing type, or a plain typedef to a builtin. */
-                    debug_warning(
-                        "no existing type information found in typedefs or types; %s, creating a builtin type.",
-                        typedef_name
-                    );
+                    debug_info("%s: found existing type", __func__);
                     scope_typedef_entry_t typedef_entry = {
-                        .kind = TYPE_KIND_BUILTIN,
+                        .kind = type_info->kind,
+                        .tag = type_info->tag != NULL ? strdup(type_info->tag) : NULL,
                         .name = strdup(typedef_name),
                         .type_desc = typedef_type_desc,
                     };
@@ -2238,139 +2163,20 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                     handled = true;
                 }
             }
-
-            /* Check if there's a forward declaration or tagged reference (e.g. typedef struct Foo Foo) */
-            for (size_t j = 0; j < specifiers_list->list.count && !handled; ++j)
+            if (!handled)
             {
-                c_grammar_node_t * spec_child = specifiers_list->list.children[j];
-                {
-                    for (size_t k = 0; k < spec_child->list.count; ++k)
-                    {
-                        c_grammar_node_t const * type_child = spec_child->list.children[k];
-                        type_kind_t kind = TYPE_KIND_BUILTIN;
-                        if (type_child->type == AST_NODE_STRUCT_TYPE_REF)
-                        {
-                            kind = TYPE_KIND_STRUCT;
-                        }
-                        else if (type_child->type == AST_NODE_UNION_TYPE_REF)
-                        {
-                            kind = TYPE_KIND_UNION;
-                        }
-                        else if (type_child->type == AST_NODE_ENUM_TYPE_REF)
-                        {
-                            kind = TYPE_KIND_ENUM;
-                        }
-
-                        if (kind != TYPE_KIND_BUILTIN)
-                        {
-                            c_grammar_node_t const * tag_name_node = type_child->type_ref.identifier;
-
-                            if (tag_name_node != NULL && tag_name_node->type == AST_NODE_IDENTIFIER)
-                            {
-                                generator_add_typedef_forward_decl(ctx, typedef_name, tag_name_node->text, kind);
-                                debug_info("added typedef forward declaration");
-                                handled = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (struct_def_node != NULL)
-            {
-                debug_info("have a struct/union definition");
-                /* We have a full struct/union definition */
-                char const * struct_tag = search_ast_for_type_tag(struct_def_node);
-                type_kind_t kind;
-                type_info_t const * type_info;
-                int new_untagged_index = -1;
-
-                if (struct_tag != NULL)
-                {
-                    kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
-                    type_info = register_tagged_struct_or_union_definition(
-                        ctx, struct_def_node, struct_tag, kind, (TypeQualifier){0}
-                    );
-                }
-                else
-                {
-                    kind = struct_def_node->type == AST_NODE_STRUCT_DEFINITION ? TYPE_KIND_UNTAGGED_STRUCT
-                                                                               : TYPE_KIND_UNTAGGED_UNION;
-                    type_info
-                        = register_untagged_struct_or_union_definition(ctx, struct_def_node, kind, &new_untagged_index);
-                }
-                if (type_info == NULL)
-                {
-                    debug_error("%s: failed to register struct/union");
-                    return;
-                }
-                if (!handled)
-                {
-                    scope_typedef_entry_t typedef_entry = {
-                        .name = strdup(typedef_name),
-                        .untagged_index = new_untagged_index,
-                        .tag = struct_tag != NULL ? strdup(struct_tag) : NULL,
-                        .type_desc = type_info->type_desc,
-                        .kind = kind,
-                    };
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                }
-            }
-            else if (enum_def_node != NULL)
-            {
-                debug_info("have an enum definition");
-                /* Register the enum values as constants */
-                char const * enum_tag = search_ast_for_type_tag(enum_def_node);
-                type_kind_t kind;
-                type_info_t const * type_info;
-                int untagged_index = -1;
-
-                if (enum_tag != NULL)
-                {
-                    kind = TYPE_KIND_ENUM;
-                    type_info = register_tagged_enum_definition(ctx, enum_def_node, enum_tag);
-                }
-                else
-                {
-                    kind = TYPE_KIND_UNTAGGED_ENUM;
-                    type_info = register_untagged_enum_definition(ctx, enum_def_node, &untagged_index);
-                }
-                if (!handled)
-                {
-                    scope_typedef_entry_t typedef_entry
-                        = {.name = strdup(typedef_name),
-                           .kind = kind,
-                           .untagged_index = untagged_index,
-                           .tag = (enum_tag != NULL) ? strdup(enum_tag) : NULL,
-                           .type_desc = type_info->type_desc};
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                }
-            }
-            else if (!handled)
-            {
-                debug_info("adding builtin typedef");
-                /* Simple type typedef: e.g. typedef int my_int; */
-                c_grammar_node_t const * specifier_list = decl_specs->decl_specifiers.type_specifiers;
-                c_grammar_node_t const * qualifier_list = decl_specs->decl_specifiers.type_qualifiers;
-                TypeSpecifier const decl_type_spec = build_type_specifiers(specifier_list);
-                TypeQualifier const decl_type_qual = build_type_qualifiers(qualifier_list);
-                TypeDescriptor const * type_desc
-                    = get_or_create_builtin_type(ctx->type_descriptors, decl_type_spec, decl_type_qual);
-
-                if (type_desc != NULL)
-                {
-                    scope_typedef_entry_t typedef_entry = {
-                        .name = strdup(typedef_name),
-                        .type_desc = type_desc,
-                        .kind = TYPE_KIND_BUILTIN,
-                    };
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                }
-                else
-                {
-                    debug_info("Failed to resolve type for typedef '%s'", typedef_name);
-                }
+                /* This could be something like a pointer to an existing type, or a plain typedef to a builtin. */
+                debug_warning(
+                    "no existing type information found in typedefs or types. %s, creating a builtin type.",
+                    typedef_name
+                );
+                scope_typedef_entry_t typedef_entry = {
+                    .kind = TYPE_KIND_BUILTIN,
+                    .name = strdup(typedef_name),
+                    .type_desc = typedef_type_desc,
+                };
+                generator_add_typedef_entry(ctx, typedef_entry);
+                handled = true;
             }
         }
     }

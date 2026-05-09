@@ -411,9 +411,12 @@ resolve_type_descriptor(
             }
             else if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION)
             {
-                fprintf(stderr, "DEBUG resolve_type_descriptor: processing STRUCT_DEFINITION, current was %p, tag='%s'\n",
-                        (void *)current,
-                        inner->struct_definition.identifier ? inner->struct_definition.identifier->text : "(anon)");
+                fprintf(
+                    stderr,
+                    "DEBUG resolve_type_descriptor: processing STRUCT_DEFINITION, current was %p, tag='%s'\n",
+                    (void *)current,
+                    inner->struct_definition.identifier ? inner->struct_definition.identifier->text : "(anon)"
+                );
                 type_info_t const * type_info = register_struct_definition(ctx, inner);
                 if (type_info == NULL)
                 {
@@ -454,8 +457,7 @@ resolve_type_descriptor(
                     {
                         if (inner->type == AST_NODE_ENUM_TYPE_REF)
                         {
-                            /* FIXME: What to do? */
-                            return NULL;
+                            return type_descriptor_get_enum_type(ctx->type_descriptors);
                         }
                         type_info_t const * opaque_info = register_opaque_struct_or_union_definition(
                             ctx, tag, inner->type == AST_NODE_UNION_TYPE_REF

@@ -163,4 +163,4 @@ void type_descriptor_complete_struct(
     TypeDescriptors * registry, TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members
 );
 
-bool type_descriptor_is_a_builtin_type(TypeDescriptor const * desc);
+TypeDescriptor const * type_descriptor_get_enum_type(TypeDescriptors * registry);
