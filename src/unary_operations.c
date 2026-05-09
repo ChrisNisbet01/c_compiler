@@ -166,8 +166,12 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
         TypedValue rvalue_res = ensure_rvalue(ctx, "unary_inc_dev_rval", var_res);
         LLVMValueRef original_val = rvalue_res.value;
-        LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32_type, 1, false);
-        
+        TypeDescriptor const * one_type = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+        LLVMValueRef one = LLVMConstInt(one_type->llvm_type, 1, false);
+        TypedValue one_val = create_typed_value(one, one_type, false);
+
+        one_val = cast_typed_value_to_desc(ctx, one_val, rvalue_res.type_info);
+
         LLVMValueRef new_val;
         if (op->op.unary.op == UNARY_OP_INC)
         {
@@ -176,7 +180,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     ctx->builder, original_val, LLVMConstReal(var_res.type_info->llvm_type, 1.0), "inc_tmp"
                 );
             else
-                new_val = LLVMBuildAdd(ctx->builder, original_val, one, "inc_tmp");
+                new_val = LLVMBuildAdd(ctx->builder, original_val, one_val.value, "inc_tmp");
         }
         else
         {
@@ -185,7 +189,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                     ctx->builder, original_val, LLVMConstReal(var_res.type_info->llvm_type, 1.0), "dec_tmp"
                 );
             else
-                new_val = LLVMBuildSub(ctx->builder, original_val, one, "dec_tmp");
+                new_val = LLVMBuildSub(ctx->builder, original_val, one_val.value, "dec_tmp");
         }
         aligned_store(ctx, ctx->builder, new_val, var_res.type_info->llvm_type, var_res.value);
         var_res.value = new_val;

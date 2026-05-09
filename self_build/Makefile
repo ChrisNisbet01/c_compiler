@@ -1,7 +1,7 @@
 NCC := ../build/src/ncc
 SRC_DIR := ../src
 GENERATED_DIR := ../build/src/generated
-EASY_PC_INC := ../build/_deps/easy_pc-src/include
+EASY_PC_INC := /home/chris/projects/easy_pc/include
 EASY_PC_LIB := ../build/_deps/easy_pc-build/lib/libeasy_pc.so.0.2.0
 LLVM_INC := /usr/include/llvm-c-20 /usr/include/llvm-20
 LLVM_LDFLAGS := $(shell llvm-config-20 --ldflags)

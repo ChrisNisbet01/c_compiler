@@ -4229,6 +4229,57 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     return create_typed_value(res_alloca, bool_type, true);
 }
 
+static TypeDescriptor const *
+find_wider_type(TypeDescriptor const * type_a, TypeDescriptor const * type_b)
+{
+    if (type_a == NULL || type_b == NULL)
+    {
+        return type_a != NULL ? type_a : type_b;
+    }
+
+    /* If one is float and the other isn't, prefer float */
+    if (is_floating_kind(type_a) && !is_floating_kind(type_b))
+    {
+        return type_a;
+    }
+    if (is_floating_kind(type_b) && !is_floating_kind(type_a))
+    {
+        return type_b;
+    }
+
+    /* If both are floats, prefer the wider one */
+    if (is_floating_kind(type_a) && is_floating_kind(type_b))
+    {
+        unsigned a_size = LLVMGetIntTypeWidth(type_a->llvm_type);
+        unsigned b_size = LLVMGetIntTypeWidth(type_b->llvm_type);
+        return a_size >= b_size ? type_a : type_b;
+    }
+
+    /* If both are integers or pointers, prefer wider bit width */
+    if (is_integer_kind(type_a) && is_integer_kind(type_b))
+    {
+        unsigned a_width = LLVMGetIntTypeWidth(type_a->llvm_type);
+        unsigned b_width = LLVMGetIntTypeWidth(type_b->llvm_type);
+        if (a_width > b_width)
+        {
+            return type_a;
+        }
+        if (b_width > a_width)
+        {
+            return type_b;
+        }
+        /* Same width: prefer unsigned */
+        if (type_a->specifiers.is_unsigned && !type_b->specifiers.is_unsigned)
+        {
+            return type_a;
+        }
+        return type_b;
+    }
+
+    /* Default to type_a for other combinations (pointer, struct, etc.) */
+    return type_a;
+}
+
 static TypedValue
 process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
@@ -4302,8 +4353,39 @@ process_conditional_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const 
     // Merge and create phi node
     LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
 
+    // Unify types: if the two branches produce different types, promote
+    // the narrower one to the wider type (C's usual arithmetic conversions).
+    // The casts must be inserted in the predecessor blocks before their
+    // terminators, so the phi will see the correct types.
+    TypeDescriptor const * common_type = true_res.type_info;
+    if (true_res.value != NULL && false_res.value != NULL && true_res.type_info != false_res.type_info
+        && true_res.type_info->llvm_type != false_res.type_info->llvm_type)
+    {
+        common_type = find_wider_type(true_res.type_info, false_res.type_info);
+
+        /* Insert cast in true_block (before terminator) */
+        if (true_res.type_info->llvm_type != common_type->llvm_type)
+        {
+            LLVMValueRef true_term = LLVMGetBasicBlockTerminator(true_block);
+            LLVMPositionBuilderBefore(ctx->builder, true_term);
+            TypedValue casted_true = cast_typed_value_to_desc(ctx, true_res, common_type);
+            true_res = casted_true;
+            LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+        }
+
+        /* Insert cast in false_block (before terminator) */
+        if (false_res.type_info->llvm_type != common_type->llvm_type)
+        {
+            LLVMValueRef false_term = LLVMGetBasicBlockTerminator(false_block);
+            LLVMPositionBuilderBefore(ctx->builder, false_term);
+            TypedValue casted_false = cast_typed_value_to_desc(ctx, false_res, common_type);
+            false_res = casted_false;
+            LLVMPositionBuilderAtEnd(ctx->builder, merge_block);
+        }
+    }
+
     TypedValue res = create_typed_value(
-        LLVMBuildPhi(ctx->builder, true_res.type_info->llvm_type, "cond_result"), true_res.type_info, false
+        LLVMBuildPhi(ctx->builder, common_type->llvm_type, "cond_result"), common_type, false
     );
 
     // Add phi operands using the actual blocks where the expressions ended
