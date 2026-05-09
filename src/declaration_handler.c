@@ -494,16 +494,15 @@ resolve_type_descriptor(
         return NULL;
     }
 
-    if (type_quals.is_const || type_quals.is_volatile)
-    {
-        current = get_or_create_qualified_type(ctx->type_descriptors, current, type_quals);
-    }
+    current = get_or_create_qualified_type(ctx->type_descriptors, current, type_quals);
 
     if (declarator == NULL)
     {
         debug_info("%s: no declarator provided, returning type descriptor", __func__);
+
         return current;
     }
+
     debug_info("after qualification: current type descriptor: %p", (void *)current);
     debug_info("declarator node: %s", get_node_type_name_from_node(declarator));
 
@@ -560,18 +559,18 @@ resolve_type_descriptor(
      */
     bool defer_pointers = (is_function && declarator->type == AST_NODE_TYPEDEF_DECLARATOR);
 
-    if (!defer_pointers && pointer_list != NULL)
+    if (!defer_pointers)
     {
-        for (size_t i = 0; i < pointer_list->list.count; i++)
+        if (pointer_list != NULL)
         {
-            c_grammar_node_t const * pointer_node = pointer_list->list.children[i];
-            TypeQualifier ptr_quals = {0};
-            if (pointer_node->list.count > 0)
+            for (size_t i = pointer_list->list.count; i > 0; i--)
             {
-                ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
-            }
+                c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
+                TypeQualifier ptr_quals = {0};
 
-            current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
+                ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
+                current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
+            }
         }
     }
     debug_info("2");
@@ -592,14 +591,12 @@ resolve_type_descriptor(
         {
             if (pointer_list != NULL)
             {
-                for (size_t i = 0; i < pointer_list->list.count; i++)
+                for (size_t i = pointer_list->list.count; i > 0; i--)
                 {
-                    c_grammar_node_t const * pointer_node = pointer_list->list.children[i];
+                    c_grammar_node_t const * pointer_node = pointer_list->list.children[i - 1];
                     TypeQualifier ptr_quals = {0};
-                    if (pointer_node->list.count > 0)
-                    {
-                        ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
-                    }
+
+                    ptr_quals = build_type_qualifiers(pointer_node->list.children[0]);
                     current = get_or_create_pointer_type(ctx->type_descriptors, current, ptr_quals);
                 }
             }

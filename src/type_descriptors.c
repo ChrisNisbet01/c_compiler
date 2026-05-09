@@ -171,14 +171,38 @@ get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * po
     return register_descriptor(registry, &template);
 }
 
-TypeDescriptor const *
-get_or_create_qualified_type(TypeDescriptors * registry, TypeDescriptor const * base_type, TypeQualifier qualifiers)
+static TypeDescriptor const *
+type_descriptor_base(TypeDescriptor const * desc)
 {
+    if (desc == NULL)
+    {
+        return NULL;
+    }
+    while (desc->base != NULL)
+    {
+        desc = desc->base;
+    }
+    return desc;
+}
+
+TypeDescriptor const *
+get_or_create_qualified_type(
+    TypeDescriptors * registry, TypeDescriptor const * unqualified_type, TypeQualifier qualifiers
+)
+{
+    TypeDescriptor const * base_type = type_descriptor_base(unqualified_type);
+
     if (base_type == NULL)
     {
         return NULL;
     }
-    debug_info("%s: is_const: %d, is_volatile: %d", __func__, qualifiers.is_const, qualifiers.is_volatile);
+    debug_info(
+        "%s: base: %p, is_const: %d, is_volatile: %d",
+        __func__,
+        (void *)base_type,
+        qualifiers.is_const,
+        qualifiers.is_volatile
+    );
 
     if (!qualifiers.is_const && !qualifiers.is_volatile)
     {
@@ -188,15 +212,23 @@ get_or_create_qualified_type(TypeDescriptors * registry, TypeDescriptor const * 
     TypeDescriptor_private * curr = registry->head;
     while (curr)
     {
-        if (curr->public.kind == base_type->kind && curr->public.llvm_type == base_type->llvm_type
-            && qualifiers_match(&curr->public.qualifiers, &qualifiers))
+        TypeDescriptor const * curr_base = type_descriptor_base(&curr->public);
+
+        if (curr_base == base_type && qualifiers_match(&curr->public.qualifiers, &qualifiers))
         {
+            debug_info(
+                "%s: existing (%p) curr base num_members: %zu",
+                __func__,
+                (void *)&curr->public,
+                curr_base->struct_metadata.members.num_members
+            );
             return &curr->public;
         }
         curr = curr->next;
     }
     debug_info("%s: base num_members: %zu", __func__, base_type->struct_metadata.members.num_members);
     TypeDescriptor template = *base_type;
+    template.base = base_type;
     template.qualifiers.is_const |= qualifiers.is_const;
     template.qualifiers.is_volatile |= qualifiers.is_volatile;
 
@@ -687,6 +719,27 @@ type_descriptor_get_void_type(TypeDescriptors * registry)
     return get_or_create_builtin_type(registry, (TypeSpecifier){.is_void = true}, (TypeQualifier){0});
 }
 
+static int
+type_descriptor_find_struct_field_index_from_base_desc(TypeDescriptor const * base, char const * name)
+{
+    debug_info("%s: base desc: %p num_members: %zu", __func__, base, base->struct_metadata.members.num_members);
+    // Access the members list in your metadata structure
+    for (size_t i = 0; i < base->struct_metadata.members.num_members; ++i)
+    {
+        char const * member_name = base->struct_metadata.members.members[i].name;
+        debug_info("check member: %s", member_name);
+        if (member_name != NULL && strcmp(member_name, name) == 0)
+        {
+            debug_info("%s: got member %s at index %zu", __func__, name, i);
+            dump_type_descriptor(name, base, DEBUG_LEVEL_INFO);
+            return (int)i;
+        }
+    }
+
+    // Field not found in this struct
+    return -1;
+}
+
 int
 type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, char const * name)
 {
@@ -695,22 +748,10 @@ type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, c
         debug_error("%s: Invalid struct descriptor", __func__);
         return -1;
     }
-    debug_info("%s: desc: %p num_members: %zu", __func__, desc, desc->struct_metadata.members.num_members);
-    // Access the members list in your metadata structure
-    for (int i = 0; i < (int)desc->struct_metadata.members.num_members; ++i)
-    {
-        char const * member_name = desc->struct_metadata.members.members[i].name;
-        debug_info("check member: %s", member_name);
-        if (member_name != NULL && strcmp(member_name, name) == 0)
-        {
-            debug_info("%s: got member %s at index %u", __func__, name, i);
-            dump_type_descriptor(name, desc, DEBUG_LEVEL_INFO);
-            return i;
-        }
-    }
 
-    // Field not found in this struct
-    return -1;
+    TypeDescriptor const * base = type_descriptor_base(desc);
+
+    return type_descriptor_find_struct_field_index_from_base_desc(base, name);
 }
 
 struct_field_t const *
@@ -722,14 +763,16 @@ type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
         return NULL;
     }
 
-    if (index < 0 || index >= (int)desc->struct_metadata.members.num_members)
+    TypeDescriptor const * base = type_descriptor_base(desc);
+
+    if (index < 0 || index >= (int)base->struct_metadata.members.num_members)
     {
         debug_warning(
-            "%s: Index out of bounds: %d, masx: %zu", __func__, index, desc->struct_metadata.members.num_members
+            "%s: Index out of bounds: %d, masx: %zu", __func__, index, base->struct_metadata.members.num_members
         );
         return NULL;
     }
-    struct_field_t * member = &desc->struct_metadata.members.members[index];
+    struct_field_t * member = &base->struct_metadata.members.members[index];
 
     return member;
 }
@@ -754,8 +797,10 @@ is_void_return(TypeDescriptor const * desc)
 }
 
 uint64_t
-get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
+get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in)
 {
+    TypeDescriptor const * desc = type_descriptor_base(desc_in);
+
     debug_info("%s, desc: %p", __func__, desc);
     if (desc == NULL)
     {
@@ -822,8 +867,10 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
 }
 
 uint32_t
-get_type_alignment_desc(TypeDescriptor const * desc)
+get_type_alignment_desc(TypeDescriptor const * desc_in)
 {
+    TypeDescriptor const * desc = type_descriptor_base(desc_in);
+
     if (desc == NULL)
     {
         return 1;
@@ -913,8 +960,10 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
 
     fprintf(
         stderr,
-        "TypeDescriptor: '%s', kind=%d, llvm_type_kind=%d, pointee (%p) kind: %d\n",
+        "TypeDescriptor: '%s', (%p), base: (%p), kind=%d, llvm_type_kind=%d, pointee (%p) kind: %d\n",
         name,
+        (void *)desc,
+        (void *)type_descriptor_base(desc),
         desc->kind,
         desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1,
         (void *)desc->pointee,
@@ -931,7 +980,13 @@ type_descriptor_complete_struct(
 )
 {
     debug_info("%s: type desc %p", __func__, type_desc_in);
-    TypeDescriptor * type_desc = (TypeDescriptor *)type_desc_in;
+    if (type_desc_in == NULL
+        || (type_desc_in->kind != NCC_TYPE_KIND_STRUCT && type_desc_in->kind != NCC_TYPE_KIND_UNION))
+    {
+        debug_error("%s: Invalid struct descriptor", __func__);
+        return;
+    }
+    TypeDescriptor * type_desc = (TypeDescriptor *)type_descriptor_base(type_desc_in);
 
     type_desc->struct_metadata.is_complete = true;
 
@@ -964,8 +1019,14 @@ type_descriptor_get_enum_type(TypeDescriptors * registry)
 }
 
 bool
-type_descriptor_is_complete(TypeDescriptor const * type_desc)
+type_descriptor_is_complete(TypeDescriptor const * type_desc_in)
 {
+    TypeDescriptor * type_desc = (TypeDescriptor *)type_descriptor_base(type_desc_in);
+    if (type_desc == NULL)
+    {
+        return false;
+    }
+
     bool is_complete = false;
 
     if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)

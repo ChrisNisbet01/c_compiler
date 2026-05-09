@@ -167,7 +167,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         TypedValue rvalue_res = ensure_rvalue(ctx, "unary_inc_dev_rval", var_res);
         LLVMValueRef original_val = rvalue_res.value;
         LLVMValueRef one = LLVMConstInt(ctx->ref_type.i32_type, 1, false);
-
+        
         LLVMValueRef new_val;
         if (op->op.unary.op == UNARY_OP_INC)
         {

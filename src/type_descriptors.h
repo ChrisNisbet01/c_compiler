@@ -65,6 +65,7 @@ struct TypeDescriptor_st
     TypeSpecifier specifiers;
 
     // Relationships
+    TypeDescriptor const * base;    // For qualified types
     TypeDescriptor const * pointee; // For pointers/arrays
 
     /* Function-specific */
