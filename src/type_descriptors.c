@@ -952,5 +952,5 @@ type_descriptor_complete_struct(
 TypeDescriptor const *
 type_descriptor_get_enum_type(TypeDescriptors * registry)
 {
-    return get_or_create_builtin_type(registry, (TypeSpecifier){.is_int = true}, (TypeQualifier){0});
+    return type_descriptor_get_int32_type(registry, false);
 }

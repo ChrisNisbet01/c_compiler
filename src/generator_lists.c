@@ -68,7 +68,7 @@ generator_add_typedef_forward_decl(
 
     case TYPE_KIND_ENUM:
     {
-        TypeDescriptor const * enum_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+        TypeDescriptor const * enum_desc = type_descriptor_get_enum_type(ctx->type_descriptors);
         entry.type_desc = enum_desc;
         type_info_t info = {
             .tag = strdup(tag),
