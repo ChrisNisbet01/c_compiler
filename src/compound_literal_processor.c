@@ -34,6 +34,15 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
                     is_typedef = true;
                 }
             }
+            else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
+            {
+                c_grammar_node_t const * inner = child->typedef_specifier_qualifier.typedef_specifier;
+                type_name = extract_typedef_name(inner);
+                if (type_name != NULL)
+                {
+                    is_typedef = true;
+                }
+            }
             else
             {
                 /* Try struct/union keyword */
