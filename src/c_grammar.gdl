@@ -102,8 +102,9 @@ FloatLiteral = (FloatLiteralBase FloatSuffix?) @AST_ACTION_FLOAT_VALUE;
 NumberLiteral = lexeme((FloatLiteral | IntegerLiteral) IdBoundary);
 
 StringChar = ("\\" any) | noneof("\"\\\n\r");
-StringLiteralInner = StringChar* @AST_ACTION_STRING_LITERAL;
-StringLiteral = lexeme('"' StringLiteralInner '"');
+StringLiteralInner = StringChar* @AST_ACTION_STRING_LITERAL_PART;
+StringLiteralPart = lexeme('"' StringLiteralInner '"');
+StringLiteral = StringLiteralPart+ @AST_ACTION_STRING_LITERAL; 
 
 CharContent = ("\\" any) | noneof("'\\\n\r")+ @AST_ACTION_CHARACTER_LITERAL;
 CharLiteral = lexeme('\'' CharContent '\'');

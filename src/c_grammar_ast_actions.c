@@ -561,22 +561,83 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
 }
 
 static void
-handle_string_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+handle_string_literal_part(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
 {
     if (count > 0)
     {
         free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
-            ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_STRING_LITERAL), count
+            ctx,
+            "%s expected no children, but got %u",
+            get_node_type_name_from_type(AST_NODE_STRING_LITERAL_PART),
+            count
         );
         return;
     }
 
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_STRING_LITERAL, node);
+    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_STRING_LITERAL_PART, node);
     if (ast_node == NULL)
     {
         return;
     }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
+handle_string_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data)
+{
+    if (count == 0)
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s expected at least one child, but got none", get_node_type_name_from_type(AST_NODE_STRING_LITERAL)
+        );
+        return;
+    }
+
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRING_LITERAL);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    /* Now concatenate the child text into one string to use as this node's text. */
+    size_t total_len = 1; /* For the NUL terminator*/
+
+    for (size_t i = 0; i < (size_t)count; i++)
+    {
+        c_grammar_node_t * child = children[i];
+        if (child->text != NULL)
+        {
+            total_len += strlen(child->text);
+        }
+    }
+
+    char * text = calloc(total_len, sizeof(*ast_node->text));
+    if (text == NULL)
+    {
+        free_ast_node_children(children, count, user_data);
+        c_grammar_node_free(ast_node, user_data);
+        epc_ast_builder_set_error(
+            ctx, "%s: Memory allocation failed", get_node_type_name_from_type(AST_NODE_STRING_LITERAL)
+        );
+        return;
+    }
+
+    text[0] = '\0';
+
+    for (size_t i = 0; i < (size_t)count; i++)
+    {
+        c_grammar_node_t * child = children[i];
+        if (child->text != NULL)
+        {
+            strcat(text, (char *)child->text);
+        }
+    }
+
+    ast_node->text = text;
 
     epc_ast_push(ctx, ast_node);
 }
@@ -3264,6 +3325,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_BASE, handle_float_base);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_INTEGER_VALUE, handle_integer_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_FLOAT_VALUE, handle_float_literal);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_STRING_LITERAL_PART, handle_string_literal_part);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_STRING_LITERAL, handle_string_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CHARACTER_LITERAL, handle_character_literal);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_LITERAL_SUFFIX, handle_literal_suffix);

@@ -3003,6 +3003,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_FLOAT_BASE:
     case AST_NODE_INTEGER_LITERAL:
     case AST_NODE_FLOAT_LITERAL:
+    case AST_NODE_STRING_LITERAL_PART:
     case AST_NODE_STRING_LITERAL:
     case AST_NODE_LITERAL_SUFFIX:
     case AST_NODE_IDENTIFIER:
@@ -4600,6 +4601,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return process_expression(ctx, expr_node);
     }
 
+    case AST_NODE_STRING_LITERAL_PART:
     case AST_NODE_INITIALIZER_LIST:
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
