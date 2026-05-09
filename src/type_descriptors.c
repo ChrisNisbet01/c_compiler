@@ -923,6 +923,7 @@ type_descriptor_complete_struct(
     TypeDescriptors * registry, TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members
 )
 {
+    debug_info("%s: type desc %p", __func__, type_desc_in);
     TypeDescriptor * type_desc = (TypeDescriptor *)type_desc_in;
 
     type_desc->struct_metadata.is_complete = true;

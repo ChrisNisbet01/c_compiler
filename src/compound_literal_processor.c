@@ -51,6 +51,8 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     /* Look up the type - struct list or typedef list */
     TypeDescriptor const * compound_type_desc = is_typedef ? generator_find_typedef_type_descriptor(ctx, type_name)
                                                            : generator_find_type_descriptor_by_tag(ctx, type_name);
+
+    debug_info("%s: compound_type_desc: %p", __func__, compound_type_desc);
     if (compound_type_desc == NULL || compound_type_desc->llvm_type == NULL)
     {
         debug_error("Unknown type '%s' in compound literal", type_name);

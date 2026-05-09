@@ -720,7 +720,7 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
     debug_info("%s: tag %s, type %p", __func__, opaque.tag, struct_type);
     opaque.type_desc
         = register_struct_type(ctx->type_descriptors, struct_type, (TypeQualifier){0}, is_union, is_complete, members);
-    debug_info("%s: registering opaque and opaque ype desc: %p", __func__, opaque.type_desc);
+    debug_info("%s: registering opaque and opaque type desc: %p", __func__, opaque.type_desc);
 
     type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
     if (registered == NULL)
