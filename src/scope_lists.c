@@ -9,7 +9,9 @@ scope_types_add_entry(scope_types_t * list, type_info_t info)
     /* Update existing entry if one with the same tag and kind already exists */
     if (info.tag != NULL)
     {
+        debug_info("%s: %s", __func__, info.tag);
         type_info_t * existing = scope_types_lookup_entry_by_tag_and_kind(list, info.tag, info.kind);
+
         if (existing != NULL)
         {
             free(existing->tag);

@@ -41,8 +41,6 @@ generator_add_typedef_forward_decl(
 {
     debug_info("%s: name: %s, tag: %s", __func__, typedef_name, tag);
     scope_typedef_entry_t entry = {
-        .name = strdup(typedef_name),
-        .tag = strdup(tag),
         .kind = kind,
     };
 
@@ -84,6 +82,9 @@ generator_add_typedef_forward_decl(
     case TYPE_KIND_BUILTIN:
         break;
     }
+
+    entry.name = strdup(typedef_name);
+    entry.tag = strdup(tag);
 
     scope_add_typedef_entry(ctx->current_scope, entry);
 }
@@ -211,6 +212,18 @@ generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info)
     if (ctx == NULL)
     {
         return NULL;
+    }
+
+    type_info_t const * existing_type_info = generator_lookup_type_info_by_type_descriptor(ctx, info.type_desc);
+    if (existing_type_info != NULL)
+    {
+        bool is_complete = type_descriptor_is_complete(info.type_desc);
+        debug_info("%s %s is complete: %d", __func__, info.tag, is_complete);
+        if (is_complete)
+        {
+            debug_info("ignoring typedef update because the type descriptor is complete");
+            return existing_type_info;
+        }
     }
 
     return scope_add_tagged_type(ctx->current_scope, info);

@@ -178,6 +178,7 @@ get_or_create_qualified_type(TypeDescriptors * registry, TypeDescriptor const * 
     {
         return NULL;
     }
+    debug_info("%s: is_const: %d, is_volatile: %d", __func__, qualifiers.is_const, qualifiers.is_volatile);
 
     if (!qualifiers.is_const && !qualifiers.is_volatile)
     {
@@ -194,12 +195,16 @@ get_or_create_qualified_type(TypeDescriptors * registry, TypeDescriptor const * 
         }
         curr = curr->next;
     }
-
+    debug_info("%s: base num_members: %zu", __func__, base_type->struct_metadata.members.num_members);
     TypeDescriptor template = *base_type;
     template.qualifiers.is_const |= qualifiers.is_const;
     template.qualifiers.is_volatile |= qualifiers.is_volatile;
 
-    return register_descriptor(registry, &template);
+    TypeDescriptor const * new_desc = register_descriptor(registry, &template);
+
+    debug_info("%s: new num_members: %zu", __func__, base_type->struct_metadata.members.num_members);
+
+    return new_desc;
 }
 
 TypeDescriptor const *
@@ -687,15 +692,15 @@ type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * desc, c
 {
     if (desc == NULL || name == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
     {
-        debug_warning("%s: Invalid struct descriptor", __func__);
+        debug_error("%s: Invalid struct descriptor", __func__);
         return -1;
     }
-
+    debug_info("%s: desc: %p num_members: %zu", __func__, desc, desc->struct_metadata.members.num_members);
     // Access the members list in your metadata structure
     for (int i = 0; i < (int)desc->struct_metadata.members.num_members; ++i)
     {
         char const * member_name = desc->struct_metadata.members.members[i].name;
-
+        debug_info("check member: %s", member_name);
         if (member_name != NULL && strcmp(member_name, name) == 0)
         {
             debug_info("%s: got member %s at index %u", __func__, name, i);
@@ -908,10 +913,12 @@ dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level
 
     fprintf(
         stderr,
-        "TypeDescriptor: '%s', kind=%d, llvm_type_kind=%d\n",
+        "TypeDescriptor: '%s', kind=%d, llvm_type_kind=%d, pointee (%p) kind: %d\n",
         name,
         desc->kind,
-        desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1
+        desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1,
+        (void *)desc->pointee,
+        desc->pointee != NULL && desc->pointee->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->pointee->llvm_type) : -1
     );
 
     type_specifier_dump(desc->specifiers, level);
@@ -954,4 +961,17 @@ TypeDescriptor const *
 type_descriptor_get_enum_type(TypeDescriptors * registry)
 {
     return type_descriptor_get_int32_type(registry, false);
+}
+
+bool
+type_descriptor_is_complete(TypeDescriptor const * type_desc)
+{
+    bool is_complete = false;
+
+    if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)
+    {
+        is_complete = type_desc->struct_metadata.is_complete && type_desc->struct_metadata.members.num_members > 0;
+    }
+
+    return is_complete;
 }

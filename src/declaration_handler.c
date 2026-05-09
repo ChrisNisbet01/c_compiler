@@ -326,7 +326,7 @@ resolve_type_descriptor(
     char const * typedef_name = NULL;
     /* FIXME: only supported by native types right now. */
     TypeQualifier type_quals = build_type_qualifiers_from_parent(decl_specifiers);
-
+    debug_info("%s: is const: %d, is volatile: %d", __func__, type_quals.is_const, type_quals.is_volatile);
     if (decl_specifiers->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
         typedef_name = search_for_identifier(decl_specifiers);
@@ -504,6 +504,7 @@ resolve_type_descriptor(
         debug_info("%s: no declarator provided, returning type descriptor", __func__);
         return current;
     }
+    debug_info("after qualification: current type descriptor: %p", (void *)current);
     debug_info("declarator node: %s", get_node_type_name_from_node(declarator));
 
     c_grammar_node_t const * pointer_list = NULL;

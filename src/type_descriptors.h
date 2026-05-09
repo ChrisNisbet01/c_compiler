@@ -164,3 +164,5 @@ void type_descriptor_complete_struct(
 );
 
 TypeDescriptor const * type_descriptor_get_enum_type(TypeDescriptors * registry);
+
+bool type_descriptor_is_complete(TypeDescriptor const * type_desc);
