@@ -227,8 +227,7 @@ is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void * par
         return false;
     }
 
-    bool found
-        = typedef_scope_contains(session, name_copy) || symbol_table_contains(session->builtins, name_copy);
+    bool found = typedef_scope_contains(session, name_copy) || symbol_table_contains(session->builtins, name_copy);
 
     free(name_copy);
     return found;
