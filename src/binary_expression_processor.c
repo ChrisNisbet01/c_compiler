@@ -271,6 +271,8 @@ complete_binary_expression(
     ir_generator_ctx_t * ctx, TypedValue lhs_res, c_grammar_node_t const * node, binary_operation_type_t op_type
 )
 {
+    debug_info("%s: node type: %s (%d)", __func__, get_node_type_name_from_node(node), node->type);
+
     if (lhs_res.value == NULL)
     {
         return NullTypedValue;
@@ -301,14 +303,19 @@ complete_binary_expression(
     if ((op_type == BINARY_OP_RELATIONAL || op_type == BINARY_OP_EQUALITY) && is_integer_kind(lhs_res.type_info)
         && is_integer_kind(rhs_res.type_info))
     {
+        debug_info("%s: 6", __func__);
         rhs_res = cast_typed_value_to_desc(ctx, rhs_res, lhs_res.type_info);
     }
+    debug_info("%s: 7", __func__);
 
     // Determine if this is a floating point operation
     bool is_float_op = is_floating_kind(lhs_res.type_info) || is_floating_kind(rhs_res.type_info);
+    debug_info("%s: 8: node type: %s", __func__, get_node_type_name_from_node(node));
 
     // Get the operator
     c_grammar_node_t const * op_node = node->binary_expression.op;
+
+    debug_info("%s: 8: op_node type: %s", __func__, get_node_type_name_from_node(node));
 
     // Map the operator to an index in the operation map
     size_t op_index = 0;
@@ -342,6 +349,7 @@ complete_binary_expression(
         assignment_operator_type_t op = op_node->op.assign.op;
         op_index = (size_t)op;
     }
+    debug_info("%s: 8: op index %zu", __func__, op_index);
 
     // Validate operator index
     if (op_index >= op_map_size)
@@ -349,9 +357,11 @@ complete_binary_expression(
         debug_error("Invalid operator index %zu for %s operation", op_index, op_map->name);
         return NullTypedValue;
     }
+    debug_info("%s 9: op index %zu", __func__, op_index);
 
     // Get the operation mapping
     binary_operation_mapping_t const * mapping = &op_map[op_index];
+    debug_info("%s 10: mapping", __func__, (void *)mapping);
 
     // Perform the operation
     LLVMValueRef result_value = NULL;
@@ -466,6 +476,14 @@ TypedValue
 process_binary_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, binary_operation_type_t op_type)
 {
     // Process LHS and RHS expressions
+    debug_info(
+        "%s: node (%p), type: %s (%d), op_type: %d",
+        __func__,
+        (void *)node,
+        get_node_type_name_from_node(node),
+        node->type,
+        op_type
+    );
     TypedValue lhs_res = process_expression(ctx, node->binary_expression.left);
     if (lhs_res.value == NULL)
     {

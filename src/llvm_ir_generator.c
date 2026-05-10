@@ -808,9 +808,7 @@ register_tagged_struct_or_union_definition(
             // Second pass: ensure correct alignment by wrapping if needed
             for (unsigned i = 0; i < num_storage_units; i++)
             {
-                if (field_types[i] != NULL
-                    && field_aligns[i] > 0
-                    && max_align_types[i] != NULL
+                if (field_types[i] != NULL && field_aligns[i] > 0 && max_align_types[i] != NULL
                     && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
                 {
                     LLVMTypeRef wrapper_types[2];
@@ -936,9 +934,7 @@ register_tagged_struct_or_union_definition(
     // Second pass: ensure correct alignment by wrapping if needed
     for (unsigned i = 0; i < num_storage_units; i++)
     {
-        if (field_types[i] != NULL
-            && field_aligns[i] > 0
-            && max_align_types[i] != NULL
+        if (field_types[i] != NULL && field_aligns[i] > 0 && max_align_types[i] != NULL
             && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
         {
             LLVMTypeRef wrapper_types[2];
@@ -1589,22 +1585,23 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
                     for (size_t d = 0; d < desig->list.count; d++)
                     {
                         c_grammar_node_t const * child = desig->list.children[d];
+                        TypedValue idx_val = NullTypedValue;
                         if (child->type == AST_NODE_IDENTIFIER)
                         {
-                            TypedValue sym;
-                            if (generator_lookup_symbol_value(ctx, child->text, &sym) && sym.value != NULL
-                                && LLVMIsConstant(sym.value))
-                            {
-                                current_idx = (size_t)LLVMConstIntGetZExtValue(sym.value);
-                            }
+                            generator_lookup_symbol_value(ctx, child->text, &idx_val);
                         }
                         else
                         {
-                            TypedValue idx_val = process_expression(ctx, child);
-                            if (idx_val.value != NULL && LLVMIsConstant(idx_val.value))
+                            idx_val = process_expression(ctx, child);
+                        }
+                        if (idx_val.value != NULL && LLVMIsConstant(idx_val.value))
+                        {
+                            LLVMValueRef actual_const = idx_val.value;
+                            if (LLVMGetValueKind(idx_val.value) == LLVMGlobalVariableValueKind)
                             {
-                                current_idx = (size_t)LLVMConstIntGetZExtValue(idx_val.value);
+                                actual_const = LLVMGetInitializer(idx_val.value);
                             }
+                            current_idx = (size_t)LLVMConstIntGetZExtValue(actual_const);
                         }
                     }
                 }
@@ -4473,8 +4470,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     }
     lhs_res = ensure_rvalue(ctx, "log_lhs_rval", lhs_res);
 
-    TypeDescriptor const * bool_type
-        = get_or_create_builtin_type(ctx->type_descriptors, (TypeSpecifier){.is_bool = true}, (TypeQualifier){0});
+    TypeDescriptor const * bool_type = type_descriptor_get_bool_type(ctx->type_descriptors, false);
     // Convert to i1
     if (!is_integer_kind(lhs_res.type_info) || LLVMGetIntTypeWidth(lhs_res.type_info->llvm_type) != 1)
     {
@@ -4506,7 +4502,7 @@ process_logical_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
     }
     rhs_res = ensure_rvalue(ctx, "log_rhs_rval", rhs_res);
 
-    if (is_integer_kind(rhs_res.type_info) || LLVMGetIntTypeWidth(lhs_res.type_info->llvm_type) != 1)
+    if (!is_integer_kind(rhs_res.type_info) || LLVMGetIntTypeWidth(rhs_res.type_info->llvm_type) != 1)
     {
         // This handles ints (is x != 0?), pointers (is ptr != null?), etc.
         LLVMValueRef zero = LLVMConstNull(rhs_res.type_info->llvm_type);

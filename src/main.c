@@ -973,6 +973,10 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
+    debug_info(
+        "Successfully created C parser. (%p), input_file: %s session_ctx: %p", c_parser, actual_input_file, session_ctx
+    );
+
     epc_parse_session_t session = epc_parse_file(c_parser, actual_input_file, session_ctx);
 
     if (session.result.is_error)
