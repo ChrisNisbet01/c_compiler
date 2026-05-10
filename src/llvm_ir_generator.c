@@ -1451,6 +1451,12 @@ add_function_scope_builtin_macros(ir_generator_ctx_t * ctx, char const * func_na
 static LLVMValueRef
 evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * desc, c_grammar_node_t const * node)
 {
+    // Unwrap INITIALIZER wrapper nodes
+    if (node->type == AST_NODE_INITIALIZER && node->list.count > 0)
+    {
+        node = node->list.children[0];
+    }
+
     // Handle String Literals
     if (node->type == AST_NODE_STRING_LITERAL)
     {
@@ -1503,6 +1509,23 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
                     /* TODO: Support the designation. */
                     // Recurse for nested elements
                     elems[i] = evaluate_constant_initializer(ctx, desc->pointee, initializer);
+                    // Widen integer if needed to match element type
+                    if (elems[i] != NULL && desc->pointee != NULL)
+                    {
+                        LLVMTypeRef target_ty = desc->pointee->llvm_type;
+                        LLVMTypeRef val_ty = LLVMTypeOf(elems[i]);
+                        if (val_ty != target_ty && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
+                            && LLVMGetTypeKind(target_ty) == LLVMIntegerTypeKind)
+                        {
+                            unsigned sw = LLVMGetIntTypeWidth(val_ty);
+                            unsigned dw = LLVMGetIntTypeWidth(target_ty);
+                            if (sw < dw)
+                            {
+                                unsigned long long raw = LLVMConstIntGetSExtValue(elems[i]);
+                                elems[i] = LLVMConstInt(target_ty, raw, true);
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -1532,6 +1555,30 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
                     fields[i] = evaluate_constant_initializer(
                         ctx, desc->struct_metadata.members.members[i].type_desc, initializer
                     );
+                    // Widen integer if needed to match field type
+                    if (fields[i] != NULL)
+                    {
+                        LLVMTypeRef target_ty = desc->struct_metadata.members.members[i].type_desc->llvm_type;
+                        LLVMTypeRef val_ty = LLVMTypeOf(fields[i]);
+                        // Integer zero → null pointer for pointer fields
+                        if (LLVMGetTypeKind(target_ty) == LLVMPointerTypeKind
+                            && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
+                            && LLVMConstIntGetZExtValue(fields[i]) == 0)
+                        {
+                            fields[i] = LLVMConstNull(target_ty);
+                        }
+                        else if (val_ty != target_ty && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
+                            && LLVMGetTypeKind(target_ty) == LLVMIntegerTypeKind)
+                        {
+                            unsigned sw = LLVMGetIntTypeWidth(val_ty);
+                            unsigned dw = LLVMGetIntTypeWidth(target_ty);
+                            if (sw < dw)
+                            {
+                                unsigned long long raw = LLVMConstIntGetSExtValue(fields[i]);
+                                fields[i] = LLVMConstInt(target_ty, raw, true);
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -1555,6 +1602,18 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
 
     if (LLVMIsConstant(val.value))
     {
+        // Widen integer if needed to match target type
+        if (desc != NULL && LLVMGetTypeKind(val.value) == LLVMIntegerTypeKind
+            && LLVMGetTypeKind(desc->llvm_type) == LLVMIntegerTypeKind)
+        {
+            unsigned src_width = LLVMGetIntTypeWidth(val.value);
+            unsigned dst_width = LLVMGetIntTypeWidth(desc->llvm_type);
+            if (src_width < dst_width)
+            {
+                unsigned long long raw_val = LLVMConstIntGetSExtValue(val.value);
+                return LLVMConstInt(desc->llvm_type, raw_val, true);
+            }
+        }
         return val.value;
     }
 
@@ -1604,6 +1663,14 @@ create_global_variable(
         // Update the descriptor to have the actual size
         final_desc = get_or_create_array_type(ctx->type_descriptors, type_desc->pointee, str_len);
         free((char *)decoded);
+    }
+
+    // Handle unsized array with initializer list: int arr[] = {1, 2, 3};
+    if (type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->array_metadata.size == 0 && initializer_expr_node
+        && initializer_expr_node->type == AST_NODE_INITIALIZER_LIST)
+    {
+        size_t array_size = initializer_expr_node->list.count;
+        final_desc = get_or_create_array_type(ctx->type_descriptors, type_desc->pointee, array_size);
     }
 
     // 2. Create the Global Identity
