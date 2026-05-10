@@ -239,6 +239,63 @@ get_or_create_qualified_type(
     return new_desc;
 }
 
+static LLVMTypeRef
+type_ref_from_specs(TypeDescriptors * registry, TypeSpecifier const specs)
+{
+    LLVMTypeRef llvm_type;
+
+    if (specs.is_void)
+    {
+        llvm_type = registry->builtins.void_type;
+    }
+    else if (specs.is_float)
+    {
+        llvm_type = registry->builtins.f32_type;
+    }
+    else if (specs.is_double)
+    {
+        if (specs.long_count > 1)
+        {
+            llvm_type = registry->builtins.long_double_type;
+        }
+        else
+        {
+            llvm_type = registry->builtins.f64_type;
+        }
+    }
+    else if (specs.long_count > 0)
+    {
+        llvm_type = registry->builtins.i64_type;
+    }
+    else if (specs.is_int)
+    {
+        llvm_type = registry->builtins.i32_type;
+    }
+    else if (specs.is_short)
+    {
+        llvm_type = registry->builtins.i16_type;
+    }
+    else if (specs.is_char)
+    {
+        llvm_type = registry->builtins.i8_type;
+    }
+    else if (specs.is_bool)
+    {
+        llvm_type = registry->builtins.i1_type;
+    }
+    else if (specs.is_unsigned)
+    {
+        llvm_type = registry->builtins.i32_type; // Unsigned int is still i32 in LLVM, the signedness is in the
+                                                 // operations, not the type itself
+    }
+    else // TODO: Determine if long should be i64 or i32 depending on architecture
+    {
+        llvm_type = registry->builtins.i32_type; // Default int / long
+    }
+
+    return llvm_type;
+}
+
 TypeDescriptor const *
 get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs_in, TypeQualifier const quals)
 {
@@ -264,41 +321,9 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
     }
 
     // New builtin: Determine LLVM type based on specifiers
-    LLVMTypeRef llvm_type = NULL;
-    if (specs.is_void)
-        llvm_type = registry->builtins.void_type;
-    else if (specs.is_float)
-        llvm_type = registry->builtins.f32_type;
-    else if (specs.is_double)
-    {
-        if (specs.long_count > 1)
-        {
-            llvm_type = registry->builtins.long_double_type;
-        }
-        else
-        {
-            llvm_type = registry->builtins.f64_type;
-        }
-    }
-    else if (specs.long_count > 0)
-        llvm_type = registry->builtins.i64_type;
-    else if (specs.is_int)
-        llvm_type = registry->builtins.i32_type;
-    else if (specs.is_short)
-        llvm_type = registry->builtins.i16_type;
-    else if (specs.is_char)
-        llvm_type = registry->builtins.i8_type;
-    else if (specs.is_bool)
-        llvm_type = registry->builtins.i1_type;
-    else if (specs.is_unsigned)
-        llvm_type = registry->builtins.i32_type; // Unsigned int is still i32 in LLVM, the signedness is in the
-                                                 // operations, not the type itself
-    else // TODO: Determine if long should be i64 or i32 depending on architecture
-        llvm_type = registry->builtins.i32_type; // Default int / long
-
-    TypeDescriptor template = {
-        .kind = NCC_TYPE_KIND_BUILTIN, .llvm_type = llvm_type, .specifiers = specs, .qualifiers = quals, .pointee = NULL
-    };
+    LLVMTypeRef llvm_type = type_ref_from_specs(registry, specs);
+    TypeDescriptor template
+        = {.kind = NCC_TYPE_KIND_BUILTIN, .llvm_type = llvm_type, .specifiers = specs, .qualifiers = quals};
 
     return register_descriptor(registry, &template);
 }

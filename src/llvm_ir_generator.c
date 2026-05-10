@@ -1495,25 +1495,49 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
     {
         if (desc->kind == NCC_TYPE_KIND_ARRAY)
         {
-            size_t count = node->list.count;
-            LLVMValueRef * elems = malloc(sizeof(LLVMValueRef) * desc->array_metadata.size);
+            size_t entry_count = node->list.count;
+            size_t array_size = desc->array_metadata.size;
+            LLVMValueRef * elems = calloc(array_size, sizeof(*elems));
 
-            for (uint32_t i = 0; i < desc->array_metadata.size; i++)
+            size_t current_idx = 0;
+            for (size_t e = 0; e < entry_count; e++)
             {
-                if (i < count)
-                {
-                    c_grammar_node_t const * list_entry = node->list.children[i];
-                    // c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
-                    c_grammar_node_t const * initializer = list_entry->initializer_list_entry.initializer;
+                c_grammar_node_t const * list_entry = node->list.children[e];
+                c_grammar_node_t const * desig = list_entry->initializer_list_entry.designation;
+                c_grammar_node_t const * init = list_entry->initializer_list_entry.initializer;
 
-                    /* TODO: Support the designation. */
-                    // Recurse for nested elements
-                    elems[i] = evaluate_constant_initializer(ctx, desc->pointee, initializer);
-                    // Widen integer if needed to match element type
-                    if (elems[i] != NULL && desc->pointee != NULL)
+                if (desig != NULL)
+                {
+                    for (size_t d = 0; d < desig->list.count; d++)
+                    {
+                        c_grammar_node_t const * child = desig->list.children[d];
+                        if (child->type == AST_NODE_IDENTIFIER)
+                        {
+                            TypedValue sym;
+                            if (generator_lookup_symbol_value(ctx, child->text, &sym) && sym.value != NULL
+                                && LLVMIsConstant(sym.value))
+                            {
+                                current_idx = (size_t)LLVMConstIntGetZExtValue(sym.value);
+                            }
+                        }
+                        else
+                        {
+                            TypedValue idx_val = process_expression(ctx, child);
+                            if (idx_val.value != NULL && LLVMIsConstant(idx_val.value))
+                            {
+                                current_idx = (size_t)LLVMConstIntGetZExtValue(idx_val.value);
+                            }
+                        }
+                    }
+                }
+
+                if (current_idx < array_size)
+                {
+                    elems[current_idx] = evaluate_constant_initializer(ctx, desc->pointee, init);
+                    if (elems[current_idx] != NULL && desc->pointee != NULL)
                     {
                         LLVMTypeRef target_ty = desc->pointee->llvm_type;
-                        LLVMTypeRef val_ty = LLVMTypeOf(elems[i]);
+                        LLVMTypeRef val_ty = LLVMTypeOf(elems[current_idx]);
                         if (val_ty != target_ty && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
                             && LLVMGetTypeKind(target_ty) == LLVMIntegerTypeKind)
                         {
@@ -1521,71 +1545,97 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
                             unsigned dw = LLVMGetIntTypeWidth(target_ty);
                             if (sw < dw)
                             {
-                                unsigned long long raw = LLVMConstIntGetSExtValue(elems[i]);
-                                elems[i] = LLVMConstInt(target_ty, raw, true);
+                                unsigned long long raw = LLVMConstIntGetSExtValue(elems[current_idx]);
+                                elems[current_idx] = LLVMConstInt(target_ty, raw, true);
                             }
                         }
                     }
                 }
-                else
+                current_idx++;
+            }
+
+            for (uint32_t i = 0; i < array_size; i++)
+            {
+                if (elems[i] == NULL)
                 {
-                    // Pad with zeros
                     elems[i] = LLVMConstNull(desc->pointee->llvm_type);
                 }
             }
-            LLVMValueRef res = LLVMConstArray(desc->pointee->llvm_type, elems, desc->array_metadata.size);
+            LLVMValueRef res = LLVMConstArray(desc->pointee->llvm_type, elems, array_size);
             free(elems);
             return res;
         }
 
         if (desc->kind == NCC_TYPE_KIND_STRUCT)
         {
+            size_t entry_count = node->list.count;
             size_t field_count = desc->struct_metadata.members.num_members;
-            LLVMValueRef * fields = malloc(sizeof(LLVMValueRef) * field_count);
+            LLVMValueRef * fields = calloc(field_count, sizeof(*fields));
 
-            for (size_t i = 0; i < field_count; i++)
+            size_t current_field = 0;
+            for (size_t e = 0; e < entry_count; e++)
             {
-                if (i < node->list.count)
-                {
-                    c_grammar_node_t const * list_entry = node->list.children[i];
-                    // c_grammar_node_t const * designation = list_entry->initializer_list_entry.designation;
-                    c_grammar_node_t const * initializer = list_entry->initializer_list_entry.initializer;
-                    /* TODO: Support the designation. */
+                c_grammar_node_t const * list_entry = node->list.children[e];
+                c_grammar_node_t const * desig = list_entry->initializer_list_entry.designation;
+                c_grammar_node_t const * init = list_entry->initializer_list_entry.initializer;
 
-                    fields[i] = evaluate_constant_initializer(
-                        ctx, desc->struct_metadata.members.members[i].type_desc, initializer
-                    );
-                    // Widen integer if needed to match field type
-                    if (fields[i] != NULL)
+                if (desig != NULL)
+                {
+                    for (size_t d = 0; d < desig->list.count; d++)
                     {
-                        LLVMTypeRef target_ty = desc->struct_metadata.members.members[i].type_desc->llvm_type;
-                        LLVMTypeRef val_ty = LLVMTypeOf(fields[i]);
-                        // Integer zero → null pointer for pointer fields
+                        c_grammar_node_t const * child = desig->list.children[d];
+                        if (child->type == AST_NODE_IDENTIFIER)
+                        {
+                            int idx = type_descriptor_find_struct_field_index_from_desc(desc, child->text);
+                            if (idx >= 0)
+                            {
+                                current_field = (size_t)idx;
+                            }
+                        }
+                    }
+                }
+
+                if (current_field < field_count)
+                {
+                    fields[current_field] = evaluate_constant_initializer(
+                        ctx, desc->struct_metadata.members.members[current_field].type_desc, init
+                    );
+                    if (fields[current_field] != NULL)
+                    {
+                        LLVMTypeRef target_ty
+                            = desc->struct_metadata.members.members[current_field].type_desc->llvm_type;
+                        LLVMTypeRef val_ty = LLVMTypeOf(fields[current_field]);
                         if (LLVMGetTypeKind(target_ty) == LLVMPointerTypeKind
                             && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
-                            && LLVMConstIntGetZExtValue(fields[i]) == 0)
+                            && LLVMConstIntGetZExtValue(fields[current_field]) == 0)
                         {
-                            fields[i] = LLVMConstNull(target_ty);
+                            fields[current_field] = LLVMConstNull(target_ty);
                         }
-                        else if (val_ty != target_ty && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
-                            && LLVMGetTypeKind(target_ty) == LLVMIntegerTypeKind)
+                        else if (
+                            val_ty != target_ty && LLVMGetTypeKind(val_ty) == LLVMIntegerTypeKind
+                            && LLVMGetTypeKind(target_ty) == LLVMIntegerTypeKind
+                        )
                         {
                             unsigned sw = LLVMGetIntTypeWidth(val_ty);
                             unsigned dw = LLVMGetIntTypeWidth(target_ty);
                             if (sw < dw)
                             {
-                                unsigned long long raw = LLVMConstIntGetSExtValue(fields[i]);
-                                fields[i] = LLVMConstInt(target_ty, raw, true);
+                                unsigned long long raw = LLVMConstIntGetSExtValue(fields[current_field]);
+                                fields[current_field] = LLVMConstInt(target_ty, raw, true);
                             }
                         }
                     }
                 }
-                else
+                current_field++;
+            }
+
+            for (size_t i = 0; i < field_count; i++)
+            {
+                if (fields[i] == NULL)
                 {
                     fields[i] = LLVMConstNull(desc->struct_metadata.members.members[i].type_desc->llvm_type);
                 }
             }
-            // Note: Use LLVMConstNamedStruct if your descriptor holds the actual named type
             LLVMValueRef res = LLVMConstStructInContext(ctx->context, fields, field_count, false);
             free(fields);
             return res;
@@ -1603,10 +1653,10 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
     if (LLVMIsConstant(val.value))
     {
         // Widen integer if needed to match target type
-        if (desc != NULL && LLVMGetTypeKind(val.value) == LLVMIntegerTypeKind
+        if (desc != NULL && LLVMGetTypeKind(LLVMTypeOf(val.value)) == LLVMIntegerTypeKind
             && LLVMGetTypeKind(desc->llvm_type) == LLVMIntegerTypeKind)
         {
-            unsigned src_width = LLVMGetIntTypeWidth(val.value);
+            unsigned src_width = LLVMGetIntTypeWidth(LLVMTypeOf(val.value));
             unsigned dst_width = LLVMGetIntTypeWidth(desc->llvm_type);
             if (src_width < dst_width)
             {
@@ -2789,7 +2839,17 @@ process_switch_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     LLVMValueRef switch_inst
         = LLVMBuildSwitch(ctx->builder, switch_val.value, default_target, (unsigned)num_case_values);
 
-    // Add all cases to switch
+    // Collect all case values
+    typedef struct
+    {
+        long long value;
+        LLVMValueRef const_val;
+        LLVMBasicBlockRef target;
+    } CaseEntry;
+
+    CaseEntry * case_entries = NULL;
+    size_t case_count = 0;
+
     for (size_t i = 0; i < num_items; i++)
     {
         if (items[i].is_default)
@@ -2808,26 +2868,57 @@ process_switch_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             }
         }
 
-        // Add each case value from this SwitchCase
+        // Collect each case value from this SwitchCase
         c_grammar_node_t const * switch_case_node = items[i].node;
         for (size_t j = 0; j < switch_case_node->switch_case.labels->list.count; j++)
         {
             c_grammar_node_t const * child = switch_case_node->switch_case.labels->list.children[j];
-            // CaseLabel contains the case expression
             if (child->list.count >= 1)
             {
                 TypedValue case_val = process_expression(ctx, child->list.children[0]);
                 if (case_val.value == NULL)
                 {
+                    free(case_entries);
                     return;
                 }
                 case_val = ensure_rvalue(ctx, "switch_case_rval", case_val);
-                LLVMAddCase(
-                    switch_inst, case_val.value, items[i].body_block ? items[i].body_block : fallthrough_target
-                );
+
+                CaseEntry * tmp = realloc(case_entries, (case_count + 1) * sizeof(*tmp));
+                if (tmp == NULL)
+                {
+                    free(case_entries);
+                    return;
+                }
+                case_entries = tmp;
+                case_entries[case_count].value = LLVMConstIntGetSExtValue(case_val.value);
+                case_entries[case_count].const_val = case_val.value;
+                case_entries[case_count].target = items[i].body_block ? items[i].body_block : fallthrough_target;
+                case_count++;
             }
         }
     }
+
+    // Sort case entries by value (LLVM requires strictly increasing order)
+    for (size_t i = 0; i < case_count; i++)
+    {
+        for (size_t k = i + 1; k < case_count; k++)
+        {
+            if (case_entries[k].value < case_entries[i].value)
+            {
+                CaseEntry tmp = case_entries[i];
+                case_entries[i] = case_entries[k];
+                case_entries[k] = tmp;
+            }
+        }
+    }
+
+    // Add cases in sorted order
+    for (size_t i = 0; i < case_count; i++)
+    {
+        LLVMAddCase(switch_inst, case_entries[i].const_val, case_entries[i].target);
+    }
+
+    free(case_entries);
 
     // Process bodies in forward order
     for (size_t i = 0; i < num_items; i++)
@@ -3811,7 +3902,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             // Process Arguments
             size_t num_args = suffix->list.count;
-            LLVMValueRef * call_args = num_args > 0 ? calloc(num_args, sizeof(LLVMValueRef)) : NULL;
+            LLVMValueRef * call_args = num_args > 0 ? calloc(num_args, sizeof(*call_args)) : NULL;
 
             for (size_t j = 0; j < num_args; ++j)
             {

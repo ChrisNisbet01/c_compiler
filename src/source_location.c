@@ -109,13 +109,10 @@ source_location_tracker_pop_include(source_location_tracker_t * tracker)
     }
     tracker->stack_top--;
 
-    debug_info(
-        "%s line: %zu filename: %s\n",
-        __func__,
-        tracker->include_stack[tracker->stack_top].line,
-        tracker->include_stack[tracker->stack_top].filename
-    );
-    free(tracker->include_stack[tracker->stack_top].filename);
+    include_stack_entry_t * entry = &tracker->include_stack[tracker->stack_top];
+    debug_info("%s line: %zu filename: %s\n", __func__, entry->line, entry->filename);
+
+    free(entry->filename);
 }
 
 source_location_entry_t const *
