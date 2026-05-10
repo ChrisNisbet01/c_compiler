@@ -44,6 +44,7 @@ static c_grammar_node_t *
 create_list_node(c_grammar_node_type_t type, void ** children, int count)
 {
     c_grammar_node_t * node = calloc(1, sizeof(*node));
+
     if (node == NULL)
     {
         return NULL;

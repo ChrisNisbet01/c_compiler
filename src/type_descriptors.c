@@ -347,62 +347,107 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
     uint32_t max_align = 1;
     size_t member_count = desc->struct_metadata.members.num_members;
 
-    struct_field_t * previous_member = NULL;
+    if (member_count == 0)
+    {
+        return;
+    }
+
+    // First pass: find max size and max alignment per storage_index
+    // (needed for flattened unions where multiple members share a storage_index)
+    unsigned num_storage_indices
+        = desc->struct_metadata.members.members[member_count - 1].bitfield.storage_index + 1;
+    uint64_t * max_sizes = calloc(num_storage_indices, sizeof(*max_sizes));
+    uint32_t * max_aligns = calloc(num_storage_indices, sizeof(*max_aligns));
 
     for (size_t i = 0; i < member_count; ++i)
     {
         struct_field_t * current_member = &desc->struct_metadata.members.members[i];
         TypeDescriptor const * mem_desc = current_member->type_desc;
+        unsigned sidx = current_member->bitfield.storage_index;
 
         uint64_t mem_size = get_type_size_desc(data_layout, mem_desc);
         uint32_t mem_align = get_type_alignment_desc(mem_desc);
 
+        if (mem_size > max_sizes[sidx])
+        {
+            max_sizes[sidx] = mem_size;
+        }
+        if (mem_align > max_aligns[sidx])
+        {
+            max_aligns[sidx] = mem_align;
+        }
         if (mem_align > max_align)
         {
             max_align = mem_align;
         }
+    }
+
+    // Second pass: compute offsets and total size
+    unsigned current_sidx = desc->struct_metadata.members.members[0].bitfield.storage_index;
+
+    for (size_t i = 0; i < member_count; ++i)
+    {
+        struct_field_t * current_member = &desc->struct_metadata.members.members[i];
+        TypeDescriptor const * mem_desc = current_member->type_desc;
+        unsigned sidx = current_member->bitfield.storage_index;
 
         if (desc->kind == NCC_TYPE_KIND_STRUCT)
         {
-            if (previous_member == NULL
-                || previous_member->bitfield.storage_index != current_member->bitfield.storage_index)
+            if (sidx != current_sidx)
             {
-                // 1. Add padding before the member to satisfy its alignment
-                uint64_t padding = (mem_align - (current_offset % mem_align)) % mem_align;
+                // Finalize previous storage unit: advance cursor by its max size
+                current_offset += max_sizes[current_sidx];
+                current_sidx = sidx;
+
+                // Add padding for the new storage unit using its max alignment
+                uint64_t padding = (max_aligns[sidx] - (current_offset % max_aligns[sidx])) % max_aligns[sidx];
                 current_offset += padding;
             }
 
-            // 2. Set the offset for this member
+            // Special case: for the very first member, add padding if needed
+            if (i == 0)
+            {
+                uint64_t padding = (max_aligns[sidx] - (current_offset % max_aligns[sidx])) % max_aligns[sidx];
+                current_offset += padding;
+            }
+
+            // Set the offset for this member (all union members share same offset)
             desc->struct_metadata.members.members[i].bitfield.offset = current_offset;
             debug_info(
                 "member: %zu offset: %llu size: %llu align: %u storage: %u",
                 i,
                 current_offset,
-                mem_size,
-                mem_align,
+                get_type_size_desc(data_layout, mem_desc),
+                get_type_alignment_desc(mem_desc),
                 current_member->bitfield.storage_index
             );
-
-            if (i == member_count - 1
-                || desc->struct_metadata.members.members[i + 1].bitfield.storage_index
-                       != current_member->bitfield.storage_index)
-            {
-                //
-                // 3. Move the cursor
-                current_offset += mem_size;
-            }
         }
         else
         {
             // UNION: All members start at offset 0
             desc->struct_metadata.members.members[i].bitfield.offset = 0;
-            if (mem_size > current_offset)
+        }
+    }
+
+    // Finalize: for structs, advance past the last storage unit; for unions, take overall max
+    if (desc->kind == NCC_TYPE_KIND_STRUCT)
+    {
+        current_offset += max_sizes[current_sidx];
+    }
+    else
+    {
+        current_offset = 0;
+        for (unsigned i = 0; i < num_storage_indices; i++)
+        {
+            if (max_sizes[i] > current_offset)
             {
-                current_offset = mem_size; // Track the largest member
+                current_offset = max_sizes[i];
             }
         }
-        previous_member = current_member;
     }
+
+    free(max_sizes);
+    free(max_aligns);
 
     // 4. Final Tail Padding
     // The total size must be a multiple of the largest alignment found

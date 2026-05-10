@@ -1001,6 +1001,7 @@ main(int argc, char * argv[])
     // Build the AST
     int exit_code = EXIT_SUCCESS;
     epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
+    printf("back from registry_create\n");
     if (registry != NULL)
     {
         c_grammar_ast_hook_registry_init(registry);

@@ -774,16 +774,55 @@ register_tagged_struct_or_union_definition(
             {
                 return existing;
             }
-            int current_storage_unit = -1;
+            // First pass: track largest type and highest alignment per storage unit
+            uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
+            if (field_aligns == NULL)
+            {
+                free(field_types);
+                return existing;
+            }
+            LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
+            if (max_align_types == NULL)
+            {
+                free(field_types);
+                free(field_aligns);
+                return existing;
+            }
             for (size_t i = 0; i < members.num_members; i++)
             {
                 struct_field_t * field = &members.members[i];
-                if (field->bitfield.storage_index != (unsigned)current_storage_unit)
+                unsigned idx = field->bitfield.storage_index;
+                uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
+                if (field_types[idx] == NULL
+                    || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
+                           > LLVMABISizeOfType(ctx->data_layout, field_types[idx]))
                 {
-                    current_storage_unit = (int)field->bitfield.storage_index;
-                    field_types[current_storage_unit] = field->type_desc->llvm_type;
+                    field_types[idx] = field->type_desc->llvm_type;
+                }
+                if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
+                {
+                    max_align_types[idx] = field->type_desc->llvm_type;
+                    field_aligns[idx] = field_align;
                 }
             }
+            // Second pass: ensure correct alignment by wrapping if needed
+            for (unsigned i = 0; i < num_storage_units; i++)
+            {
+                if (field_types[i] != NULL
+                    && field_aligns[i] > 0
+                    && max_align_types[i] != NULL
+                    && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
+                {
+                    LLVMTypeRef wrapper_types[2];
+                    wrapper_types[0] = LLVMArrayType(max_align_types[i], 0);
+                    wrapper_types[1] = field_types[i];
+                    LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
+                    LLVMStructSetBody(wrapper, wrapper_types, 2, false);
+                    field_types[i] = wrapper;
+                }
+            }
+            free(field_aligns);
+            free(max_align_types);
 
             LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
             free(field_types);
@@ -863,16 +902,55 @@ register_tagged_struct_or_union_definition(
     {
         return registered;
     }
-    int current_storage_unit = -1;
+    // First pass: track largest type and highest alignment per storage unit
+    uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
+    if (field_aligns == NULL)
+    {
+        free(field_types);
+        return registered;
+    }
+    LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
+    if (max_align_types == NULL)
+    {
+        free(field_types);
+        free(field_aligns);
+        return registered;
+    }
     for (size_t i = 0; i < members.num_members; i++)
     {
         struct_field_t * field = &members.members[i];
-        if (field->bitfield.storage_index != (unsigned)current_storage_unit)
+        unsigned idx = field->bitfield.storage_index;
+        uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
+        if (field_types[idx] == NULL
+            || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
+                   > LLVMABISizeOfType(ctx->data_layout, field_types[idx]))
         {
-            current_storage_unit = (int)field->bitfield.storage_index;
-            field_types[current_storage_unit] = field->type_desc->llvm_type;
+            field_types[idx] = field->type_desc->llvm_type;
+        }
+        if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
+        {
+            max_align_types[idx] = field->type_desc->llvm_type;
+            field_aligns[idx] = field_align;
         }
     }
+    // Second pass: ensure correct alignment by wrapping if needed
+    for (unsigned i = 0; i < num_storage_units; i++)
+    {
+        if (field_types[i] != NULL
+            && field_aligns[i] > 0
+            && max_align_types[i] != NULL
+            && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
+        {
+            LLVMTypeRef wrapper_types[2];
+            wrapper_types[0] = LLVMArrayType(max_align_types[i], 0);
+            wrapper_types[1] = field_types[i];
+            LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
+            LLVMStructSetBody(wrapper, wrapper_types, 2, false);
+            field_types[i] = wrapper;
+        }
+    }
+    free(field_aligns);
+    free(max_align_types);
     LLVMStructSetBody(registered->type_desc->llvm_type, field_types, num_storage_units, false);
     free(field_types);
 
