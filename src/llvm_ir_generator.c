@@ -1264,10 +1264,10 @@ ir_generator_init(
         LLVMStructSetBody(va_list_tag_type, fields, 4, false);
 
         struct_field_t field_entries[4]
-            = {{.name = "gp_offset", .type_desc = i32_desc, .type = i32_desc->llvm_type},
-               {.name = "fp_offset", .type_desc = i32_desc, .type = i32_desc->llvm_type},
-               {.name = "overflow_arg_area", .type_desc = ptr_desc, .type = ptr_desc->llvm_type},
-               {.name = "reg_save_area", .type_desc = ptr_desc, .type = ptr_desc->llvm_type}};
+            = {{.name = "gp_offset", .type_desc = i32_desc},
+               {.name = "fp_offset", .type_desc = i32_desc},
+               {.name = "overflow_arg_area", .type_desc = ptr_desc},
+               {.name = "reg_save_area", .type_desc = ptr_desc}};
 
         struct_or_union_members_st members = {.num_members = 4, .members = field_entries};
 
