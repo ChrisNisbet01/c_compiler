@@ -3903,6 +3903,27 @@ process_va_arg_expr(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     return create_typed_value(result, target_type, false);
 }
 
+LLVMValueRef
+extract_param_part(ir_generator_ctx_t * ctx, TypedValue struct_val, int part_idx, LLVMTypeRef target_type)
+{
+    // 1. Get the address of the struct (from your TypedValue)
+    struct_val = ensure_rvalue(ctx, "struct_ptr_load", struct_val);
+    LLVMValueRef addr = struct_val.value;
+
+    // 2. Calculate the offset (0 or 8 bytes)
+    LLVMValueRef offset = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), part_idx * 8, false);
+
+    // 3. GEP to the chunk
+    LLVMValueRef byte_ptr
+        = LLVMBuildInBoundsGEP2(ctx->builder, LLVMInt8TypeInContext(ctx->context), addr, &offset, 1, "abi_extract_ptr");
+
+    // 4. Cast and Load the value for the register
+    LLVMValueRef typed_ptr
+        = LLVMBuildBitCast(ctx->builder, byte_ptr, LLVMPointerType(target_type, 0), "abi_extract_cast");
+
+    return LLVMBuildLoad2(ctx->builder, target_type, typed_ptr, "abi_part");
+}
+
 static TypedValue
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
@@ -3996,7 +4017,27 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             // Process Arguments
             size_t num_args = suffix->list.count;
-            LLVMValueRef * call_args = num_args > 0 ? calloc(num_args, sizeof(*call_args)) : NULL;
+
+            // 1. Calculate how many ACTUAL LLVM parameters we need
+            size_t total_llvm_params = 0;
+            for (size_t j = 0; j < num_args; ++j)
+            {
+                TypeDescriptor const * arg_type = (j < func_desc->function_metadata.param_count)
+                                                      ? func_desc->function_metadata.params[j]
+                                                      : NULL /* handle varargs */;
+                if (arg_type != NULL)
+                {
+                    CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, arg_type);
+                    total_llvm_params += coerced.count;
+                }
+                else
+                {
+                    total_llvm_params++;
+                }
+            }
+
+            LLVMValueRef * call_args = num_args > 0 ? calloc(total_llvm_params, sizeof(*call_args)) : NULL;
+            size_t k = 0;
 
             for (size_t j = 0; j < num_args; ++j)
             {
@@ -4012,11 +4053,23 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 {
                     arg = cast_typed_value_to_desc(ctx, arg, func_desc->function_metadata.params[j]);
                 }
+                arg = ensure_rvalue(ctx, "vararg_load", arg);
+
+                // ABI Lowering: Split the C value into N LLVM register values
+                CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, arg.type_info);
+
+                if (coerced.count == 1)
+                {
+                    // Simple case: 1:1 mapping (int, ptr, or Large struct)
+                    call_args[k++] = arg.value;
+                }
                 else
                 {
-                    arg = ensure_rvalue(ctx, "vararg_load", arg);
+                    // Struct case: Split the 16-byte struct into parts
+                    // Use the helper below to extract the parts from the struct
+                    call_args[k++] = extract_param_part(ctx, arg, 0, coerced.types[0]);
+                    call_args[k++] = extract_param_part(ctx, arg, 1, coerced.types[1]);
                 }
-                call_args[j] = arg.value;
             }
 
             LLVMValueRef call_val = LLVMBuildCall2(
@@ -4024,7 +4077,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 func_desc->llvm_type,
                 callable.value,
                 call_args,
-                (unsigned)num_args,
+                (unsigned)total_llvm_params,
                 is_void_return(func_desc) ? "" : "call_tmp"
             );
 
