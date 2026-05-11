@@ -581,6 +581,13 @@ type_descriptors_destroy_registry(TypeDescriptors * registry)
     while (cur != NULL)
     {
         TypeDescriptor_private * next = cur->next;
+        // Free function metadata coerced arrays
+        if (cur->public.kind == NCC_TYPE_KIND_FUNCTION)
+        {
+            free(cur->public.function_metadata.params);
+            free(cur->public.function_metadata.coerced_param_counts);
+            free(cur->public.function_metadata.coerced_params);
+        }
         free(cur);
         cur = next;
     }
@@ -734,13 +741,34 @@ get_or_create_function_type(
     }
 
     // Not found: Create a new function descriptor
+    // First pass: compute coerced types for each parameter
+    int *coerced_counts = NULL;
+    CoercedType *coerced_params = NULL;
+    size_t total_coerced = 0;
+
+    if (param_count > 0)
+    {
+        coerced_counts = calloc(param_count, sizeof(*coerced_counts));
+        coerced_params = calloc(param_count, sizeof(*coerced_params));
+
+        for (unsigned i = 0; i < param_count; i++)
+        {
+            CoercedType ct = get_coerced_llvm_types(registry, params[i]);
+            coerced_counts[i] = ct.count;
+            coerced_params[i] = ct;
+            total_coerced += (size_t)ct.count;
+        }
+    }
+
     TypeDescriptor template = {
         .kind = NCC_TYPE_KIND_FUNCTION,
         .pointee = ret_type,
         .function_metadata.return_type = ret_type,
-        .function_metadata.param_count = param_count,
+        .function_metadata.param_count = (unsigned)total_coerced,  // Total LLVM params (coerced)
         .function_metadata.is_variadic = is_variadic,
         .function_metadata.is_void_return = LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,
+        .function_metadata.coerced_param_counts = coerced_counts,
+        .function_metadata.coerced_params = coerced_params,
     };
 
     if (param_count > 0)
@@ -749,30 +777,36 @@ get_or_create_function_type(
         memcpy(template.function_metadata.params, params, sizeof(*params) * param_count);
     }
 
-    // Construct the LLVM function type
+    // Construct the LLVM function type using coerced param types
     LLVMTypeRef * llvm_params = NULL;
-    if (param_count > 0)
+    if (total_coerced > 0)
     {
-        llvm_params = malloc(sizeof(*llvm_params) * param_count);
+        llvm_params = malloc(sizeof(*llvm_params) * total_coerced);
+        size_t idx = 0;
         for (unsigned i = 0; i < param_count; i++)
         {
-            llvm_params[i] = params[i]->llvm_type;
+            CoercedType ct = coerced_params[i];
+            for (int j = 0; j < ct.count; j++)
+            {
+                llvm_params[idx++] = ct.types[j];
+            }
         }
     }
     debug_info(
-        "%s: creating function type for return type %d with %zu params, is variadic: %d",
+        "%s: creating function type for return type %d with %zu LLVM params (was %zu C params), is variadic: %d",
         __func__,
         LLVMGetTypeKind(ret_type->llvm_type),
+        total_coerced,
         param_count,
         is_variadic
     );
-    template.llvm_type = LLVMFunctionType(ret_type->llvm_type, llvm_params, param_count, is_variadic);
+    template.llvm_type = LLVMFunctionType(ret_type->llvm_type, llvm_params, (unsigned)total_coerced, is_variadic);
     debug_info(
-        "%s: created function type %d for return type %d with %zu params",
+        "%s: created function type %d for return type %d with %zu LLVM params",
         __func__,
         LLVMGetTypeKind(template.llvm_type),
         LLVMGetTypeKind(ret_type->llvm_type),
-        param_count
+        total_coerced
     );
 
     free(llvm_params);

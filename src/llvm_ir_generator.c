@@ -2173,24 +2173,38 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
 
+    int llvm_arg_idx = 0;
     for (size_t i = 0; i < params.count; ++i)
     {
         char const * p_name = params.names[i];
         TypeDescriptor const * p_type_desc = params.types[i];
         debug_info("%s: Processing parameter %zu name: %s type desc %p", __func__, i, p_name, (void *)p_type_desc);
-        LLVMTypeRef p_type = p_type_desc->llvm_type;
-        LLVMValueRef param_val = LLVMGetParam(func, (unsigned)i);
-        LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, p_type, p_name != NULL ? p_name : "fn_param");
 
-        aligned_store(ctx, ctx->builder, param_val, p_type, alloca_inst);
+        CoercedType coerced = type_desc->function_metadata.coerced_params[i];
+
+        LLVMValueRef alloca_inst
+            = LLVMBuildAlloca(ctx->builder, p_type_desc->llvm_type, p_name != NULL ? p_name : "fn_param");
+
+        if (coerced.count == 1 && p_type_desc->kind == NCC_TYPE_KIND_STRUCT
+            && get_type_size_desc(ctx->data_layout, p_type_desc) > 16)
+        {
+            // Passed by hidden pointer — load the struct from the pointer
+            LLVMValueRef ptr_param = LLVMGetParam(func, (unsigned)llvm_arg_idx++);
+            LLVMValueRef loaded = LLVMBuildLoad2(ctx->builder, p_type_desc->llvm_type, ptr_param, "deref_param");
+            LLVMBuildStore(ctx->builder, loaded, alloca_inst);
+        }
+        else
+        {
+            for (int j = 0; j < coerced.count; ++j)
+            {
+                LLVMValueRef raw_val = LLVMGetParam(func, (unsigned)llvm_arg_idx++);
+                stitch_param_part(ctx->type_descriptors, alloca_inst, raw_val, j);
+            }
+        }
 
         if (p_name != NULL)
         {
-
             TypedValue p_val = create_typed_value(alloca_inst, p_type_desc, true);
-
-            // If your descriptor is a struct or points to one,
-            // the symbol table can now just check p_type->kind
             generator_add_symbol(ctx, p_name, p_val);
         }
         debug_info("Processed parameter %zu", i);

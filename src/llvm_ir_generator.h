@@ -15,8 +15,6 @@
 #include <llvm-c/TargetMachine.h>
 #include <stdbool.h>
 
-typedef struct TypeDescriptors TypeDescriptors;
-
 struct function_decl_entry
 {
     char * name;
