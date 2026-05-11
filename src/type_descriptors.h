@@ -20,6 +20,12 @@ typedef enum
     NCC_TYPE_KIND_FUNCTION,
 } type_descriptor_type_kind_t;
 
+typedef struct
+{
+    LLVMTypeRef types[2];
+    int count;
+} CoercedType;
+
 typedef struct TypeDescriptors TypeDescriptors;
 typedef struct TypeDescriptor_st TypeDescriptor;
 
@@ -79,7 +85,8 @@ struct TypeDescriptor_st
     ArrayMetaData array_metadata;
 };
 
-TypeDescriptors * type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout);
+TypeDescriptors *
+type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout, LLVMBuilderRef builder);
 
 void type_descriptors_destroy_registry(TypeDescriptors * registry);
 
@@ -167,3 +174,7 @@ void type_descriptor_complete_struct(
 TypeDescriptor const * type_descriptor_get_enum_type(TypeDescriptors * registry);
 
 bool type_descriptor_is_complete(TypeDescriptor const * type_desc);
+
+CoercedType get_coerced_llvm_types(TypeDescriptors * registry, TypeDescriptor const * td);
+
+void stitch_param_part(TypeDescriptors * registry, LLVMValueRef struct_alloca, LLVMValueRef raw_param, int part_idx);

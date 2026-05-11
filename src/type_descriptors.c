@@ -34,6 +34,7 @@ typedef struct TypeDescriptors
     TypeDescriptor_private * head;
     LLVMContextRef context;
     LLVMTargetDataRef data_layout;
+    LLVMBuilderRef builder;
     builtin_types builtins;
 } TypeDescriptors;
 
@@ -354,8 +355,7 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
     // First pass: find max size and max alignment per storage_index
     // (needed for flattened unions where multiple members share a storage_index)
-    unsigned num_storage_indices
-        = desc->struct_metadata.members.members[member_count - 1].bitfield.storage_index + 1;
+    unsigned num_storage_indices = desc->struct_metadata.members.members[member_count - 1].bitfield.storage_index + 1;
     uint64_t * max_sizes = calloc(num_storage_indices, sizeof(*max_sizes));
     uint32_t * max_aligns = calloc(num_storage_indices, sizeof(*max_aligns));
 
@@ -588,7 +588,7 @@ type_descriptors_destroy_registry(TypeDescriptors * registry)
 }
 
 TypeDescriptors *
-type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout)
+type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_layout, LLVMBuilderRef builder)
 {
     if (context == NULL)
     {
@@ -603,10 +603,100 @@ type_descriptors_create_registry(LLVMContextRef context, LLVMTargetDataRef data_
     }
     registry->context = context;
     registry->data_layout = data_layout;
+    registry->builder = builder;
 
     builtins_init(registry);
 
     return registry;
+}
+
+void
+stitch_param_part(TypeDescriptors * registry, LLVMValueRef struct_alloca, LLVMValueRef raw_param, int part_idx)
+{
+    // We use GEP to find the exact byte offset in the struct memory
+    // part_idx 0 = offset 0
+    // part_idx 1 = offset 8 (the second Eightbyte)
+
+    // We can't always use StructGEP because the 'coerced' type might not match
+    // the C struct member exactly. We use a Byte-aligned GEP (i8*) instead.
+    LLVMValueRef offset = LLVMConstInt(registry->builtins.i32_type, part_idx * 8, false);
+
+    // Get pointer to the specific eightbyte chunk
+    LLVMValueRef byte_ptr = LLVMBuildInBoundsGEP2(
+        registry->builder, registry->builtins.i8_type, struct_alloca, &offset, 1, "abi_stitch_ptr"
+    );
+
+    // Cast the byte_ptr to the type of the register value we are storing
+    LLVMValueRef typed_ptr
+        = LLVMBuildBitCast(registry->builder, byte_ptr, LLVMPointerType(LLVMTypeOf(raw_param), 0), "abi_cast_ptr");
+
+    // Store the register value into the struct memory
+    LLVMBuildStore(registry->builder, raw_param, typed_ptr);
+}
+
+static LLVMTypeRef
+get_first_eightbyte_type(TypeDescriptors * registry, TypeDescriptor const * td)
+{
+    if (td->struct_metadata.members.num_members > 0)
+    {
+        // Return the LLVM type of the first member (e.g., i8 or i32)
+        return td->struct_metadata.members.members[0].type_desc->llvm_type;
+    }
+    return registry->builtins.i64_type;
+}
+
+static LLVMTypeRef
+get_second_eightbyte_type(TypeDescriptors * registry, TypeDescriptor const * td)
+{
+    if (td->struct_metadata.members.num_members > 1)
+    {
+        // Return the LLVM type of the second member (e.g., ptr)
+        return td->struct_metadata.members.members[1].type_desc->llvm_type;
+    }
+    return registry->builtins.i64_type;
+}
+
+CoercedType
+get_coerced_llvm_types(TypeDescriptors * registry, TypeDescriptor const * td)
+{
+    CoercedType result = {.count = 0};
+    uint64_t size = get_type_size_desc(registry->data_layout, td);
+
+    // Rule 1: Not a struct/union, or it's a "Large" struct (> 16 bytes)
+    // Large structs are passed by hidden pointer (which is 1 LLVM 'ptr' param)
+    if (td->kind != NCC_TYPE_KIND_STRUCT || size > 16)
+    {
+        result.types[0] = td->llvm_type;
+        result.count = 1;
+        return result;
+    }
+
+    // Rule 2: 1-8 byte structs
+    // Usually passed as a single i64 or a specifically sized integer
+    if (size <= 8)
+    {
+        result.types[0] = LLVMIntTypeInContext(registry->context, (unsigned)(size * 8));
+        result.count = 1;
+        return result;
+    }
+
+    // Rule 3: 9-16 byte structs (Like your epc_parse_result_t)
+    // We split these into two "Eightbytes".
+    // We look at the actual members to be precise, mirroring Clang.
+    if (size <= 16)
+    {
+        // First Eightbyte: Look at the first member
+        // In your case, Clang saw an i8
+        result.types[0] = get_first_eightbyte_type(registry, td);
+
+        // Second Eightbyte: Usually the second member or the remainder
+        // In your case, Clang saw a ptr
+        result.types[1] = get_second_eightbyte_type(registry, td);
+
+        result.count = 2;
+    }
+
+    return result;
 }
 
 TypeDescriptor const *

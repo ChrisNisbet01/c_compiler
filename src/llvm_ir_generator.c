@@ -1181,6 +1181,14 @@ ir_generator_init(
         return NULL;
     }
 
+    ctx->builder = LLVMCreateBuilder();
+    if (!ctx->builder)
+    {
+        debug_error("Failed to create LLVM builder.");
+        ir_generator_dispose(ctx);
+        return NULL;
+    }
+
     // Initialize error collection (any error will be fatal since max_errors=1)
     ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);
 
@@ -1198,7 +1206,7 @@ ir_generator_init(
     ctx->ref_type.long_double_type = LLVMX86FP80TypeInContext(ctx->context);
     ctx->ref_type.void_type = LLVMVoidTypeInContext(ctx->context);
 
-    ctx->type_descriptors = type_descriptors_create_registry(ctx->context, ctx->data_layout);
+    ctx->type_descriptors = type_descriptors_create_registry(ctx->context, ctx->data_layout, ctx->builder);
     if (ctx->type_descriptors == NULL)
     {
         ir_generator_dispose(ctx);
@@ -1277,14 +1285,6 @@ ir_generator_init(
     if (triple_to_free != NULL)
     {
         LLVMDisposeMessage((char *)triple_to_free);
-    }
-
-    ctx->builder = LLVMCreateBuilder();
-    if (!ctx->builder)
-    {
-        debug_error("Failed to create LLVM builder.");
-        ir_generator_dispose(ctx);
-        return NULL;
     }
 
     // Initialize with global scope
@@ -1585,24 +1585,26 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
                     for (size_t d = 0; d < desig->list.count; d++)
                     {
                         c_grammar_node_t const * child = desig->list.children[d];
-                        TypedValue idx_val = NullTypedValue;
-                        if (child->type == AST_NODE_IDENTIFIER)
+                        TypedValue idx_val = process_expression(ctx, child);
+
+                        if (idx_val.value == NULL)
                         {
-                            generator_lookup_symbol_value(ctx, child->text, &idx_val);
+                            ir_gen_error(&ctx->errors, child, "Array designator must be constant");
+                            return NULL;
                         }
-                        else
+
+                        if (!LLVMIsConstant(idx_val.value))
                         {
-                            idx_val = process_expression(ctx, child);
+                            ir_gen_error(&ctx->errors, child, "Array designator value must be constant");
+                            return NULL;
                         }
-                        if (idx_val.value != NULL && LLVMIsConstant(idx_val.value))
+
+                        LLVMValueRef actual_const = idx_val.value;
+                        if (LLVMGetValueKind(idx_val.value) == LLVMGlobalVariableValueKind)
                         {
-                            LLVMValueRef actual_const = idx_val.value;
-                            if (LLVMGetValueKind(idx_val.value) == LLVMGlobalVariableValueKind)
-                            {
-                                actual_const = LLVMGetInitializer(idx_val.value);
-                            }
-                            current_idx = (size_t)LLVMConstIntGetZExtValue(actual_const);
+                            actual_const = LLVMGetInitializer(idx_val.value);
                         }
+                        current_idx = (size_t)LLVMConstIntGetZExtValue(actual_const);
                     }
                 }
 
@@ -1640,8 +1642,7 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
             free(elems);
             return res;
         }
-
-        if (desc->kind == NCC_TYPE_KIND_STRUCT)
+        else if (desc->kind == NCC_TYPE_KIND_STRUCT)
         {
             size_t entry_count = node->list.count;
             size_t field_count = desc->struct_metadata.members.num_members;
@@ -1697,6 +1698,10 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
                             {
                                 unsigned long long raw = LLVMConstIntGetSExtValue(fields[current_field]);
                                 fields[current_field] = LLVMConstInt(target_ty, raw, true);
+                            }
+                            else if (sw > dw)
+                            {
+                                fields[current_field] = LLVMConstTrunc(fields[current_field], target_ty);
                             }
                         }
                     }
