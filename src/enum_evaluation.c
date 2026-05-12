@@ -12,6 +12,14 @@ evaluate_enum_value_assignment_expression(
         return current_value;
     }
 
+    debug_info(
+        "%s: node type: %s (%d), current value: %d",
+        __func__,
+        get_node_type_name_from_node(value_node),
+        value_node->type,
+        current_value
+    );
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wswitch-enum"
 

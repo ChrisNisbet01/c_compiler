@@ -1763,6 +1763,7 @@ evaluate_constant_initializer(ir_generator_ctx_t * ctx, TypeDescriptor const * d
             if (src_width < dst_width)
             {
                 unsigned long long raw_val = LLVMConstIntGetSExtValue(val.value);
+
                 return LLVMConstInt(desc->llvm_type, raw_val, true);
             }
         }
@@ -2178,8 +2179,11 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     if (decl_specifiers_node->type == AST_NODE_NAMED_DECL_SPECIFIERS
         && decl_specifiers_node->decl_specifiers.function_specifier != NULL)
     {
-        LLVMAttributeRef attr
-            = LLVMCreateEnumAttribute(ctx->context, LLVMGetEnumAttributeKindForName("inlinehint", 10), 0);
+        // 1. Create the attribute
+        unsigned int kind = LLVMGetEnumAttributeKindForName("inlinehint", 10);
+        LLVMAttributeRef attr = LLVMCreateEnumAttribute(ctx->context, kind, 0);
+        debug_info("LLVMAttributeFunctionIndex: %d", LLVMAttributeFunctionIndex);
+        // 2. Add it to the FUNCTION index, not the parameter index
         LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attr);
     }
 
