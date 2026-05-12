@@ -1,8 +1,9 @@
 #include "symbol_table.h"
-#include "hash_table.h"
 
 #include "debug.h"
+#include "hash_table.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -12,15 +13,17 @@
 
 typedef struct symbol_table_t
 {
-    const char ** names;      /* pointers to strings owned by hash table */
+    char const ** names; /* pointers to strings owned by hash table */
     size_t count;
     size_t capacity;
-    hash_table_t *hash;       /* internal hash table for O(1) lookups */
+    hash_table_t * hash; /* internal hash table for O(1) lookups */
 } symbol_table_t;
 
 symbol_table_t *
 symbol_table_create(void)
 {
+    fprintf(stderr, "pending names struct size: %zu\n", sizeof(symbol_table_t));
+
     symbol_table_t * st = calloc(1, sizeof(*st));
     if (st == NULL)
     {
@@ -36,7 +39,8 @@ symbol_table_create(void)
     }
     /* create internal hash table with initial bucket count */
     st->hash = hash_table_create(16);
-    if (st->hash == NULL) {
+    if (st->hash == NULL)
+    {
         free(st->names);
         free(st);
         return NULL;
@@ -69,14 +73,15 @@ symbol_table_add(symbol_table_t * st, char const * name)
     }
 
     /* check hash table for existence (hash owns the string) */
-    if (hash_table_contains(st->hash, name)) {
+    if (hash_table_contains(st->hash, name))
+    {
         return;
     }
 
     if (st->count >= st->capacity)
     {
         st->capacity *= 2;
-        const char ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
+        char const ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
         if (new_names == NULL)
         {
             debug_error("Error: Failed to resize symbol table names array.");
@@ -86,8 +91,9 @@ symbol_table_add(symbol_table_t * st, char const * name)
     }
 
     /* Insert into hash table; it returns the owned copy */
-    char *stored = hash_table_insert(st->hash, name);
-    if (!stored) {
+    char * stored = hash_table_insert(st->hash, name);
+    if (!stored)
+    {
         /* insertion failed (likely OOM or duplicate) */
         return;
     }

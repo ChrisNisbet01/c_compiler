@@ -344,7 +344,6 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
         return;
     }
 
-    uint64_t current_offset = 0;
     uint32_t max_align = 1;
     size_t member_count = desc->struct_metadata.members.num_members;
 
@@ -384,6 +383,7 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
     // Second pass: compute offsets and total size
     unsigned current_sidx = desc->struct_metadata.members.members[0].bitfield.storage_index;
+    uint64_t current_offset = 0;
 
     for (size_t i = 0; i < member_count; ++i)
     {
@@ -414,12 +414,13 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
             // Set the offset for this member (all union members share same offset)
             desc->struct_metadata.members.members[i].bitfield.offset = current_offset;
             debug_info(
-                "member: %zu offset: %llu size: %llu align: %u storage: %u",
+                "member: %s: idx, %zu offset: %llu size: %llu align: %u storage idx: %u",
+                current_member->name,
                 i,
                 current_offset,
                 get_type_size_desc(data_layout, mem_desc),
                 get_type_alignment_desc(mem_desc),
-                current_member->bitfield.storage_index
+                sidx
             );
         }
         else

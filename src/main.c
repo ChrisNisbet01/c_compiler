@@ -240,6 +240,12 @@ on_capture_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * par
     (void)parser_data;
 }
 
+void
+on_capture_exit_debug_func(void)
+{
+    fprintf(stderr, "%s\n", __func__);
+}
+
 static bool
 on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
@@ -266,15 +272,19 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * 
         return true;
     }
     size_t len = epc_cpt_node_get_semantic_len(result.data.success);
-    fprintf(stderr, "name[0]: %c, semantic length: %zu\n", name[0], len);
     char * name_copy = strndup(name, len);
     if (name_copy == NULL)
     {
         fprintf(stderr, "%s: strndup failed!\n", __func__);
         return true;
     }
+    fprintf(stderr, "name copy: %s (%p)\n", name_copy, (void *)name_copy);
+    fprintf(stderr, "pending names struct: %p\n", (void *)session->pending_names_st);
+
+    on_capture_exit_debug_func();
 
     symbol_table_add(session->pending_names_st, name_copy);
+
     fprintf(stderr, "Pending: '%s'\n", name_copy);
     free(name_copy);
     return true;

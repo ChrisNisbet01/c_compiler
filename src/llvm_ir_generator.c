@@ -3965,6 +3965,112 @@ extract_param_part(ir_generator_ctx_t * ctx, TypedValue struct_val, int part_idx
 }
 
 static TypedValue
+process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix, TypedValue current_val)
+{
+    // FUNCTION CALL: (args...)
+    // Resolve what we are calling. If it's a function directly,
+    // we call it. If it's a pointer to a function, we load it first.
+    debug_info("%s handling args list", __func__);
+    dump_typed_value("current_val before rvalue", current_val);
+    TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
+    debug_info("%s rvalue", __func__);
+    dump_typed_value("callable", callable);
+
+    TypeDescriptor const * func_desc = NULL;
+    if (callable.type_info->kind == NCC_TYPE_KIND_FUNCTION)
+    {
+        func_desc = callable.type_info;
+    }
+    else if (
+        callable.type_info->kind == NCC_TYPE_KIND_POINTER && callable.type_info->pointee->kind == NCC_TYPE_KIND_FUNCTION
+    )
+    {
+        func_desc = callable.type_info->pointee;
+    }
+
+    if (!func_desc)
+    {
+        ir_gen_error(&ctx->errors, suffix, "Expression is not a function or function pointer");
+        return NullTypedValue;
+    }
+
+    // Process Arguments
+    size_t num_args = suffix->list.count;
+    // 1. There won't ever be more than twice as many total args, so allocate enough memory for the worst case.
+    LLVMValueRef * call_args = num_args > 0 ? calloc(2 * num_args, sizeof(*call_args)) : NULL;
+    debug_info("dealing with %zu args", num_args);
+    size_t total_llvm_params = 0;
+
+    for (size_t j = 0; j < num_args; ++j)
+    {
+        debug_info("deal with arg: %zu", j);
+        TypedValue arg = process_expression(ctx, suffix->list.children[j]);
+        if (arg.value == NULL)
+        {
+            debug_error("Failed to process condition for IfStatement.");
+            return arg;
+        }
+
+        TypeDescriptor const * type_to_check
+            = j < func_desc->function_metadata.param_count ? func_desc->function_metadata.params[j] : arg.type_info;
+
+        if (type_to_check->kind == NCC_TYPE_KIND_STRUCT || type_to_check->kind == NCC_TYPE_KIND_UNION)
+        {
+            uint64_t size = get_type_size_desc(ctx->data_layout, type_to_check);
+
+            if (size > 16)
+            {
+                // Memory passing: just pass the address
+                arg = ensure_lvalue(ctx, "abi_large_tmp", arg);
+                call_args[total_llvm_params++] = arg.value;
+            }
+            else
+            {
+                // Register passing: split into Eightbytes
+                arg = ensure_lvalue(ctx, "abi_small_tmp", arg);
+                CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, type_to_check);
+                for (int p = 0; p < coerced.count; p++)
+                {
+                    call_args[total_llvm_params++] = extract_param_part(ctx, arg, p, coerced.types[p]);
+                }
+            }
+        }
+        else
+        {
+            debug_info("3");
+            // Natural scalars (ints, floats, pointers) pass through directly
+            // Auto-cast to parameter type if available
+            TypedValue direct_arg = arg;
+            if (j < func_desc->function_metadata.param_count)
+            {
+                debug_info("4");
+                direct_arg = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
+                debug_info("5");
+                dump_typed_value("is this arg lvalue after casting?", direct_arg);
+            }
+            debug_info("6");
+            direct_arg = ensure_rvalue(ctx, "arg_load", direct_arg);
+            call_args[total_llvm_params++] = direct_arg.value;
+        }
+    }
+
+    debug_info("LLVMBuildCall: total args: %zu", total_llvm_params);
+    LLVMValueRef call_val = LLVMBuildCall2(
+        ctx->builder,
+        func_desc->llvm_type,
+        callable.value,
+        call_args,
+        (unsigned)total_llvm_params,
+        is_void_return(func_desc) ? "" : "call_tmp"
+    );
+
+    free(call_args);
+    current_val = create_typed_value(call_val, func_desc->function_metadata.return_type, false);
+
+    return current_val;
+}
+
+static TypedValue
 process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * base_node = node->postfix_expression.base_expression;
@@ -4027,107 +4133,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         {
         case AST_NODE_OPTIONAL_ARGUMENT_LIST:
         {
-            // FUNCTION CALL: (args...)
-            // Resolve what we are calling. If it's a function directly,
-            // we call it. If it's a pointer to a function, we load it first.
-            debug_info("%s handling args list", __func__);
-            dump_typed_value("current_val before rvalue", current_val);
-            TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
-            debug_info("%s rvalue", __func__);
-            dump_typed_value("callable", callable);
-
-            TypeDescriptor const * func_desc = NULL;
-            if (callable.type_info->kind == NCC_TYPE_KIND_FUNCTION)
-            {
-                func_desc = callable.type_info;
-            }
-            else if (
-                callable.type_info->kind == NCC_TYPE_KIND_POINTER
-                && callable.type_info->pointee->kind == NCC_TYPE_KIND_FUNCTION
-            )
-            {
-                func_desc = callable.type_info->pointee;
-            }
-
-            if (!func_desc)
-            {
-                ir_gen_error(&ctx->errors, suffix, "Expression is not a function or function pointer");
-                return NullTypedValue;
-            }
-
-            // Process Arguments
-            size_t num_args = suffix->list.count;
-            // 1. There won't ever be more than twice as many total args, so allocate enough memory for the worst case.
-            LLVMValueRef * call_args = num_args > 0 ? calloc(2 * num_args, sizeof(*call_args)) : NULL;
-            debug_info("dealing with %zu args", num_args);
-            size_t total_llvm_params = 0;
-
-            for (size_t j = 0; j < num_args; ++j)
-            {
-                debug_info("deal with arg: %zu", j);
-                TypedValue arg = process_expression(ctx, suffix->list.children[j]);
-                if (arg.value == NULL)
-                {
-                    debug_error("Failed to process condition for IfStatement.");
-                    return arg;
-                }
-
-                TypeDescriptor const * type_to_check = j < func_desc->function_metadata.param_count
-                                                           ? func_desc->function_metadata.params[j]
-                                                           : arg.type_info;
-
-                if (type_to_check->kind == NCC_TYPE_KIND_STRUCT || type_to_check->kind == NCC_TYPE_KIND_UNION)
-                {
-                    uint64_t size = get_type_size_desc(ctx->data_layout, type_to_check);
-
-                    if (size > 16)
-                    {
-                        // Memory passing: just pass the address
-                        arg = ensure_lvalue(ctx, "abi_large_tmp", arg);
-                        call_args[total_llvm_params++] = arg.value;
-                    }
-                    else
-                    {
-                        // Register passing: split into Eightbytes
-                        arg = ensure_lvalue(ctx, "abi_small_tmp", arg);
-                        CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, type_to_check);
-                        for (int p = 0; p < coerced.count; p++)
-                        {
-                            call_args[total_llvm_params++] = extract_param_part(ctx, arg, p, coerced.types[p]);
-                        }
-                    }
-                }
-                else
-                {
-                    debug_info("3");
-                    // Natural scalars (ints, floats, pointers) pass through directly
-                    // Auto-cast to parameter type if available
-                    TypedValue direct_arg = arg;
-                    if (j < func_desc->function_metadata.param_count)
-                    {
-                        debug_info("4");
-                        direct_arg = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
-                        debug_info("5");
-                        dump_typed_value("is this arg lvalue after casting?", direct_arg);
-                    }
-                    debug_info("6");
-                    direct_arg = ensure_rvalue(ctx, "arg_load", direct_arg);
-                    call_args[total_llvm_params++] = direct_arg.value;
-                }
-            }
-
-            debug_info("LLVMBuildCall: total args: %zu", total_llvm_params);
-            LLVMValueRef call_val = LLVMBuildCall2(
-                ctx->builder,
-                func_desc->llvm_type,
-                callable.value,
-                call_args,
-                (unsigned)total_llvm_params,
-                is_void_return(func_desc) ? "" : "call_tmp"
-            );
-
-            free(call_args);
-            current_val = create_typed_value(call_val, func_desc->function_metadata.return_type, false);
+            current_val = process_function_call(ctx, suffix, current_val);
             break;
         }
 
