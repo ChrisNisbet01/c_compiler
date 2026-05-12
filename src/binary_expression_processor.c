@@ -24,12 +24,18 @@ typedef LLVMValueRef (*binary_comparison_float_operation_func_t)(
 
 typedef struct
 {
-    binary_arithmetic_int_operation_func_t int_arith_op;
+    // Arithmetic - separate signed/unsigned variants
+    binary_arithmetic_int_operation_func_t int_arith_signed_op;    // SDiv, SRem
+    binary_arithmetic_int_operation_func_t int_arith_unsigned_op;  // UDiv, URem
     binary_arithmetic_float_operation_func_t float_arith_op;
+
+    // Comparisons - separate signed/unsigned predicates
     binary_comparison_int_operation_func_t int_cmp_op;
+    LLVMIntPredicate int_signed_predicate;    // SLT, SGT, SLE, SGE
+    LLVMIntPredicate int_unsigned_predicate;  // ULT, UGT, ULE, UGE
     binary_comparison_float_operation_func_t float_cmp_op;
-    LLVMIntPredicate int_predicate;
     LLVMRealPredicate float_predicate;
+
     char const * name;
 } binary_operation_mapping_t;
 
@@ -43,80 +49,94 @@ typedef struct
 // Operation mappings
 static binary_operation_mapping_t const bitwise_operations[]
     = {[BITWISE_OP_AND] = {
-           .int_arith_op = LLVMBuildAnd,
+           .int_arith_signed_op = LLVMBuildAnd,
+           .int_arith_unsigned_op = LLVMBuildAnd,
            .name = "and_tmp",
        },
        [BITWISE_OP_OR] = {
-           .int_arith_op = LLVMBuildOr,
+           .int_arith_signed_op = LLVMBuildOr,
+           .int_arith_unsigned_op = LLVMBuildOr,
            .name = "or_tmp",
        },
        [BITWISE_OP_XOR] = {
-           .int_arith_op = LLVMBuildXor,
+           .int_arith_signed_op = LLVMBuildXor,
+           .int_arith_unsigned_op = LLVMBuildXor,
            .name = "xor_tmp",
        }};
 
 static binary_operation_mapping_t const shift_operations[]
     = {[SHIFT_OP_LL] = {
-           .int_arith_op = LLVMBuildShl,
+           .int_arith_signed_op = LLVMBuildShl,
+           .int_arith_unsigned_op = LLVMBuildShl,
            .name = "shl_tmp",
        },
        [SHIFT_OP_AR] = {
-           LLVMBuildAShr,
+           .int_arith_signed_op = LLVMBuildAShr,
+           .int_arith_unsigned_op = LLVMBuildAShr,
            .name = "ashr_tmp",
        }};
 
 static binary_operation_mapping_t const arithmetic_operations[]
     = {[ARITH_OP_ADD] = {
-           .int_arith_op = LLVMBuildAdd,
+           .int_arith_signed_op = LLVMBuildAdd,
+           .int_arith_unsigned_op = LLVMBuildAdd,
            .float_arith_op = LLVMBuildFAdd,
            .name = "arith_add_tmp",
        },
        [ARITH_OP_SUB] = {
-           .int_arith_op = LLVMBuildSub,
+           .int_arith_signed_op = LLVMBuildSub,
+           .int_arith_unsigned_op = LLVMBuildSub,
            .float_arith_op = LLVMBuildFSub,
            .name = "arith_sub_tmp",
        },
        [ARITH_OP_MUL] = {
-           .int_arith_op = LLVMBuildMul,
+           .int_arith_signed_op = LLVMBuildMul,
+           .int_arith_unsigned_op = LLVMBuildMul,
            .float_arith_op = LLVMBuildFMul,
            .name = "arith_mul_tmp",
        },
        [ARITH_OP_DIV] = {
-           .int_arith_op = LLVMBuildSDiv,
+           .int_arith_signed_op = LLVMBuildSDiv,
+           .int_arith_unsigned_op = LLVMBuildUDiv,
            .float_arith_op = LLVMBuildFDiv,
            .name = "arith_div_tmp",
        },
        [ARITH_OP_MOD] = {
-           .int_arith_op = LLVMBuildSRem,
+           .int_arith_signed_op = LLVMBuildSRem,
+           .int_arith_unsigned_op = LLVMBuildURem,
            .name = "arith_rem_tmp",
        }};
 
 static binary_operation_mapping_t const relational_operations[]
     = {[REL_OP_LT] = {
            .int_cmp_op = LLVMBuildICmp,
+           .int_signed_predicate = LLVMIntSLT,
+           .int_unsigned_predicate = LLVMIntULT,
            .float_cmp_op = LLVMBuildFCmp,
-           .int_predicate = LLVMIntSLT,
            .float_predicate = LLVMRealOLT,
            .name = "flt_tmp",
        },
        [REL_OP_GT] = {
            .int_cmp_op = LLVMBuildICmp,
+           .int_signed_predicate = LLVMIntSGT,
+           .int_unsigned_predicate = LLVMIntUGT,
            .float_cmp_op = LLVMBuildFCmp,
-           .int_predicate = LLVMIntSGT,
            .float_predicate = LLVMRealOGT,
            .name = "fgt_tmp",
        },
        [REL_OP_LE] = {
            .int_cmp_op = LLVMBuildICmp,
+           .int_signed_predicate = LLVMIntSLE,
+           .int_unsigned_predicate = LLVMIntULE,
            .float_cmp_op = LLVMBuildFCmp,
-           .int_predicate = LLVMIntSLE,
            .float_predicate = LLVMRealOLE,
            .name = "fle_tmp",
        },
        [REL_OP_GE] = {
            .int_cmp_op = LLVMBuildICmp,
+           .int_signed_predicate = LLVMIntSGE,
+           .int_unsigned_predicate = LLVMIntUGE,
            .float_cmp_op = LLVMBuildFCmp,
-           .int_predicate = LLVMIntSGE,
            .float_predicate = LLVMRealOGE,
            .name = "fge_tmp",
        }};
@@ -124,63 +144,75 @@ static binary_operation_mapping_t const relational_operations[]
 static binary_operation_mapping_t const equality_operations[]
     = {[EQ_OP_EQ] = {
            .int_cmp_op = LLVMBuildICmp,
+           .int_signed_predicate = LLVMIntEQ,
+           .int_unsigned_predicate = LLVMIntEQ,
            .float_cmp_op = LLVMBuildFCmp,
-           .int_predicate = LLVMIntEQ,
            .float_predicate = LLVMRealOEQ,
            .name = "feq_tmp",
        },
        [EQ_OP_NE] = {
            .int_cmp_op = LLVMBuildICmp,
+           .int_signed_predicate = LLVMIntNE,
+           .int_unsigned_predicate = LLVMIntNE,
            .float_cmp_op = LLVMBuildFCmp,
-           .int_predicate = LLVMIntNE,
            .float_predicate = LLVMRealONE,
            .name = "fne_tmp",
        }};
 
 static binary_operation_mapping_t const compound_assignment_operations[]
     = {[ASSIGN_OP_ADD] = {
-           .int_arith_op = LLVMBuildAdd,
+           .int_arith_signed_op = LLVMBuildAdd,
+           .int_arith_unsigned_op = LLVMBuildAdd,
            .float_arith_op = LLVMBuildFAdd,
            .name = "fadd_tmp",
        },
        [ASSIGN_OP_SUB] = {
-           .int_arith_op = LLVMBuildSub,
+           .int_arith_signed_op = LLVMBuildSub,
+           .int_arith_unsigned_op = LLVMBuildSub,
            .float_arith_op = LLVMBuildFSub,
            .name = "fsub_tmp",
        },
        [ASSIGN_OP_MUL] = {
-           .int_arith_op = LLVMBuildMul,
+           .int_arith_signed_op = LLVMBuildMul,
+           .int_arith_unsigned_op = LLVMBuildMul,
            .float_arith_op = LLVMBuildFMul,
            .name = "fmul_tmp",
        },
        [ASSIGN_OP_DIV] = {
-           .int_arith_op = LLVMBuildSDiv,
+           .int_arith_signed_op = LLVMBuildSDiv,
+           .int_arith_unsigned_op = LLVMBuildUDiv,
            .float_arith_op = LLVMBuildFDiv,
            .name = "fdiv_tmp",
        },
        [ASSIGN_OP_MOD] = {
-           .int_arith_op = LLVMBuildSRem,
-           .name = "rem_tmp",
+           .int_arith_signed_op = LLVMBuildSRem,
+           .int_arith_unsigned_op = LLVMBuildURem,
+           .name = "fmod_tmp",
        },
        [ASSIGN_OP_AND] = {
-           .int_arith_op = LLVMBuildAnd,
+           .int_arith_signed_op = LLVMBuildAnd,
+           .int_arith_unsigned_op = LLVMBuildAnd,
            .name = "and_tmp",
        },
        [ASSIGN_OP_OR] = {
-           .int_arith_op = LLVMBuildOr,
+           .int_arith_signed_op = LLVMBuildOr,
+           .int_arith_unsigned_op = LLVMBuildOr,
            .name = "or_tmp",
        },
        [ASSIGN_OP_XOR] = {
-           .int_arith_op = LLVMBuildXor,
+           .int_arith_signed_op = LLVMBuildXor,
+           .int_arith_unsigned_op = LLVMBuildXor,
            .name = "xor_tmp",
        },
        [ASSIGN_OP_SHL] = {
-           .int_arith_op = LLVMBuildShl,
+           .int_arith_signed_op = LLVMBuildShl,
+           .int_arith_unsigned_op = LLVMBuildShl,
            .name = "shl_tmp",
        },
        [ASSIGN_OP_SHR] = {
-           .int_arith_op = LLVMBuildLShr,
-           .name = "lshr_tmp",
+           .int_arith_signed_op = LLVMBuildAShr,
+           .int_arith_unsigned_op = LLVMBuildAShr,
+           .name = "ashr_tmp",
        }};
 
 static binary_operation_details_t const binary_operation_details[BINARY_OP_COUNT] = {
@@ -423,7 +455,7 @@ complete_binary_expression(
             if (pointee_size > 1)
             {
                 LLVMValueRef size_val = LLVMConstInt(int64_type, pointee_size, false);
-                diff = LLVMBuildSDiv(ctx->builder, diff, size_val, "ptr_sub_elems");
+                diff = LLVMBuildUDiv(ctx->builder, diff, size_val, "ptr_sub_elems");
             }
         }
 
@@ -436,9 +468,19 @@ complete_binary_expression(
     {
         result_value = mapping->float_arith_op(ctx->builder, lhs_res.value, rhs_res.value, mapping->name);
     }
-    else if (!is_float_op && mapping->int_arith_op != NULL)
+    else if (!is_float_op && (mapping->int_arith_signed_op != NULL || mapping->int_arith_unsigned_op != NULL))
     {
-        result_value = mapping->int_arith_op(ctx->builder, lhs_res.value, rhs_res.value, mapping->name);
+        // Select signed or unsigned arithmetic operation based on operand type
+        binary_arithmetic_int_operation_func_t arith_op;
+        if (lhs_res.type_info->specifiers.is_unsigned)
+        {
+            arith_op = mapping->int_arith_unsigned_op;
+        }
+        else
+        {
+            arith_op = mapping->int_arith_signed_op;
+        }
+        result_value = arith_op(ctx->builder, lhs_res.value, rhs_res.value, mapping->name);
     }
     else if (is_float_op && mapping->float_cmp_op != NULL)
     {
@@ -448,8 +490,17 @@ complete_binary_expression(
     }
     else if (!is_float_op && mapping->int_cmp_op != NULL)
     {
-        result_value
-            = mapping->int_cmp_op(ctx->builder, mapping->int_predicate, lhs_res.value, rhs_res.value, mapping->name);
+        // Select signed or unsigned comparison predicate based on operand type
+        LLVMIntPredicate pred;
+        if (lhs_res.type_info->specifiers.is_unsigned)
+        {
+            pred = mapping->int_unsigned_predicate;
+        }
+        else
+        {
+            pred = mapping->int_signed_predicate;
+        }
+        result_value = mapping->int_cmp_op(ctx->builder, pred, lhs_res.value, rhs_res.value, mapping->name);
     }
     else
     {
