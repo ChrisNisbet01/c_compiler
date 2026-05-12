@@ -641,53 +641,30 @@ stitch_param_part(TypeDescriptors * registry, LLVMValueRef struct_alloca, LLVMVa
     LLVMBuildStore(registry->builder, raw_param, typed_ptr);
 }
 
-static LLVMTypeRef
-get_first_eightbyte_type(TypeDescriptors * registry, TypeDescriptor const * td)
-{
-    if (td->struct_metadata.members.num_members > 0)
-    {
-        // Return the LLVM type of the first member (e.g., i8 or i32)
-        return td->struct_metadata.members.members[0].type_desc->llvm_type;
-    }
-    return registry->builtins.i64_type;
-}
-
-static LLVMTypeRef
-get_second_eightbyte_type(TypeDescriptors * registry, TypeDescriptor const * td)
-{
-    if (td->struct_metadata.members.num_members > 1)
-    {
-        // Return the LLVM type of the second member (e.g., ptr)
-        return td->struct_metadata.members.members[1].type_desc->llvm_type;
-    }
-    return registry->builtins.i64_type;
-}
-
 CoercedType
 get_coerced_llvm_types(TypeDescriptors * registry, TypeDescriptor const * td)
 {
     CoercedType result = {.count = 0};
     uint64_t size = get_type_size_desc(registry->data_layout, td);
 
-    // Rule: Structs > 16 bytes are passed via a hidden pointer (a 'ptr' in LLVM)
-    if ((td->kind == NCC_TYPE_KIND_STRUCT || td->kind == NCC_TYPE_KIND_UNION) && size > 16)
-    {
-        result.types[0] = LLVMPointerType(LLVMInt8TypeInContext(registry->context), 0);
-        result.count = 1;
-        return result;
-    }
-
-    // Rule: Not a struct/union, or it's a "Large" struct (> 16 bytes)
-    // Large structs are passed by hidden pointer (which is 1 LLVM 'ptr' param)
-    if ((td->kind != NCC_TYPE_KIND_STRUCT && td->kind != NCC_TYPE_KIND_UNION) || size > 16)
+    // Rule 1: Not a struct/union? It's a simple scalar (int, ptr, float).
+    if (td->kind != NCC_TYPE_KIND_STRUCT && td->kind != NCC_TYPE_KIND_UNION)
     {
         result.types[0] = td->llvm_type;
         result.count = 1;
         return result;
     }
 
-    // Rule 2: 1-8 byte structs
-    // Usually passed as a single i64 or a specifically sized integer
+    // Rule 2: Large Structs (> 16 bytes)
+    // These are passed by a single hidden pointer.
+    if (size > 16)
+    {
+        result.types[0] = LLVMPointerType(LLVMInt8TypeInContext(registry->context), 0);
+        result.count = 1;
+        return result;
+    }
+
+    // Rule 3: Small Structs (1-8 bytes)
     if (size <= 8)
     {
         result.types[0] = LLVMIntTypeInContext(registry->context, (unsigned)(size * 8));
@@ -695,21 +672,13 @@ get_coerced_llvm_types(TypeDescriptors * registry, TypeDescriptor const * td)
         return result;
     }
 
-    // Rule 3: 9-16 byte structs (Like your epc_parse_result_t)
-    // We split these into two "Eightbytes".
-    // We look at the actual members to be precise, mirroring Clang.
-    if (size <= 16)
-    {
-        // First Eightbyte: Look at the first member
-        // In your case, Clang saw an i8
-        result.types[0] = get_first_eightbyte_type(registry, td);
+    // Rule 4: Medium Structs (9-16 bytes) - Split into two Eightbytes
+    result.types[0] = LLVMInt64TypeInContext(registry->context); // First 8 bytes
 
-        // Second Eightbyte: Usually the second member or the remainder
-        // In your case, Clang saw a ptr
-        result.types[1] = get_second_eightbyte_type(registry, td);
-
-        result.count = 2;
-    }
+    // For the second part, use an integer that covers the remainder
+    uint64_t remaining = size - 8;
+    result.types[1] = LLVMIntTypeInContext(registry->context, (unsigned)(remaining * 8));
+    result.count = 2;
 
     return result;
 }

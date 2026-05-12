@@ -4057,28 +4057,11 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             // Process Arguments
             size_t num_args = suffix->list.count;
-
-            // 1. Calculate how many ACTUAL LLVM parameters we need
-            size_t total_llvm_params = 0;
-            for (size_t j = 0; j < num_args; ++j)
-            {
-                TypeDescriptor const * arg_type = (j < func_desc->function_metadata.param_count)
-                                                      ? func_desc->function_metadata.params[j]
-                                                      : NULL /* handle varargs */;
-                if (arg_type != NULL)
-                {
-                    CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, arg_type);
-                    total_llvm_params += coerced.count;
-                }
-                else
-                {
-                    total_llvm_params++;
-                }
-            }
-
-            LLVMValueRef * call_args = num_args > 0 ? calloc(total_llvm_params, sizeof(*call_args)) : NULL;
-            size_t k = 0;
+            // 1. There won't ever be more than twice as many total args, so allocate enough memory for the worst case.
+            LLVMValueRef * call_args = num_args > 0 ? calloc(2 * num_args, sizeof(*call_args)) : NULL;
             debug_info("dealing with %zu args", num_args);
+            size_t total_llvm_params = 0;
+
             for (size_t j = 0; j < num_args; ++j)
             {
                 debug_info("deal with arg: %zu", j);
@@ -4089,49 +4072,50 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     return arg;
                 }
 
-                if (arg.type_info->kind == NCC_TYPE_KIND_STRUCT || arg.type_info->kind == NCC_TYPE_KIND_UNION)
-                {
-                    arg = ensure_lvalue(ctx, "abi_compat_alloca", arg);
-                    debug_info("struct size: %zu", sizeof(arg));
-                }
+                TypeDescriptor const * type_to_check = j < func_desc->function_metadata.param_count
+                                                           ? func_desc->function_metadata.params[j]
+                                                           : arg.type_info;
 
-                // ABI Lowering: Split the C value into N LLVM register values
-                CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, arg.type_info);
-                debug_info("coerced count is: %zu", coerced.count);
-
-                for (int p = 0; p < coerced.count; p++)
+                if (type_to_check->kind == NCC_TYPE_KIND_STRUCT || type_to_check->kind == NCC_TYPE_KIND_UNION)
                 {
-                    bool is_a_struct
-                        = arg.type_info->kind == NCC_TYPE_KIND_STRUCT || arg.type_info->kind == NCC_TYPE_KIND_UNION;
-                    debug_info("deal with coerced val: %u is a struct %d size: %zu", p, is_a_struct, sizeof(arg));
-                    if (is_a_struct)
+                    uint64_t size = get_type_size_desc(ctx->data_layout, type_to_check);
+
+                    if (size > 16)
                     {
-                        debug_info("1");
-                        // Even if count is 1, a struct must be extracted to match the
-                        // integer type (e.g., i64) in the coerced signature.
-                        call_args[k++] = extract_param_part(ctx, arg, p, coerced.types[p]);
-                        debug_info("2");
+                        // Memory passing: just pass the address
+                        arg = ensure_lvalue(ctx, "abi_large_tmp", arg);
+                        call_args[total_llvm_params++] = arg.value;
                     }
                     else
                     {
-                        debug_info("3");
-                        // Natural scalars (ints, floats, pointers) pass through directly
-                        // Auto-cast to parameter type if available
-                        TypedValue direct_arg = arg;
-                        if (j < func_desc->function_metadata.param_count)
+                        // Register passing: split into Eightbytes
+                        arg = ensure_lvalue(ctx, "abi_small_tmp", arg);
+                        CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, type_to_check);
+                        for (int p = 0; p < coerced.count; p++)
                         {
-                            debug_info("4");
-                            direct_arg
-                                = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
-                            debug_info("5");
-                            dump_typed_value("is this arg lvalue after casting?", direct_arg);
+                            call_args[total_llvm_params++] = extract_param_part(ctx, arg, p, coerced.types[p]);
                         }
-                        debug_info("6");
-                        direct_arg = ensure_rvalue(ctx, "arg_load", direct_arg);
-                        call_args[k++] = direct_arg.value;
                     }
                 }
+                else
+                {
+                    debug_info("3");
+                    // Natural scalars (ints, floats, pointers) pass through directly
+                    // Auto-cast to parameter type if available
+                    TypedValue direct_arg = arg;
+                    if (j < func_desc->function_metadata.param_count)
+                    {
+                        debug_info("4");
+                        direct_arg = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
+                        debug_info("5");
+                        dump_typed_value("is this arg lvalue after casting?", direct_arg);
+                    }
+                    debug_info("6");
+                    direct_arg = ensure_rvalue(ctx, "arg_load", direct_arg);
+                    call_args[total_llvm_params++] = direct_arg.value;
+                }
             }
+
             debug_info("LLVMBuildCall: total args: %zu", total_llvm_params);
             LLVMValueRef call_val = LLVMBuildCall2(
                 ctx->builder,
