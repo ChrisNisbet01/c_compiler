@@ -144,6 +144,9 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
 // Helper function to ensure a value is an rvalue
 TypedValue ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val);
 
+// Helper function to ensure a value is an lvalue
+TypedValue ensure_lvalue(ir_generator_ctx_t * ctx, char const * name, TypedValue val);
+
 // Forward declaration for process_expression
 TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
 #define process_expression(c, n) _process_expression_impl((c), (n), __LINE__)

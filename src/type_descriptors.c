@@ -669,9 +669,17 @@ get_coerced_llvm_types(TypeDescriptors * registry, TypeDescriptor const * td)
     CoercedType result = {.count = 0};
     uint64_t size = get_type_size_desc(registry->data_layout, td);
 
-    // Rule 1: Not a struct/union, or it's a "Large" struct (> 16 bytes)
+    // Rule: Structs > 16 bytes are passed via a hidden pointer (a 'ptr' in LLVM)
+    if ((td->kind == NCC_TYPE_KIND_STRUCT || td->kind == NCC_TYPE_KIND_UNION) && size > 16)
+    {
+        result.types[0] = LLVMPointerType(LLVMInt8TypeInContext(registry->context), 0);
+        result.count = 1;
+        return result;
+    }
+
+    // Rule: Not a struct/union, or it's a "Large" struct (> 16 bytes)
     // Large structs are passed by hidden pointer (which is 1 LLVM 'ptr' param)
-    if (td->kind != NCC_TYPE_KIND_STRUCT || size > 16)
+    if ((td->kind != NCC_TYPE_KIND_STRUCT && td->kind != NCC_TYPE_KIND_UNION) || size > 16)
     {
         result.types[0] = td->llvm_type;
         result.count = 1;
@@ -742,8 +750,8 @@ get_or_create_function_type(
 
     // Not found: Create a new function descriptor
     // First pass: compute coerced types for each parameter
-    int *coerced_counts = NULL;
-    CoercedType *coerced_params = NULL;
+    int * coerced_counts = NULL;
+    CoercedType * coerced_params = NULL;
     size_t total_coerced = 0;
 
     if (param_count > 0)
@@ -764,7 +772,7 @@ get_or_create_function_type(
         .kind = NCC_TYPE_KIND_FUNCTION,
         .pointee = ret_type,
         .function_metadata.return_type = ret_type,
-        .function_metadata.param_count = (unsigned)total_coerced,  // Total LLVM params (coerced)
+        .function_metadata.param_count = (unsigned)total_coerced, // Total LLVM params (coerced)
         .function_metadata.is_variadic = is_variadic,
         .function_metadata.is_void_return = LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,
         .function_metadata.coerced_param_counts = coerced_counts,

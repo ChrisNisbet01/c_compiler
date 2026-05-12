@@ -142,6 +142,28 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
 }
 
 TypedValue
+ensure_lvalue(ir_generator_ctx_t * ctx, char const * name, TypedValue val)
+{
+    if (val.is_lvalue)
+    {
+        return val;
+    }
+
+    // 1. Create space on the stack
+    LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, val.type_info->llvm_type, name);
+    LLVMSetAlignment(alloca_inst, 8);
+
+    // 2. Store the data (val.value) into the address (alloca_inst)
+    LLVMBuildStore(ctx->builder, val.value, alloca_inst);
+
+    // 3. Return a new TypedValue where 'value' is now the POINTER
+    TypedValue lval = val;
+    lval.is_lvalue = true;
+    lval.value = alloca_inst;
+    return lval;
+}
+
+TypedValue
 ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
 {
     debug_info("%s: is %s, lvalue: %d", __func__, label, val.is_lvalue);
@@ -2185,21 +2207,37 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         LLVMValueRef alloca_inst
             = LLVMBuildAlloca(ctx->builder, p_type_desc->llvm_type, p_name != NULL ? p_name : "fn_param");
 
-        if (coerced.count == 1 && p_type_desc->kind == NCC_TYPE_KIND_STRUCT
-            && get_type_size_desc(ctx->data_layout, p_type_desc) > 16)
+        if (p_type_desc->kind == NCC_TYPE_KIND_STRUCT || p_type_desc->kind == NCC_TYPE_KIND_UNION)
         {
-            // Passed by hidden pointer — load the struct from the pointer
-            LLVMValueRef ptr_param = LLVMGetParam(func, (unsigned)llvm_arg_idx++);
-            LLVMValueRef loaded = LLVMBuildLoad2(ctx->builder, p_type_desc->llvm_type, ptr_param, "deref_param");
-            LLVMBuildStore(ctx->builder, loaded, alloca_inst);
+            uint64_t size = get_type_size_desc(ctx->data_layout, p_type_desc);
+
+            if (size > 16)
+            {
+                // CASE 1: Large Struct (> 16 bytes)
+                // The parameter in LLVM is actually a 'ptr' to the struct data.
+                LLVMValueRef hidden_ptr = LLVMGetParam(func, llvm_arg_idx++);
+
+                // Use memcpy to move data from the hidden pointer to our local stack
+                // This preserves "pass-by-value" semantics (the function gets its own copy)
+                LLVMValueRef size_val = LLVMConstInt(LLVMInt64TypeInContext(ctx->context), size, false);
+                LLVMBuildMemCpy(ctx->builder, alloca_inst, 8, hidden_ptr, 8, size_val);
+            }
+            else
+            {
+                // CASE 2: Small Struct (1-16 bytes)
+                // The struct is shattered across 1 or 2 registers (i64, etc.)
+                for (int p = 0; p < coerced.count; p++)
+                {
+                    LLVMValueRef reg_val = LLVMGetParam(func, llvm_arg_idx++);
+                    stitch_param_part(ctx->type_descriptors, alloca_inst, reg_val, p);
+                }
+            }
         }
         else
         {
-            for (int j = 0; j < coerced.count; ++j)
-            {
-                LLVMValueRef raw_val = LLVMGetParam(func, (unsigned)llvm_arg_idx++);
-                stitch_param_part(ctx->type_descriptors, alloca_inst, raw_val, j);
-            }
+            // CASE 3: Standard Scalars (int, ptr, float)
+            LLVMValueRef reg_val = LLVMGetParam(func, llvm_arg_idx++);
+            LLVMBuildStore(ctx->builder, reg_val, alloca_inst);
         }
 
         if (p_name != NULL)
@@ -3907,11 +3945,13 @@ LLVMValueRef
 extract_param_part(ir_generator_ctx_t * ctx, TypedValue struct_val, int part_idx, LLVMTypeRef target_type)
 {
     // 1. Get the address of the struct (from your TypedValue)
-    struct_val = ensure_rvalue(ctx, "struct_ptr_load", struct_val);
+    // struct_val = ensure_rvalue(ctx, "struct_ptr_load", struct_val);
     LLVMValueRef addr = struct_val.value;
+    dump_typed_value("struct_val", struct_val);
 
     // 2. Calculate the offset (0 or 8 bytes)
     LLVMValueRef offset = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), part_idx * 8, false);
+    debug_info("%s part_idx: %u", __func__, part_idx);
 
     // 3. GEP to the chunk
     LLVMValueRef byte_ptr
@@ -4038,9 +4078,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             LLVMValueRef * call_args = num_args > 0 ? calloc(total_llvm_params, sizeof(*call_args)) : NULL;
             size_t k = 0;
-
+            debug_info("dealing with %zu args", num_args);
             for (size_t j = 0; j < num_args; ++j)
             {
+                debug_info("deal with arg: %zu", j);
                 TypedValue arg = process_expression(ctx, suffix->list.children[j]);
                 if (arg.value == NULL)
                 {
@@ -4048,30 +4089,50 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                     return arg;
                 }
 
-                // Auto-cast to parameter type if available
-                if (j < func_desc->function_metadata.param_count)
+                if (arg.type_info->kind == NCC_TYPE_KIND_STRUCT || arg.type_info->kind == NCC_TYPE_KIND_UNION)
                 {
-                    arg = cast_typed_value_to_desc(ctx, arg, func_desc->function_metadata.params[j]);
+                    arg = ensure_lvalue(ctx, "abi_compat_alloca", arg);
+                    debug_info("struct size: %zu", sizeof(arg));
                 }
-                arg = ensure_rvalue(ctx, "vararg_load", arg);
 
                 // ABI Lowering: Split the C value into N LLVM register values
                 CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, arg.type_info);
+                debug_info("coerced count is: %zu", coerced.count);
 
-                if (coerced.count == 1)
+                for (int p = 0; p < coerced.count; p++)
                 {
-                    // Simple case: 1:1 mapping (int, ptr, or Large struct)
-                    call_args[k++] = arg.value;
-                }
-                else
-                {
-                    // Struct case: Split the 16-byte struct into parts
-                    // Use the helper below to extract the parts from the struct
-                    call_args[k++] = extract_param_part(ctx, arg, 0, coerced.types[0]);
-                    call_args[k++] = extract_param_part(ctx, arg, 1, coerced.types[1]);
+                    bool is_a_struct
+                        = arg.type_info->kind == NCC_TYPE_KIND_STRUCT || arg.type_info->kind == NCC_TYPE_KIND_UNION;
+                    debug_info("deal with coerced val: %u is a struct %d size: %zu", p, is_a_struct, sizeof(arg));
+                    if (is_a_struct)
+                    {
+                        debug_info("1");
+                        // Even if count is 1, a struct must be extracted to match the
+                        // integer type (e.g., i64) in the coerced signature.
+                        call_args[k++] = extract_param_part(ctx, arg, p, coerced.types[p]);
+                        debug_info("2");
+                    }
+                    else
+                    {
+                        debug_info("3");
+                        // Natural scalars (ints, floats, pointers) pass through directly
+                        // Auto-cast to parameter type if available
+                        TypedValue direct_arg = arg;
+                        if (j < func_desc->function_metadata.param_count)
+                        {
+                            debug_info("4");
+                            direct_arg
+                                = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
+                            debug_info("5");
+                            dump_typed_value("is this arg lvalue after casting?", direct_arg);
+                        }
+                        debug_info("6");
+                        direct_arg = ensure_rvalue(ctx, "arg_load", direct_arg);
+                        call_args[k++] = direct_arg.value;
+                    }
                 }
             }
-
+            debug_info("LLVMBuildCall: total args: %zu", total_llvm_params);
             LLVMValueRef call_val = LLVMBuildCall2(
                 ctx->builder,
                 func_desc->llvm_type,

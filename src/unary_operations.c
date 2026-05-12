@@ -15,47 +15,41 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     // Unary structure: [Operator, Operand]
     c_grammar_node_t const * op = node->unary_expression_prefix.op;
     c_grammar_node_t const * operand_node = node->unary_expression_prefix.operand;
-
+    debug_info("%s", __func__);
     switch (op->op.unary.op)
     {
     case UNARY_OP_ADDR:
     {
-        // For &compound_literal, we need to create a pointer to the temp
-        // The compound literal code returns a loaded value, but we need the pointer
+        TypedValue v;
         if (operand_node->type == AST_NODE_COMPOUND_LITERAL)
         {
-            TypedValue v = process_compound_literal(ctx, operand_node);
-
-            if (v.value == NULL)
-            {
-                ir_gen_error(&ctx->errors, operand_node, "Cannot take the address of an rvalue");
-                return NullTypedValue;
-            }
-
-            // --- The Bridge Logic ---
-            TypeDescriptor const * base_desc = v.type_info;
-
-            if (base_desc == NULL)
-            {
-                debug_error("No type descriptor found for compound literal, attempting fallback");
-                return NullTypedValue;
-            }
-
-            v = create_typed_value(
-                v.value, get_or_create_pointer_type(ctx->type_descriptors, base_desc, (TypeQualifier){0}), false
-            );
-
-            return v;
+            v = process_compound_literal(ctx, operand_node);
         }
-        TypedValue v = process_expression(ctx, operand_node);
+        else
+        {
+            v = process_expression(ctx, operand_node);
+        }
+
         if (v.value == NULL)
         {
             return NullTypedValue;
         }
 
-        v.is_lvalue = false;
-        // For &member or &array[i], process the expression which returns a pointer
-        return v;
+        // 1. Safety Check: You can only take the address of something in memory
+        if (!v.is_lvalue)
+        {
+            // If it's an r-value (like a function return), we must spill it to
+            // the stack first to get an address.
+            v = ensure_lvalue(ctx, "addr_tmp", v);
+        }
+
+        // 2. The result of '&' is an r-value (the pointer itself)
+        // 3. The type must be transformed from 'T' to 'T*'
+        TypeDescriptor const * ptr_type
+            = get_or_create_pointer_type(ctx->type_descriptors, v.type_info, (TypeQualifier){0});
+
+        // v.value already contains the address (because is_lvalue was true)
+        return create_typed_value(v.value, ptr_type, false);
     }
 
     case UNARY_OP_DEREF:
@@ -63,27 +57,34 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         TypedValue operand_res = process_expression(ctx, operand_node);
         if (operand_res.value == NULL)
         {
-            debug_info("operand dereference failed");
             return NullTypedValue;
         }
 
+        // 1. Validation: Must be a pointer
         if (operand_res.type_info->kind != NCC_TYPE_KIND_POINTER)
         {
-            ir_gen_error(
-                &ctx->errors,
-                operand_node,
-                "Error: Dereference operand is not a pointer (value: %p)\n",
-                (void *)operand_res.value
-            );
+            ir_gen_error(&ctx->errors, operand_node, "Dereference operand is not a pointer");
             return NullTypedValue;
         }
-        operand_res = ensure_rvalue(ctx, "un_op_deref", operand_res);
+
+        // 2. Extract the actual address
+        // If the operand is an l-value (pointer to a pointer), we need to load it
+        // to get the actual pointer value we want to dereference.
+        operand_res = ensure_rvalue(ctx, "deref_addr", operand_res);
+
+        // 3. Transform Type: Pointer to T -> T
         if (!typed_value_switch_to_pointee(&operand_res))
         {
-            ir_gen_error(&ctx->errors, operand_node, "Error: Failed to switch to pointee type for dereference");
+            ir_gen_error(&ctx->errors, operand_node, "Failed to resolve pointee type");
             return NullTypedValue;
         }
+
+        // 4. Set state: The 'value' is the address, and it's now an l-value
         operand_res.is_lvalue = true;
+
+        // Crucial: If your system uses bitfields or special metadata for structs,
+        // ensure they are cleared or updated for the new type.
+        operand_res.bitfield.bit_width = 0;
 
         return operand_res;
     }
