@@ -22,8 +22,6 @@ typedef struct symbol_table_t
 symbol_table_t *
 symbol_table_create(void)
 {
-    fprintf(stderr, "pending names struct size: %zu\n", sizeof(symbol_table_t));
-
     symbol_table_t * st = calloc(1, sizeof(*st));
     if (st == NULL)
     {
@@ -92,7 +90,7 @@ symbol_table_add(symbol_table_t * st, char const * name)
 
     /* Insert into hash table; it returns the owned copy */
     char * stored = hash_table_insert(st->hash, name);
-    if (!stored)
+    if (stored == NULL)
     {
         /* insertion failed (likely OOM or duplicate) */
         return;

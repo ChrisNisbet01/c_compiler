@@ -11,8 +11,11 @@ hash_djb2(char const * str)
 {
     size_t hash = 5381;
     int c;
-    while ((c = (unsigned char)*str++))
+    while ((c = (unsigned char)*str++) != '\0')
+    {
         hash = ((hash << 5) + hash) + (size_t)c; /* hash * 33 + c */
+    }
+
     return hash;
 }
 
@@ -36,25 +39,33 @@ hash_table_t *
 hash_table_create(size_t initial_bucket_count)
 {
     if (initial_bucket_count == 0)
+    {
         initial_bucket_count = 16;
+    }
+
     hash_table_t * ht = calloc(1, sizeof(*ht));
-    if (!ht)
+
+    if (ht == NULL)
+    {
         return NULL;
+    }
     ht->bucket_count = initial_bucket_count;
     ht->load_factor = 0.75f;
     ht->buckets = calloc(ht->bucket_count, sizeof(*ht->buckets));
-    if (!ht->buckets)
+    if (ht->buckets == NULL)
     {
         free(ht);
+
         return NULL;
     }
+
     return ht;
 }
 
 static void
 hash_table_free_entries(hash_entry_t * entry)
 {
-    while (entry)
+    while (entry != NULL)
     {
         hash_entry_t * next = entry->next;
         free(entry->key);
@@ -66,12 +77,16 @@ hash_table_free_entries(hash_entry_t * entry)
 void
 hash_table_free(hash_table_t * ht)
 {
-    if (!ht)
+    if (ht == NULL)
+    {
         return;
+    }
+
     for (size_t i = 0; i < ht->bucket_count; ++i)
     {
         hash_table_free_entries(ht->buckets[i]);
     }
+
     free(ht->buckets);
     free(ht);
 }
@@ -80,23 +95,24 @@ static bool
 hash_table_insert_internal(hash_table_t * ht, char const * key, bool duplicate)
 {
     size_t idx = hash_djb2(key) % ht->bucket_count;
-    for (hash_entry_t * e = ht->buckets[idx]; e; e = e->next)
+
+    if (hash_table_contains(ht, key))
     {
-        if (strcmp(e->key, key) == 0)
-        {
-            return false; // already present
-        }
+        return false; // already present
     }
+
     hash_entry_t * new_entry = malloc(sizeof(*new_entry));
+
     if (!new_entry)
     {
         debug_error("hash_table: allocation failed for entry");
         return false;
     }
+
     if (duplicate)
     {
         new_entry->key = strdup(key);
-        if (!new_entry->key)
+        if (new_entry->key == NULL)
         {
             free(new_entry);
             debug_error("hash_table: strdup failed");
@@ -107,6 +123,7 @@ hash_table_insert_internal(hash_table_t * ht, char const * key, bool duplicate)
     {
         new_entry->key = (char *)key; // assumes caller already allocated
     }
+
     new_entry->next = ht->buckets[idx];
     ht->buckets[idx] = new_entry;
     ht->size++;
@@ -122,85 +139,115 @@ hash_table_insert_internal(hash_table_t * ht, char const * key, bool duplicate)
 char *
 hash_table_insert(hash_table_t * ht, char const * key)
 {
-    if (!ht || !key)
+    if (ht == NULL || key == NULL)
+    {
         return NULL;
+    }
     /* Insert and duplicate the key; on success return pointer to stored copy */
     bool ok = hash_table_insert_internal(ht, key, true);
+
     if (!ok)
+    {
         return NULL;
+    }
     /* Find the entry we just inserted to get its stored pointer */
     size_t idx = hash_djb2(key) % ht->bucket_count;
-    for (hash_entry_t * e = ht->buckets[idx]; e; e = e->next)
+
+    for (hash_entry_t * e = ht->buckets[idx]; e != NULL; e = e->next)
     {
         if (strcmp(e->key, key) == 0)
         {
             return e->key;
         }
     }
+
     return NULL; /* should not happen */
 }
 
 bool
 hash_table_remove(hash_table_t * ht, char const * key)
 {
-    if (!ht || !key)
-        return false;
+    if (ht == NULL || key == NULL)
+    {
+        return NULL;
+    }
+
     size_t idx = hash_djb2(key) % ht->bucket_count;
     hash_entry_t * prev = NULL;
-    for (hash_entry_t * e = ht->buckets[idx]; e; e = e->next)
+
+    for (hash_entry_t * e = ht->buckets[idx]; e != NULL; e = e->next)
     {
         if (strcmp(e->key, key) == 0)
         {
-            if (prev)
+            if (prev != NULL)
+            {
                 prev->next = e->next;
+            }
             else
+            {
                 ht->buckets[idx] = e->next;
+            }
             free(e->key);
             free(e);
             ht->size--;
+
             return true;
         }
         prev = e;
     }
+
     return false;
 }
 
 bool
 hash_table_contains(hash_table_t const * ht, char const * key)
 {
-    if (!ht || !key)
+    if (ht == NULL || key == NULL)
+    {
         return false;
+    }
+
     size_t idx = hash_djb2(key) % ht->bucket_count;
-    for (hash_entry_t * e = ht->buckets[idx]; e; e = e->next)
+
+    for (hash_entry_t * e = ht->buckets[idx]; e != NULL; e = e->next)
     {
         if (strcmp(e->key, key) == 0)
+        {
             return true;
+        }
     }
+
     return false;
 }
 
 size_t
 hash_table_size(hash_table_t const * ht)
 {
-    return ht ? ht->size : 0;
+    return ht != NULL ? ht->size : 0;
 }
 
 static bool
 hash_table_resize(hash_table_t * ht, size_t new_bucket_count)
 {
-    if (!ht)
+    if (ht == NULL)
+    {
         return false;
+    }
+
     hash_entry_t ** new_buckets = calloc(new_bucket_count, sizeof(*new_buckets));
-    if (!new_buckets)
+
+    if (new_buckets == NULL)
     {
         debug_error("hash_table: resize allocation failed");
         return false;
     }
+
     /* Rehash all entries */
     for (size_t i = 0; i < ht->bucket_count; ++i)
     {
         hash_entry_t * e = ht->buckets[i];
-        while (e)
+
+        while (e != NULL)
         {
             hash_entry_t * next = e->next;
             size_t idx = hash_djb2(e->key) % new_bucket_count;
@@ -212,5 +259,6 @@ hash_table_resize(hash_table_t * ht, size_t new_bucket_count)
     free(ht->buckets);
     ht->buckets = new_buckets;
     ht->bucket_count = new_bucket_count;
+
     return true;
 }

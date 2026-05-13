@@ -65,7 +65,6 @@ typedef struct
 static void
 typedef_scope_push(parse_session_ctx_t * session)
 {
-    fprintf(stderr, "%s\n", __func__);
     typedef_scope_t * scope = calloc(1, sizeof(*scope));
     if (scope == NULL)
     {
@@ -86,7 +85,6 @@ typedef_scope_push(parse_session_ctx_t * session)
 static void
 typedef_scope_pop(parse_session_ctx_t * session)
 {
-    fprintf(stderr, "%s\n", __func__);
     typedef_scope_t * scope = session->typedef_scopes;
     if (scope == NULL)
     {
@@ -234,23 +232,14 @@ is_typedef_name(epc_cpt_node_t * token, epc_parser_ctx_t * parse_ctx, void * par
 static void
 on_capture_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
-    fprintf(stderr, "%s\n", __func__);
     (void)parser;
     (void)parse_ctx;
     (void)parser_data;
 }
 
-void
-on_capture_exit_debug_func(void)
-{
-    fprintf(stderr, "%s\n", __func__);
-}
-
 static bool
 on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
-    fprintf(stderr, "%s is_error: parse_ctx: %p is error: %d\n", __func__, (void *)parse_ctx, result.is_error);
-    fprintf(stderr, "sizeof parse_result: %zu\n", sizeof(result));
     (void)parser_data;
     if (result.is_error)
     {
@@ -260,46 +249,39 @@ on_capture_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * 
     parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
-        fprintf(stderr, "%s: no session\n", __func__);
         return true;
     }
 
     char const * name = epc_cpt_node_get_semantic_content(result.data.success);
-    fprintf(stderr, "name: %p\n", name);
+
     if (name == NULL)
     {
-        fprintf(stderr, "no name!");
         return true;
     }
+
     size_t len = epc_cpt_node_get_semantic_len(result.data.success);
     char * name_copy = strndup(name, len);
+
     if (name_copy == NULL)
     {
-        fprintf(stderr, "%s: strndup failed!\n", __func__);
         return true;
     }
-    fprintf(stderr, "name copy: %s (%p)\n", name_copy, (void *)name_copy);
-    fprintf(stderr, "pending names struct: %p\n", (void *)session->pending_names_st);
-
-    on_capture_exit_debug_func();
 
     symbol_table_add(session->pending_names_st, name_copy);
 
-    fprintf(stderr, "Pending: '%s'\n", name_copy);
     free(name_copy);
+
     return true;
 }
 
 static void
 on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
-    fprintf(stderr, "%s\n", __func__);
     (void)parser;
     (void)parser_data;
     parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL)
     {
-        fprintf(stderr, "%s: no context\n", __func__);
         return;
     }
 
@@ -321,7 +303,6 @@ on_commit_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * pars
 static bool
 on_commit_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
-    fprintf(stderr, "%s\n", __func__);
     (void)parser_data;
     parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
     if (session == NULL || session->marker_top == 0)
@@ -351,7 +332,6 @@ epc_wrap_callbacks_t typedef_commit_callbacks = {on_commit_entry, on_commit_exit
 static void
 on_scope_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
-    fprintf(stderr, "%s\n", __func__);
     (void)parser;
     (void)parser_data;
     parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
@@ -364,7 +344,6 @@ on_scope_entry(epc_parser_t * parser, epc_parser_ctx_t * parse_ctx, void * parse
 static bool
 on_scope_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * parser_data)
 {
-    fprintf(stderr, "%s\n", __func__);
     (void)parser_data;
     (void)result;
     parse_session_ctx_t * session = (parse_session_ctx_t *)parse_ctx_get_user_ctx(parse_ctx);
@@ -372,7 +351,7 @@ on_scope_exit(epc_parse_result_t result, epc_parser_ctx_t * parse_ctx, void * pa
     {
         typedef_scope_pop(session);
     }
-    fprintf(stderr, "%s out\n", __func__);
+
     return true;
 }
 
@@ -452,17 +431,17 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     argv[arg_idx++] = NULL;
 
     // Print command for user feedback
-    printf("Linking: clang -flto -no-pie %s", o_path);
+    fprintf(stderr, "Linking: clang -flto -no-pie %s", o_path);
     for (int i = 0; i < lib_paths_count; i++)
     {
-        printf(" -L%s", lib_paths[i]);
+        fprintf(stderr, " -L%s", lib_paths[i]);
     }
-    printf(" -o %s", exe_path);
+    fprintf(stderr, " -o %s", exe_path);
     for (int i = 0; i < lib_names_count; i++)
     {
-        printf(" -l%s", lib_names[i]);
+        fprintf(stderr, " -l%s", lib_names[i]);
     }
-    printf("\n");
+    fprintf(stderr, "\n");
 
     // 3. Invoke linker using posix_spawn
     pid_t pid;
@@ -838,11 +817,6 @@ main(int argc, char * argv[])
            {"debug", required_argument, 0, 257},
            {0, 0, 0, 0}};
 
-    for (int i = 0; i < 6; i++)
-    {
-        printf("option: %u name: %s\n", i, long_options[i].name);
-    }
-
     int opt;
     int option_index = 0;
     while ((opt = getopt_long(argc, argv, "cSo:l:L:hEI:D:A", long_options, &option_index)) != -1)
@@ -850,16 +824,13 @@ main(int argc, char * argv[])
         switch (opt)
         {
         case 'c':
-            printf("compile_only\n");
             compile_only_flag = true;
             break;
         case 'S':
-            printf("assemble_only\n");
             assembly_only_flag = true;
             break;
         case 'o':
             output_filename = optarg;
-            printf("output filename: %s\n", output_filename);
             break;
         case 'l':
             if (lib_names_count < (int)(sizeof(lib_names) / sizeof(lib_names[0])))
@@ -874,16 +845,16 @@ main(int argc, char * argv[])
             break;
         case 'e':
             emit_llvm_flag = true;
-            printf("emit llvm\n");
             break;
         case 'E':
             preprocess_only_flag = true;
             preprocess_flag = true; // -E implies preprocessing
-            printf("preprocess only\n");
             break;
         case 'I':
             if (include_paths_count < 64)
+            {
                 include_paths[include_paths_count++] = optarg;
+            }
             break;
         case 'D':
             if (defines_count < 64)
@@ -891,7 +862,6 @@ main(int argc, char * argv[])
             break;
         case 'A':
             emit_ast_flag = true;
-            printf("emit ast\n");
             break;
         case 256: // --no-preprocess
             preprocess_flag = false;
@@ -935,7 +905,7 @@ main(int argc, char * argv[])
     }
 
     char const * filename = argv[optind];
-    printf("Parsing: %s\n", filename);
+    fprintf(stderr, "Parsing: %s\n", filename);
 
     // Handle preprocessing
     bool should_preprocess = preprocess_flag;
@@ -952,7 +922,6 @@ main(int argc, char * argv[])
 
     if (should_preprocess)
     {
-        printf("2\n");
         // Create temp file for preprocessed output
         preprocessed_temp_file = strdup("/tmp/ncc_preproc_XXXXXX");
         int fd = mkstemp(preprocessed_temp_file);
@@ -982,7 +951,6 @@ main(int argc, char * argv[])
             }
         }
     }
-    printf("xxx\n");
     epc_parser_list * list = epc_parser_list_create();
     if (list == NULL)
     {
@@ -994,7 +962,6 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    printf("xxx A\n");
     parse_session_ctx_t * session_ctx = session_ctx_create();
     if (session_ctx == NULL)
     {
@@ -1003,18 +970,15 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    printf("xxx B\n");
     epc_parser_t * c_parser = create_c_grammar_parser(list);
     if (c_parser == NULL)
     {
-        printf("xxx C\n");
         debug_error("Failed to create C parser.");
         session_ctx_free(session_ctx);
         epc_parser_list_free(list);
         return EXIT_FAILURE;
     }
 
-    printf("xxx D\n");
     debug_info(
         "Successfully created C parser. (%p), input_file: %s session_ctx: %p", c_parser, actual_input_file, session_ctx
     );
@@ -1047,7 +1011,7 @@ main(int argc, char * argv[])
     // Build the AST
     int exit_code = EXIT_SUCCESS;
     epc_ast_hook_registry_t * registry = epc_ast_hook_registry_create(C_GRAMMAR_AST_ACTION_COUNT__);
-    printf("back from registry_create\n");
+
     if (registry != NULL)
     {
         c_grammar_ast_hook_registry_init(registry);
