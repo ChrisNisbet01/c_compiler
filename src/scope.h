@@ -84,15 +84,6 @@ type_info_t const * scope_add_untagged_type(scope_t * scope, type_info_t info, i
 // --- Tagged type lookup ---
 
 /**
- * @brief Finds a tagged type by tag name.
- * @param scope The scope to search (and parent scopes).
- * @param tag The tag name to search for.
- * @param kind The expected type kind.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t * scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind);
-
-/**
  * @brief Finds a tagged struct by tag name.
  * @param scope The scope to search.
  * @param tag The tag name to search for.

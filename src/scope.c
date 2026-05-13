@@ -136,7 +136,7 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
     return NULL;
 }
 
-type_info_t *
+static type_info_t *
 scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind)
 {
     type_info_t * info = scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, kind);
