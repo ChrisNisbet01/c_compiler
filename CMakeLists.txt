@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(c_compiler LANGUAGES C)
 
+# Include ExternalProject module for self-built compiler target
+include(ExternalProject)
+
 # Generate compile_commands.json for LSP support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -81,3 +84,26 @@ endif()
 
 # Add our source
 add_subdirectory(src)
+
+# --- Self-Built Compiler (Bootstrap) ---
+# Get the actual path to the ncc executable (not a generator expression for custom command)
+set(NCC_BINARY ${CMAKE_BINARY_DIR}/src/ncc)
+
+# Self-built compiler using custom target
+# This builds the compiler using ncc as the C compiler, similar to the old Makefile approach
+
+# Create output directory
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/self_built")
+
+# Custom target for building self-built ncc
+add_custom_target(ncc_self
+    COMMAND make -C ${CMAKE_SOURCE_DIR}/self_build NCC=${NCC_BINARY}
+    COMMAND ${CMAKE_COMMAND} -E copy 
+        ${CMAKE_SOURCE_DIR}/self_build/ncc
+        ${CMAKE_BINARY_DIR}/self_built/ncc
+    DEPENDS ncc easy_pc_shared
+    COMMENT "Building self-built ncc compiler using ncc as the compiler..."
+)
+
+# Set EXCLUDE_FROM_ALL property to prevent building by default
+set_target_properties(ncc_self PROPERTIES EXCLUDE_FROM_ALL TRUE)
