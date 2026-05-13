@@ -3634,9 +3634,13 @@ process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * _node)
         .long_count = long_count,
     };
     TypeDescriptor const * type_desc = get_or_create_builtin_type(ctx->type_descriptors, specifier, (TypeQualifier){0});
-    LLVMValueRef val = LLVMConstReal(type_desc->llvm_type, float_node->float_literal.value);
+    debug_info("%s: float literal value: %Lf\n", __func__, float_node->float_literal.value);
+    LLVMValueRef val = LLVMConstRealOfString(type_desc->llvm_type, _node->list.children[0]->text);
+    TypedValue res = create_typed_value(val, type_desc, false);
 
-    return create_typed_value(val, type_desc, false);
+    dump_typed_value("float literal", res);
+
+    return res;
 }
 
 static TypedValue

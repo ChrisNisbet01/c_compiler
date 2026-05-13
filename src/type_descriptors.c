@@ -255,7 +255,7 @@ type_ref_from_specs(TypeDescriptors * registry, TypeSpecifier const specs)
     }
     else if (specs.is_double)
     {
-        if (specs.long_count > 1)
+        if (specs.long_count > 0)
         {
             llvm_type = registry->builtins.long_double_type;
         }

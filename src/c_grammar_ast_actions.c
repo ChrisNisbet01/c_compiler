@@ -527,10 +527,18 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
         );
         return;
     }
-    c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_FLOAT_LITERAL, node);
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FLOAT_LITERAL);
     if (ast_node == NULL)
     {
         free_ast_node_children(children, count, user_data);
+        return;
+    }
+
+    ast_node->text = extract_node_text(node);
+    if (ast_node->text == NULL)
+    {
+        c_grammar_node_free(ast_node, user_data);
+        epc_ast_builder_set_error(ctx, "%s: Memory allocation failed", get_node_type_name_from_node(ast_node));
         return;
     }
 
@@ -538,6 +546,7 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
     char const * full_text = ast_node->text;
 
     ast_node->float_lit.float_literal.value = strtold(full_text, NULL);
+    fprintf(stderr, "float literal value: %Lf, %s\n", ast_node->float_lit.float_literal.value, full_text);
     ast_node->float_lit.float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
     if (suffix_node != NULL)
     {
@@ -555,8 +564,6 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
             }
         }
     }
-
-    free_ast_node_children(children, count, user_data);
 
     epc_ast_push(ctx, ast_node);
 }
