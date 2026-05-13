@@ -2,13 +2,14 @@
 
 #include "generator_lists.h"
 
-int
+static int
 evaluate_enum_value_assignment_expression(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * value_node, int current_value
 )
 {
     if (value_node == NULL)
     {
+        debug_info("%s: value_node is NULL", __func__);
         return current_value;
     }
 
@@ -178,6 +179,37 @@ evaluate_enum_value_assignment_expression(
     }
     break;
 
+    case AST_NODE_UNARY_EXPRESSION_PREFIX:
+    {
+        c_grammar_node_t const * op_node = value_node->unary_expression_prefix.op;
+
+        if (op_node == NULL)
+        {
+            debug_error("%s: op_node is NULL", __func__);
+            return current_value;
+        }
+        if (op_node->op.unary.op != UNARY_OP_PLUS && op_node->op.unary.op != UNARY_OP_MINUS
+            && op_node->op.unary.op != UNARY_OP_BITNOT)
+        {
+            debug_error("Unsupported unary operator: %d", op_node->op.unary.op);
+            return current_value;
+        }
+        int next_value = evaluate_enum_value_assignment_expression(ctx, value_node->unary_expression_prefix.operand, 0);
+        if (op_node->op.unary.op == UNARY_OP_PLUS)
+        {
+            current_value = next_value;
+        }
+        else if (op_node->op.unary.op == UNARY_OP_MINUS)
+        {
+            current_value = -next_value;
+        }
+        else if (op_node->op.unary.op == UNARY_OP_BITNOT)
+        {
+            current_value = ~next_value;
+        }
+        break;
+    }
+
     default:
         break;
     }
@@ -194,6 +226,8 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
     {
         return false;
     }
+
+    debug_info("%s: node type: %s (%d)", __func__, get_node_type_name_from_node(enum_node), enum_node->type);
 
     c_grammar_node_t const * enumerator_list = enum_node->enum_definition.enumerator_list;
 
@@ -217,7 +251,13 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
                 ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){.is_const = true}
             );
 
-            debug_info("%s: registering: %s value: %d", __func__, enum_name, current_value);
+            debug_info(
+                "%s: registering: %s value: %d has expression: %d",
+                __func__,
+                enum_name,
+                current_value,
+                value_node != NULL
+            );
 
             LLVMValueRef const_val = LLVMConstInt(enum_type->llvm_type, current_value, true);
             LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type->llvm_type, enum_name);

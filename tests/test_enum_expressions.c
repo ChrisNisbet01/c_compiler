@@ -2,6 +2,7 @@
 
 typedef enum
 {
+    NEGATIVE = -2,
     A = 10,
     B = 20,
     BIT_AND = 10 & 6,
@@ -112,6 +113,11 @@ main()
     printf("CHAIN: %d (expected (10 & 3) + (1 << 2) = 2 + 4 = 6)\n", e);
     if (e != 6)
         return 17;
+
+    e = NEGATIVE;
+    printf("NEGATIVE: %d (expected -2)\n", e);
+    if (e != -2)
+        return 18;
 
     return 0;
 }

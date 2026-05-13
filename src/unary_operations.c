@@ -97,6 +97,8 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             debug_error("Operand processing failed for unary minus");
             return NullTypedValue;
         }
+        operand_res = ensure_rvalue(ctx, "unary_op_minus_rval", operand_res);
+
         if (is_floating_kind(operand_res.type_info))
         {
             operand_res.value = LLVMBuildFNeg(ctx->builder, operand_res.value, "fneg_tmp");
