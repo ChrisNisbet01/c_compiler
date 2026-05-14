@@ -180,61 +180,6 @@ scope_find_tagged_enum(scope_t const * scope, char const * tag)
     return scope_find_tagged_type(scope, tag, TYPE_KIND_ENUM);
 }
 
-// --- Untagged type lookup ---
-
-static type_info_t *
-scope_lookup_untagged_entry_by_index(scope_t const * scope, type_kind_t kind, int index)
-{
-    debug_info("%s", __func__);
-    while (scope != NULL && index >= 0)
-    {
-        scope_types_t const * list = &scope->type_lists[kind].tag_or_index;
-
-        debug_info("Looking up untagged type by index: %d", index);
-        if ((size_t)index < list->count)
-        {
-            return list->entries[index];
-        }
-        scope = scope->parent;
-    }
-    return NULL;
-}
-
-type_info_t const *
-scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
-{
-    debug_info("Finding untagged type: index=%d, kind=%d", index, kind);
-    type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, kind, index);
-
-    if (entry == NULL)
-    {
-        debug_info("Untagged type not found for index: %d", index);
-        return NULL;
-    }
-
-    return entry;
-}
-
-type_info_t const *
-scope_find_untagged_struct(scope_t const * scope, int index)
-{
-    return scope_find_untagged_type(scope, TYPE_KIND_UNTAGGED_STRUCT, index);
-}
-
-type_info_t const *
-scope_find_untagged_union(scope_t const * scope, int index)
-{
-    return scope_find_untagged_type(scope, TYPE_KIND_UNTAGGED_UNION, index);
-}
-
-type_info_t const *
-scope_find_untagged_enum(scope_t const * scope, int index)
-{
-    return scope_find_untagged_type(scope, TYPE_KIND_UNTAGGED_ENUM, index);
-}
-
-// --- LLVM type lookup ---
-
 type_info_t *
 scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc)
 {
@@ -353,63 +298,15 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
         return NULL;
     }
     debug_info(
-        "Found typedef entry: name='%s', tag='%s', kind=%d index=%d",
+        "Found typedef entry: name='%s', tag='%s', kind=%d index=%d type desc: %p",
         entry->name,
         entry->tag,
         entry->kind,
-        entry->untagged_index
+        entry->untagged_index,
+        (void *)entry->type_desc
     );
 
-    if (entry->type_desc != NULL)
-    {
-        return entry->type_desc;
-    }
-
-    type_info_t const * info = NULL;
-
-    /* FIXME - Can't we simply include a pointer to the type info struct in the typedef entry? */
-    switch (entry->kind)
-    {
-    case TYPE_KIND_STRUCT:
-        /* Look up the struct by tag name */
-        info = scope_find_tagged_struct(scope, entry->tag);
-        break;
-
-    case TYPE_KIND_UNTAGGED_STRUCT:
-        info = scope_find_untagged_struct(scope, entry->untagged_index);
-        break;
-
-    case TYPE_KIND_UNION:
-        /* Look up the union by tag name */
-        info = scope_find_tagged_union(scope, entry->tag);
-        break;
-
-    case TYPE_KIND_UNTAGGED_UNION:
-        info = scope_find_untagged_union(scope, entry->untagged_index);
-        break;
-
-    case TYPE_KIND_ENUM:
-        info = scope_find_tagged_enum(scope, entry->tag);
-        break;
-
-    case TYPE_KIND_UNTAGGED_ENUM:
-        info = scope_find_untagged_enum(scope, entry->untagged_index);
-        break;
-
-    case TYPE_KIND_BUILTIN:
-        debug_error("Typedef entry of builtin type has no type descriptor.");
-        return NULL;
-
-    case TYPE_KIND_COUNT__:
-        debug_error("Invalid typedef kind: %d", entry->kind);
-        return NULL;
-
-    default:
-        debug_error("%s: Unsupported typedef kind: %d", __func__, entry->kind);
-        return NULL;
-    }
-
-    return info != NULL ? info->type_desc : NULL;
+    return entry->type_desc;
 }
 
 // --- Symbol management ---

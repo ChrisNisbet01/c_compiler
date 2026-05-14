@@ -115,43 +115,6 @@ type_info_t * scope_find_tagged_union(scope_t const * scope, char const * tag);
  */
 type_info_t * scope_find_tagged_enum(scope_t const * scope, char const * tag);
 
-// --- Untagged type lookup ---
-
-/**
- * @brief Finds an untagged type by index.
- * @param scope The scope to search.
- * @param kind The expected type kind.
- * @param index The index into the untagged types list.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t const * scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index);
-
-/**
- * @brief Finds an untagged struct by index.
- * @param scope The scope to search.
- * @param index The index into the untagged types list.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t const * scope_find_untagged_struct(scope_t const * scope, int index);
-
-/**
- * @brief Finds an untagged union by index.
- * @param scope The scope to search.
- * @param index The index into the untagged types list.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t const * scope_find_untagged_union(scope_t const * scope, int index);
-
-/**
- * @brief Finds an untagged enum by index.
- * @param scope The scope to search.
- * @param index The index into the untagged types list.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t const * scope_find_untagged_enum(scope_t const * scope, int index);
-
-// --- LLVM type lookup ---
-
 /**
  * @brief Finds a type by its LLVM type reference.
  * @param scope The scope to search.
