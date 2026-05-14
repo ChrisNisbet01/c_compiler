@@ -143,38 +143,25 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
     return NULL;
 }
 
-static type_info_t *
-scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind)
-{
-    debug_info("%s", __func__);
-    type_info_t * info = scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, kind);
-    if (info == NULL)
-    {
-        return NULL;
-    }
-
-    return info;
-}
-
 type_info_t *
 scope_find_tagged_struct(scope_t const * scope, char const * tag)
 {
     debug_info("%s", __func__);
-    return scope_find_tagged_type(scope, tag, TYPE_KIND_STRUCT);
+    return scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, TYPE_KIND_STRUCT);
 }
 
 type_info_t *
 scope_find_tagged_union(scope_t const * scope, char const * tag)
 {
     debug_info("%s", __func__);
-    return scope_find_tagged_type(scope, tag, TYPE_KIND_UNION);
+    return scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, TYPE_KIND_UNION);
 }
 
 type_info_t *
 scope_find_tagged_enum(scope_t const * scope, char const * tag)
 {
     debug_info("%s", __func__);
-    return scope_find_tagged_type(scope, tag, TYPE_KIND_ENUM);
+    return scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, TYPE_KIND_ENUM);
 }
 
 type_info_t *

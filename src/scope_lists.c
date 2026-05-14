@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static type_info_t const *
-scope_type_list_add_entry(scope_types_t * list, type_info_t info)
+static bool
+scope_type_list_add_entry(scope_types_t * list, type_info_t * new_entry)
 {
     /* Update existing entry if one with the same tag and kind already exists */
     if (list->count >= list->capacity)
@@ -15,29 +15,22 @@ scope_type_list_add_entry(scope_types_t * list, type_info_t info)
 
         if (new_entries == NULL)
         {
-            return NULL;
+            return false;
         }
         list->entries = new_entries;
         list->capacity = new_cap;
     }
-    type_info_t * new_entry = malloc(sizeof *new_entry);
-    if (new_entry == NULL)
-    {
-        return NULL;
-    }
-
-    *new_entry = info;
 
     list->entries[list->count++] = new_entry;
     debug_info(
         "Added type info: tag='%s', kind=%d, total count=%zu, desc: %p",
-        info.tag ? info.tag : "(null)",
-        info.kind,
+        new_entry->tag ? new_entry->tag : "(null)",
+        new_entry->kind,
         list->count,
-        info.type_desc
+        new_entry->type_desc
     );
 
-    return list->entries[list->count - 1];
+    return true;
 }
 
 type_info_t const *
@@ -48,13 +41,28 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
         type_info_t * existing = scope_types_lookup_entry_by_tag(list, info.tag);
         if (existing != NULL)
         {
-            debug_warning("%s already exists");
+            /* Update existing entry */
+
+            free(existing->tag);
+            *existing = info;
+
             return existing;
         }
     }
 
-    scope_type_list_add_entry(&list->tag_or_index, info);
-    type_info_t const * new_entry = scope_type_list_add_entry(&list->type_desc, info);
+    type_info_t * new_entry = malloc(sizeof *new_entry);
+    if (new_entry == NULL)
+    {
+        return NULL;
+    }
+
+    *new_entry = info;
+
+    if (info.tag != NULL)
+    {
+        scope_type_list_add_entry(&list->tag_or_index, new_entry);
+    }
+    scope_type_list_add_entry(&list->type_desc, new_entry);
 
     return new_entry;
 }
@@ -96,10 +104,8 @@ scope_types_lookup_entry_by_type_descriptor(type_lists_t const * list, TypeDescr
     {
         type_info_t * entry = tag_list->entries[i];
 
-        debug_info("%s: Checking entry: %zu", __func__, i);
         if (entry->type_desc == type_desc)
         {
-            debug_info("%s: Found match.", __func__);
             return entry;
         }
     }
