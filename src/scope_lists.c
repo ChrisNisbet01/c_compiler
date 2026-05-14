@@ -3,27 +3,66 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool
-scope_type_list_add_entry(scope_types_t * list, type_info_t * new_entry)
+static size_t
+hash_djb2(void const * key)
 {
-    /* Update existing entry if one with the same tag and kind already exists */
-    if (list->count >= list->capacity)
+    char const * str = (char const *)key;
+    size_t hash = 5381;
+    int c;
+    while ((c = (unsigned char)*str++) != '\0')
     {
-        size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
-
-        type_info_t ** new_entries = realloc(list->entries, new_cap * sizeof(*new_entries));
-
-        if (new_entries == NULL)
-        {
-            return false;
-        }
-        list->entries = new_entries;
-        list->capacity = new_cap;
+        hash = ((hash << 5) + hash) + (size_t)c;
     }
+    return hash;
+}
 
-    list->entries[list->count++] = new_entry;
+static bool
+str_equals(void const * key1, void const * key2)
+{
+    return strcmp((char const *)key1, (char const *)key2) == 0;
+}
 
-    return true;
+static size_t
+hash_ptr(void const * pkey)
+{
+    size_t key = (size_t)(uintptr_t)pkey;
+
+    key = (~key) + (key << 21); // key = (key << 21) - key - 1;
+    key = key ^ (key >> 24);
+    key = (key + (key << 3)) + (key << 8); // key * 265
+    key = key ^ (key >> 14);
+    key = (key + (key << 2)) + (key << 4); // key * 21
+    key = key ^ (key >> 28);
+    key = key + (key << 31);
+    return key;
+}
+
+static bool
+ptr_equals(void const * key1, void const * key2)
+{
+    return key1 == key2;
+}
+
+static generic_hash_table_key_ops_t tag_key_ops = {.hash = hash_djb2, .equals = str_equals};
+
+static generic_hash_table_key_ops_t type_desc_key_ops = {.hash = hash_ptr, .equals = ptr_equals};
+
+static void
+free_type_info_and_entry(void * value, void * user_data)
+{
+    (void)user_data;
+    type_info_t * info = (type_info_t *)value;
+    if (info == NULL)
+    {
+        return;
+    }
+    free(info->tag);
+    for (size_t i = 0; i < info->field_count; ++i)
+    {
+        free(info->fields[i].name);
+    }
+    free(info->fields);
+    free(info);
 }
 
 type_info_t const *
@@ -34,13 +73,17 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
         type_info_t * existing = scope_types_lookup_entry_by_tag(list, info.tag);
         if (existing != NULL)
         {
-            /* Update existing entry */
-            /* Note that the tags must match, so there is no need to reinsert the entry into the
-               table.
-             */
             free(existing->tag);
             *existing = info;
-
+            return existing;
+        }
+    }
+    else
+    {
+        type_info_t * existing = scope_types_lookup_entry_by_type_descriptor(list, info.type_desc);
+        if (existing != NULL)
+        {
+            *existing = info;
             return existing;
         }
     }
@@ -53,12 +96,23 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
 
     *new_entry = info;
 
-    /* Note that entries for enums have no tag. */
     if (info.tag != NULL)
     {
-        scope_type_list_add_entry(&list->tagged, new_entry);
+        if (!generic_hash_table_insert(list->tagged.by_tag, info.tag, new_entry))
+        {
+            free(new_entry);
+            return NULL;
+        }
     }
-    scope_type_list_add_entry(&list->type_desc, new_entry);
+    if (info.type_desc != NULL)
+    {
+        debug_info("%s: inserting into by_type_desc with key %p", __func__, (void *)info.type_desc);
+        if (!generic_hash_table_insert(list->tagged.by_type_desc, info.type_desc, new_entry))
+        {
+            free(new_entry);
+            return NULL;
+        }
+    }
 
     return new_entry;
 }
@@ -71,19 +125,7 @@ scope_types_lookup_entry_by_tag(type_lists_t const * list, char const * tag)
         return NULL;
     }
 
-    scope_types_t const * tag_list = &list->tagged;
-
-    for (size_t i = 0; i < tag_list->count; ++i)
-    {
-        type_info_t * entry = tag_list->entries[i];
-
-        if (entry->tag != NULL && strcmp(entry->tag, tag) == 0)
-        {
-            return entry;
-        }
-    }
-
-    return NULL;
+    return (type_info_t *)generic_hash_table_lookup(list->tagged.by_tag, tag);
 }
 
 type_info_t *
@@ -94,35 +136,7 @@ scope_types_lookup_entry_by_type_descriptor(type_lists_t const * list, TypeDescr
         return NULL;
     }
 
-    scope_types_t const * tag_list = &list->type_desc;
-
-    for (size_t i = 0; i < tag_list->count; ++i)
-    {
-        type_info_t * entry = tag_list->entries[i];
-
-        if (entry->type_desc == type_desc)
-        {
-            return entry;
-        }
-    }
-
-    return NULL;
-}
-
-static void
-free_type_info(type_info_t * info)
-{
-    if (info == NULL)
-    {
-        return;
-    }
-
-    free(info->tag);
-    for (size_t i = 0; i < info->field_count; ++i)
-    {
-        free(info->fields[i].name);
-    }
-    free(info->fields);
+    return (type_info_t *)generic_hash_table_lookup(list->tagged.by_type_desc, type_desc);
 }
 
 void
@@ -130,24 +144,31 @@ scope_types_free(scope_types_t * list)
 {
     if (list->is_master)
     {
-        for (size_t i = 0; i < list->count; ++i)
-        {
-            type_info_t * entry = list->entries[i];
-
-            free_type_info(entry);
-            free(entry);
-        }
+        generic_hash_table_iterate(list->by_tag, free_type_info_and_entry, NULL);
     }
-    free(list->entries);
+    generic_hash_table_destroy(list->by_tag);
+    generic_hash_table_destroy(list->by_type_desc);
+    list->by_tag = NULL;
+    list->by_type_desc = NULL;
 }
 
 bool
 scope_types_init(scope_types_t * list, bool is_master)
 {
-    list->capacity = 4;
-    list->entries = calloc(list->capacity, sizeof(*list->entries));
     list->is_master = is_master;
-    return list->entries != NULL;
+    list->by_tag = generic_hash_table_create(128, &tag_key_ops);
+    if (list->by_tag == NULL)
+    {
+        return false;
+    }
+    list->by_type_desc = generic_hash_table_create(128, &type_desc_key_ops);
+    if (list->by_type_desc == NULL)
+    {
+        generic_hash_table_destroy(list->by_tag);
+        list->by_tag = NULL;
+        return false;
+    }
+    return true;
 }
 
 void
@@ -166,6 +187,7 @@ scope_type_lists_init(type_lists_t * list)
     }
     if (!scope_types_init(&list->type_desc, false))
     {
+        scope_types_free(&list->tagged);
         return false;
     }
 
@@ -178,7 +200,6 @@ scope_typedefs_free(scope_typedefs_t * list)
     for (size_t i = 0; i < list->count; ++i)
     {
         scope_typedef_entry_t * entry = list->entries[i];
-
         free(entry->name);
         free(entry);
     }
@@ -220,6 +241,7 @@ scope_typedefs_init(scope_typedefs_t * list)
 {
     list->capacity = 4;
     list->entries = calloc(list->capacity, sizeof(*list->entries));
+    list->count = 0;
 
     return list->entries != NULL;
 }
@@ -227,7 +249,6 @@ scope_typedefs_init(scope_typedefs_t * list)
 void
 scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
 {
-    /* Update existing entry if one with the same name already exists */
     for (size_t i = 0; i < list->count; ++i)
     {
         scope_typedef_entry_t * existing = list->entries[i];
@@ -238,8 +259,8 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
                 __func__,
                 existing->name,
                 entry.name,
-                existing->type_desc,
-                entry.type_desc
+                (void *)existing->type_desc,
+                (void *)entry.type_desc
             );
             free(existing->name);
             existing->name = entry.name;
@@ -275,11 +296,9 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
 void
 scope_symbols_free(scope_symbols_t * list)
 {
-    /* Free all symbol names and struct names in this scope */
     for (size_t i = 0; i < list->count; ++i)
     {
         symbol_t * symbol = list->symbols[i];
-
         free((void *)symbol->name);
         free(symbol);
     }
@@ -291,6 +310,7 @@ scope_symbols_init(scope_symbols_t * list)
 {
     list->capacity = 16;
     list->symbols = calloc(list->capacity, sizeof(*list->symbols));
+    list->count = 0;
 
     return list->symbols != NULL;
 }

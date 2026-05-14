@@ -25,6 +25,7 @@ SRC_FILES := \
 	declaration_handler.c \
 	enum_evaluation.c \
 	generator_lists.c \
+	generic_hash_table.c \
 	hash_table.c \
 	ir_gen_error.c \
 	ir_utils.c \

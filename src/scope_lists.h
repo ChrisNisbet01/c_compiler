@@ -1,5 +1,6 @@
 #pragma once
 
+#include "generic_hash_table.h"
 #include "scope_typedef.h"
 #include "struct_members.h"
 #include "symbols.h"
@@ -17,9 +18,8 @@ typedef struct TypeDescriptor_st TypeDescriptor;
 
 typedef struct scope_types
 {
-    type_info_t ** entries;
-    size_t count;
-    size_t capacity;
+    generic_hash_table_t * by_tag;
+    generic_hash_table_t * by_type_desc;
     bool is_master;
 } scope_types_t;
 
