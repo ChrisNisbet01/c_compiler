@@ -66,48 +66,16 @@ void scope_free(scope_t * scope);
 // --- Type management ---
 
 /**
- * @brief Adds a tagged type to a scope.
+ * @brief Adds a type to a scope.
  * @param scope The scope to add to.
  * @param info The type info to add.
  * @return Pointer to the added entry, or NULL on failure.
  */
-type_info_t const * scope_add_tagged_type(scope_t * scope, type_info_t info);
-
-/**
- * @brief Adds an untagged type to a scope.
- * @param scope The scope to add to.
- * @param info The type info to add.
- * @return Pointer to the added entry, or NULL on failure.
- */
-type_info_t const * scope_add_untagged_type(scope_t * scope, type_info_t info);
+type_info_t const * scope_add_type_info(scope_t * scope, type_info_t info);
 
 // --- Tagged type lookup ---
 
-/**
- * @brief Finds a tagged struct by tag name.
- * @param scope The scope to search.
- * @param tag The tag name to search for.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t * scope_find_tagged_struct(scope_t const * scope, char const * tag);
-
 type_info_t * scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind);
-
-/**
- * @brief Finds a tagged union by tag name.
- * @param scope The scope to search.
- * @param tag The tag name to search for.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t * scope_find_tagged_union(scope_t const * scope, char const * tag);
-
-/**
- * @brief Finds a tagged enum by tag name.
- * @param scope The scope to search.
- * @param tag The tag name to search for.
- * @return Pointer to the type info, or NULL if not found.
- */
-type_info_t * scope_find_tagged_enum(scope_t const * scope, char const * tag);
 
 /**
  * @brief Finds a type by its LLVM type reference.

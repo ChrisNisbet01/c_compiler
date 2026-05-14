@@ -3,6 +3,7 @@
 #include "llvm_ir_generator.h"
 #include "scope.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 // --- Scope push/pop ---
@@ -32,59 +33,6 @@ generator_scope_pop(ir_generator_ctx_t * ctx)
     ctx->current_scope = old_scope->parent;
     old_scope->parent = NULL; // Detach old scope from context before freeing
     scope_free(old_scope);
-}
-
-void
-generator_add_typedef_forward_decl(
-    ir_generator_ctx_t * ctx, char const * typedef_name, char const * tag, type_kind_t kind
-)
-{
-    debug_info("%s: name: %s, tag: %s", __func__, typedef_name, tag);
-    scope_typedef_entry_t entry = {0};
-
-    /* For struct/union typedef forward declarations, we need to create an opaque type
-     * if one doesn't already exist, so that the typedef can reference it. */
-    switch (kind)
-    {
-    case TYPE_KIND_STRUCT:
-    case TYPE_KIND_UNION:
-    {
-        bool is_union = (kind == TYPE_KIND_UNION);
-        type_info_t const * opaque_info = register_opaque_struct_or_union_definition(ctx, tag, is_union);
-        if (opaque_info != NULL)
-        {
-            entry.type_desc = opaque_info->type_desc;
-        }
-        else
-        {
-            debug_error("%s: failed to create opaque type for '%s'", __func__, tag);
-        }
-        break;
-    }
-
-    case TYPE_KIND_ENUM:
-    {
-        TypeDescriptor const * enum_desc = type_descriptor_get_enum_type(ctx->type_descriptors);
-        entry.type_desc = enum_desc;
-        type_info_t info = {
-            .tag = strdup(tag),
-            .type_desc = enum_desc,
-            .kind = kind,
-        };
-        scope_add_tagged_type(ctx->current_scope, info);
-        break;
-    }
-    case TYPE_KIND_UNTAGGED_STRUCT:
-    case TYPE_KIND_UNTAGGED_UNION:
-    case TYPE_KIND_UNTAGGED_ENUM:
-    case TYPE_KIND_BUILTIN:
-    case TYPE_KIND_COUNT__:
-        break;
-    }
-
-    entry.name = strdup(typedef_name);
-
-    scope_add_typedef_entry(ctx->current_scope, entry);
 }
 
 void
@@ -182,7 +130,7 @@ generator_lookup_typedef_entry_by_type_descriptor(ir_generator_ctx_t * ctx, Type
 }
 
 type_info_t const *
-generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info)
+generator_add_type_info(ir_generator_ctx_t * ctx, type_info_t info)
 {
     if (ctx == NULL)
     {
@@ -196,23 +144,13 @@ generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info)
         debug_info("%s %s is complete: %d", __func__, info.tag, is_complete);
         if (is_complete)
         {
+            free(info.tag);
             debug_info("ignoring typedef update because the type descriptor is complete");
             return existing_type_info;
         }
     }
 
-    return scope_add_tagged_type(ctx->current_scope, info);
-}
-
-type_info_t const *
-generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info)
-{
-    if (ctx == NULL)
-    {
-        return NULL;
-    }
-
-    return scope_add_untagged_type(ctx->current_scope, info);
+    return scope_add_type_info(ctx->current_scope, info);
 }
 
 scope_t *

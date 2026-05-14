@@ -744,7 +744,7 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
         = register_struct_type(ctx->type_descriptors, struct_type, (TypeQualifier){0}, is_union, is_complete, members);
     debug_info("%s: registering opaque and opaque type desc: %p", __func__, opaque.type_desc);
 
-    type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
+    type_info_t const * registered = generator_add_type_info(ctx, opaque);
     if (registered == NULL)
     {
         free((void *)opaque.tag);
@@ -899,7 +899,7 @@ register_tagged_struct_or_union_definition(
         ctx->type_descriptors, struct_llvm, quals, kind == TYPE_KIND_UNION, is_complete, &members
     );
 
-    type_info_t const * registered = generator_add_tagged_type(ctx, opaque);
+    type_info_t const * registered = generator_add_type_info(ctx, opaque);
     if (registered == NULL)
     {
         free((void *)opaque.tag);
@@ -1032,7 +1032,7 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
         &members
     );
 
-    type_info_t const * registered = generator_add_untagged_type(ctx, new_struct);
+    type_info_t const * registered = generator_add_type_info(ctx, new_struct);
     if (registered == NULL)
     {
         free((void *)new_struct.tag);
@@ -1125,7 +1125,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
-    return generator_add_untagged_type(ctx, enum_info);
+    return generator_add_type_info(ctx, enum_info);
 }
 
 static type_info_t const *
@@ -1147,7 +1147,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
     enum_info.tag = strdup(tag);
 
-    return generator_add_tagged_type(ctx, enum_info);
+    return generator_add_type_info(ctx, enum_info);
 }
 
 type_info_t const *

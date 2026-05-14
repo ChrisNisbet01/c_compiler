@@ -94,24 +94,13 @@ scope_free(scope_t * scope)
 // --- Type management ---
 
 type_info_t const *
-scope_add_tagged_type(scope_t * scope, type_info_t info)
+scope_add_type_info(scope_t * scope, type_info_t info)
 {
     debug_info("%s", __func__);
-    if (scope == NULL || info.tag == NULL)
-    {
-        return NULL;
-    }
-    debug_info("Adding tagged type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag, info.kind);
-    type_lists_t * list = &scope->type_lists[info.kind];
-    type_info_t const * result = scope_types_add_entry(list, info);
+    debug_info(
+        "Adding type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag != NULL ? info.tag : "NULL", info.kind
+    );
 
-    return result;
-}
-
-type_info_t const *
-scope_add_untagged_type(scope_t * scope, type_info_t info)
-{
-    debug_info("%s", __func__);
     if (scope == NULL)
     {
         return NULL;
@@ -141,27 +130,6 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
         scope = scope->parent;
     }
     return NULL;
-}
-
-type_info_t *
-scope_find_tagged_struct(scope_t const * scope, char const * tag)
-{
-    debug_info("%s", __func__);
-    return scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, TYPE_KIND_STRUCT);
-}
-
-type_info_t *
-scope_find_tagged_union(scope_t const * scope, char const * tag)
-{
-    debug_info("%s", __func__);
-    return scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, TYPE_KIND_UNION);
-}
-
-type_info_t *
-scope_find_tagged_enum(scope_t const * scope, char const * tag)
-{
-    debug_info("%s", __func__);
-    return scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, TYPE_KIND_ENUM);
 }
 
 type_info_t *

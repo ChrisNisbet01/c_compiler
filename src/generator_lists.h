@@ -23,17 +23,6 @@ void generator_scope_push(ir_generator_ctx_t * ctx);
 void generator_scope_pop(ir_generator_ctx_t * ctx);
 
 /**
- * @brief Adds a forward declaration typedef to a scope.
- * @param scope The scope to add to.
- * @param typedef_name The name of the typedef.
- * @param tag The tag name of the type being typedef'd.
- * @param kind The kind of type being typedef'd.
- */
-void generator_add_typedef_forward_decl(
-    ir_generator_ctx_t * ctx, char const * typedef_name, char const * tag, type_kind_t kind
-);
-
-/**
  * @brief Adds a symbol to a scope.
  * @param ctx The IR generator context.
  * @param name The symbol name.
@@ -65,9 +54,7 @@ scope_typedef_entry_t * generator_lookup_typedef_entry_by_name(ir_generator_ctx_
 scope_typedef_entry_t *
 generator_lookup_typedef_entry_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc);
 
-type_info_t const * generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info);
-
-type_info_t const * generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info);
+type_info_t const * generator_add_type_info(ir_generator_ctx_t * ctx, type_info_t info);
 
 scope_t * generator_scope_create(ir_generator_ctx_t * ctx);
 
