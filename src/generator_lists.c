@@ -118,17 +118,6 @@ generator_lookup_typedef_entry_by_name(ir_generator_ctx_t * ctx, char const * na
     return scope_lookup_typedef_entry_by_name(ctx->current_scope, name);
 }
 
-scope_typedef_entry_t *
-generator_lookup_typedef_entry_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc)
-{
-    if (ctx == NULL)
-    {
-        return NULL;
-    }
-
-    return scope_lookup_typedef_entry_by_type_descriptor(ctx->current_scope, type_desc);
-}
-
 type_info_t const *
 generator_add_type_info(ir_generator_ctx_t * ctx, type_info_t info)
 {
@@ -202,7 +191,7 @@ generator_find_type_descriptor_by_tag_and_kind(ir_generator_ctx_t * ctx, char co
 
     if (info != NULL)
     {
-        debug_info("%s: found: %p", __func__, info);
+        debug_info("%s: found type desc: %p", __func__, info->type_desc);
         dump_type_descriptor(__func__, info->type_desc, DEBUG_LEVEL_INFO);
         return info->type_desc;
     }

@@ -142,7 +142,13 @@ generic_hash_table_insert(generic_hash_table_t * ht, void const * key, void * va
     {
         if (ht->key_ops.equals(e->key, key))
         {
-            return false;
+            bool should_skip_duplicate
+                = ht->key_ops.skip_duplicate != NULL && ht->key_ops.skip_duplicate(e->value, value);
+            if (should_skip_duplicate)
+            {
+                debug_info("%s: skipping duplicate entry", __func__);
+            }
+            return should_skip_duplicate;
         }
     }
 
@@ -223,7 +229,9 @@ generic_hash_table_remove(generic_hash_table_t * ht, void const * key)
 }
 
 void
-generic_hash_table_iterate(generic_hash_table_t const * ht, void (*callback)(void * value, void * user_data), void * user_data)
+generic_hash_table_iterate(
+    generic_hash_table_t const * ht, void (*callback)(void * value, void * user_data), void * user_data
+)
 {
     if (ht == NULL || callback == NULL)
     {

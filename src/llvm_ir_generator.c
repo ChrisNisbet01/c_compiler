@@ -1144,7 +1144,7 @@ register_tagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const
     type_info_t enum_info = {0};
 
     enum_info.kind = TYPE_KIND_ENUM;
-    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+    enum_info.type_desc = type_descriptor_get_enum_type(ctx->type_descriptors);
     enum_info.tag = strdup(tag);
 
     return generator_add_type_info(ctx, enum_info);
@@ -2426,51 +2426,13 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         char const * typedef_name = name_node->text;
         debug_info("Typedef: name='%s'", typedef_name);
 
-        bool handled = false;
         if (typedef_type_desc != NULL)
         {
-            scope_typedef_entry_t const * typedef_entry
-                = generator_lookup_typedef_entry_by_type_descriptor(ctx, typedef_type_desc);
-            if (typedef_entry != NULL)
-            {
-                debug_info("%s found existing typedef entry", __func__);
-                scope_typedef_entry_t new_typedef_entry = {
-                    .name = strdup(typedef_name),
-                    .type_desc = typedef_type_desc,
-                };
-                generator_add_typedef_entry(ctx, new_typedef_entry);
-                handled = true;
-            }
-            if (!handled)
-            {
-                debug_info("not found in typedef entry table, searching type info");
-                type_info_t const * type_info = generator_lookup_type_info_by_type_descriptor(ctx, typedef_type_desc);
-
-                if (type_info != NULL)
-                {
-                    debug_info("%s: found existing type", __func__);
-                    scope_typedef_entry_t typedef_entry = {
-                        .name = strdup(typedef_name),
-                        .type_desc = typedef_type_desc,
-                    };
-                    generator_add_typedef_entry(ctx, typedef_entry);
-                    handled = true;
-                }
-            }
-            if (!handled)
-            {
-                /* This could be something like a pointer to an existing type, or a plain typedef to a builtin. */
-                debug_warning(
-                    "no existing type information found in typedefs or types. %s, creating a builtin type.",
-                    typedef_name
-                );
-                scope_typedef_entry_t typedef_entry = {
-                    .name = strdup(typedef_name),
-                    .type_desc = typedef_type_desc,
-                };
-                generator_add_typedef_entry(ctx, typedef_entry);
-                handled = true;
-            }
+            scope_typedef_entry_t typedef_entry = {
+                .name = strdup(typedef_name),
+                .type_desc = typedef_type_desc,
+            };
+            generator_add_typedef_entry(ctx, typedef_entry);
         }
     }
 }
