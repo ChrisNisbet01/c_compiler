@@ -82,10 +82,9 @@ type_info_t const * scope_add_tagged_type(scope_t * scope, type_info_t info);
  * @brief Adds an untagged type to a scope.
  * @param scope The scope to add to.
  * @param info The type info to add.
- * @param untagged_index If not NULL, will be set to the index of the added type.
  * @return Pointer to the added entry, or NULL on failure.
  */
-type_info_t const * scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index);
+type_info_t const * scope_add_untagged_type(scope_t * scope, type_info_t info);
 
 // --- Tagged type lookup ---
 

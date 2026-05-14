@@ -84,7 +84,7 @@ generator_lookup_typedef_entry_by_type_descriptor(ir_generator_ctx_t * ctx, Type
 
 type_info_t const * generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info);
 
-type_info_t const * generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info, int * untagged_index);
+type_info_t const * generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info);
 
 scope_t * generator_scope_create(ir_generator_ctx_t * ctx);
 

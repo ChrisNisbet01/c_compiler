@@ -982,9 +982,7 @@ register_tagged_struct_or_union_definition(
 }
 
 static type_info_t const *
-add_untagged_struct_or_union_type(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
-)
+add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind)
 {
     if (ctx == NULL)
     {
@@ -1034,7 +1032,7 @@ add_untagged_struct_or_union_type(
         &members
     );
 
-    type_info_t const * registered = generator_add_untagged_type(ctx, new_struct, new_type_id);
+    type_info_t const * registered = generator_add_untagged_type(ctx, new_struct);
     if (registered == NULL)
     {
         free((void *)new_struct.tag);
@@ -1077,16 +1075,6 @@ add_untagged_struct_or_union_type(
     return registered;
 }
 
-static type_info_t const *
-register_untagged_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind, int * new_type_id
-)
-{
-    debug_info("%s", __func__);
-
-    return add_untagged_struct_or_union_type(ctx, type_child, kind, new_type_id);
-}
-
 type_info_t const *
 register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
 {
@@ -1102,12 +1090,13 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
     {
         struct_tag = type_child->struct_definition.identifier->text;
     }
+
     if (struct_tag == NULL)
     {
         type_kind_t kind
             = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_UNTAGGED_STRUCT : TYPE_KIND_UNTAGGED_UNION;
 
-        return register_untagged_struct_or_union_definition(ctx, type_child, kind, NULL);
+        return add_untagged_struct_or_union_type(ctx, type_child, kind);
     }
 
     type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
@@ -1116,7 +1105,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
 }
 
 static type_info_t const *
-register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node, int * new_enum_id)
+register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node)
 {
     if (ctx == NULL)
     {
@@ -1136,7 +1125,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
-    return generator_add_untagged_type(ctx, enum_info, new_enum_id);
+    return generator_add_untagged_type(ctx, enum_info);
 }
 
 static type_info_t const *
@@ -1169,7 +1158,7 @@ register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum
     {
         return register_tagged_enum_definition(ctx, enum_node, tag);
     }
-    return register_untagged_enum_definition(ctx, enum_node, NULL);
+    return register_untagged_enum_definition(ctx, enum_node);
 }
 
 /**
@@ -1389,20 +1378,13 @@ ir_generator_init(
             = get_or_create_array_type(ctx->type_descriptors, va_list_tag_desc, 1);
 
         // Register __builtin_va_list as the array type
-        scope_typedef_entry_t typedef_entry
-            = {.kind = TYPE_KIND_STRUCT,
-               .name = strdup("__builtin_va_list"),
-               .type_desc = va_list_array_desc,
-               .tag = strdup("__va_list_tag")};
+        scope_typedef_entry_t typedef_entry = {.name = strdup("__builtin_va_list"), .type_desc = va_list_array_desc};
 
         generator_add_typedef_entry(ctx, typedef_entry);
         if (ctx->generation_flags.generate_default_variables)
         {
             scope_typedef_entry_t unpreprocessed_typedef_entry
-                = {.kind = TYPE_KIND_STRUCT,
-                   .name = strdup("va_list"),
-                   .type_desc = va_list_array_desc,
-                   .tag = strdup("__va_list_tag")};
+                = {.name = strdup("va_list"), .type_desc = va_list_array_desc};
             generator_add_typedef_entry(ctx, unpreprocessed_typedef_entry);
         }
     }
@@ -2453,8 +2435,6 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             {
                 debug_info("%s found existing typedef entry", __func__);
                 scope_typedef_entry_t new_typedef_entry = {
-                    .kind = typedef_entry->kind,
-                    .tag = typedef_entry->tag != NULL ? strdup(typedef_entry->tag) : NULL,
                     .name = strdup(typedef_name),
                     .type_desc = typedef_type_desc,
                 };
@@ -2470,8 +2450,6 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                 {
                     debug_info("%s: found existing type", __func__);
                     scope_typedef_entry_t typedef_entry = {
-                        .kind = type_info->kind,
-                        .tag = type_info->tag != NULL ? strdup(type_info->tag) : NULL,
                         .name = strdup(typedef_name),
                         .type_desc = typedef_type_desc,
                     };
@@ -2487,7 +2465,6 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
                     typedef_name
                 );
                 scope_typedef_entry_t typedef_entry = {
-                    .kind = TYPE_KIND_BUILTIN,
                     .name = strdup(typedef_name),
                     .type_desc = typedef_type_desc,
                 };
@@ -4011,6 +3988,31 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
 
     // Process Arguments
     size_t num_args = suffix->list.count;
+
+    if (num_args < func_desc->function_metadata.c_param_count)
+    {
+        ir_gen_error(
+            &ctx->errors,
+            suffix,
+            "Too few arguments passed to function. Expected: %zu, got: %zu",
+            func_desc->function_metadata.c_param_count,
+            num_args
+        );
+        return NullTypedValue;
+    }
+
+    if (num_args > func_desc->function_metadata.c_param_count && !func_desc->function_metadata.is_variadic)
+    {
+        ir_gen_error(
+            &ctx->errors,
+            suffix,
+            "Too many arguments passed to function. Expected: %zu, got: %zu",
+            func_desc->function_metadata.c_param_count,
+            num_args
+        );
+        return NullTypedValue;
+    }
+
     // 1. There won't ever be more than twice as many total args, so allocate enough memory for the worst case.
     LLVMValueRef * call_args = num_args > 0 ? calloc(2 * num_args, sizeof(*call_args)) : NULL;
     debug_info("dealing with %zu args", num_args);

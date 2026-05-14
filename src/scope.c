@@ -109,7 +109,7 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
 }
 
 type_info_t const *
-scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
+scope_add_untagged_type(scope_t * scope, type_info_t info)
 {
     debug_info("%s", __func__);
     if (scope == NULL)
@@ -119,10 +119,7 @@ scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
 
     scope_types_t * list = &scope->type_lists[info.kind].tag_or_index;
     type_info_t const * result = scope_types_add_entry(list, info);
-    if (result != NULL && untagged_index != NULL)
-    {
-        *untagged_index = list->count - 1;
-    }
+
     return result;
 }
 
@@ -216,10 +213,8 @@ void
 scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 {
     debug_info(
-        "Adding typedef entry:\n\tname='%s'\n\ttag='%s'\n\tkind=%d\n\tllvm_type: %d\n\tpointee type: %d",
+        "Adding typedef entry:\n\tname='%s'\n\tllvm_type: %d\n\tpointee type: %d",
         entry.name,
-        entry.tag,
-        entry.kind,
         entry.type_desc != NULL ? (int)LLVMGetTypeKind(entry.type_desc->llvm_type) : -1,
         entry.type_desc != NULL && entry.type_desc->pointee != NULL
             ? (int)LLVMGetTypeKind(entry.type_desc->pointee->llvm_type)
@@ -297,14 +292,7 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
         debug_info("Typedef not found for name: '%s'", name);
         return NULL;
     }
-    debug_info(
-        "Found typedef entry: name='%s', tag='%s', kind=%d index=%d type desc: %p",
-        entry->name,
-        entry->tag,
-        entry->kind,
-        entry->untagged_index,
-        (void *)entry->type_desc
-    );
+    debug_info("Found typedef entry: name='%s', type desc: %p", entry->name, (void *)entry->type_desc);
 
     return entry->type_desc;
 }

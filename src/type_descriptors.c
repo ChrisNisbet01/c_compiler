@@ -747,6 +747,7 @@ get_or_create_function_type(
         .kind = NCC_TYPE_KIND_FUNCTION,
         .pointee = ret_type,
         .function_metadata.return_type = ret_type,
+        .function_metadata.c_param_count = param_count,
         .function_metadata.param_count = (unsigned)total_coerced, // Total LLVM params (coerced)
         .function_metadata.is_variadic = is_variadic,
         .function_metadata.is_void_return = LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,

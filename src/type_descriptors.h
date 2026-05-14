@@ -42,12 +42,13 @@ typedef struct
 typedef struct
 {
     TypeDescriptor const * return_type;
+    unsigned c_param_count; // The number of 'C" parameters. May differ from 'coerced' (ABI) count.
     unsigned param_count;
     TypeDescriptor const ** params; // Allocated once in the registry
     bool is_void_return;
     bool is_variadic;
-    int * coerced_param_counts;  // count of ABI register parts per param
-    CoercedType * coerced_params;  // array of CoercedType per param
+    int * coerced_param_counts;   // count of ABI register parts per param
+    CoercedType * coerced_params; // array of CoercedType per param
 } FunctionMetadata;
 
 typedef struct

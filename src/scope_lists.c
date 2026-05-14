@@ -144,7 +144,6 @@ scope_typedefs_free(scope_typedefs_t * list)
         scope_typedef_entry_t * entry = list->entries[i];
 
         free(entry->name);
-        free((void *)entry->tag);
         free(entry);
     }
     free(list->entries);
@@ -209,13 +208,7 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
             free(existing->name);
             existing->name = entry.name;
             existing->type_desc = entry.type_desc;
-            existing->kind = entry.kind;
-            if (existing->tag != NULL)
-            {
-                free((void *)existing->tag);
-            }
-            existing->tag = entry.tag;
-            existing->untagged_index = entry.untagged_index;
+
             return;
         }
     }

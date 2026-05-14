@@ -40,9 +40,7 @@ generator_add_typedef_forward_decl(
 )
 {
     debug_info("%s: name: %s, tag: %s", __func__, typedef_name, tag);
-    scope_typedef_entry_t entry = {
-        .kind = kind,
-    };
+    scope_typedef_entry_t entry = {0};
 
     /* For struct/union typedef forward declarations, we need to create an opaque type
      * if one doesn't already exist, so that the typedef can reference it. */
@@ -85,7 +83,6 @@ generator_add_typedef_forward_decl(
     }
 
     entry.name = strdup(typedef_name);
-    entry.tag = strdup(tag);
 
     scope_add_typedef_entry(ctx->current_scope, entry);
 }
@@ -231,14 +228,14 @@ generator_add_tagged_type(ir_generator_ctx_t * ctx, type_info_t info)
 }
 
 type_info_t const *
-generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info, int * untagged_index)
+generator_add_untagged_type(ir_generator_ctx_t * ctx, type_info_t info)
 {
     if (ctx == NULL)
     {
         return NULL;
     }
 
-    return scope_add_untagged_type(ctx->current_scope, info, untagged_index);
+    return scope_add_untagged_type(ctx->current_scope, info);
 }
 
 scope_t *
