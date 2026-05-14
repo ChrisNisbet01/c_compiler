@@ -22,13 +22,6 @@ scope_type_list_add_entry(scope_types_t * list, type_info_t * new_entry)
     }
 
     list->entries[list->count++] = new_entry;
-    debug_info(
-        "Added type info: tag='%s', kind=%d, total count=%zu, desc: %p",
-        new_entry->tag ? new_entry->tag : "(null)",
-        new_entry->kind,
-        list->count,
-        new_entry->type_desc
-    );
 
     return true;
 }
@@ -42,7 +35,9 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
         if (existing != NULL)
         {
             /* Update existing entry */
-
+            /* Note that the tags must match, so there is no need to reinsert the entry into the
+               table.
+             */
             free(existing->tag);
             *existing = info;
 
@@ -58,9 +53,10 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
 
     *new_entry = info;
 
+    /* Note that entries for enums have no tag. */
     if (info.tag != NULL)
     {
-        scope_type_list_add_entry(&list->tag_or_index, new_entry);
+        scope_type_list_add_entry(&list->tagged, new_entry);
     }
     scope_type_list_add_entry(&list->type_desc, new_entry);
 
@@ -75,7 +71,7 @@ scope_types_lookup_entry_by_tag(type_lists_t const * list, char const * tag)
         return NULL;
     }
 
-    scope_types_t const * tag_list = &list->tag_or_index;
+    scope_types_t const * tag_list = &list->tagged;
 
     for (size_t i = 0; i < tag_list->count; ++i)
     {
@@ -157,14 +153,14 @@ scope_types_init(scope_types_t * list, bool is_master)
 void
 scope_type_lists_free(type_lists_t * list)
 {
-    scope_types_free(&list->tag_or_index);
+    scope_types_free(&list->tagged);
     scope_types_free(&list->type_desc);
 }
 
 bool
 scope_type_lists_init(type_lists_t * list)
 {
-    if (!scope_types_init(&list->tag_or_index, true))
+    if (!scope_types_init(&list->tagged, true))
     {
         return false;
     }

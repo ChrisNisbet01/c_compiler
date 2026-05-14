@@ -25,7 +25,7 @@ typedef struct scope_types
 
 typedef struct
 {
-    scope_types_t tag_or_index;
+    scope_types_t tagged;
     scope_types_t type_desc;
 } type_lists_t;
 
