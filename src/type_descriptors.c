@@ -127,6 +127,11 @@ specifiers_match(TypeSpecifier const * a, TypeSpecifier const * b)
 TypeDescriptor const *
 get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * element_type, size_t size)
 {
+    if (registry == NULL || element_type == NULL)
+    {
+        debug_error("NULL registry or element type");
+        return NULL;
+    }
     TypeDescriptor_private * curr = registry->head;
     while (curr)
     {
@@ -1019,6 +1024,7 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
         return 8; // Assuming 64-bit target
 
     case NCC_TYPE_KIND_ARRAY:
+        debug_info("%s array metadata size: %zu", __func__, desc->array_metadata.size);
         return desc->array_metadata.size * get_type_size_desc(data_layout, desc->pointee);
 
     case NCC_TYPE_KIND_BUILTIN: /* Should have been caught by integer and float handling above. */

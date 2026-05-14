@@ -10,7 +10,7 @@ scope_types_add_entry(scope_types_t * list, type_info_t info)
     if (info.tag != NULL)
     {
         debug_info("%s: %s", __func__, info.tag);
-        type_info_t * existing = scope_types_lookup_entry_by_tag_and_kind(list, info.tag, info.kind);
+        type_info_t * existing = scope_types_lookup_entry_by_tag(list, info.tag);
 
         if (existing != NULL)
         {
@@ -61,7 +61,7 @@ scope_types_add_entry(scope_types_t * list, type_info_t info)
 }
 
 type_info_t *
-scope_types_lookup_entry_by_tag_and_kind(scope_types_t const * list, char const * tag, type_kind_t kind)
+scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag)
 {
     if (list == NULL || tag == NULL)
     {
@@ -72,7 +72,7 @@ scope_types_lookup_entry_by_tag_and_kind(scope_types_t const * list, char const 
     {
         type_info_t * entry = list->entries[i];
 
-        if (entry->tag != NULL && strcmp(entry->tag, tag) == 0 && kind == entry->kind)
+        if (entry->tag != NULL && strcmp(entry->tag, tag) == 0)
         {
             return entry;
         }
@@ -87,10 +87,10 @@ scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDesc
     for (size_t i = 0; i < list->count; ++i)
     {
         type_info_t * entry = list->entries[i];
-        debug_info("%s: Checking tagged_type[%zu]", __func__, i);
+        debug_info("%s: Checking entry: %zu", __func__, i);
         if (entry->type_desc == type_desc)
         {
-            debug_info("%s: Found match in tagged_types.", __func__);
+            debug_info("%s: Found match.", __func__);
             return entry;
         }
     }

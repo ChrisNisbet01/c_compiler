@@ -19,6 +19,7 @@ scope_t *
 scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 {
     scope_t * scope = calloc(1, sizeof(*scope));
+    debug_info("%s: scope: %p", __func__, (void *)scope);
 
     if (scope == NULL)
     {
@@ -43,18 +44,17 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
         return NULL;
     }
 
-    if (!scope_types_init(&scope->tagged_types))
+    for (size_t i = 0; i < TYPE_KIND_COUNT__; i++)
     {
-        scope_free(scope);
+        scope_types_t * list = &scope->type_lists[i].tag_or_index;
 
-        return NULL;
-    }
+        debug_info("%s init list %zu (%p)", __func__, i, (void *)list);
+        if (!scope_types_init(list))
+        {
+            scope_free(scope);
 
-    if (!scope_types_init(&scope->untagged_types))
-    {
-        scope_free(scope);
-
-        return NULL;
+            return NULL;
+        }
     }
 
     if (!scope_typedefs_init(&scope->typedefs))
@@ -72,16 +72,22 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 void
 scope_free(scope_t * scope)
 {
+    debug_info("%s, %p", __func__, (void *)scope);
     if (scope == NULL)
     {
         return;
     }
 
     scope_symbols_free(&scope->symbols);
-    scope_types_free(&scope->tagged_types);
-    scope_types_free(&scope->untagged_types);
     scope_typedefs_free(&scope->typedefs);
     labels_list_destroy(scope->labels);
+
+    for (size_t i = 0; i < TYPE_KIND_COUNT__; i++)
+    {
+        scope_types_t * list = &scope->type_lists[i].tag_or_index;
+
+        scope_types_free(list);
+    }
 
     free(scope);
 }
@@ -91,29 +97,31 @@ scope_free(scope_t * scope)
 type_info_t const *
 scope_add_tagged_type(scope_t * scope, type_info_t info)
 {
+    debug_info("%s", __func__);
     if (scope == NULL || info.tag == NULL)
     {
         return NULL;
     }
     debug_info("Adding tagged type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag, info.kind);
-    scope_types_t * tagged = &scope->tagged_types;
+    scope_types_t * list = &scope->type_lists[info.kind].tag_or_index;
 
-    return scope_types_add_entry(tagged, info);
+    return scope_types_add_entry(list, info);
 }
 
 type_info_t const *
 scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
 {
+    debug_info("%s", __func__);
     if (scope == NULL)
     {
         return NULL;
     }
 
-    scope_types_t * untagged = &scope->untagged_types;
-    type_info_t const * result = scope_types_add_entry(untagged, info);
+    scope_types_t * list = &scope->type_lists[info.kind].tag_or_index;
+    type_info_t const * result = scope_types_add_entry(list, info);
     if (result != NULL && untagged_index != NULL)
     {
-        *untagged_index = untagged->count - 1;
+        *untagged_index = list->count - 1;
     }
     return result;
 }
@@ -123,9 +131,11 @@ scope_add_untagged_type(scope_t * scope, type_info_t info, int * untagged_index)
 type_info_t *
 scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind)
 {
+    debug_info("%s", __func__);
     while (scope != NULL && tag != NULL)
     {
-        type_info_t * entry = scope_types_lookup_entry_by_tag_and_kind(&scope->tagged_types, tag, kind);
+        scope_types_t const * list = &scope->type_lists[kind].tag_or_index;
+        type_info_t * entry = scope_types_lookup_entry_by_tag(list, tag);
 
         if (entry != NULL)
         {
@@ -139,6 +149,7 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
 static type_info_t *
 scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind)
 {
+    debug_info("%s", __func__);
     type_info_t * info = scope_lookup_tagged_entry_by_tag_and_kind(scope, tag, kind);
     if (info == NULL)
     {
@@ -151,32 +162,38 @@ scope_find_tagged_type(scope_t const * scope, char const * tag, type_kind_t kind
 type_info_t *
 scope_find_tagged_struct(scope_t const * scope, char const * tag)
 {
+    debug_info("%s", __func__);
     return scope_find_tagged_type(scope, tag, TYPE_KIND_STRUCT);
 }
 
 type_info_t *
 scope_find_tagged_union(scope_t const * scope, char const * tag)
 {
+    debug_info("%s", __func__);
     return scope_find_tagged_type(scope, tag, TYPE_KIND_UNION);
 }
 
 type_info_t *
 scope_find_tagged_enum(scope_t const * scope, char const * tag)
 {
+    debug_info("%s", __func__);
     return scope_find_tagged_type(scope, tag, TYPE_KIND_ENUM);
 }
 
 // --- Untagged type lookup ---
 
 static type_info_t *
-scope_lookup_untagged_entry_by_index(scope_t const * scope, int index)
+scope_lookup_untagged_entry_by_index(scope_t const * scope, type_kind_t kind, int index)
 {
+    debug_info("%s", __func__);
     while (scope != NULL && index >= 0)
     {
+        scope_types_t const * list = &scope->type_lists[kind].tag_or_index;
+
         debug_info("Looking up untagged type by index: %d", index);
-        if ((size_t)index < scope->untagged_types.count)
+        if ((size_t)index < list->count)
         {
-            return scope->untagged_types.entries[index];
+            return list->entries[index];
         }
         scope = scope->parent;
     }
@@ -187,16 +204,11 @@ type_info_t const *
 scope_find_untagged_type(scope_t const * scope, type_kind_t kind, int index)
 {
     debug_info("Finding untagged type: index=%d, kind=%d", index, kind);
-    type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, index);
+    type_info_t * entry = scope_lookup_untagged_entry_by_index(scope, kind, index);
 
     if (entry == NULL)
     {
         debug_info("Untagged type not found for index: %d", index);
-        return NULL;
-    }
-
-    if (entry->kind != kind)
-    {
         return NULL;
     }
 
@@ -232,19 +244,16 @@ scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const *
     }
     while (scope != NULL)
     {
-        type_info_t * entry;
+        for (size_t i = 0; i < TYPE_KIND_COUNT__; i++)
+        {
+            type_info_t * entry
+                = scope_types_lookup_entry_by_type_descriptor(&scope->type_lists[i].tag_or_index, type_desc);
 
-        entry = scope_types_lookup_entry_by_type_descriptor(&scope->tagged_types, type_desc);
-        if (entry != NULL)
-        {
-            debug_info("%s: Found tagged type.", __func__);
-            return entry;
-        }
-        entry = scope_types_lookup_entry_by_type_descriptor(&scope->untagged_types, type_desc);
-        if (entry != NULL)
-        {
-            debug_info("%s: Found untagged type.", __func__);
-            return entry;
+            if (entry != NULL)
+            {
+                debug_info("%s: Found tagged type.", __func__);
+                return entry;
+            }
         }
 
         scope = scope->parent;
@@ -358,6 +367,7 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 
     type_info_t const * info = NULL;
 
+    /* FIXME - Can't we simply include a pointer to the type info struct in the typedef entry? */
     switch (entry->kind)
     {
     case TYPE_KIND_STRUCT:
@@ -388,6 +398,10 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 
     case TYPE_KIND_BUILTIN:
         debug_error("Typedef entry of builtin type has no type descriptor.");
+        return NULL;
+
+    case TYPE_KIND_COUNT__:
+        debug_error("Invalid typedef kind: %d", entry->kind);
         return NULL;
 
     default:

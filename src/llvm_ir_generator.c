@@ -1132,7 +1132,7 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
 
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
     // Enums are typically represented as int, but this can be improved to use the smallest type that fits the values
-    enum_info.type_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+    enum_info.type_desc = type_descriptor_get_enum_type(ctx->type_descriptors);
     enum_info.fields = NULL;
     enum_info.field_count = 0;
 
@@ -1191,6 +1191,9 @@ ir_generator_init(
         debug_error("Failed to allocate memory for context.");
         return NULL;
     }
+    // Initialize error collection (any error will be fatal since max_errors=1)
+    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);
+
     ctx->generation_flags = flags;
 
     // Initialize LLVM
@@ -1210,9 +1213,6 @@ ir_generator_init(
         ir_generator_dispose(ctx);
         return NULL;
     }
-
-    // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);
 
     ctx->module = LLVMModuleCreateWithName(module_name);
     ctx->data_layout = LLVMGetModuleDataLayout(ctx->module);
@@ -1309,6 +1309,7 @@ ir_generator_init(
         LLVMDisposeMessage((char *)triple_to_free);
     }
 
+    debug_info("creating top level scope");
     // Initialize with global scope
     ctx->current_scope = generator_scope_create(ctx); // NULL parent = global scope
     if (!ctx->current_scope)
@@ -1317,7 +1318,7 @@ ir_generator_init(
         ir_generator_dispose(ctx);
         return NULL;
     }
-
+    debug_info("adding builtins");
     // Add built-in macro __FILE__ as a string constant in the global scope
     {
         char const * file_name = module_name ? module_name : "";
@@ -1334,10 +1335,16 @@ ir_generator_init(
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
 
         TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
+        debug_info("char desc: %p", (void *)char_desc);
+        if (char_desc == NULL)
+        {
+            debug_error("failed to create char desc");
+        }
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
         TypedValue val = create_typed_value(ptr, arr_desc, false);
         generator_add_symbol(ctx, "__FILE__", val);
     }
+    debug_info("added __FILE__: %s", module_name);
 
     /* Create va_list for x86_64 System V ABI. */
     {
@@ -1399,7 +1406,7 @@ ir_generator_init(
             generator_add_typedef_entry(ctx, unpreprocessed_typedef_entry);
         }
     }
-
+    debug_info("done builtins");
     if (ctx->generation_flags.generate_default_variables)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
@@ -2206,8 +2213,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         TypeDescriptor const * p_type_desc = params.types[i];
         debug_info("%s: Processing parameter %zu name: %s type desc %p", __func__, i, p_name, (void *)p_type_desc);
 
-        CoercedType coerced = type_desc->function_metadata.coerced_params[i];
-
         LLVMValueRef alloca_inst
             = LLVMBuildAlloca(ctx->builder, p_type_desc->llvm_type, p_name != NULL ? p_name : "fn_param");
 
@@ -2228,6 +2233,8 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             }
             else
             {
+                CoercedType coerced = type_desc->function_metadata.coerced_params[i];
+
                 // CASE 2: Small Struct (1-16 bytes)
                 // The struct is shattered across 1 or 2 registers (i64, etc.)
                 for (int p = 0; p < coerced.count; p++)
@@ -3431,7 +3438,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STORAGE_CLASS_SPECIFIER:
     case AST_NODE_FUNCTION_SPECIFIER:
     case AST_NODE_TYPE_QUALIFIER:
-    case AST_NODE_TYPE_QUALIFERS:
+    case AST_NODE_TYPE_QUALIFIERS:
     case AST_NODE_DECLARATION_SPECIFIERS:
     case AST_NODE_STORAGE_CLASS_SPECIFIERS:
     case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
@@ -3978,7 +3985,7 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
     // FUNCTION CALL: (args...)
     // Resolve what we are calling. If it's a function directly,
     // we call it. If it's a pointer to a function, we load it first.
-    debug_info("%s handling args list", __func__);
+    debug_info("%s", __func__);
     dump_typed_value("current_val before rvalue", current_val);
     TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
     debug_info("%s rvalue", __func__);
@@ -4074,6 +4081,8 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
 
     free(call_args);
     current_val = create_typed_value(call_val, func_desc->function_metadata.return_type, false);
+
+    dump_typed_value("current_val after rvalue", current_val);
 
     return current_val;
 }
@@ -4848,11 +4857,6 @@ get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node
             {
                 type_desc = resolve_type_descriptor(ctx, qualifier_list, NULL);
             }
-            // Handle Identifier (struct name like "Point" in sizeof(struct Point))
-            else if (child->type == AST_NODE_IDENTIFIER)
-            {
-                type_desc = generator_find_type_descriptor_by_tag(ctx, child->text);
-            }
             // Handle TypedefSpecifier (typedef name in sizeof(MyType))
             else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
             {
@@ -4868,11 +4872,12 @@ get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node
                 || child->type == AST_NODE_ENUM_TYPE_REF
             )
             {
-                char const * tag = extract_struct_or_union_or_enum_tag(child);
+                type_kind_t kind = TYPE_KIND_COUNT__;
+                char const * tag = extract_struct_or_union_or_enum_tag(child, &kind);
                 debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
-                if (tag != NULL)
+                if (tag != NULL && kind != TYPE_KIND_COUNT__)
                 {
-                    type_desc = generator_find_type_descriptor_by_tag(ctx, tag);
+                    type_desc = generator_find_type_descriptor_by_tag_and_kind(ctx, tag, kind);
                 }
             }
         }
@@ -5105,7 +5110,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_STORAGE_CLASS_SPECIFIERS:
     case AST_NODE_FUNCTION_SPECIFIER:
     case AST_NODE_TYPE_QUALIFIER:
-    case AST_NODE_TYPE_QUALIFERS:
+    case AST_NODE_TYPE_QUALIFIERS:
     case AST_NODE_DECLARATION_SPECIFIERS:
     case AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER:
     case AST_NODE_TYPE_SPECIFIERS:

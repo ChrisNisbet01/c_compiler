@@ -2,6 +2,7 @@
 
 #include "c_grammar_ast.h"
 #include "struct_members.h"
+#include "type_kinds.h"
 #include "typed_value.h"
 
 #include <llvm-c/Core.h>
@@ -17,7 +18,7 @@ typedef struct scope scope_t;
 
 char const * extract_typedef_name(c_grammar_node_t const * type_spec_node);
 
-char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node);
+char const * extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node, type_kind_t * kind);
 
 bool is_function_suffix(c_grammar_node_t const * suffix);
 

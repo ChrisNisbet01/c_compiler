@@ -16,12 +16,13 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     /* Extract type name - check struct/union keyword first, then typedef */
     char const * type_name = NULL;
     bool is_typedef = false;
+    type_kind_t kind = TYPE_KIND_COUNT__;
 
     if (type_name_node->type == AST_NODE_TYPE_NAME)
     {
         c_grammar_node_t const * qualifier_list = type_name_node->type_name.specifier_qualifier_list;
 
-        for (size_t i = 0; i < qualifier_list->list.count && !type_name; ++i)
+        for (size_t i = 0; i < qualifier_list->list.count && type_name == NULL; ++i)
         {
             c_grammar_node_t const * child = qualifier_list->list.children[i];
 
@@ -46,22 +47,29 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
             else
             {
                 /* Try struct/union keyword */
-                type_name = extract_struct_or_union_or_enum_tag(child);
+                type_name = extract_struct_or_union_or_enum_tag(child, &kind);
             }
         }
     }
 
-    if (type_name == NULL)
+    if (type_name == NULL || (!is_typedef && kind == TYPE_KIND_COUNT__))
     {
         debug_error("Could not extract type name from compound literal");
         return NullTypedValue;
     }
 
     /* Look up the type - struct list or typedef list */
-    TypeDescriptor const * compound_type_desc = is_typedef ? generator_find_typedef_type_descriptor(ctx, type_name)
-                                                           : generator_find_type_descriptor_by_tag(ctx, type_name);
+    TypeDescriptor const * compound_type_desc;
+    if (is_typedef)
+    {
+        compound_type_desc = generator_find_typedef_type_descriptor(ctx, type_name);
+    }
+    else
+    {
+        compound_type_desc = generator_find_type_descriptor_by_tag_and_kind(ctx, type_name, kind);
+    }
 
-    debug_info("%s: compound_type_desc: %p", __func__, compound_type_desc);
+    debug_info("%s: name: %s, compound_type_desc: %p", __func__, type_name, compound_type_desc);
     if (compound_type_desc == NULL || compound_type_desc->llvm_type == NULL)
     {
         debug_error("Unknown type '%s' in compound literal", type_name);

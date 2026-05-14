@@ -110,9 +110,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
 
             if (params.types[i]->kind == NCC_TYPE_KIND_ARRAY)
             {
-                debug_info(
-                    "%s: parameter %zu is an array type - converting to pointer type (decay)", __func__, i
-                );
+                debug_info("%s: parameter %zu is an array type - converting to pointer type (decay)", __func__, i);
                 params.types[i]
                     = get_or_create_pointer_type(ctx->type_descriptors, params.types[i]->pointee, (TypeQualifier){0});
             }
@@ -184,21 +182,74 @@ resolve_function_pointer_type(
     return res;
 }
 
+static c_grammar_node_t const *
+search_for_node_type(c_grammar_node_t const * node, c_grammar_node_type_t type)
+{
+    if (node == NULL)
+    {
+        return NULL;
+    }
+    for (size_t i = 0; i < node->list.count; i++)
+    {
+        c_grammar_node_t const * child = node->list.children[i];
+        if (child->type == type)
+        {
+            return child;
+        }
+    }
+
+    return NULL;
+}
+
 static TypeDescriptor const *
 resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_type, c_grammar_node_t const * suffix)
 {
     debug_info("%s: resolving array type descriptor for element type %p", __func__, (void *)element_type);
-    size_t size = 0;
+    unsigned long long raw_val = 0;
+    c_grammar_node_t const * child = NULL;
+
     for (size_t i = 0; i < suffix->list.count; i++)
     {
-        c_grammar_node_t const * child = suffix->list.children[i];
-        if (child->type == AST_NODE_INTEGER_LITERAL)
+        c_grammar_node_t const * candidate = suffix->list.children[i];
+        if (candidate->type != AST_NODE_TYPE_QUALIFIERS)
         {
-            size = (size_t)child->integer_lit.integer_literal.value;
+            child = candidate;
             break;
         }
     }
-    return get_or_create_array_type(ctx->type_descriptors, element_type, size);
+
+    if (child != NULL)
+    {
+        TypedValue val = process_expression(ctx, child);
+        if (val.value == NULL)
+        {
+            debug_error("%s: failed to process expression");
+            return NULL;
+        }
+
+        if (!LLVMIsConstant(val.value))
+        {
+            debug_error("%s: expression result is not constant", __func__);
+        }
+        if (LLVMGetTypeKind(LLVMTypeOf(val.value)) != LLVMIntegerTypeKind)
+        {
+            debug_error("%s: expression result is not an integer", __func__);
+            return NULL;
+        }
+        raw_val = LLVMConstIntGetSExtValue(val.value);
+        debug_info("%s: array size: %llu", __func__, raw_val);
+        if (raw_val == 0)
+        {
+            debug_error("failed to find array size");
+            return NULL;
+        }
+    }
+
+    TypeDescriptor const * array_type = get_or_create_array_type(ctx->type_descriptors, element_type, raw_val);
+
+    dump_type_descriptor("array", array_type, DEBUG_LEVEL_INFO);
+
+    return array_type;
 }
 
 static c_grammar_node_t const *
@@ -212,25 +263,6 @@ search_function_pointer_declarator(c_grammar_node_t const * node)
     {
         c_grammar_node_t const * child = node->list.children[i];
         if (child->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
-        {
-            return child;
-        }
-    }
-
-    return NULL;
-}
-
-static c_grammar_node_t const *
-search_for_node_type(c_grammar_node_t const * node, c_grammar_node_type_t type)
-{
-    if (node == NULL)
-    {
-        return NULL;
-    }
-    for (size_t i = 0; i < node->list.count; i++)
-    {
-        c_grammar_node_t const * child = node->list.children[i];
-        if (child->type == type)
         {
             return child;
         }
@@ -420,12 +452,6 @@ resolve_type_descriptor(
             }
             else if (inner->type == AST_NODE_STRUCT_DEFINITION || inner->type == AST_NODE_UNION_DEFINITION)
             {
-                fprintf(
-                    stderr,
-                    "DEBUG resolve_type_descriptor: processing STRUCT_DEFINITION, current was %p, tag='%s'\n",
-                    (void *)current,
-                    inner->struct_definition.identifier ? inner->struct_definition.identifier->text : "(anon)"
-                );
                 type_info_t const * type_info = register_struct_definition(ctx, inner);
                 if (type_info == NULL)
                 {
@@ -456,11 +482,13 @@ resolve_type_descriptor(
             {
                 if (current == NULL)
                 {
-                    char const * tag = extract_struct_or_union_or_enum_tag(inner);
+                    type_kind_t kind = TYPE_KIND_COUNT__;
+                    char const * tag = extract_struct_or_union_or_enum_tag(inner, &kind);
+
                     debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
-                    if (tag != NULL)
+                    if (tag != NULL && kind != TYPE_KIND_COUNT__)
                     {
-                        current = generator_find_type_descriptor_by_tag(ctx, tag);
+                        current = generator_find_type_descriptor_by_tag_and_kind(ctx, tag, kind);
                     }
                     if (current == NULL)
                     {
@@ -657,6 +685,12 @@ resolve_type_descriptor(
             c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];
 
             current = resolve_array_suffix(ctx, current, suffix);
+            if (current == NULL)
+            {
+                debug_error("failed to resolve array suffix");
+                print_ast_with_label(suffix_list, "suffix list");
+                return NULL;
+            }
         }
     }
     debug_info("%s out: current %p", __func__, current);

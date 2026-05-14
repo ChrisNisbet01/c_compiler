@@ -62,7 +62,7 @@ build_type_qualifiers_from_parent(c_grammar_node_t const * parent)
     for (size_t i = 0; i < parent->list.count; i++)
     {
         c_grammar_node_t * child = parent->list.children[i];
-        if (child->type == AST_NODE_TYPE_QUALIFERS)
+        if (child->type == AST_NODE_TYPE_QUALIFIERS)
         {
             quals = append_type_qualifiers(child, quals);
         }

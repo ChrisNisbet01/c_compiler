@@ -46,7 +46,7 @@ bool scope_types_init(scope_types_t * list);
 
 type_info_t const * scope_types_add_entry(scope_types_t * list, type_info_t info);
 
-type_info_t * scope_types_lookup_entry_by_tag_and_kind(scope_types_t const * list, char const * tag, type_kind_t kind);
+type_info_t * scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag);
 
 type_info_t * scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDescriptor const * type_desc);
 

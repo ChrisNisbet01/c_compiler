@@ -30,6 +30,11 @@
 
 typedef struct TypeDescriptor_st TypeDescriptor;
 
+typedef struct
+{
+    scope_types_t tag_or_index;
+} type_lists_t;
+
 // --- Scope structure for hierarchical symbol tables ---
 typedef struct scope
 {
@@ -37,9 +42,10 @@ typedef struct scope
     LLVMBuilderRef builder;
 
     scope_symbols_t symbols;
-    scope_types_t tagged_types;   // Tagged struct/union/enum types
-    scope_types_t untagged_types; // Anonymous struct/union/enum types
-    scope_typedefs_t typedefs;    // Typedef names
+
+    type_lists_t type_lists[TYPE_KIND_COUNT__];
+
+    scope_typedefs_t typedefs; // Typedef names
 
     // --- Label management for goto statements ---
     label_list_t * labels; /* Only present in function blocks. get calls will find the nearest scope with a list. */

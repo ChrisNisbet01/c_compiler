@@ -94,7 +94,8 @@ type_info_t * generator_lookup_type_info_by_type_descriptor(ir_generator_ctx_t *
 
 TypeDescriptor const * generator_find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
 
-TypeDescriptor const * generator_find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name);
+TypeDescriptor const *
+generator_find_type_descriptor_by_tag_and_kind(ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind);
 
 type_info_t *
 generator_lookup_tagged_entry_by_tag_and_kind(ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind);

@@ -9,7 +9,7 @@
 #include <string.h>
 
 char const *
-extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
+extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node, type_kind_t * kind)
 {
     if (type_spec_node == NULL)
     {
@@ -19,6 +19,19 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
     if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF || type_spec_node->type == AST_NODE_UNION_TYPE_REF
         || type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
     {
+        if (type_spec_node->type == AST_NODE_STRUCT_TYPE_REF)
+        {
+            *kind = TYPE_KIND_STRUCT;
+        }
+        else if (type_spec_node->type == AST_NODE_UNION_TYPE_REF)
+        {
+            *kind = TYPE_KIND_UNION;
+        }
+        else if (type_spec_node->type == AST_NODE_ENUM_TYPE_REF)
+        {
+            *kind = TYPE_KIND_ENUM;
+        }
+
         c_grammar_node_t const * ident = type_spec_node->type_ref.identifier;
         return ident ? ident->text : NULL;
     }
@@ -34,17 +47,32 @@ extract_struct_or_union_or_enum_tag(c_grammar_node_t const * type_spec_node)
     if (spec_child->type == AST_NODE_ENUM_DEFINITION)
     {
         id_node = spec_child->enum_definition.identifier;
+        *kind = TYPE_KIND_ENUM;
     }
-    else if (spec_child->type == AST_NODE_STRUCT_DEFINITION || spec_child->type == AST_NODE_UNION_DEFINITION)
+    else if (spec_child->type == AST_NODE_STRUCT_DEFINITION)
     {
         id_node = spec_child->struct_definition.identifier;
+        *kind = TYPE_KIND_STRUCT;
     }
-    else if (
-        spec_child->type == AST_NODE_ENUM_TYPE_REF || spec_child->type == AST_NODE_STRUCT_TYPE_REF
-        || spec_child->type == AST_NODE_UNION_TYPE_REF
-    )
+    else if (spec_child->type == AST_NODE_UNION_DEFINITION)
+    {
+        id_node = spec_child->struct_definition.identifier;
+        *kind = TYPE_KIND_UNION;
+    }
+    else if (spec_child->type == AST_NODE_ENUM_TYPE_REF)
     {
         id_node = spec_child->type_ref.identifier;
+        *kind = TYPE_KIND_ENUM;
+    }
+    else if (spec_child->type == AST_NODE_STRUCT_TYPE_REF)
+    {
+        id_node = spec_child->type_ref.identifier;
+        *kind = TYPE_KIND_STRUCT;
+    }
+    else if (spec_child->type == AST_NODE_UNION_TYPE_REF)
+    {
+        id_node = spec_child->type_ref.identifier;
+        *kind = TYPE_KIND_UNION;
     }
 
     if (id_node == NULL)

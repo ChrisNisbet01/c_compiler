@@ -80,6 +80,7 @@ generator_add_typedef_forward_decl(
     case TYPE_KIND_UNTAGGED_UNION:
     case TYPE_KIND_UNTAGGED_ENUM:
     case TYPE_KIND_BUILTIN:
+    case TYPE_KIND_COUNT__:
         break;
     }
 
@@ -281,23 +282,20 @@ generator_find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * na
 }
 
 TypeDescriptor const *
-generator_find_type_descriptor_by_tag(ir_generator_ctx_t * ctx, char const * name)
+generator_find_type_descriptor_by_tag_and_kind(ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind)
 {
-    type_info_t * info = scope_find_tagged_struct(ctx->current_scope, name);
-    if (info == NULL)
-    {
-        info = scope_find_tagged_union(ctx->current_scope, name);
-    }
-    if (info == NULL)
-    {
-        info = scope_find_tagged_enum(ctx->current_scope, name);
-    }
-    debug_info("%s: found: %p", __func__, info);
+    debug_info("%s: tag: %s", __func__, tag);
+
+    type_info_t * info = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
+
     if (info != NULL)
     {
+        debug_info("%s: found: %p", __func__, info);
         dump_type_descriptor(__func__, info->type_desc, DEBUG_LEVEL_INFO);
+        return info->type_desc;
     }
-    return info ? info->type_desc : NULL;
+
+    return NULL;
 }
 
 type_info_t *

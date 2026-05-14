@@ -118,7 +118,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_STORAGE_CLASS_SPECIFIERS] = {.name = "StorageClassSpecifiers"},
     [AST_NODE_FUNCTION_SPECIFIER] = {.name = "FunctionSpecifier"},
     [AST_NODE_TYPE_QUALIFIER] = {.name = "TypeQualifier"},
-    [AST_NODE_TYPE_QUALIFERS] = {.name = "TypeQualifiers"},
+    [AST_NODE_TYPE_QUALIFIERS] = {.name = "TypeQualifiers"},
     [AST_NODE_DECLARATION_SPECIFIERS] = {.name = "DeclarationSpecifiers"},
     [AST_NODE_PARAMETER_LIST] = {.name = "ParameterList"},
     [AST_NODE_ELLIPSIS] = {.name = "Ellipsis"},

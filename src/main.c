@@ -643,7 +643,7 @@ generate_output(
 )
 {
     bool success = true;
-    debug_info("Starting LLVM IR Generation...");
+    debug_info("Starting LLVM IR Generation of: %s...", input_filename);
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
     ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker, march_target);
 
