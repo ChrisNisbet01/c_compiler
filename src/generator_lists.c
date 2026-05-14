@@ -88,26 +88,21 @@ generator_add_typedef_forward_decl(
 }
 
 void
-generator_add_tagged_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag)
+generator_add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value)
 {
     if (ctx == NULL)
     {
         return;
     }
 
-    scope_add_symbol_with_tag(ctx->current_scope, name, value, tag);
-}
-
-void
-generator_add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value)
-{
     debug_info(
         "generator_add_symbol: '%s' storing type_info=%p, const=%d",
         name,
         (void *)value.type_info,
         value.type_info->qualifiers.is_const
     );
-    generator_add_tagged_symbol(ctx, name, value, NULL);
+
+    scope_add_symbol(ctx->current_scope, name, value);
 }
 
 symbol_t const *
@@ -151,24 +146,6 @@ generator_lookup_symbol_value(ir_generator_ctx_t * ctx, char const * name, Typed
     }
 
     return true;
-}
-
-char const *
-generator_lookup_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name)
-{
-    if (ctx == NULL)
-    {
-        return NULL;
-    }
-
-    symbol_t const * symbol = generator_lookup_symbol_entry(ctx, name);
-
-    if (symbol == NULL)
-    {
-        return NULL;
-    }
-
-    return symbol->tag_name;
 }
 
 LLVMBasicBlockRef

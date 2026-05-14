@@ -3,30 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-type_info_t const *
-scope_types_add_entry(scope_types_t * list, type_info_t info)
+static type_info_t const *
+scope_type_list_add_entry(scope_types_t * list, type_info_t info)
 {
     /* Update existing entry if one with the same tag and kind already exists */
-    if (info.tag != NULL)
-    {
-        debug_info("%s: %s", __func__, info.tag);
-        type_info_t * existing = scope_types_lookup_entry_by_tag(list, info.tag);
-
-        if (existing != NULL)
-        {
-            free(existing->tag);
-            existing->tag = info.tag;
-            existing->type_desc = info.type_desc;
-            existing->kind = info.kind;
-            if (info.fields != NULL)
-            {
-                existing->fields = info.fields;
-                existing->field_count = info.field_count;
-            }
-            return existing;
-        }
-    }
-
     if (list->count >= list->capacity)
     {
         size_t new_cap = list->capacity == 0 ? 4 : list->capacity * 2;
@@ -60,17 +40,38 @@ scope_types_add_entry(scope_types_t * list, type_info_t info)
     return list->entries[list->count - 1];
 }
 
+type_info_t const *
+scope_types_add_entry(type_lists_t * list, type_info_t info)
+{
+    if (info.tag != NULL)
+    {
+        type_info_t * existing = scope_types_lookup_entry_by_tag(list, info.tag);
+        if (existing != NULL)
+        {
+            debug_warning("%s already exists");
+            return existing;
+        }
+    }
+
+    scope_type_list_add_entry(&list->tag_or_index, info);
+    type_info_t const * new_entry = scope_type_list_add_entry(&list->type_desc, info);
+
+    return new_entry;
+}
+
 type_info_t *
-scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag)
+scope_types_lookup_entry_by_tag(type_lists_t const * list, char const * tag)
 {
     if (list == NULL || tag == NULL)
     {
         return NULL;
     }
 
-    for (size_t i = 0; i < list->count; ++i)
+    scope_types_t const * tag_list = &list->tag_or_index;
+
+    for (size_t i = 0; i < tag_list->count; ++i)
     {
-        type_info_t * entry = list->entries[i];
+        type_info_t * entry = tag_list->entries[i];
 
         if (entry->tag != NULL && strcmp(entry->tag, tag) == 0)
         {
@@ -82,11 +83,19 @@ scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag)
 }
 
 type_info_t *
-scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDescriptor const * type_desc)
+scope_types_lookup_entry_by_type_descriptor(type_lists_t const * list, TypeDescriptor const * type_desc)
 {
-    for (size_t i = 0; i < list->count; ++i)
+    if (list == NULL || type_desc == NULL)
     {
-        type_info_t * entry = list->entries[i];
+        return NULL;
+    }
+
+    scope_types_t const * tag_list = &list->type_desc;
+
+    for (size_t i = 0; i < tag_list->count; ++i)
+    {
+        type_info_t * entry = tag_list->entries[i];
+
         debug_info("%s: Checking entry: %zu", __func__, i);
         if (entry->type_desc == type_desc)
         {
@@ -117,23 +126,48 @@ free_type_info(type_info_t * info)
 void
 scope_types_free(scope_types_t * list)
 {
-    for (size_t i = 0; i < list->count; ++i)
+    if (list->is_master)
     {
-        type_info_t * entry = list->entries[i];
+        for (size_t i = 0; i < list->count; ++i)
+        {
+            type_info_t * entry = list->entries[i];
 
-        free_type_info(entry);
-        free(entry);
+            free_type_info(entry);
+            free(entry);
+        }
     }
     free(list->entries);
 }
 
 bool
-scope_types_init(scope_types_t * list)
+scope_types_init(scope_types_t * list, bool is_master)
 {
     list->capacity = 4;
     list->entries = calloc(list->capacity, sizeof(*list->entries));
-
+    list->is_master = is_master;
     return list->entries != NULL;
+}
+
+void
+scope_type_lists_free(type_lists_t * list)
+{
+    scope_types_free(&list->tag_or_index);
+    scope_types_free(&list->type_desc);
+}
+
+bool
+scope_type_lists_init(type_lists_t * list)
+{
+    if (!scope_types_init(&list->tag_or_index, true))
+    {
+        return false;
+    }
+    if (!scope_types_init(&list->type_desc, false))
+    {
+        return false;
+    }
+
+    return true;
 }
 
 void
@@ -245,7 +279,6 @@ scope_symbols_free(scope_symbols_t * list)
         symbol_t * symbol = list->symbols[i];
 
         free((void *)symbol->name);
-        free((void *)symbol->tag_name);
         free(symbol);
     }
     free(list->symbols);
@@ -261,7 +294,7 @@ scope_symbols_init(scope_symbols_t * list)
 }
 
 void
-scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, TypedValue value, char const * tag)
+scope_symbols_add_entry(scope_symbols_t * list, char const * name, TypedValue value)
 {
     if (list->count >= list->capacity)
     {
@@ -283,11 +316,10 @@ scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, Type
     }
     new_symbol->name = strdup(name);
     new_symbol->value = value;
-    new_symbol->tag_name = tag ? strdup(tag) : NULL;
     list->symbols[list->count] = new_symbol;
     list->count++;
 
-    debug_info("Added symbol: name='%s', tag='%s'", name, tag ? tag : "(null)");
+    debug_info("Added symbol: name='%s'", name);
     dump_typed_value("added symbol value", value);
 }
 

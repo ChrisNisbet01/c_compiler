@@ -20,7 +20,14 @@ typedef struct scope_types
     type_info_t ** entries;
     size_t count;
     size_t capacity;
+    bool is_master;
 } scope_types_t;
+
+typedef struct
+{
+    scope_types_t tag_or_index;
+    scope_types_t type_desc;
+} type_lists_t;
 
 // --- Types (structs/unions/enums) in a scope ---
 // --- Typedefs in a scope ---
@@ -40,15 +47,15 @@ typedef struct
     size_t capacity;
 } scope_symbols_t;
 
-void scope_types_free(scope_types_t * list);
+void scope_type_lists_free(type_lists_t * list);
 
-bool scope_types_init(scope_types_t * list);
+bool scope_type_lists_init(type_lists_t * list);
 
-type_info_t const * scope_types_add_entry(scope_types_t * list, type_info_t info);
+type_info_t const * scope_types_add_entry(type_lists_t * list, type_info_t info);
 
-type_info_t * scope_types_lookup_entry_by_tag(scope_types_t const * list, char const * tag);
+type_info_t * scope_types_lookup_entry_by_tag(type_lists_t const * list, char const * tag);
 
-type_info_t * scope_types_lookup_entry_by_type_descriptor(scope_types_t const * list, TypeDescriptor const * type_desc);
+type_info_t * scope_types_lookup_entry_by_type_descriptor(type_lists_t const * list, TypeDescriptor const * type_desc);
 
 scope_typedef_entry_t * scope_typedefs_lookup_entry_by_name(scope_typedefs_t const * list, char const * name);
 
@@ -67,4 +74,4 @@ bool scope_symbols_init(scope_symbols_t * list);
 
 symbol_t * scope_symbols_lookup_entry_by_name(scope_symbols_t const * list, char const * name);
 
-void scope_symbols_add_entry_with_tag(scope_symbols_t * list, char const * name, TypedValue value, char const * tag);
+void scope_symbols_add_entry(scope_symbols_t * list, char const * name, TypedValue value);

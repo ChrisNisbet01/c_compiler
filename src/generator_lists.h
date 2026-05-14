@@ -34,15 +34,6 @@ void generator_add_typedef_forward_decl(
 );
 
 /**
- * @brief Adds a symbol to a scope with associated struct tag.
- * @param ctx The IR generator context.
- * @param name The symbol name.
- * @param value The LLVM value metadata.
- * @param tag The struct tag name (or NULL).
- */
-void generator_add_tagged_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue value, char const * tag);
-
-/**
  * @brief Adds a symbol to a scope.
  * @param ctx The IR generator context.
  * @param name The symbol name.
@@ -58,14 +49,6 @@ void generator_add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValu
  * @return True if the symbol was found, false otherwise.
  */
 bool generator_lookup_symbol_value(ir_generator_ctx_t * ctx, char const * name, TypedValue * out_symbol);
-
-/**
- * @brief Finds the struct tag name associated with a symbol.
- * @param ctx The IR generator context.
- * @param name The symbol name.
- * @return The struct tag name, or NULL if not found.
- */
-char const * generator_lookup_symbol_tag_name(ir_generator_ctx_t * ctx, char const * name);
 
 /**
  * @brief Finds a symbol entry by name and returns the full symbol struct.

@@ -46,10 +46,10 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 
     for (size_t i = 0; i < TYPE_KIND_COUNT__; i++)
     {
-        scope_types_t * list = &scope->type_lists[i].tag_or_index;
+        type_lists_t * list = &scope->type_lists[i];
 
         debug_info("%s init list %zu (%p)", __func__, i, (void *)list);
-        if (!scope_types_init(list))
+        if (!scope_type_lists_init(list))
         {
             scope_free(scope);
 
@@ -84,9 +84,8 @@ scope_free(scope_t * scope)
 
     for (size_t i = 0; i < TYPE_KIND_COUNT__; i++)
     {
-        scope_types_t * list = &scope->type_lists[i].tag_or_index;
-
-        scope_types_free(list);
+        type_lists_t * list = &scope->type_lists[i];
+        scope_type_lists_free(list);
     }
 
     free(scope);
@@ -103,9 +102,10 @@ scope_add_tagged_type(scope_t * scope, type_info_t info)
         return NULL;
     }
     debug_info("Adding tagged type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag, info.kind);
-    scope_types_t * list = &scope->type_lists[info.kind].tag_or_index;
+    type_lists_t * list = &scope->type_lists[info.kind];
+    type_info_t const * result = scope_types_add_entry(list, info);
 
-    return scope_types_add_entry(list, info);
+    return result;
 }
 
 type_info_t const *
@@ -117,7 +117,7 @@ scope_add_untagged_type(scope_t * scope, type_info_t info)
         return NULL;
     }
 
-    scope_types_t * list = &scope->type_lists[info.kind].tag_or_index;
+    type_lists_t * list = &scope->type_lists[info.kind];
     type_info_t const * result = scope_types_add_entry(list, info);
 
     return result;
@@ -131,7 +131,7 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
     debug_info("%s", __func__);
     while (scope != NULL && tag != NULL)
     {
-        scope_types_t const * list = &scope->type_lists[kind].tag_or_index;
+        type_lists_t const * list = &scope->type_lists[kind];
         type_info_t * entry = scope_types_lookup_entry_by_tag(list, tag);
 
         if (entry != NULL)
@@ -178,19 +178,21 @@ scope_find_tagged_enum(scope_t const * scope, char const * tag)
 }
 
 type_info_t *
-scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const * const type_desc)
+scope_lookup_type_info_by_type_descriptor(scope_t const * scope_in, TypeDescriptor const * type_desc)
 {
     if (type_desc == NULL)
     {
         return NULL;
     }
+
+    scope_t const * scope = scope_in;
+
     while (scope != NULL)
     {
         for (size_t i = 0; i < TYPE_KIND_COUNT__; i++)
         {
-            type_info_t * entry
-                = scope_types_lookup_entry_by_type_descriptor(&scope->type_lists[i].tag_or_index, type_desc);
-
+            type_lists_t const * list = &scope->type_lists[i];
+            type_info_t * entry = scope_types_lookup_entry_by_type_descriptor(list, type_desc);
             if (entry != NULL)
             {
                 debug_info("%s: Found tagged type.", __func__);
@@ -212,15 +214,6 @@ scope_find_type_by_type_descriptor(scope_t const * scope, TypeDescriptor const *
 void
 scope_add_typedef_entry(scope_t * scope, scope_typedef_entry_t entry)
 {
-    debug_info(
-        "Adding typedef entry:\n\tname='%s'\n\tllvm_type: %d\n\tpointee type: %d",
-        entry.name,
-        entry.type_desc != NULL ? (int)LLVMGetTypeKind(entry.type_desc->llvm_type) : -1,
-        entry.type_desc != NULL && entry.type_desc->pointee != NULL
-            ? (int)LLVMGetTypeKind(entry.type_desc->pointee->llvm_type)
-            : -1
-    );
-
     if (scope == NULL)
     {
         return;
@@ -262,26 +255,6 @@ scope_lookup_typedef_entry_by_type_descriptor(scope_t const * scope, TypeDescrip
     return NULL;
 }
 
-type_info_t *
-scope_lookup_type_info_by_type_descriptor(scope_t const * scope_in, TypeDescriptor const * type_desc)
-{
-    scope_t const * scope = scope_in;
-
-    while (scope != NULL && type_desc != NULL)
-    {
-        type_info_t * type_entry = scope_find_type_by_type_descriptor(scope, type_desc);
-
-        if (type_entry != NULL)
-        {
-            return type_entry;
-        }
-
-        scope = scope->parent;
-    }
-
-    return NULL;
-}
-
 TypeDescriptor const *
 scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 {
@@ -300,15 +273,15 @@ scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 // --- Symbol management ---
 
 void
-scope_add_symbol_with_tag(scope_t * scope, char const * name, TypedValue value, char const * tag)
+scope_add_symbol(scope_t * scope, char const * name, TypedValue value)
 {
     if (scope == NULL || name == NULL || value.value == NULL)
     {
         debug_error("%s: invalid parameters");
         return;
     }
-    debug_info("%s: name: %s, tag: %s", __func__, name, tag);
-    scope_symbols_add_entry_with_tag(&scope->symbols, name, value, tag);
+    debug_info("%s: name: %s", __func__, name);
+    scope_symbols_add_entry(&scope->symbols, name, value);
 }
 
 symbol_t *

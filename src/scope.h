@@ -30,11 +30,6 @@
 
 typedef struct TypeDescriptor_st TypeDescriptor;
 
-typedef struct
-{
-    scope_types_t tag_or_index;
-} type_lists_t;
-
 // --- Scope structure for hierarchical symbol tables ---
 typedef struct scope
 {
@@ -156,6 +151,6 @@ scope_lookup_typedef_entry_by_type_descriptor(scope_t const * scope, TypeDescrip
 
 LLVMBasicBlockRef scope_get_or_create_label(scope_t const * scope, char const * label_name);
 
-void scope_add_symbol_with_tag(scope_t * scope, char const * name, TypedValue value, char const * tag);
+void scope_add_symbol(scope_t * scope, char const * name, TypedValue value);
 
 symbol_t * scope_find_symbol_entry(scope_t const * scope, char const * name);
