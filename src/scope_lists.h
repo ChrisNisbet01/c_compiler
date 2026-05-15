@@ -33,18 +33,14 @@ typedef struct
 // --- Typedefs in a scope ---
 typedef struct scope_typedefs
 {
-    scope_typedef_entry_t ** entries;
-    size_t count;
-    size_t capacity;
+    generic_hash_table_t * by_name;
 } scope_typedefs_t;
 
 // --- Symbol Table Management ---
 
 typedef struct
 {
-    symbol_t ** symbols;
-    size_t count;
-    size_t capacity;
+    generic_hash_table_t * by_name;
 } scope_symbols_t;
 
 void scope_type_lists_free(type_lists_t * list);

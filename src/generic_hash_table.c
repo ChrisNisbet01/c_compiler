@@ -1,7 +1,5 @@
 #include "generic_hash_table.h"
 
-#include "debug.h"
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,7 +35,6 @@ generic_hash_table_create(size_t initial_bucket_count, generic_hash_table_key_op
 {
     if (key_ops == NULL || key_ops->hash == NULL || key_ops->equals == NULL)
     {
-        debug_error("%s: NULL key_ops or missing callbacks", __func__);
         return NULL;
     }
 
@@ -133,12 +130,10 @@ generic_hash_table_insert(generic_hash_table_t * ht, void const * key, void * va
 {
     if (ht == NULL || key == NULL || value == NULL)
     {
-        debug_info("%s: invalid parameters");
         return false;
     }
     size_t hash = ht->key_ops.hash(key);
     size_t idx = hash % ht->bucket_count;
-    debug_info("%s: hash: %zu idx: %zu", __func__, hash, idx);
 
     for (generic_hash_entry_t * e = ht->buckets[idx]; e != NULL; e = e->next)
     {
@@ -177,9 +172,7 @@ generic_hash_table_lookup(generic_hash_table_t const * ht, void const * key)
     }
 
     size_t hash = ht->key_ops.hash(key);
-    debug_info("%s: hash: %zu", __func__, hash);
     size_t idx = hash % ht->bucket_count;
-    debug_info("check bucket: %zu", idx);
     for (generic_hash_entry_t * e = ht->buckets[idx]; e != NULL; e = e->next)
     {
         if (ht->key_ops.equals(e->key, key))
@@ -187,7 +180,6 @@ generic_hash_table_lookup(generic_hash_table_t const * ht, void const * key)
             return e->value;
         }
     }
-    debug_info("%s: not found, key: %p", __func__, (void *)key);
 
     return NULL;
 }
@@ -199,7 +191,6 @@ generic_hash_table_remove(generic_hash_table_t * ht, void const * key)
     {
         return NULL;
     }
-    debug_info("%s: key: %p", __func__, (void *)key);
 
     size_t idx = ht->key_ops.hash(key) % ht->bucket_count;
     generic_hash_entry_t * prev = NULL;
