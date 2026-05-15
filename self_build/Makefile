@@ -19,6 +19,7 @@ SRC_FILES := \
 	main.c \
 	ast_node_name.c \
 	ast_print.c \
+	binary_expression_processor.c \
 	compound_literal_processor.c \
 	c_grammar_ast_actions.c \
 	debug.c \
@@ -33,14 +34,13 @@ SRC_FILES := \
 	llvm_ir_generator.c \
 	scope.c \
 	scope_lists.c \
+	source_location.c \
 	symbol_table.c \
 	typed_value.c \
 	type_descriptors.c \
 	type_qualifiers.c \
 	type_specifier.c \
 	type_utils.c \
-	source_location.c \
-	binary_expression_processor.c \
 	unary_operations.c
 
 GENERATED_SRC := c_grammar.c
@@ -58,7 +58,7 @@ $(TARGET): $(ALL_O)
 	$(LINK) -o $@ $^ $(LDFLAGS) $(EASY_PC_LIB) $(LLVM_LDFLAGS) $(LLVM_LIBS) -lm
 
 %.ll: $(SRC_DIR)/%.c $(NCC)
-	$(NCC) --debug=info -S --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<
+	$(NCC) -S --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<
 
 c_grammar.ll: $(GENERATED_DIR)/c_grammar.c $(NCC)
 	$(NCC) -S --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<
