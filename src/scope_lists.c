@@ -72,11 +72,6 @@ free_type_info_and_entry(void * value, void * user_data)
         return;
     }
     free(info->tag);
-    for (size_t i = 0; i < info->field_count; ++i)
-    {
-        free(info->fields[i].name);
-    }
-    free(info->fields);
     free(info);
 }
 

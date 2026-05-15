@@ -785,26 +785,6 @@ print_usage(char const * prog_name)
     fprintf(stderr, "  -h, --help      Display this help message\n");
 }
 
-static void
-print_supported_targets(FILE * fp)
-{
-    // Initialize everything first so the registry is full
-    LLVMInitializeNativeTarget();
-
-    fprintf(fp, "Supported LLVM Targets:\n");
-    fprintf(fp, "-----------------------\n");
-
-    LLVMTargetRef target = LLVMGetFirstTarget();
-    while (target)
-    {
-        fprintf(fp, "Name:        %s\n", LLVMGetTargetName(target));
-        fprintf(fp, "Description: %s\n", LLVMGetTargetDescription(target));
-        fprintf(fp, "Has JIT:     %s\n", LLVMTargetHasJIT(target) ? "Yes" : "No");
-        fprintf(fp, "-----------------------\n");
-        target = LLVMGetNextTarget(target);
-    }
-}
-
 int
 main(int argc, char * argv[])
 {
@@ -894,8 +874,6 @@ main(int argc, char * argv[])
             return EXIT_FAILURE;
         }
     }
-
-    print_supported_targets(stderr);
 
     if (optind >= argc)
     {

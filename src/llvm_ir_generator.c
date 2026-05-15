@@ -754,6 +754,18 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
     return registered;
 }
 
+static void
+struct_or_union_members_cleanup(struct_or_union_members_st * members)
+{
+    for (size_t i = 0; i < members->num_members; i++)
+    {
+        struct_field_t * entry = &members->members[i];
+
+        free(entry->name);
+    }
+    free(members->members);
+}
+
 static type_info_t const *
 register_tagged_struct_or_union_definition(
     ir_generator_ctx_t * ctx,
@@ -769,50 +781,47 @@ register_tagged_struct_or_union_definition(
     }
 
     type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
+
     if (existing != NULL)
     {
         if (!existing->type_desc->struct_metadata.is_complete)
         {
             struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
 
-            if (members.num_members > 0)
-            {
-                existing->field_count = members.num_members;
-                existing->fields = malloc(members.num_members * sizeof(*members.members));
-                memcpy(existing->fields, members.members, members.num_members * sizeof(*members.members));
-                for (size_t i = 0; i < members.num_members; i++)
-                {
-                    if (existing->fields[i].name != NULL)
-                    {
-                        existing->fields[i].name = strdup(existing->fields[i].name);
-                    }
-                }
-            }
-
             struct_field_t * last_field = &members.members[members.num_members - 1];
             unsigned num_storage_units = last_field->bitfield.storage_index + 1;
             LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
             if (field_types == NULL)
             {
-                return existing;
+                struct_or_union_members_cleanup(&members);
+                debug_error("%s: Memory allocation failed", __func__);
+
+                return NULL;
             }
             // First pass: track largest type and highest alignment per storage unit
             uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
             if (field_aligns == NULL)
             {
                 free(field_types);
-                return existing;
+                struct_or_union_members_cleanup(&members);
+                debug_error("%s: Memory allocation failed", __func__);
+
+                return NULL;
             }
             LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
             if (max_align_types == NULL)
             {
                 free(field_types);
                 free(field_aligns);
-                return existing;
+                struct_or_union_members_cleanup(&members);
+                debug_error("%s: Memory allocation failed", __func__);
+
+                return NULL;
             }
             for (size_t i = 0; i < members.num_members; i++)
             {
                 struct_field_t * field = &members.members[i];
+
                 unsigned idx = field->bitfield.storage_index;
                 uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
                 if (field_types[idx] == NULL
@@ -849,14 +858,11 @@ register_tagged_struct_or_union_definition(
 
             type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
 
-            for (size_t i = 0; i < members.num_members; i++)
-            {
-                free(members.members[i].name);
-            }
-            free(members.members);
+            struct_or_union_members_cleanup(&members);
 
             return existing;
         }
+
         return NULL;
     }
 
@@ -865,20 +871,6 @@ register_tagged_struct_or_union_definition(
     type_info_t opaque = {0};
     opaque.tag = strdup(tag);
     opaque.kind = kind;
-
-    if (members.num_members > 0)
-    {
-        opaque.field_count = members.num_members;
-        opaque.fields = malloc(members.num_members * sizeof(*members.members));
-        memcpy(opaque.fields, members.members, members.num_members * sizeof(*members.members));
-        for (size_t i = 0; i < members.num_members; i++)
-        {
-            if (opaque.fields[i].name != NULL)
-            {
-                opaque.fields[i].name = strdup(opaque.fields[i].name);
-            }
-        }
-    }
 
     for (size_t i = 0; i < members.num_members; i++)
     {
@@ -903,23 +895,26 @@ register_tagged_struct_or_union_definition(
     if (registered == NULL)
     {
         free((void *)opaque.tag);
-        for (size_t i = 0; i < opaque.field_count; i++)
-        {
-            free(opaque.fields[i].name);
-        }
+        struct_or_union_members_cleanup(&members);
+
         return NULL;
     }
 
     if (members.num_members == 0)
     {
+        struct_or_union_members_cleanup(&members);
+
         return registered;
     }
 
     struct_field_t * last_field = &members.members[members.num_members - 1];
     unsigned num_storage_units = last_field->bitfield.storage_index + 1;
     LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+
     if (field_types == NULL)
     {
+        struct_or_union_members_cleanup(&members);
+
         return registered;
     }
     // First pass: track largest type and highest alignment per storage unit
@@ -927,6 +922,8 @@ register_tagged_struct_or_union_definition(
     if (field_aligns == NULL)
     {
         free(field_types);
+        struct_or_union_members_cleanup(&members);
+
         return registered;
     }
     LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
@@ -934,8 +931,11 @@ register_tagged_struct_or_union_definition(
     {
         free(field_types);
         free(field_aligns);
+        struct_or_union_members_cleanup(&members);
+
         return registered;
     }
+
     for (size_t i = 0; i < members.num_members; i++)
     {
         struct_field_t * field = &members.members[i];
@@ -967,16 +967,14 @@ register_tagged_struct_or_union_definition(
             field_types[i] = wrapper;
         }
     }
+
     free(field_aligns);
     free(max_align_types);
+
     LLVMStructSetBody(registered->type_desc->llvm_type, field_types, num_storage_units, false);
     free(field_types);
 
-    for (size_t i = 0; i < members.num_members; i++)
-    {
-        free(members.members[i].name);
-    }
-    free(members.members);
+    struct_or_union_members_cleanup(&members);
 
     return registered;
 }
@@ -994,20 +992,6 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
     type_info_t new_struct = {0};
     new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
     new_struct.kind = kind;
-
-    if (members.num_members > 0)
-    {
-        new_struct.field_count = members.num_members;
-        new_struct.fields = malloc(members.num_members * sizeof(*members.members));
-        memcpy(new_struct.fields, members.members, members.num_members * sizeof(*members.members));
-        for (size_t i = 0; i < members.num_members; i++)
-        {
-            if (new_struct.fields[i].name != NULL)
-            {
-                new_struct.fields[i].name = strdup(new_struct.fields[i].name);
-            }
-        }
-    }
 
     for (size_t i = 0; i < members.num_members; i++)
     {
@@ -1036,10 +1020,8 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
     if (registered == NULL)
     {
         free((void *)new_struct.tag);
-        for (size_t i = 0; i < new_struct.field_count; i++)
-        {
-            free(new_struct.fields[i].name);
-        }
+        struct_or_union_members_cleanup(&members);
+
         return NULL;
     }
 
@@ -1048,11 +1030,12 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
         return registered;
     }
 
-    struct_field_t * last_field = &new_struct.fields[new_struct.field_count - 1];
+    struct_field_t * last_field = &members.members[members.num_members - 1];
     unsigned num_storage_units = last_field->bitfield.storage_index + 1;
     LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
     int current_storage_unit = -1;
-    for (size_t i = 0; i < new_struct.field_count; i++)
+
+    for (size_t i = 0; i < members.num_members; i++)
     {
         struct_field_t * field = &members.members[i];
         if (field->bitfield.storage_index != (unsigned)current_storage_unit)
@@ -1065,12 +1048,7 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
     LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
     free(field_types);
 
-    for (size_t i = 0; i < members.num_members; i++)
-    {
-        debug_info("freeing: %zu %p '%s'", i, members.members[i].name, members.members[i].name);
-        free(members.members[i].name);
-    }
-    free(members.members);
+    struct_or_union_members_cleanup(&members);
 
     return registered;
 }
@@ -1122,8 +1100,6 @@ register_untagged_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t con
     enum_info.kind = TYPE_KIND_UNTAGGED_ENUM;
     // Enums are typically represented as int, but this can be improved to use the smallest type that fits the values
     enum_info.type_desc = type_descriptor_get_enum_type(ctx->type_descriptors);
-    enum_info.fields = NULL;
-    enum_info.field_count = 0;
 
     return generator_add_type_info(ctx, enum_info);
 }
