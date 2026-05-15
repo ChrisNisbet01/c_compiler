@@ -6,6 +6,9 @@ NCC is a functional C compiler prototype built to explore the capabilities of th
 
 **Important Note:** This project is not intended to be a "serious," production-ready C compiler. Its primary purpose is to serve as a real-world test case for `easy_pc`, highlighting the library's strengths and identifying areas for improvement when parsing complex, context-sensitive languages like C.
 
+Having said that, the compiler will compile itself, and the self-built compiler passes all tests in the test suite.
+No, I have not made any attempt to get the self-built compiler to compile itself.
+
 ## Architecture
 
 NCC leverages established industrial tools to focus its development on the parsing and IR generation stages:
@@ -42,7 +45,7 @@ As an experimental tool, NCC has several known limitations:
 ## Getting Started
 
 ### Prerequisites
-*   LLVM 15+ (with headers and libraries)
+*   LLVM 18+ (with headers and libraries)
 *   Clang (for preprocessing and linking)
 *   CMake 3.10+
 *   The `easy_pc` library
