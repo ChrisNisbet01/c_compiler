@@ -1,23 +1,58 @@
 #include "symbol_table.h"
 
-#include "debug.h"
-#include "hash_table.h"
+#include "generic_hash_table.h"
 
-#include <stdio.h>
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define INITIAL_SYMBOL_CAPACITY 16
 
-#include "hash_table.h"
-
 typedef struct symbol_table_t
 {
-    char const ** names; /* pointers to strings owned by hash table */
+    char const ** names;
     size_t count;
     size_t capacity;
-    hash_table_t * hash; /* internal hash table for O(1) lookups */
+    generic_hash_table_t * hash;
 } symbol_table_t;
+
+static size_t
+hash_djb2(void const * key)
+{
+    char const * str = (char const *)key;
+    size_t hash = 5381;
+
+    int c;
+    while ((c = (unsigned char)*str++) != '\0')
+    {
+        hash = ((hash << 5) + hash) + (size_t)c;
+    }
+
+    return hash;
+}
+
+static bool
+str_equals(void const * key1, void const * key2)
+{
+    return strcmp((char const *)key1, (char const *)key2) == 0;
+}
+
+static generic_hash_table_key_ops_t string_key_ops = {
+    .hash = hash_djb2,
+    .equals = str_equals,
+};
+
+static void
+free_string_entry(void * value, void * user_data)
+{
+    (void)user_data;
+    char * str = (char *)value;
+    if (str != NULL)
+    {
+        free(str);
+    }
+}
 
 symbol_table_t *
 symbol_table_create(void)
@@ -35,8 +70,7 @@ symbol_table_create(void)
         free(st);
         return NULL;
     }
-    /* create internal hash table with initial bucket count */
-    st->hash = hash_table_create(16);
+    st->hash = generic_hash_table_create(16, &string_key_ops);
     if (st->hash == NULL)
     {
         free(st->names);
@@ -55,9 +89,11 @@ symbol_table_free(symbol_table_t * st)
         return;
     }
 
-    /* free hash table (which also frees duplicated strings) */
-    hash_table_free(st->hash);
-    /* names array only holds non‑owned pointers, no need to free the strings */
+    if (st->hash != NULL)
+    {
+        generic_hash_table_iterate(st->hash, free_string_entry, NULL);
+        generic_hash_table_destroy(st->hash);
+    }
     free(st->names);
     free(st);
 }
@@ -70,8 +106,7 @@ symbol_table_add(symbol_table_t * st, char const * name)
         return;
     }
 
-    /* check hash table for existence (hash owns the string) */
-    if (hash_table_contains(st->hash, name))
+    if (generic_hash_table_lookup(st->hash, name) != NULL)
     {
         return;
     }
@@ -82,20 +117,23 @@ symbol_table_add(symbol_table_t * st, char const * name)
         char const ** new_names = realloc(st->names, sizeof(*st->names) * st->capacity);
         if (new_names == NULL)
         {
-            debug_error("Error: Failed to resize symbol table names array.");
             return;
         }
         st->names = new_names;
     }
 
-    /* Insert into hash table; it returns the owned copy */
-    char * stored = hash_table_insert(st->hash, name);
+    char * stored = strdup(name);
     if (stored == NULL)
     {
-        /* insertion failed (likely OOM or duplicate) */
         return;
     }
-    st->names[st->count++] = stored; /* linear array points to owned string */
+
+    if (!generic_hash_table_insert(st->hash, stored, stored))
+    {
+        free(stored);
+        return;
+    }
+    st->names[st->count++] = stored;
 }
 
 void
@@ -108,31 +146,29 @@ symbol_table_clear_from(symbol_table_t * st, size_t index)
 
     for (size_t i = index; i < st->count; i++)
     {
-        /* remove each name from hash table (which frees the string) */
-        hash_table_remove(st->hash, st->names[i]);
-        /* linear array holds non‑owned pointers, no need to free */
+        generic_hash_table_remove(st->hash, st->names[i]);
     }
     st->count = index;
 }
 
 bool
-symbol_table_contains(symbol_table_t * st, char const * name)
+symbol_table_contains(symbol_table_t const * st, char const * name)
 {
-    if (st == NULL || name == NULL || st->count == 0)
+    if (st == NULL || name == NULL)
     {
         return false;
     }
-    return hash_table_contains(st->hash, name);
+    return generic_hash_table_lookup(st->hash, name) != NULL;
 }
 
 size_t
-symbol_table_count(symbol_table_t * st)
+symbol_table_count(symbol_table_t const * st)
 {
     return st->count;
 }
 
 char const *
-symbol_table_name_at(symbol_table_t * st, size_t index)
+symbol_table_name_at(symbol_table_t const * st, size_t index)
 {
     if (index >= st->count)
     {
