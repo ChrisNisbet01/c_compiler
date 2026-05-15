@@ -240,21 +240,6 @@ scope_typedefs_lookup_entry_by_name(scope_typedefs_t const * list, char const * 
     return NULL;
 }
 
-scope_typedef_entry_t *
-scope_typedefs_lookup_entry_by_type_descriptor(scope_typedefs_t const * list, TypeDescriptor const * type_desc)
-{
-    for (size_t i = 0; i < list->count; ++i)
-    {
-        scope_typedef_entry_t * entry = list->entries[i];
-        if (type_desc == entry->type_desc)
-        {
-            return entry;
-        }
-    }
-
-    return NULL;
-}
-
 bool
 scope_typedefs_init(scope_typedefs_t * list)
 {

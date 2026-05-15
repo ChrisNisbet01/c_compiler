@@ -112,9 +112,6 @@ TypeDescriptor const * scope_find_typedef_type_descriptor(scope_t const * scope,
  */
 scope_typedef_entry_t * scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name);
 
-scope_typedef_entry_t *
-scope_lookup_typedef_entry_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc);
-
 // --- Function declaration tracking ---
 
 LLVMBasicBlockRef scope_get_or_create_label(scope_t const * scope, char const * label_name);

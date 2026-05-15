@@ -192,24 +192,6 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
     return NULL;
 }
 
-scope_typedef_entry_t *
-scope_lookup_typedef_entry_by_type_descriptor(scope_t const * scope, TypeDescriptor const * type_desc)
-{
-    while (scope != NULL && type_desc != NULL)
-    {
-        scope_typedef_entry_t * typedef_entry
-            = scope_typedefs_lookup_entry_by_type_descriptor(&scope->typedefs, type_desc);
-        if (typedef_entry != NULL)
-        {
-            return typedef_entry;
-        }
-
-        scope = scope->parent;
-    }
-
-    return NULL;
-}
-
 TypeDescriptor const *
 scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 {

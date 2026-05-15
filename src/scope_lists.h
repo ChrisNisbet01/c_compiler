@@ -65,9 +65,6 @@ bool scope_typedefs_init(scope_typedefs_t * list);
 
 void scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry);
 
-scope_typedef_entry_t *
-scope_typedefs_lookup_entry_by_type_descriptor(scope_typedefs_t const * list, TypeDescriptor const * type_desc);
-
 void scope_symbols_free(scope_symbols_t * list);
 
 bool scope_symbols_init(scope_symbols_t * list);
