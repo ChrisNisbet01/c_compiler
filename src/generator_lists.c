@@ -126,29 +126,6 @@ generator_add_type_info(ir_generator_ctx_t * ctx, type_info_t info)
         return NULL;
     }
 
-    type_info_t const * existing_type_info;
-    if (info.tag != NULL)
-    {
-        existing_type_info = scope_lookup_tagged_entry_by_tag_and_kind(ctx->current_scope, info.tag, info.kind);
-    }
-    else
-    {
-        existing_type_info = scope_lookup_type_info_by_type_descriptor(ctx->current_scope, info.type_desc);
-    }
-    if (existing_type_info != NULL)
-    {
-        bool is_complete = type_descriptor_is_complete(existing_type_info->type_desc);
-        debug_info("%s %s is complete: %d", __func__, info.tag, is_complete);
-        if (is_complete)
-        {
-            debug_info(
-                "tag: %s kind: %u ignoring typedef update because the type descriptor is complete", info.tag, info.kind
-            );
-            free(info.tag);
-            return existing_type_info;
-        }
-    }
-
     return scope_add_type_info(ctx->current_scope, info);
 }
 
@@ -188,14 +165,12 @@ generator_find_type_descriptor_by_tag_and_kind(ir_generator_ctx_t * ctx, char co
 
     type_info_t * info = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
 
-    if (info != NULL)
+    if (info == NULL)
     {
-        debug_info("%s: found type desc: %p", __func__, info->type_desc);
-        dump_type_descriptor(__func__, info->type_desc, DEBUG_LEVEL_INFO);
-        return info->type_desc;
+        return NULL;
     }
 
-    return NULL;
+    return info->type_desc;
 }
 
 type_info_t *

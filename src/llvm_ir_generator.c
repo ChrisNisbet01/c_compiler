@@ -717,7 +717,9 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
 }
 
 type_info_t const *
-register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const * tag, bool is_union)
+register_opaque_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, char const * tag, TypeQualifier quals, bool is_union
+)
 {
     if (ctx == NULL || tag == NULL)
     {
@@ -730,6 +732,7 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
     type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
     if (existing != NULL)
     {
+        debug_info("%s: returning existing", __func__);
         return existing;
     }
 
@@ -740,8 +743,7 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
     bool is_complete = false;
     LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, tag);
     debug_info("%s: tag %s, type %p", __func__, opaque.tag, struct_type);
-    opaque.type_desc
-        = register_struct_type(ctx->type_descriptors, struct_type, (TypeQualifier){0}, is_union, is_complete, members);
+    opaque.type_desc = register_struct_type(ctx->type_descriptors, struct_type, quals, is_union, is_complete, members);
     debug_info("%s: registering opaque and opaque type desc: %p", __func__, opaque.type_desc);
 
     type_info_t const * registered = generator_add_type_info(ctx, opaque);
@@ -750,6 +752,8 @@ register_opaque_struct_or_union_definition(ir_generator_ctx_t * ctx, char const 
         free((void *)opaque.tag);
         return NULL;
     }
+
+    debug_info("%s: returning registered desc: %p", __func__, registered->type_desc);
 
     return registered;
 }
@@ -775,208 +779,107 @@ register_tagged_struct_or_union_definition(
     TypeQualifier quals
 )
 {
+    debug_info("%s: tag %s", __func__, tag);
     if (ctx == NULL || tag == NULL)
     {
         return NULL;
     }
 
-    type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
-
-    if (existing != NULL)
+    type_info_t const * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
+    if (existing == NULL)
     {
-        if (!existing->type_desc->struct_metadata.is_complete)
+        debug_info("%s: '%s' not found, so registering an opaque type early", __func__, tag);
+        /* Register an opaque type now, in case the struct has members that refer to itself. */
+        existing = register_opaque_struct_or_union_definition(ctx, tag, quals, kind == TYPE_KIND_UNION);
+        if (existing == NULL)
         {
-            struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
+            debug_error("%s: failed to register opaque type", __func__);
+            return NULL;
+        }
+    }
 
-            struct_field_t * last_field = &members.members[members.num_members - 1];
-            unsigned num_storage_units = last_field->bitfield.storage_index + 1;
-            LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-            if (field_types == NULL)
-            {
-                struct_or_union_members_cleanup(&members);
-                debug_error("%s: Memory allocation failed", __func__);
+    if (!existing->type_desc->struct_metadata.is_complete)
+    {
+        debug_info("%s: update existing", __func__);
+        struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
 
-                return NULL;
-            }
-            // First pass: track largest type and highest alignment per storage unit
-            uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
-            if (field_aligns == NULL)
-            {
-                free(field_types);
-                struct_or_union_members_cleanup(&members);
-                debug_error("%s: Memory allocation failed", __func__);
-
-                return NULL;
-            }
-            LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
-            if (max_align_types == NULL)
-            {
-                free(field_types);
-                free(field_aligns);
-                struct_or_union_members_cleanup(&members);
-                debug_error("%s: Memory allocation failed", __func__);
-
-                return NULL;
-            }
-            for (size_t i = 0; i < members.num_members; i++)
-            {
-                struct_field_t * field = &members.members[i];
-
-                unsigned idx = field->bitfield.storage_index;
-                uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
-                if (field_types[idx] == NULL
-                    || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
-                           > LLVMABISizeOfType(ctx->data_layout, field_types[idx]))
-                {
-                    field_types[idx] = field->type_desc->llvm_type;
-                }
-                if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
-                {
-                    max_align_types[idx] = field->type_desc->llvm_type;
-                    field_aligns[idx] = field_align;
-                }
-            }
-            // Second pass: ensure correct alignment by wrapping if needed
-            for (unsigned i = 0; i < num_storage_units; i++)
-            {
-                if (field_types[i] != NULL && field_aligns[i] > 0 && max_align_types[i] != NULL
-                    && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
-                {
-                    LLVMTypeRef wrapper_types[2];
-                    wrapper_types[0] = LLVMArrayType(max_align_types[i], 0);
-                    wrapper_types[1] = field_types[i];
-                    LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
-                    LLVMStructSetBody(wrapper, wrapper_types, 2, false);
-                    field_types[i] = wrapper;
-                }
-            }
-            free(field_aligns);
-            free(max_align_types);
-
-            LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
-            free(field_types);
-
-            type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
-
+        struct_field_t * last_field = &members.members[members.num_members - 1];
+        unsigned num_storage_units = last_field->bitfield.storage_index + 1;
+        LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+        if (field_types == NULL)
+        {
             struct_or_union_members_cleanup(&members);
+            debug_error("%s: Memory allocation failed", __func__);
 
-            return existing;
+            return NULL;
         }
+        // First pass: track largest type and highest alignment per storage unit
+        uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
+        if (field_aligns == NULL)
+        {
+            free(field_types);
+            struct_or_union_members_cleanup(&members);
+            debug_error("%s: Memory allocation failed", __func__);
 
-        return NULL;
-    }
+            return NULL;
+        }
+        LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
+        if (max_align_types == NULL)
+        {
+            free(field_types);
+            free(field_aligns);
+            struct_or_union_members_cleanup(&members);
+            debug_error("%s: Memory allocation failed", __func__);
 
-    struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
+            return NULL;
+        }
+        for (size_t i = 0; i < members.num_members; i++)
+        {
+            struct_field_t * field = &members.members[i];
 
-    type_info_t opaque = {0};
-    opaque.tag = strdup(tag);
-    opaque.kind = kind;
-
-    for (size_t i = 0; i < members.num_members; i++)
-    {
-        debug_info(
-            "%s: member %zu: %s offset: %u, width: %u, storage: %u\n",
-            __func__,
-            i,
-            members.members[i].name,
-            members.members[i].bitfield.bit_offset,
-            members.members[i].bitfield.bit_width,
-            members.members[i].bitfield.storage_index
-        );
-    }
-
-    bool is_complete = true;
-    LLVMTypeRef struct_llvm = LLVMStructCreateNamed(ctx->context, tag);
-    opaque.type_desc = register_struct_type(
-        ctx->type_descriptors, struct_llvm, quals, kind == TYPE_KIND_UNION, is_complete, &members
-    );
-
-    type_info_t const * registered = generator_add_type_info(ctx, opaque);
-    if (registered == NULL)
-    {
-        free((void *)opaque.tag);
-        struct_or_union_members_cleanup(&members);
-
-        return NULL;
-    }
-
-    if (members.num_members == 0)
-    {
-        struct_or_union_members_cleanup(&members);
-
-        return registered;
-    }
-
-    struct_field_t * last_field = &members.members[members.num_members - 1];
-    unsigned num_storage_units = last_field->bitfield.storage_index + 1;
-    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-
-    if (field_types == NULL)
-    {
-        struct_or_union_members_cleanup(&members);
-
-        return registered;
-    }
-    // First pass: track largest type and highest alignment per storage unit
-    uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
-    if (field_aligns == NULL)
-    {
-        free(field_types);
-        struct_or_union_members_cleanup(&members);
-
-        return registered;
-    }
-    LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
-    if (max_align_types == NULL)
-    {
-        free(field_types);
+            unsigned idx = field->bitfield.storage_index;
+            uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
+            if (field_types[idx] == NULL
+                || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
+                       > LLVMABISizeOfType(ctx->data_layout, field_types[idx]))
+            {
+                field_types[idx] = field->type_desc->llvm_type;
+            }
+            if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
+            {
+                max_align_types[idx] = field->type_desc->llvm_type;
+                field_aligns[idx] = field_align;
+            }
+        }
+        // Second pass: ensure correct alignment by wrapping if needed
+        for (unsigned i = 0; i < num_storage_units; i++)
+        {
+            if (field_types[i] != NULL && field_aligns[i] > 0 && max_align_types[i] != NULL
+                && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
+            {
+                LLVMTypeRef wrapper_types[2];
+                wrapper_types[0] = LLVMArrayType(max_align_types[i], 0);
+                wrapper_types[1] = field_types[i];
+                LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
+                LLVMStructSetBody(wrapper, wrapper_types, 2, false);
+                field_types[i] = wrapper;
+            }
+        }
         free(field_aligns);
+        free(max_align_types);
+
+        LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
+        free(field_types);
+
+        type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
+
         struct_or_union_members_cleanup(&members);
 
-        return registered;
+        return existing;
     }
 
-    for (size_t i = 0; i < members.num_members; i++)
-    {
-        struct_field_t * field = &members.members[i];
-        unsigned idx = field->bitfield.storage_index;
-        uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
-        if (field_types[idx] == NULL
-            || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
-                   > LLVMABISizeOfType(ctx->data_layout, field_types[idx]))
-        {
-            field_types[idx] = field->type_desc->llvm_type;
-        }
-        if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
-        {
-            max_align_types[idx] = field->type_desc->llvm_type;
-            field_aligns[idx] = field_align;
-        }
-    }
-    // Second pass: ensure correct alignment by wrapping if needed
-    for (unsigned i = 0; i < num_storage_units; i++)
-    {
-        if (field_types[i] != NULL && field_aligns[i] > 0 && max_align_types[i] != NULL
-            && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
-        {
-            LLVMTypeRef wrapper_types[2];
-            wrapper_types[0] = LLVMArrayType(max_align_types[i], 0);
-            wrapper_types[1] = field_types[i];
-            LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
-            LLVMStructSetBody(wrapper, wrapper_types, 2, false);
-            field_types[i] = wrapper;
-        }
-    }
-
-    free(field_aligns);
-    free(max_align_types);
-
-    LLVMStructSetBody(registered->type_desc->llvm_type, field_types, num_storage_units, false);
-    free(field_types);
-
-    struct_or_union_members_cleanup(&members);
-
-    return registered;
+    ir_gen_error(&ctx->errors, type_child, "Redefinition of %s %s", kind == TYPE_KIND_STRUCT ? "struct" : "union", tag);
+    return NULL;
 }
 
 static type_info_t const *
@@ -986,6 +889,7 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
     {
         return NULL;
     }
+    debug_info("%s: untagged", __func__);
 
     struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
 
@@ -1354,14 +1258,20 @@ ir_generator_init(
             = get_or_create_array_type(ctx->type_descriptors, va_list_tag_desc, 1);
 
         // Register __builtin_va_list as the array type
-        scope_typedef_entry_t typedef_entry = {.name = strdup("__builtin_va_list"), .type_desc = va_list_array_desc};
-
-        generator_add_typedef_entry(ctx, typedef_entry);
+        if (generator_find_typedef_type_descriptor(ctx, "__builtin_va_list") == NULL)
+        {
+            scope_typedef_entry_t typedef_entry
+                = {.name = strdup("__builtin_va_list"), .type_desc = va_list_array_desc};
+            generator_add_typedef_entry(ctx, typedef_entry);
+        }
         if (ctx->generation_flags.generate_default_variables)
         {
-            scope_typedef_entry_t unpreprocessed_typedef_entry
-                = {.name = strdup("va_list"), .type_desc = va_list_array_desc};
-            generator_add_typedef_entry(ctx, unpreprocessed_typedef_entry);
+            if (generator_find_typedef_type_descriptor(ctx, "va_list") == NULL)
+            {
+                scope_typedef_entry_t unpreprocessed_typedef_entry
+                    = {.name = strdup("va_list"), .type_desc = va_list_array_desc};
+                generator_add_typedef_entry(ctx, unpreprocessed_typedef_entry);
+            }
         }
     }
     debug_info("done builtins");
@@ -2390,6 +2300,7 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         if (typedef_type_desc == NULL)
         {
             debug_error("%s: Failed to get type desc for typedef", __func__);
+            ir_gen_error(&ctx->errors, node, "Failed to resolve typedef.");
             return;
         }
 
@@ -2397,12 +2308,27 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         if (name_node == NULL || name_node->type != AST_NODE_IDENTIFIER || name_node->text == NULL)
         {
             debug_error("%s: Failed to find typedef name", __func__);
+            ir_gen_error(&ctx->errors, node, "Failed to find typedef name.");
             return;
         }
+
         char const * typedef_name = name_node->text;
         debug_info("Typedef: name='%s'", typedef_name);
 
-        if (typedef_type_desc != NULL)
+        TypeDescriptor const * existing_desc = generator_find_typedef_type_descriptor(ctx, typedef_name);
+        if (existing_desc != NULL)
+        {
+            if (existing_desc == typedef_type_desc)
+            {
+                debug_info("Ignoring duplicate typedef '%s'", typedef_name);
+            }
+            else
+            {
+                ir_gen_error(&ctx->errors, node, "Redefinition of typedef '%s'.", typedef_name);
+                return;
+            }
+        }
+        else
         {
             scope_typedef_entry_t typedef_entry = {
                 .name = strdup(typedef_name),

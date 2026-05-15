@@ -497,7 +497,7 @@ resolve_type_descriptor(
                             return type_descriptor_get_enum_type(ctx->type_descriptors);
                         }
                         type_info_t const * opaque_info = register_opaque_struct_or_union_definition(
-                            ctx, tag, inner->type == AST_NODE_UNION_TYPE_REF
+                            ctx, tag, type_quals, inner->type == AST_NODE_UNION_TYPE_REF
                         );
                         current = opaque_info->type_desc;
                     }

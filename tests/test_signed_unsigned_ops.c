@@ -1,4 +1,3 @@
-#include <stdint.h>
 #include <stdio.h>
 
 int
@@ -22,9 +21,9 @@ main(void)
         result = 2;
     }
 
-    // Test unsigned division (using size_t to ensure unsigned)
-    size_t unsigned_a = 10u;
-    size_t unsigned_b = 3u;
+    // Test unsigned division (using unsigned long to ensure unsigned)
+    unsigned long unsigned_a = 10u;
+    unsigned long unsigned_b = 3u;
     if (unsigned_a / unsigned_b != 3)
     {
         printf(
@@ -50,8 +49,8 @@ main(void)
     }
 
     // Test unsigned comparison (large values that would be negative if signed)
-    size_t large_unsigned = (size_t)2000000000u; // 2 billion
-    size_t small_unsigned = 1000u;
+    unsigned long large_unsigned = (unsigned long)2000000000u; // 2 billion
+    unsigned long small_unsigned = 1000u;
     if (!(large_unsigned > small_unsigned))
     {
         printf(
@@ -64,8 +63,8 @@ main(void)
     }
 
     // Test unsigned comparison that would fail if treated as signed
-    size_t val1 = 100;
-    size_t val2 = 200;
+    unsigned long val1 = 100;
+    unsigned long val2 = 200;
     if (val1 >= val2)
     {
         printf("FAIL: unsigned >= : %zu >= %zu = %d, expected 0\n", val1, val2, val1 >= val2);
@@ -73,10 +72,10 @@ main(void)
     }
 
     // Test that a large unsigned value doesn't become negative
-    size_t very_large = (size_t)0xFFFFFFFFFFFFFFFFULL; // Max size_t
-    if ((int)very_large > 0)                           // This would be negative if cast to int incorrectly
+    unsigned long very_large = (unsigned long)0xFFFFFFFFFFFFFFFFULL; // Max unsigned long
+    if ((int)very_large > 0) // This would be negative if cast to int incorrectly
     {
-        printf("FAIL: large size_t should not be negative when interpreted as signed\n");
+        printf("FAIL: large unsigned long should not be negative when interpreted as signed\n");
         result = 8;
     }
 
@@ -96,9 +95,9 @@ main(void)
     }
 
     // Test that unsigned modulo with large dividend works correctly
-    size_t big_dividend = 0xFFFFFFFFu; // Large but fits in 32 bits
-    size_t divisor = 1000u;
-    size_t rem = big_dividend % divisor;
+    unsigned long big_dividend = 0xFFFFFFFFu; // Large but fits in 32 bits
+    unsigned long divisor = 1000u;
+    unsigned long rem = big_dividend % divisor;
     if (rem != 295)
     {
         printf("FAIL: large unsigned remainder: %zu %% %zu = %zu, expected 535\n", big_dividend, divisor, rem);

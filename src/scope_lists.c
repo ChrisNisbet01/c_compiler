@@ -259,26 +259,22 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
         return;
     }
 
-    scope_typedef_entry_t * existing = scope_typedefs_lookup_entry_by_name(list, entry.name);
-    if (existing != NULL)
-    {
-        /*
-            Important - Don't replace the existing->name as the hash table uses that pointer as the key.
-            Replacing it here would result in a use-after-free bug.
-            (Alternatively, remove one entry and replace it with the other)
-         */
-        free((void *)entry.name);
-        existing->type_desc = entry.type_desc;
-        return;
-    }
-
     scope_typedef_entry_t * new_entry = malloc(sizeof(*new_entry));
     if (new_entry == NULL)
     {
         return;
     }
+
     *new_entry = entry;
-    generic_hash_table_insert(list->by_name, entry.name, new_entry);
+    if (!generic_hash_table_insert(list->by_name, entry.name, new_entry))
+    {
+        /*
+           Probably a duplicate, which shouldn't happen. User should check for existing entry before
+           adding a duplicate.
+         */
+        free(new_entry->name);
+        free(new_entry);
+    }
 }
 
 void
