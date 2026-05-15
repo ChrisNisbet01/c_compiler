@@ -117,7 +117,7 @@ scope_add_type_info(scope_t * scope, type_info_t info)
 type_info_t *
 scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind)
 {
-    debug_info("%s", __func__);
+    debug_info("%s, tag: %s, kind: %u", __func__, tag, kind);
     while (scope != NULL && tag != NULL)
     {
         type_lists_t const * list = &scope->type_lists[kind];
@@ -125,10 +125,14 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
 
         if (entry != NULL)
         {
+            debug_info("found: %s, desc: %p", tag, (void *)entry->type_desc);
             return entry;
         }
         scope = scope->parent;
     }
+
+    debug_info("%s: %s not found", __func__, tag);
+
     return NULL;
 }
 

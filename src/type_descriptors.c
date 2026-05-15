@@ -1206,7 +1206,7 @@ type_descriptor_is_complete(TypeDescriptor const * type_desc_in)
         return false;
     }
 
-    bool is_complete = false;
+    bool is_complete = true;
 
     if (type_desc->kind == NCC_TYPE_KIND_STRUCT || type_desc->kind == NCC_TYPE_KIND_UNION)
     {

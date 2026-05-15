@@ -57,8 +57,6 @@ scope_t * generator_scope_create(ir_generator_ctx_t * ctx);
 
 void generator_add_typedef_entry(ir_generator_ctx_t * ctx, scope_typedef_entry_t entry);
 
-type_info_t * generator_lookup_type_info_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc);
-
 TypeDescriptor const * generator_find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name);
 
 TypeDescriptor const *

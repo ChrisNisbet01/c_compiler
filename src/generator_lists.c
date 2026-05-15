@@ -126,15 +126,25 @@ generator_add_type_info(ir_generator_ctx_t * ctx, type_info_t info)
         return NULL;
     }
 
-    type_info_t const * existing_type_info = generator_lookup_type_info_by_type_descriptor(ctx, info.type_desc);
+    type_info_t const * existing_type_info;
+    if (info.tag != NULL)
+    {
+        existing_type_info = scope_lookup_tagged_entry_by_tag_and_kind(ctx->current_scope, info.tag, info.kind);
+    }
+    else
+    {
+        existing_type_info = scope_lookup_type_info_by_type_descriptor(ctx->current_scope, info.type_desc);
+    }
     if (existing_type_info != NULL)
     {
-        bool is_complete = type_descriptor_is_complete(info.type_desc);
+        bool is_complete = type_descriptor_is_complete(existing_type_info->type_desc);
         debug_info("%s %s is complete: %d", __func__, info.tag, is_complete);
         if (is_complete)
         {
+            debug_info(
+                "tag: %s kind: %u ignoring typedef update because the type descriptor is complete", info.tag, info.kind
+            );
             free(info.tag);
-            debug_info("ignoring typedef update because the type descriptor is complete");
             return existing_type_info;
         }
     }
@@ -162,17 +172,6 @@ generator_add_typedef_entry(ir_generator_ctx_t * ctx, scope_typedef_entry_t entr
     }
 
     scope_add_typedef_entry(ctx->current_scope, entry);
-}
-
-type_info_t *
-generator_lookup_type_info_by_type_descriptor(ir_generator_ctx_t * ctx, TypeDescriptor const * type_desc)
-{
-    if (ctx == NULL)
-    {
-        return NULL;
-    }
-
-    return scope_lookup_type_info_by_type_descriptor(ctx->current_scope, type_desc);
 }
 
 TypeDescriptor const *

@@ -9,15 +9,12 @@ typedef size_t (*generic_hash_fn)(void const * key);
 
 typedef bool (*generic_eq_fn)(void const * key1, void const * key2);
 
-typedef bool (*generic_skip_duplicate_fn)(void * existing_value, void * new_value);
-
 typedef void (*generic_val_free_fn)(void * value);
 
 typedef struct
 {
     generic_hash_fn hash;
     generic_eq_fn equals;
-    generic_skip_duplicate_fn skip_duplicate;
 } generic_hash_table_key_ops_t;
 
 generic_hash_table_t *

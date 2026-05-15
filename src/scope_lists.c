@@ -8,17 +8,20 @@ hash_djb2(void const * key)
 {
     char const * str = (char const *)key;
     size_t hash = 5381;
+
     int c;
     while ((c = (unsigned char)*str++) != '\0')
     {
         hash = ((hash << 5) + hash) + (size_t)c;
     }
+    debug_info("hash: key: %s, result: %zu", (char *)key, hash);
     return hash;
 }
 
 static bool
 str_equals(void const * key1, void const * key2)
 {
+    debug_info("%s s1: %s s2 %s", __func__, (char const *)key1, (char const *)key2);
     return strcmp((char const *)key1, (char const *)key2) == 0;
 }
 
@@ -43,24 +46,15 @@ ptr_equals(void const * key1, void const * key2)
     return key1 == key2;
 }
 
-static bool
-hash_skip_duplicate(void * existing_value, void * new_value)
-{
-    type_info_t const * existing_info = (type_info_t *)existing_value;
-    type_info_t const * new_info = (type_info_t *)new_value;
+static generic_hash_table_key_ops_t tag_key_ops = {
+    .hash = hash_djb2,
+    .equals = str_equals,
+};
 
-    if (existing_info == NULL || new_info == NULL)
-    {
-        return false;
-    }
-
-    return existing_info->type_desc == new_info->type_desc;
-}
-
-static generic_hash_table_key_ops_t tag_key_ops = {.hash = hash_djb2, .equals = str_equals};
-
-static generic_hash_table_key_ops_t type_desc_key_ops
-    = {.hash = hash_ptr, .equals = ptr_equals, .skip_duplicate = hash_skip_duplicate};
+static generic_hash_table_key_ops_t type_desc_key_ops = {
+    .hash = hash_ptr,
+    .equals = ptr_equals,
+};
 
 static void
 free_type_info_and_entry(void * value, void * user_data)
@@ -111,13 +105,16 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
 
     if (info.tag != NULL)
     {
+        debug_info(
+            "%s: inserting into by_tag with tag: %s (%p) hash: %zu", __func__, info.tag, info.tag, hash_djb2(info.tag)
+        );
         if (!generic_hash_table_insert(list->tagged.by_tag, info.tag, new_entry))
         {
             free(new_entry);
             return NULL;
         }
     }
-    if (info.type_desc != NULL)
+    else if (info.type_desc != NULL)
     {
         debug_info(
             "%s: inserting into by_type_desc with key %p, tag: %s",
@@ -125,7 +122,7 @@ scope_types_add_entry(type_lists_t * list, type_info_t info)
             (void *)info.type_desc,
             info.tag != NULL ? info.tag : "NULL"
         );
-        if (!generic_hash_table_insert(list->tagged.by_type_desc, info.type_desc, new_entry))
+        if (!generic_hash_table_insert(list->type_desc.by_type_desc, info.type_desc, new_entry))
         {
             debug_info("%s: failed to insert into by_type_desc with key %p", __func__, (void *)info.type_desc);
             free(new_entry);
@@ -155,7 +152,7 @@ scope_types_lookup_entry_by_type_descriptor(type_lists_t const * list, TypeDescr
         return NULL;
     }
 
-    return (type_info_t *)generic_hash_table_lookup(list->tagged.by_type_desc, type_desc);
+    return (type_info_t *)generic_hash_table_lookup(list->type_desc.by_type_desc, type_desc);
 }
 
 void
@@ -256,10 +253,12 @@ scope_typedefs_add_entry(scope_typedefs_t * list, scope_typedef_entry_t entry)
     for (size_t i = 0; i < list->count; ++i)
     {
         scope_typedef_entry_t * existing = list->entries[i];
-        if (existing->name != NULL && entry.name != NULL && strcmp(existing->name, entry.name) == 0)
+
+        if (existing->name != NULL && entry.name != NULL && strcmp(existing->name, entry.name) == 0
+            && existing->type_desc != entry.type_desc)
         {
             debug_info(
-                "%s updating typedef entry existing: %s, new: %s. previous type desc: %p, new type desc: %p",
+                "%s now updating typedef entry existing: %s, new: %s. previous type desc: %p, new type desc: %p",
                 __func__,
                 existing->name,
                 entry.name,
