@@ -805,7 +805,7 @@ register_tagged_struct_or_union_definition(
 
         struct_field_t * last_field = &members.members[members.num_members - 1];
         unsigned num_storage_units = last_field->bitfield.storage_index + 1;
-        LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
+        TypeDescriptor const ** field_types = calloc(num_storage_units, sizeof(*field_types));
         if (field_types == NULL)
         {
             struct_or_union_members_cleanup(&members);
@@ -823,7 +823,7 @@ register_tagged_struct_or_union_definition(
 
             return NULL;
         }
-        LLVMTypeRef * max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
+        TypeDescriptor const ** max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
         if (max_align_types == NULL)
         {
             free(field_types);
@@ -841,40 +841,60 @@ register_tagged_struct_or_union_definition(
 
             fprintf(stderr, "%s: %s storage index: %u\n", __func__, field->name, idx);
 
-            uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
+            uint64_t field_align = get_type_alignment_desc(ctx->data_layout, field->type_desc);
             if (field_types[idx] == NULL
-                || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
-                       > LLVMABISizeOfType(ctx->data_layout, field_types[idx]))
+                || get_type_size_desc(ctx->data_layout, field->type_desc)
+                       > get_type_size_desc(ctx->data_layout, field_types[idx]))
             {
-                field_types[idx] = field->type_desc->llvm_type;
+                field_types[idx] = field->type_desc;
             }
             if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
             {
-                max_align_types[idx] = field->type_desc->llvm_type;
+                max_align_types[idx] = field->type_desc;
                 field_aligns[idx] = field_align;
                 fprintf(stderr, "%s: %s align: %zu\n", __func__, field->name, field_align);
             }
         }
         fprintf(stderr, "second pass\n");
         // Second pass: ensure correct alignment by wrapping if needed
+        LLVMTypeRef * llvm_field_types = calloc(num_storage_units, sizeof(*llvm_field_types));
+        if (llvm_field_types == NULL)
+        {
+            free(field_types);
+            free(field_aligns);
+            free(max_align_types);
+            return NULL;
+        }
         for (unsigned i = 0; i < num_storage_units; i++)
         {
-            if (field_types[i] != NULL && field_aligns[i] > 0 && max_align_types[i] != NULL
-                && LLVMABIAlignmentOfType(ctx->data_layout, field_types[i]) < field_aligns[i])
+            llvm_field_types[i] = field_types[i]->llvm_type;
+
+            // Calculate how much the actual type falls short of the required alignment block
+            uint64_t actual_size = get_type_size_desc(ctx->data_layout, field_types[i]);
+            uint64_t padded_size = (actual_size + (field_aligns[i] - 1)) & ~(field_aligns[i] - 1);
+
+            if (actual_size < padded_size)
             {
+                fprintf(stderr, "must wrap\n");
+                uint64_t padding_bytes_needed = padded_size - actual_size;
+                TypeDescriptor const * i8_type_desc = type_descriptor_get_int8_type(ctx->type_descriptors, false);
                 LLVMTypeRef wrapper_types[2];
-                wrapper_types[0] = LLVMArrayType(max_align_types[i], 0);
-                wrapper_types[1] = field_types[i];
+                wrapper_types[0] = field_types[i]->llvm_type;
+                wrapper_types[1] = LLVMArrayType(i8_type_desc->llvm_type, padding_bytes_needed);
                 LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
                 LLVMStructSetBody(wrapper, wrapper_types, 2, false);
-                field_types[i] = wrapper;
+                llvm_field_types[i] = wrapper;
+            }
+            else
+            {
+                fprintf(stderr, "no need to wrap\n");
             }
         }
         free(field_aligns);
         free(max_align_types);
+        LLVMStructSetBody(existing->type_desc->llvm_type, llvm_field_types, num_storage_units, false);
 
-        LLVMStructSetBody(existing->type_desc->llvm_type, field_types, num_storage_units, false);
-        free(field_types);
+        free(llvm_field_types);
 
         type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
 
