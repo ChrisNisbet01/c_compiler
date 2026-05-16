@@ -789,7 +789,12 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     // depending on how your LLVM struct builder handles flattening.
                     struct_field_t new_member = *nested_mem;
                     new_member.name = strdup(nested_mem->name);
-
+                    fprintf(
+                        stderr,
+                        "dealing with member: %s, previous storage_index: %u\n",
+                        new_member.name,
+                        new_member.bitfield.storage_index
+                    );
                     unsigned type_bits;
                     struct_field_t * previous_member = NULL;
                     if (num_members > 0)
@@ -801,6 +806,8 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     {
                         type_bits = LLVMGetIntTypeWidth(nested_mem->type_desc->llvm_type);
                     }
+                    debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 0", new_member.name);
+
                     if (m == 0 || previous_member == NULL
                         || (strlen(nested_mem->name) > 0 && nested_mem->bitfield.bit_width == 0)
                         || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
@@ -810,29 +817,35 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     {
                         if (previous_member == NULL)
                         {
-                            debug_warning("1");
+                            debug_info("1");
                             new_member.bitfield.storage_index = 0;
                         }
                         else if (m > 0 && nested_type->kind == NCC_TYPE_KIND_UNION)
                         {
-                            debug_warning("2: m: %zu, %u", m, previous_member->bitfield.storage_index);
+                            debug_info("2: m: %zu, storage index: %u", m, previous_member->bitfield.storage_index);
                             new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
                         }
                         else
                         {
-                            debug_warning("3: m: %zu, %u", m, previous_member->bitfield.storage_index);
+                            debug_info("3: m: %zu, storage index: %u", m, previous_member->bitfield.storage_index);
                             new_member.bitfield.storage_index
                                 = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
                         }
                     }
                     else
                     {
-                        debug_warning("4: m: %zu, %u", m, previous_member->bitfield.storage_index);
+                        debug_info("4: m: %zu, storage index: %u", m, previous_member->bitfield.storage_index);
                         new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
                         new_member.bitfield.bit_offset
                             = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
                     }
-                    debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
+                    debug_info(
+                        "adding member: %s %p at index: %u with storage index: %u",
+                        new_member.name,
+                        new_member.name,
+                        num_members,
+                        new_member.bitfield.storage_index
+                    );
                     members[num_members] = new_member;
                     num_members++;
                 }
@@ -908,6 +921,8 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     type_bits = LLVMGetIntTypeWidth(new_member.type_desc->llvm_type);
                 }
+                debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 1", new_member.name);
+
                 if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bitfield.bit_width == 0)
                     || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
                     || LLVMGetTypeKind(new_member.type_desc->llvm_type)
@@ -962,16 +977,32 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     continue;
                 }
-
+                debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 2", new_member.name);
                 struct_field_t * previous_member = NULL;
                 if (num_members > 0)
                 {
                     previous_member = &members[num_members - 1];
                 }
-                new_member.bitfield.storage_index
-                    = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
-
-                debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
+                /*
+                    FIXME: This doesn't work with unions, but if it's changed to set storage offset to zero for
+                    union members then the self-built compiler crashes.
+                    WIP.
+                */
+                if (previous_member == NULL || type_child->type == AST_NODE_UNION_DEFINITION)
+                {
+                    new_member.bitfield.storage_index = 0;
+                }
+                else
+                {
+                    new_member.bitfield.storage_index = previous_member->bitfield.storage_index + 1;
+                }
+                debug_info(
+                    "adding member: %s %p at index: %u storage_index: %u",
+                    new_member.name,
+                    new_member.name,
+                    num_members,
+                    new_member.bitfield.storage_index
+                );
                 members[num_members] = new_member;
                 num_members++;
             }

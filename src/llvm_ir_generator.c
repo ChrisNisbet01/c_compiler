@@ -838,6 +838,9 @@ register_tagged_struct_or_union_definition(
             struct_field_t * field = &members.members[i];
 
             unsigned idx = field->bitfield.storage_index;
+
+            fprintf(stderr, "%s: %s storage index: %u\n", __func__, field->name, idx);
+
             uint64_t field_align = LLVMABIAlignmentOfType(ctx->data_layout, field->type_desc->llvm_type);
             if (field_types[idx] == NULL
                 || LLVMABISizeOfType(ctx->data_layout, field->type_desc->llvm_type)
@@ -849,8 +852,10 @@ register_tagged_struct_or_union_definition(
             {
                 max_align_types[idx] = field->type_desc->llvm_type;
                 field_aligns[idx] = field_align;
+                fprintf(stderr, "%s: %s align: %zu\n", __func__, field->name, field_align);
             }
         }
+        fprintf(stderr, "second pass\n");
         // Second pass: ensure correct alignment by wrapping if needed
         for (unsigned i = 0; i < num_storage_units; i++)
         {
@@ -1060,6 +1065,15 @@ ir_generator_init(
         debug_error("Failed to allocate memory for context.");
         return NULL;
     }
+    fprintf(
+        stderr,
+        "%s: collection: %p, parse_ctx: %p, size: %zu\n",
+        __func__,
+        (void *)&ctx->errors,
+        (void *)parse_ctx,
+        sizeof(ctx->errors)
+    );
+
     // Initialize error collection (any error will be fatal since max_errors=1)
     ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);
 
@@ -1271,6 +1285,14 @@ ir_generator_init(
                 scope_typedef_entry_t unpreprocessed_typedef_entry
                     = {.name = strdup("va_list"), .type_desc = va_list_array_desc};
                 generator_add_typedef_entry(ctx, unpreprocessed_typedef_entry);
+            }
+            if (generator_find_typedef_type_descriptor(ctx, "_Bool") == NULL)
+            {
+                scope_typedef_entry_t bool_entry = {
+                    .name = strdup("_Bool"),
+                    .type_desc = type_descriptor_get_bool_type(ctx->type_descriptors, true),
+                };
+                generator_add_typedef_entry(ctx, bool_entry);
             }
         }
     }

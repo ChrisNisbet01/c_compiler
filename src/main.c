@@ -643,7 +643,9 @@ generate_output(
 )
 {
     bool success = true;
-    debug_info("Starting LLVM IR Generation of: %s...", input_filename);
+    debug_info("Starting LLVM IR Generation of: %s", input_filename);
+    fprintf(stderr, "parse ctx: %p", (void *)parse_ctx);
+
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
     ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker, march_target);
 
@@ -1030,6 +1032,16 @@ main(int argc, char * argv[])
             source_location_tracker_push_include(&loc_tracker, filename, 1);
             /* The line to add a default entry is needed for when preprocessing is skipped. */
             source_location_tracker_add_entry(&loc_tracker, 0, 2, filename); /* FIXME: Why 2? */
+            size_t offset_to_parse_ctx = ((size_t)&((epc_parse_session_t *)0)->internal_parse_ctx);
+
+            fprintf(
+                stderr,
+                "%s: parse_ctx: %p, size: %zu, offset: %zu\n",
+                __func__,
+                (void *)session.internal_parse_ctx,
+                sizeof(session),
+                offset_to_parse_ctx
+            );
 
             if (!generate_output(ast_root, filename, session.internal_parse_ctx, &loc_tracker))
             {
