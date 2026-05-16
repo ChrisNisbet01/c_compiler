@@ -61,3 +61,8 @@ void debug_warning(char const * fmt, ...);
  */
 void debug_error_int(char const * func, int line, char const * fmt, ...);
 #define debug_error(fmt, ...) debug_error_int(__func__, __LINE__, (fmt), ##__VA_ARGS__)
+
+/**
+ * @brief Prints structural information about c_grammar_node_t for debugging.
+ */
+void debug_dump_c_grammar_node_info(void);

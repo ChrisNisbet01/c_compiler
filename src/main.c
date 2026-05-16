@@ -980,6 +980,9 @@ main(int argc, char * argv[])
     }
 
     debug_info("Successfully parsed the C file!");
+
+    debug_dump_c_grammar_node_info();
+
     // Print the CPT (commented out for cleaner output)
     // char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
     // if (cpt_str != NULL)

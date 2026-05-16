@@ -342,7 +342,7 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
 static void
 calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const desc)
 {
-    debug_info("%s", __func__);
+    debug_info("%s: kind=%d", __func__, desc->kind);
     if (desc == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
     {
         debug_error("%s: bad type descriptor");
@@ -352,14 +352,18 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
     uint32_t max_align = 1;
     size_t member_count = desc->struct_metadata.members.num_members;
 
+    debug_info("%s: member_count=%zu", __func__, member_count);
+
     if (member_count == 0)
     {
+        debug_info("%s: no members, returning early", __func__);
         return;
     }
 
     // First pass: find max size and max alignment per storage_index
     // (needed for flattened unions where multiple members share a storage_index)
     unsigned num_storage_indices = desc->struct_metadata.members.members[member_count - 1].bitfield.storage_index + 1;
+    debug_info("%s: num_storage_indices=%u", __func__, num_storage_indices);
     uint64_t * max_sizes = calloc(num_storage_indices, sizeof(*max_sizes));
     uint32_t * max_aligns = calloc(num_storage_indices, sizeof(*max_aligns));
 
@@ -370,7 +374,17 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
         unsigned sidx = current_member->bitfield.storage_index;
 
         uint64_t mem_size = get_type_size_desc(data_layout, mem_desc);
-        uint32_t mem_align = get_type_alignment_desc(mem_desc);
+        uint32_t mem_align = get_type_alignment_desc(data_layout, mem_desc);
+
+        debug_info(
+            "%s: member %zu: name='%s', storage_index=%u, mem_size=%llu, mem_align=%u",
+            __func__,
+            i,
+            current_member->name ? current_member->name : "(null)",
+            sidx,
+            mem_size,
+            mem_align
+        );
 
         if (mem_size > max_sizes[sidx])
         {
@@ -385,6 +399,8 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
             max_align = mem_align;
         }
     }
+
+    debug_info("%s: after first pass, max_align=%u", __func__, max_align);
 
     // Second pass: compute offsets and total size
     unsigned current_sidx = desc->struct_metadata.members.members[0].bitfield.storage_index;
@@ -424,7 +440,7 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
                 i,
                 current_offset,
                 get_type_size_desc(data_layout, mem_desc),
-                get_type_alignment_desc(mem_desc),
+                get_type_alignment_desc(data_layout, mem_desc),
                 sidx
             );
         }
@@ -450,6 +466,25 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
                 current_offset = max_sizes[i];
             }
         }
+        // For unions, also consider the LLVM type's ABI alignment
+        // This ensures the union's size is padded correctly when used as a field in another struct
+        if (desc->llvm_type != NULL)
+        {
+            uint64_t llvm_size = LLVMABISizeOfType(data_layout, desc->llvm_type);
+            uint32_t llvm_align = LLVMABIAlignmentOfType(data_layout, desc->llvm_type);
+            debug_info(
+                "%s: union LLVM size=%llu, ABI alignment: %u, current max_align: %u",
+                __func__,
+                llvm_size,
+                llvm_align,
+                max_align
+            );
+            if (llvm_align > max_align)
+            {
+                max_align = llvm_align;
+                debug_info("%s: updated max_align to LLVM alignment: %u", __func__, max_align);
+            }
+        }
     }
 
     free(max_sizes);
@@ -457,11 +492,13 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
     // 4. Final Tail Padding
     // The total size must be a multiple of the largest alignment found
+    debug_info("%s: current_offset=%llu, max_align=%u, kind=%d", __func__, current_offset, max_align, desc->kind);
     uint64_t tail_padding = (max_align - (current_offset % max_align)) % max_align;
+    debug_info("%s: tail_padding=%llu", __func__, tail_padding);
     desc->struct_metadata.total_size = current_offset + tail_padding;
     desc->struct_metadata.alignment = max_align;
     debug_info(
-        "%s: total size: %llu, alignment: %u",
+        "%s: FINAL total size: %llu, alignment: %u",
         __func__,
         desc->struct_metadata.total_size,
         desc->struct_metadata.alignment
@@ -1013,9 +1050,7 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
 
     if (is_floating_kind(desc))
     {
-        if (llvm_kind == LLVMFloatTypeKind)
-            return 4;
-        return 8;
+        return LLVMABISizeOfType(data_layout, desc->llvm_type);
     }
 
     switch (desc->kind)
@@ -1034,9 +1069,9 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
 
     case NCC_TYPE_KIND_UNION:
     case NCC_TYPE_KIND_STRUCT:
-        // This needs to account for padding!
-        // Better to use LLVM's offset calculation if the struct is already lowered,
-        // or your own offset tracking in the descriptor.
+        debug_info(
+            "%s: struct/union total_size=%llu for desc kind=%d", __func__, desc->struct_metadata.total_size, desc->kind
+        );
         return desc->struct_metadata.total_size;
 
     default:
@@ -1046,7 +1081,7 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
 }
 
 uint32_t
-get_type_alignment_desc(TypeDescriptor const * desc_in)
+get_type_alignment_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in)
 {
     TypeDescriptor const * desc = type_descriptor_base(desc_in);
 
@@ -1082,9 +1117,7 @@ get_type_alignment_desc(TypeDescriptor const * desc_in)
 
     if (is_floating_kind(desc))
     {
-        if (llvm_kind == LLVMFloatTypeKind)
-            return 4;
-        return 8;
+        return LLVMABIAlignmentOfType(data_layout, desc->llvm_type);
     }
 
     switch (desc->kind)
@@ -1096,27 +1129,43 @@ get_type_alignment_desc(TypeDescriptor const * desc_in)
 
     case NCC_TYPE_KIND_ARRAY:
         // Array alignment is the alignment of its element type
-        return get_type_alignment_desc(desc->pointee);
+        return get_type_alignment_desc(data_layout, desc->pointee);
 
     case NCC_TYPE_KIND_STRUCT:
     case NCC_TYPE_KIND_UNION:
     {
+        debug_info(
+            "%s: computing alignment for kind=%d, num_members=%zu",
+            __func__,
+            desc->kind,
+            desc->struct_metadata.members.num_members
+        );
         // Struct/Union alignment is the maximum alignment of any member
         uint32_t max_align = 1;
         for (size_t i = 0; i < desc->struct_metadata.members.num_members; ++i)
         {
-            uint32_t member_align = get_type_alignment_desc(desc->struct_metadata.members.members[i].type_desc);
+            TypeDescriptor const * member_desc = desc->struct_metadata.members.members[i].type_desc;
+            uint32_t member_align = get_type_alignment_desc(data_layout, member_desc);
+            debug_info(
+                "%s: member %zu: name='%s', align=%u",
+                __func__,
+                i,
+                desc->struct_metadata.members.members[i].name ? desc->struct_metadata.members.members[i].name
+                                                              : "(null)",
+                member_align
+            );
             if (member_align > max_align)
             {
                 max_align = member_align;
             }
         }
+        debug_info("%s: returning alignment %u for kind=%d", __func__, max_align, desc->kind);
         return max_align;
     }
 
     case NCC_TYPE_KIND_BUILTIN: /* Should have been caught by integer and float handling above. */
-        debug_warning("Unknown builtin type kind %d for alignment, defaulting to 1", desc->kind);
-        return 1;
+        debug_warning("Unknown builtin type kind %d for alignment, defaulting to ABI", desc->kind);
+        return LLVMABIAlignmentOfType(data_layout, desc->llvm_type);
 
     default:
         debug_warning("Unknown type kind %d for alignment, defaulting to 1", desc->kind);

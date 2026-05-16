@@ -268,7 +268,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             target_type = operand_res.type_info;
         }
         debug_info("unary operator getting alignment");
-        uint64_t alignment = get_type_alignment_desc(target_type);
+        uint64_t alignment = get_type_alignment_desc(ctx->data_layout, target_type);
         TypeDescriptor const * alignment_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(alignment_desc->llvm_type, alignment, false);
 

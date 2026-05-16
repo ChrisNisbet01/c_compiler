@@ -293,11 +293,11 @@ process_initializer_list(
         return;
 
     // 1. Zero-initialize for safety (especially for structs with padding or omitted fields)
-    if (desc->kind == NCC_TYPE_KIND_STRUCT)
+    if (desc->kind == NCC_TYPE_KIND_STRUCT || desc->kind == NCC_TYPE_KIND_UNION)
     {
         LLVMValueRef size = LLVMSizeOf(desc->llvm_type);
         LLVMValueRef zero = LLVMConstNull(ctx->ref_type.i8_type);
-        uint32_t align = get_type_alignment_desc(desc);
+        uint32_t align = get_type_alignment_desc(ctx->data_layout, desc);
         LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, align);
     }
 
@@ -429,12 +429,12 @@ process_initializer_list_type_desc(
     type_descriptor_type_kind_t kind = type_desc->kind;
 
     // For structs, zero-initialize (C standard requirement for omitted members)
-    if (kind == NCC_TYPE_KIND_STRUCT)
+    if (kind == NCC_TYPE_KIND_STRUCT || kind == NCC_TYPE_KIND_UNION)
     {
         LLVMValueRef size = LLVMSizeOf(element_type);
         LLVMValueRef zero = LLVMConstNull(ctx->ref_type.i8_type);
         // Use TypeDescriptor's knowledge of alignment if available, or fallback
-        unsigned alignment = get_type_alignment_desc(type_desc);
+        unsigned alignment = get_type_alignment_desc(ctx->data_layout, type_desc);
         LLVMBuildMemSet(ctx->builder, base_ptr, zero, size, alignment);
     }
 
@@ -1890,7 +1890,7 @@ process_declarator(
     {
         // Stack arrays: use max of stack alignment or element alignment
         // Clang uses stack alignment (e.g., 16 on x86_64) for stack arrays
-        uint32_t elem_align = get_type_alignment_desc(type_desc->pointee);
+        uint32_t elem_align = get_type_alignment_desc(ctx->data_layout, type_desc->pointee);
         uint32_t align = (elem_align > ctx->stack_alignment) ? elem_align : ctx->stack_alignment;
         debug_info(
             "Setting array alloca alignment to %u for var '%s' (elem=%u, stack=%u)",
