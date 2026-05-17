@@ -60,6 +60,8 @@ VaArgExpression = (KwVaArg | KwVaArgBuiltin) LParen AssignmentExpression Comma T
 KwOffsetof = lexeme("__offsetof__" IdBoundary) 
             | lexeme("_Offsetof" IdBoundary) 
             | lexeme("__builtin_offsetof" IdBoundary);
+KwTypeof = lexeme("__typeof__" IdBoundary) 
+          | lexeme("_TypeOf" IdBoundary);          
 
 KwAlignof = lexeme("__alignof__" IdBoundary) | lexeme("_Alignof" IdBoundary);
 KwAligned = lexeme("__aligned__" IdBoundary);
@@ -76,7 +78,7 @@ StandardReservedWord = KwStatic | KwExtern | KwAuto | KwRegister
              | KwReturn | KwIf | KwElse | KwWhile | KwDo | KwFor | KwSwitch | KwCase | KwDefault | KwGoto | KwContinue 
              | KwBreak | KwSizeof | KwInline;
 
-ExtensionReservedWord = KwOffsetof | KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
+ExtensionReservedWord = KwTypeof | KwOffsetof | KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
 
 ReservedWord = StandardReservedWord | ExtensionReservedWord;
 
@@ -343,6 +345,7 @@ StructTypeRef = KwStruct AttributeList Identifier @AST_ACTION_STRUCT_TYPE_REF;
 UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;
 EnumTypeRef = KwEnum AttributeList Identifier @AST_ACTION_ENUM_TYPE_REF;
 
+KwTypeofSpecifier = KwTypeof LParen TypeName RParen @AST_ACTION_TYPEOF_SPECIFIER;
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned                         
@@ -353,6 +356,7 @@ NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | KwLong
                          | UnionTypeRef
                          | EnumDefinition
                          | EnumTypeRef 
+                         | KwTypeofSpecifier
                          @AST_ACTION_TYPE_SPECIFIER;
 TypeSpecifier = NonTypedefTypeSpecifier | TypedefName;
 

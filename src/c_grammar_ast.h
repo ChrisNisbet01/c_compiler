@@ -122,6 +122,7 @@ typedef enum
     AST_NODE_PARAMETER_LIST,
     AST_NODE_ELLIPSIS,
     AST_NODE_VA_ARG_EXPRESSION,
+    AST_NODE_TYPEOF_SPECIFIER,
 } c_grammar_node_type_t;
 
 typedef struct
@@ -207,6 +208,11 @@ typedef enum
     ASSIGN_OP_XOR,    // ^=
     ASSIGN_OP_OR,     // |=
 } assignment_operator_type_t;
+
+typedef struct
+{
+    c_grammar_node_t * specifier;
+} typeof_specifier_t;
 
 typedef struct
 {
@@ -638,6 +644,7 @@ typedef struct c_grammar_node_t
         storage_class_data_t storage_class;
         ast_node_typedef_specifier_qualifier_t typedef_specifier_qualifier;
         va_arg_expression_data_t va_arg_expression;
+        typeof_specifier_t typeof_specifier;
     };
 } c_grammar_node_t;
 

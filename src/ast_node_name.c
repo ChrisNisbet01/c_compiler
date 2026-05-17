@@ -123,6 +123,7 @@ static node_type_name_t const node_type_names[] = {
     [AST_NODE_PARAMETER_LIST] = {.name = "ParameterList"},
     [AST_NODE_ELLIPSIS] = {.name = "Ellipsis"},
     [AST_NODE_VA_ARG_EXPRESSION] = {.name = "VaArgExpression"},
+    [AST_NODE_TYPEOF_SPECIFIER] = {.name = "TypeOfSpecifier"},
 };
 
 #define NUM_NODE_TYPE_NAMES ARRAY_SIZE(node_type_names)
