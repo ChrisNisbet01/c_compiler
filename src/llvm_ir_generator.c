@@ -3930,8 +3930,9 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         TypedValue arg = process_expression(ctx, suffix->list.children[j]);
         if (arg.value == NULL)
         {
-            debug_error("Failed to process condition for IfStatement.");
-            return arg;
+            debug_error("%s: Failed to argument: %zu.", __func__, j);
+            ir_gen_error(&ctx->errors, suffix->list.children[j], "Failed to argument: %zu.", __func__, j);
+            return NullTypedValue;
         }
 
         TypeDescriptor const * type_to_check
