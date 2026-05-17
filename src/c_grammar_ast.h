@@ -174,16 +174,17 @@ typedef enum
 
 typedef enum
 {
-    UNARY_OP_PLUS,    // + (unary)
-    UNARY_OP_MINUS,   // - (unary)
-    UNARY_OP_NOT,     // ! (logical not)
-    UNARY_OP_BITNOT,  // ~ (bitwise not)
-    UNARY_OP_ADDR,    // & (address-of)
-    UNARY_OP_DEREF,   // * (dereference)
-    UNARY_OP_INC,     // ++ (prefix increment)
-    UNARY_OP_DEC,     // -- (prefix decrement)
-    UNARY_OP_SIZEOF,  // sizeof
-    UNARY_OP_ALIGNOF, // __alignof__
+    UNARY_OP_PLUS,     // + (unary)
+    UNARY_OP_MINUS,    // - (unary)
+    UNARY_OP_NOT,      // ! (logical not)
+    UNARY_OP_BITNOT,   // ~ (bitwise not)
+    UNARY_OP_ADDR,     // & (address-of)
+    UNARY_OP_DEREF,    // * (dereference)
+    UNARY_OP_INC,      // ++ (prefix increment)
+    UNARY_OP_DEC,      // -- (prefix decrement)
+    UNARY_OP_SIZEOF,   // sizeof
+    UNARY_OP_ALIGNOF,  // __alignof__
+    UNARY_OP_OFFSETOF, // __offsetof__
 } unary_operator_type_t;
 
 typedef enum
@@ -507,6 +508,7 @@ typedef struct ast_node_unary_expression_prefix_t
 {
     c_grammar_node_t const * op;
     c_grammar_node_t const * operand;
+    c_grammar_node_t const * operand2; /* Special case for __alignof__. */
 } ast_node_unary_expression_prefix_t;
 
 typedef struct ast_node_cast_expression_t

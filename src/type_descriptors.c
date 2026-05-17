@@ -1115,11 +1115,39 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
     }
 }
 
-uint32_t
-get_type_alignment_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in)
+int64_t
+get_type_member_offset_desc(TypeDescriptor const * desc, char const * member_name)
 {
-    TypeDescriptor const * desc = type_descriptor_base(desc_in);
+    if (desc == NULL)
+    {
+        return -1;
+    }
+    if (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION)
+    {
+        return -1;
+    }
+    if (member_name == NULL)
+    {
+        return -1;
+    }
 
+    int64_t offset = -1;
+
+    for (size_t i = 0; i < desc->struct_metadata.members.num_members; ++i)
+    {
+        if (strcmp(desc->struct_metadata.members.members[i].name, member_name) == 0)
+        {
+            offset = desc->struct_metadata.members.members[i].bitfield.offset;
+            break;
+        }
+    }
+
+    return offset;
+}
+
+uint32_t
+get_type_alignment_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc)
+{
     if (desc == NULL)
     {
         return 1;

@@ -57,6 +57,10 @@ KwVaArgBuiltin = lexeme("__builtin_va_arg" IdBoundary);
 VaArgExpression = (KwVaArg | KwVaArgBuiltin) LParen AssignmentExpression Comma TypeName RParen @AST_ACTION_VA_ARG;
 
 // Keywords - Extensions
+KwOffsetof = lexeme("__offsetof__" IdBoundary) 
+            | lexeme("_Offsetof" IdBoundary) 
+            | lexeme("__builtin_offsetof" IdBoundary);
+
 KwAlignof = lexeme("__alignof__" IdBoundary) | lexeme("_Alignof" IdBoundary);
 KwAligned = lexeme("__aligned__" IdBoundary);
 KwAttribute = lexeme("__attribute__" IdBoundary);
@@ -72,7 +76,7 @@ StandardReservedWord = KwStatic | KwExtern | KwAuto | KwRegister
              | KwReturn | KwIf | KwElse | KwWhile | KwDo | KwFor | KwSwitch | KwCase | KwDefault | KwGoto | KwContinue 
              | KwBreak | KwSizeof | KwInline;
 
-ExtensionReservedWord = KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
+ExtensionReservedWord = KwOffsetof | KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
 
 ReservedWord = StandardReservedWord | ExtensionReservedWord;
 
@@ -209,11 +213,13 @@ UnaryOp = Amp | Star | Plus | Minus | Tilde | Excl @AST_ACTION_UNARY_OPERATOR;
 
 KwSizeofAST = KwSizeof @AST_ACTION_UNARY_OPERATOR;
 KwAlignofAST = KwAlignof @AST_ACTION_UNARY_OPERATOR;
+KwOffsetofAST = KwOffsetof @AST_ACTION_UNARY_OPERATOR;
 
 UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (KwSizeofAST UnaryExpression)
                       | (KwAlignofAST LParen TypeName RParen)
                       | (KwAlignofAST UnaryExpression)
+                      | (KwOffsetofAST LParen TypeName Comma Identifier RParen)
                       | (UnaryOp UnaryExpression)
                       | (IncOp UnaryExpression)
                       | (DecOp UnaryExpression)

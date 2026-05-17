@@ -1,5 +1,6 @@
 #include "binary_expression_processor.h"
 
+#include "ast_node_name.h"
 #include "debug.h"
 #include "ir_utils.h"
 #include "llvm_ir_generator.h"
@@ -25,14 +26,14 @@ typedef LLVMValueRef (*binary_comparison_float_operation_func_t)(
 typedef struct
 {
     // Arithmetic - separate signed/unsigned variants
-    binary_arithmetic_int_operation_func_t int_arith_signed_op;    // SDiv, SRem
-    binary_arithmetic_int_operation_func_t int_arith_unsigned_op;  // UDiv, URem
+    binary_arithmetic_int_operation_func_t int_arith_signed_op;   // SDiv, SRem
+    binary_arithmetic_int_operation_func_t int_arith_unsigned_op; // UDiv, URem
     binary_arithmetic_float_operation_func_t float_arith_op;
 
     // Comparisons - separate signed/unsigned predicates
     binary_comparison_int_operation_func_t int_cmp_op;
-    LLVMIntPredicate int_signed_predicate;    // SLT, SGT, SLE, SGE
-    LLVMIntPredicate int_unsigned_predicate;  // ULT, UGT, ULE, UGE
+    LLVMIntPredicate int_signed_predicate;   // SLT, SGT, SLE, SGE
+    LLVMIntPredicate int_unsigned_predicate; // ULT, UGT, ULE, UGE
     binary_comparison_float_operation_func_t float_cmp_op;
     LLVMRealPredicate float_predicate;
 

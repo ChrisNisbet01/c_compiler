@@ -1,5 +1,6 @@
 #include "unary_operations.h"
 
+#include "ast_node_name.h"
 #include "c_grammar_ast.h"
 #include "compound_literal_processor.h"
 #include "debug.h"
@@ -267,6 +268,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
             target_type = operand_res.type_info;
         }
+
         debug_info("unary operator getting alignment");
         uint64_t alignment = get_type_alignment_desc(ctx->data_layout, target_type);
         TypeDescriptor const * alignment_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
@@ -274,6 +276,43 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
         return create_typed_value(val, alignment_desc, false);
     }
+
+    case UNARY_OP_OFFSETOF:
+    {
+        TypeDescriptor const * target_type = NULL;
+
+        // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
+        if (operand_node->type != AST_NODE_TYPE_NAME)
+        {
+            debug_error(
+                "%s: Offsetof expected %s, but got %s",
+                __func__,
+                get_node_type_name_from_type(AST_NODE_TYPE_NAME),
+                get_node_type_name_from_node(operand_node)
+            );
+            return NullTypedValue;
+        }
+
+        c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
+        target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
+
+        // 1. Validation: Must be a struct or union.
+        if (target_type->kind != NCC_TYPE_KIND_STRUCT && target_type->kind != NCC_TYPE_KIND_UNION)
+        {
+            ir_gen_error(&ctx->errors, operand_node, "Offsetof only applies to structs and unions");
+            return NullTypedValue;
+        }
+
+        char const * member_name = node->unary_expression_prefix.operand2->text;
+
+        debug_info("unary operator getting offset");
+        int64_t offset = get_type_member_offset_desc(target_type, member_name);
+        TypeDescriptor const * offset_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
+        LLVMValueRef val = LLVMConstInt(offset_desc->llvm_type, offset, false);
+
+        return create_typed_value(val, offset_desc, false);
+    }
+
     default:
     {
         debug_error("Unknown unary operator %u.", op->op.unary.op);

@@ -164,6 +164,8 @@ bool is_floating_kind(TypeDescriptor const * desc);
 
 bool is_void_return(TypeDescriptor const * desc);
 
+int64_t get_type_member_offset_desc(TypeDescriptor const * desc, char const * member_name);
+
 uint32_t get_type_alignment_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc);
 
 uint64_t get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc);

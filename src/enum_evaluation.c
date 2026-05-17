@@ -1,5 +1,6 @@
 #include "enum_evaluation.h"
 
+#include "ast_node_name.h"
 #include "generator_lists.h"
 
 static int
