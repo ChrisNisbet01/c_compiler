@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 typedef enum
 {
     FLOAT_LITERAL_TYPE_DOUBLE,

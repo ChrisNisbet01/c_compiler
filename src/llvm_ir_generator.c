@@ -2088,6 +2088,32 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         LLVMSetLinkage(func, LLVMExternalLinkage);
     }
+
+    bool is_large_struct_ret = false;
+
+    if (type_desc->kind == NCC_TYPE_KIND_FUNCTION
+        && (type_desc->function_metadata.return_type->kind == NCC_TYPE_KIND_STRUCT
+            || type_desc->function_metadata.return_type->kind == NCC_TYPE_KIND_UNION))
+    {
+        is_large_struct_ret = get_type_size_desc(ctx->data_layout, type_desc->function_metadata.return_type) > 16;
+    }
+    ctx->current_function_sret_ptr = NULL;
+    if (is_large_struct_ret)
+    {
+        // The first LLVM parameter is the hidden sret pointer
+        ctx->current_function_sret_ptr = LLVMGetParam(func, 0);
+
+        // Create the sret attribute type tracking
+        LLVMAttributeRef sret_attr = LLVMCreateTypeAttribute(
+            LLVMGetGlobalContext(),
+            LLVMGetEnumAttributeKindForName("sret", 4),
+            type_desc->function_metadata.return_type->llvm_type // Must match the structural type it points to
+        );
+
+        // On a function declaration/definition, parameter index 1 is the 1st parameter
+        LLVMAddAttributeAtIndex(func, 1, sret_attr);
+    }
+
     // Create a basic block for the function's entry point.
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlockInContext(ctx->context, func, "entry");
     LLVMPositionBuilderAtEnd(ctx->builder, entry_block);
@@ -2116,7 +2142,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
 
-    int llvm_arg_idx = 0;
+    int llvm_arg_idx = is_large_struct_ret ? 1 : 0;
     for (size_t i = 0; i < params.count; ++i)
     {
         char const * p_name = params.names[i];
@@ -2188,7 +2214,8 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(ctx->builder);
     if (current_block && !LLVMGetBasicBlockTerminator(current_block))
     {
-        if (LLVMGetTypeKind(type_desc->function_metadata.return_type->llvm_type) == LLVMVoidTypeKind)
+        if (is_large_struct_ret
+            || LLVMGetTypeKind(type_desc->function_metadata.return_type->llvm_type) == LLVMVoidTypeKind)
         {
             LLVMBuildRetVoid(ctx->builder);
         }
@@ -2219,6 +2246,34 @@ process_return_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
     if (expected_ret_desc == NULL)
     {
         debug_error("Internal Error: No return type descriptor found for current function context.");
+        ir_gen_error(&ctx->errors, node, "Internal Error: No return type descriptor found for current function");
+        return;
+    }
+
+    if (ctx->current_function_sret_ptr != NULL)
+    {
+        // sret function: store return value through the hidden pointer and ret void
+        if (expr_node != NULL)
+        {
+            TypedValue return_value = process_expression(ctx, expr_node);
+            if (return_value.value == NULL)
+            {
+                ir_gen_error(&ctx->errors, node, "failed to process return expression.");
+                return;
+            }
+            return_value = ensure_lvalue(ctx, "sret_store", return_value);
+            LLVMBuildMemCpy(
+                ctx->builder,
+                ctx->current_function_sret_ptr,
+                8,
+                return_value.value,
+                8,
+                LLVMConstInt(
+                    LLVMInt64TypeInContext(ctx->context), get_type_size_desc(ctx->data_layout, expected_ret_desc), false
+                )
+            );
+        }
+        LLVMBuildRetVoid(ctx->builder);
         return;
     }
 
@@ -3925,7 +3980,7 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         }
 
         TypeDescriptor const * type_to_check
-            = j < func_desc->function_metadata.param_count ? func_desc->function_metadata.params[j] : arg.type_info;
+            = j < func_desc->function_metadata.c_param_count ? func_desc->function_metadata.params[j] : arg.type_info;
 
         if (type_to_check->kind == NCC_TYPE_KIND_STRUCT || type_to_check->kind == NCC_TYPE_KIND_UNION)
         {
@@ -3948,7 +4003,7 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         else
         {
             TypedValue direct_arg = arg;
-            if (j < func_desc->function_metadata.param_count)
+            if (j < func_desc->function_metadata.c_param_count)
             {
                 direct_arg = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
             }

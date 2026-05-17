@@ -739,7 +739,7 @@ get_or_create_function_type(
     while (curr != NULL)
     {
         if (curr->public.kind == NCC_TYPE_KIND_FUNCTION && curr->public.function_metadata.return_type == ret_type
-            && curr->public.function_metadata.param_count == param_count
+            && curr->public.function_metadata.c_param_count == param_count
             && curr->public.function_metadata.is_variadic == is_variadic)
         {
             // Check if all parameters match exactly
@@ -780,14 +780,30 @@ get_or_create_function_type(
         }
     }
 
+    bool is_large_struct_ret = false;
+
+    // 1. Determine if this function requires the sret ABI treatment
+    if (ret_type != NULL && (ret_type->kind == NCC_TYPE_KIND_STRUCT || ret_type->kind == NCC_TYPE_KIND_UNION))
+    {
+        uint64_t ret_size = get_type_size_desc(registry->data_layout, ret_type);
+        if (ret_size > 16)
+        {
+            is_large_struct_ret = true;
+        }
+    }
+
+    // 2. Allocate parameter type array (add 1 slot for hidden pointer)
+    size_t llvm_param_count = total_coerced + (is_large_struct_ret ? 1 : 0);
+
     TypeDescriptor template = {
         .kind = NCC_TYPE_KIND_FUNCTION,
         .pointee = ret_type,
         .function_metadata.return_type = ret_type,
         .function_metadata.c_param_count = param_count,
-        .function_metadata.param_count = (unsigned)total_coerced, // Total LLVM params (coerced)
+        .function_metadata.param_count = (unsigned)llvm_param_count,
         .function_metadata.is_variadic = is_variadic,
-        .function_metadata.is_void_return = LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,
+        .function_metadata.is_void_return
+        = is_large_struct_ret || LLVMGetTypeKind(ret_type->llvm_type) == LLVMVoidTypeKind,
         .function_metadata.coerced_param_counts = coerced_counts,
         .function_metadata.coerced_params = coerced_params,
     };
@@ -800,10 +816,20 @@ get_or_create_function_type(
 
     // Construct the LLVM function type using coerced param types
     LLVMTypeRef * llvm_params = NULL;
-    if (total_coerced > 0)
+    if (llvm_param_count > 0)
     {
-        llvm_params = malloc(sizeof(*llvm_params) * total_coerced);
+        llvm_params = malloc(sizeof(*llvm_params) * llvm_param_count);
         size_t idx = 0;
+
+        // 3. Prepend the hidden sret pointer argument if necessary
+        if (is_large_struct_ret)
+        {
+            // The argument is a pointer to the return structure type
+            TypeDescriptor const * func_pointer_desc
+                = get_or_create_pointer_type(registry, ret_type, (TypeQualifier){0});
+            llvm_params[idx++] = func_pointer_desc->llvm_type;
+        }
+
         for (unsigned i = 0; i < param_count; i++)
         {
             CoercedType ct = coerced_params[i];
@@ -814,20 +840,29 @@ get_or_create_function_type(
         }
     }
     debug_info(
-        "%s: creating function type for return type %d with %zu LLVM params (was %zu C params), is variadic: %d",
+        "%s: creating function type for return type %d with %zu LLVM params (was %zu C params), is variadic: %d, "
+        "is_large_return type: %d",
         __func__,
         LLVMGetTypeKind(ret_type->llvm_type),
         total_coerced,
         param_count,
-        is_variadic
+        is_variadic,
+        is_large_struct_ret
     );
-    template.llvm_type = LLVMFunctionType(ret_type->llvm_type, llvm_params, (unsigned)total_coerced, is_variadic);
+
+    LLVMTypeRef ret_type_final = ret_type->llvm_type;
+    if (is_large_struct_ret)
+    {
+        ret_type_final = type_descriptor_get_void_type(registry)->llvm_type;
+    }
+
+    template.llvm_type = LLVMFunctionType(ret_type_final, llvm_params, (unsigned)llvm_param_count, is_variadic);
     debug_info(
         "%s: created function type %d for return type %d with %zu LLVM params",
         __func__,
         LLVMGetTypeKind(template.llvm_type),
         LLVMGetTypeKind(ret_type->llvm_type),
-        total_coerced
+        llvm_param_count
     );
 
     free(llvm_params);

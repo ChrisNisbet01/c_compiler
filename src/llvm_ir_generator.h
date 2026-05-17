@@ -68,6 +68,7 @@ typedef struct ir_generator_ctx
     LLVMBasicBlockRef continue_target;
 
     TypeDescriptor const * current_function_return_type;
+    LLVMValueRef current_function_sret_ptr;
     // --- Error and warning collection ---
     ir_gen_error_collection_t errors;
 
