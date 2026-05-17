@@ -3865,14 +3865,8 @@ extract_param_part(ir_generator_ctx_t * ctx, TypedValue struct_val, int part_idx
 static TypedValue
 process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix, TypedValue current_val)
 {
-    // FUNCTION CALL: (args...)
-    // Resolve what we are calling. If it's a function directly,
-    // we call it. If it's a pointer to a function, we load it first.
     debug_info("%s", __func__);
-    dump_typed_value("current_val before rvalue", current_val);
     TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
-    debug_info("%s rvalue", __func__);
-    dump_typed_value("callable", callable);
 
     TypeDescriptor const * func_desc = NULL;
     if (callable.type_info->kind == NCC_TYPE_KIND_FUNCTION)
@@ -3892,46 +3886,41 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         return NullTypedValue;
     }
 
-    // Process Arguments
+    TypeDescriptor const * ret_desc = func_desc->function_metadata.return_type;
+    bool is_large_struct_ret = false;
+    LLVMValueRef sret_alloca = NULL;
+
+    // ABI Rule: Check if the return value is a structure larger than 16 bytes
+    if (ret_desc && (ret_desc->kind == NCC_TYPE_KIND_STRUCT || ret_desc->kind == NCC_TYPE_KIND_UNION))
+    {
+        uint64_t ret_size = get_type_size_desc(ctx->data_layout, ret_desc);
+        if (ret_size > 16)
+        {
+            is_large_struct_ret = true;
+        }
+    }
+
     size_t num_args = suffix->list.count;
-
-    if (num_args < func_desc->function_metadata.c_param_count)
-    {
-        ir_gen_error(
-            &ctx->errors,
-            suffix,
-            "Too few arguments passed to function. Expected: %zu, got: %zu",
-            func_desc->function_metadata.c_param_count,
-            num_args
-        );
-        return NullTypedValue;
-    }
-
-    if (num_args > func_desc->function_metadata.c_param_count && !func_desc->function_metadata.is_variadic)
-    {
-        ir_gen_error(
-            &ctx->errors,
-            suffix,
-            "Too many arguments passed to function. Expected: %zu, got: %zu",
-            func_desc->function_metadata.c_param_count,
-            num_args
-        );
-        return NullTypedValue;
-    }
-
-    // 1. There won't ever be more than twice as many total args, so allocate enough memory for the worst case.
-    LLVMValueRef * call_args = num_args > 0 ? calloc(2 * num_args, sizeof(*call_args)) : NULL;
-    debug_info("dealing with %zu args", num_args);
+    // Account for the extra slot if we have a hidden pointer
+    size_t max_llvm_params = (2 * num_args) + (is_large_struct_ret ? 1 : 0);
+    LLVMValueRef * call_args = max_llvm_params > 0 ? calloc(max_llvm_params, sizeof(*call_args)) : NULL;
     size_t total_llvm_params = 0;
 
+    // 1. Handle hidden sret argument if needed
+    if (is_large_struct_ret)
+    {
+        // Allocate space on our stack frame for the return structure
+        sret_alloca = LLVMBuildAlloca(ctx->builder, ret_desc->llvm_type, "sret_tmp");
+        // Pass the pointer to this space as the FIRST argument
+        call_args[total_llvm_params++] = sret_alloca;
+    }
+
+    // 2. Process Arguments (your existing loop)
     for (size_t j = 0; j < num_args; ++j)
     {
-        debug_info("deal with arg: %zu", j);
         TypedValue arg = process_expression(ctx, suffix->list.children[j]);
         if (arg.value == NULL)
         {
-            debug_error("%s: Failed to argument: %zu.", __func__, j);
-            ir_gen_error(&ctx->errors, suffix->list.children[j], "Failed to argument: %zu.", __func__, j);
             return NullTypedValue;
         }
 
@@ -3941,16 +3930,13 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         if (type_to_check->kind == NCC_TYPE_KIND_STRUCT || type_to_check->kind == NCC_TYPE_KIND_UNION)
         {
             uint64_t size = get_type_size_desc(ctx->data_layout, type_to_check);
-
             if (size > 16)
             {
-                // Memory passing: just pass the address
                 arg = ensure_lvalue(ctx, "abi_large_tmp", arg);
                 call_args[total_llvm_params++] = arg.value;
             }
             else
             {
-                // Register passing: split into Eightbytes
                 arg = ensure_lvalue(ctx, "abi_small_tmp", arg);
                 CoercedType coerced = get_coerced_llvm_types(ctx->type_descriptors, type_to_check);
                 for (int p = 0; p < coerced.count; p++)
@@ -3961,37 +3947,51 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         }
         else
         {
-            debug_info("3");
-            // Natural scalars (ints, floats, pointers) pass through directly
-            // Auto-cast to parameter type if available
             TypedValue direct_arg = arg;
             if (j < func_desc->function_metadata.param_count)
             {
-                debug_info("4");
                 direct_arg = cast_typed_value_to_desc(ctx, direct_arg, func_desc->function_metadata.params[j]);
-                debug_info("5");
-                dump_typed_value("is this arg lvalue after casting?", direct_arg);
             }
-            debug_info("6");
             direct_arg = ensure_rvalue(ctx, "arg_load", direct_arg);
             call_args[total_llvm_params++] = direct_arg.value;
         }
     }
 
-    debug_info("LLVMBuildCall: total args: %zu", total_llvm_params);
+    // 3. Construct the Call Instruction
     LLVMValueRef call_val = LLVMBuildCall2(
         ctx->builder,
         func_desc->llvm_type,
         callable.value,
         call_args,
         (unsigned)total_llvm_params,
-        is_void_return(func_desc) ? "" : "call_tmp"
+        (is_void_return(func_desc) || is_large_struct_ret) ? "" : "call_tmp"
     );
 
-    free(call_args);
-    current_val = create_typed_value(call_val, func_desc->function_metadata.return_type, false);
+    // If it's an sret call, we should attach the sret attribute to parameter index 0
+    // to tell LLVM explicitly that it is a structure return pointer.
+    if (is_large_struct_ret)
+    {
+        // LLVM 11+ way of attaching sret type attribute to parameter 0 (1st argument)
+        LLVMAttributeRef sret_attr = LLVMCreateTypeAttribute(
+            LLVMGetGlobalContext(), // or your explicit context reference
+            LLVMGetEnumAttributeKindForName("sret", 4),
+            ret_desc->llvm_type
+        );
+        LLVMAddCallSiteAttribute(call_val, 1, sret_attr); // Argument index 1 in C API maps to LLVM Param 0
+    }
 
-    dump_typed_value("current_val after rvalue", current_val);
+    free(call_args);
+
+    // 4. Return value packaging
+    if (is_large_struct_ret)
+    {
+        // For a large struct, the expression behaves as an LVALUE pointing to our stack buffer
+        current_val = create_typed_value(sret_alloca, ret_desc, true);
+    }
+    else
+    {
+        current_val = create_typed_value(call_val, ret_desc, false);
+    }
 
     return current_val;
 }
