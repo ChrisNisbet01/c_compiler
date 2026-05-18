@@ -129,20 +129,7 @@ validate_type_specifiers(c_grammar_node_t const * type_specifiers)
         }
     }
     // Valid if exactly one of is_native, is_struct_or_union_or_enum or is_typeof is true
-    int num_true = 0;
-
-    if (result.is_native_type)
-    {
-        num_true++;
-    }
-    if (result.is_struct_or_union_or_enum)
-    {
-        num_true++;
-    }
-    if (result.is_typeof)
-    {
-        num_true++;
-    }
+    int num_true = result.is_native_type + result.is_struct_or_union_or_enum + result.is_typeof;
 
     result.is_valid = num_true == 1;
 

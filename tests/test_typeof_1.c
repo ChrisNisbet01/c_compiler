@@ -3,8 +3,10 @@
 int
 main()
 {
-    int i;
+    int i = 1;
     typeof(i) j = 2;
     typeof(int) k = i;
-    return j - 2;
+    typeof(int *) pi = &i;
+
+    return j + *pi - 3;
 }

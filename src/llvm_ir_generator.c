@@ -4793,74 +4793,7 @@ get_type_descriptor_from_type_name(ir_generator_ctx_t * ctx, c_grammar_node_t co
     c_grammar_node_t const * qualifier_list = type_name->type_name.specifier_qualifier_list;
     c_grammar_node_t const * abstract_declarator = type_name->type_name.abstract_declarator;
 
-    TypeDescriptor const * type_desc = NULL;
-
-    TypeSpecifierValidationResult validation_result = validate_type_specifiers(qualifier_list);
-    if (validation_result.is_valid == false)
-    {
-        debug_error("%s: Invalid type specifier list", __func__);
-        return NULL;
-    }
-    if (validation_result.is_typeof)
-    {
-        ir_gen_error(&ctx->errors, qualifier_list, "Need support for typeof() specifier");
-        return NULL;
-    }
-    else if (validation_result.is_native_type)
-    {
-        TypeSpecifier specs = build_type_specifiers(qualifier_list);
-        if (!type_specifier_is_valid(specs))
-        {
-            debug_error("%s: invalid type specs");
-            type_specifier_dump(specs, DEBUG_LEVEL_ERROR);
-        }
-        type_desc = get_or_create_builtin_type(ctx->type_descriptors, specs, (TypeQualifier){0});
-    }
-    else if (qualifier_list->list.count == 1)
-    {
-        c_grammar_node_t * child = qualifier_list->list.children[0];
-
-        debug_info("qualifier list child type: %s", get_node_type_name_from_node(child));
-
-        // Handle terminal type specifier (e.g., "int", "char")
-        if (child->type == AST_NODE_TYPE_SPECIFIER)
-        {
-            if (child->type == AST_NODE_TYPEOF_SPECIFIER)
-            {
-                ir_gen_error(&ctx->errors, qualifier_list, "Need support for typeof() specifier");
-                return NULL;
-            }
-            else
-            {
-                type_desc = resolve_type_descriptor(ctx, qualifier_list, NULL);
-            }
-        }
-        // Handle TypedefSpecifier (typedef name in sizeof(MyType))
-        else if (child->type == AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER)
-        {
-            c_grammar_node_t const * specifier = child->typedef_specifier_qualifier.typedef_specifier;
-            char const * typedef_name = extract_typedef_name(specifier);
-            if (typedef_name != NULL)
-            {
-                type_desc = generator_find_typedef_type_descriptor(ctx, typedef_name);
-            }
-        }
-        else if (
-            child->type == AST_NODE_STRUCT_TYPE_REF || child->type == AST_NODE_UNION_TYPE_REF
-            || child->type == AST_NODE_ENUM_TYPE_REF
-        )
-        {
-            type_kind_t kind = TYPE_KIND_COUNT__;
-            char const * tag = extract_struct_or_union_or_enum_tag(child, &kind);
-            debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
-            if (tag != NULL && kind != TYPE_KIND_COUNT__)
-            {
-                type_desc = generator_find_type_descriptor_by_tag_and_kind(ctx, tag, kind);
-            }
-        }
-    }
-
-    return type_desc;
+    return resolve_type_descriptor(ctx, qualifier_list, abstract_declarator);
 }
 
 static TypedValue

@@ -412,7 +412,7 @@ resolve_type_descriptor(
             ir_gen_error(
                 &ctx->errors,
                 type_spec_list,
-                "Neither struct/union/enum/typedef nor native type specified in declaration"
+                "Neither struct/union/enum/typedef nor native type nor typeof specified in declaration"
             );
             return NULL;
         }
@@ -523,9 +523,9 @@ resolve_type_descriptor(
         {
             c_grammar_node_t const * typeof_node = type_spec_node->list.children[0];
             c_grammar_node_t const * typeof_specifier_node = typeof_node->typeof_specifier.specifier;
+
             if (typeof_specifier_node->type == AST_NODE_TYPE_NAME)
             {
-                c_grammar_node_t const * qualifier_list = typeof_specifier_node->type_name.specifier_qualifier_list;
                 current = get_type_descriptor_from_type_name(ctx, typeof_specifier_node);
                 if (current == NULL)
                 {
