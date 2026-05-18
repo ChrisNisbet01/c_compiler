@@ -251,6 +251,27 @@ static binary_operation_details_t const binary_operation_details[BINARY_OP_COUNT
 
 // Helper function to promote integer types
 static void
+promote_to_i32_minimum(ir_generator_ctx_t * ctx, TypedValue * res)
+{
+    unsigned bits = LLVMGetIntTypeWidth(res->type_info->llvm_type);
+    TypeDescriptor const * i32_type = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+    unsigned i32_bits = LLVMGetIntTypeWidth(i32_type->llvm_type);
+
+    if (bits < i32_bits)
+    {
+        if (bits == 1 || res->type_info->specifiers.is_unsigned)
+        {
+            res->value = LLVMBuildZExt(ctx->builder, res->value, i32_type->llvm_type, "promo_zext");
+        }
+        else
+        {
+            res->value = LLVMBuildSExt(ctx->builder, res->value, i32_type->llvm_type, "promo_sext");
+        }
+        res->type_info = i32_type;
+    }
+}
+
+static void
 promote_integer_operands(ir_generator_ctx_t * ctx, TypedValue * lhs_res, TypedValue * rhs_res)
 {
     TypeDescriptor const * lhs_type = lhs_res->type_info;
@@ -261,39 +282,36 @@ promote_integer_operands(ir_generator_ctx_t * ctx, TypedValue * lhs_res, TypedVa
         unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
         unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
 
+        // Phase 1: Integer Promotion (up to at least i32)
+        promote_to_i32_minimum(ctx, lhs_res);
+        lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
+        promote_to_i32_minimum(ctx, rhs_res);
+        rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
+
+        // Phase 2: Balancing Conversions (e.g. i32 vs i64 operations)
         if (lhs_bits > rhs_bits)
         {
-            rhs_res->value = LLVMBuildZExt(ctx->builder, rhs_res->value, lhs_type->llvm_type, "promote_rhs");
+            // If the value we are widening is unsigned, we MUST zero-extend it
+            if (rhs_res->type_info->specifiers.is_unsigned)
+            {
+                rhs_res->value = LLVMBuildZExt(ctx->builder, rhs_res->value, lhs_type->llvm_type, "promote_rhs");
+            }
+            else
+            {
+                rhs_res->value = LLVMBuildSExt(ctx->builder, rhs_res->value, lhs_type->llvm_type, "promote_rhs");
+            }
             rhs_res->type_info = lhs_type;
         }
         else if (rhs_bits > lhs_bits)
         {
-            lhs_res->value = LLVMBuildZExt(ctx->builder, lhs_res->value, rhs_type->llvm_type, "promote_lhs");
-            lhs_res->type_info = rhs_type;
-        }
-    }
-}
-
-// Helper function for signed integer promotion
-static void
-promote_signed_integer_operands(ir_generator_ctx_t * ctx, TypedValue * lhs_res, TypedValue * rhs_res)
-{
-    TypeDescriptor const * lhs_type = lhs_res->type_info;
-    TypeDescriptor const * rhs_type = rhs_res->type_info;
-
-    if (is_integer_kind(lhs_type) && is_integer_kind(rhs_type))
-    {
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
-
-        if (lhs_bits > rhs_bits)
-        {
-            rhs_res->value = LLVMBuildSExt(ctx->builder, rhs_res->value, lhs_type->llvm_type, "promote_rhs");
-            rhs_res->type_info = lhs_type;
-        }
-        else if (rhs_bits > lhs_bits)
-        {
-            lhs_res->value = LLVMBuildSExt(ctx->builder, lhs_res->value, rhs_type->llvm_type, "promote_lhs");
+            if (lhs_res->type_info->specifiers.is_unsigned)
+            {
+                lhs_res->value = LLVMBuildZExt(ctx->builder, lhs_res->value, rhs_type->llvm_type, "promote_lhs");
+            }
+            else
+            {
+                lhs_res->value = LLVMBuildSExt(ctx->builder, lhs_res->value, rhs_type->llvm_type, "promote_lhs");
+            }
             lhs_res->type_info = rhs_type;
         }
     }
@@ -324,13 +342,43 @@ complete_binary_expression(
     size_t op_map_size = details->operation_count;
 
     // Promote operands as needed
-    if (op_type == BINARY_OP_BITWISE || op_type == BINARY_OP_SHIFT)
+    if (op_type == BINARY_OP_SHIFT)
     {
-        promote_integer_operands(ctx, &lhs_res, &rhs_res);
+        // Shift operators apply integer promotions to each operand independently.
+        // They are NEVER balanced to a common type.
+        promote_to_i32_minimum(ctx, &lhs_res);
+        promote_to_i32_minimum(ctx, &rhs_res);
+
+        // NOTE: For the LLVM instructions (LLVMBuildShl, etc.), the shift amount (RHS)
+        // MUST match the bit-width of the value being shifted (LHS).
+        // So we cast the RHS value for the backend instruction, but we DO NOT
+        // alter rhs_res.type_info because the C type system treats them independently.
+        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_res.type_info->llvm_type);
+        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_res.type_info->llvm_type);
+
+        if (lhs_bits != rhs_bits)
+        {
+            // Adjust the instruction value to keep LLVM happy, without changing C metadata
+            if (lhs_bits > rhs_bits)
+            {
+                rhs_res.value
+                    = LLVMBuildZExt(ctx->builder, rhs_res.value, lhs_res.type_info->llvm_type, "shift_amt_zext");
+            }
+            else
+            {
+                rhs_res.value
+                    = LLVMBuildTrunc(ctx->builder, rhs_res.value, lhs_res.type_info->llvm_type, "shift_amt_trunc");
+            }
+            rhs_res.type_info = lhs_res.type_info;
+        }
     }
-    else if (op_type == BINARY_OP_ARITHMETIC || op_type == BINARY_OP_COMPOUND_ASSIGNMENT)
+    // --- 2. ALL OTHER OPERATORS (Arithmetic, Bitwise, Compound Assignments) ---
+    else if (
+        op_type == BINARY_OP_ARITHMETIC || op_type == BINARY_OP_BITWISE || op_type == BINARY_OP_COMPOUND_ASSIGNMENT
+    )
     {
-        promote_signed_integer_operands(ctx, &lhs_res, &rhs_res);
+        // All of these follow the standard Usual Arithmetic Conversions (Full Balancing)
+        promote_integer_operands(ctx, &lhs_res, &rhs_res);
     }
     // For relational and equality operations with integer operands, cast RHS to LHS type
     if ((op_type == BINARY_OP_RELATIONAL || op_type == BINARY_OP_EQUALITY) && is_integer_kind(lhs_res.type_info)
