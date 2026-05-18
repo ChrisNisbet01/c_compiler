@@ -21,15 +21,8 @@ ir_gen_error_collection_init(
 {
     if (collection == NULL)
     {
-        fprintf(
-            stderr,
-            "%s: NULL collection passed to ir_gen_error_collection_init, size: %zu\n",
-            __func__,
-            sizeof(*collection)
-        );
         return;
     }
-    fprintf(stderr, "%s: max_errors: %zu parse ctx: %p\n", __func__, max_errors, (void *)parse_ctx);
 
     collection->loc_tracker = loc_tracker;
     collection->errors = NULL;
@@ -64,12 +57,10 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
 {
     if (collection == NULL)
     {
-        fprintf(stderr, "%s: NULL collection passed to print_error_location\n", __func__);
         return;
     }
     if (collection->parse_ctx == NULL)
     {
-        fprintf(stderr, "NULL parse context");
         return;
     }
     if (collection->loc_tracker == NULL)
@@ -134,15 +125,6 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
 bool
 ir_gen_error(ir_gen_error_collection_t * collection, c_grammar_node_t const * node, char const * fmt, ...)
 {
-    fprintf(
-        stderr,
-        "%s collection: %p, node: %p, fmt: %s, size: %zu\n",
-        __func__,
-        (void *)collection,
-        (void *)node,
-        fmt,
-        sizeof(*collection)
-    );
     if (collection == NULL || collection->fatal)
     {
         return collection != NULL && collection->fatal;

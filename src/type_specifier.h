@@ -24,6 +24,7 @@ typedef struct
     bool is_valid;
     bool is_native_type;
     bool is_struct_or_union_or_enum;
+    bool is_typeof;
 } TypeSpecifierValidationResult;
 
 void type_specifier_dump(TypeSpecifier spec, debug_level_t level);

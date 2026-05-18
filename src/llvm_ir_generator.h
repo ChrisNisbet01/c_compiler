@@ -154,8 +154,7 @@ TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t c
 #define process_expression(c, n) _process_expression_impl((c), (n), __LINE__)
 
 // Forward declarations for functions used in unary_operations.c
-TypeDescriptor const *
-get_type_descriptor_from_specifier_list(ir_generator_ctx_t * ctx, c_grammar_node_t const * qualifier_list);
+TypeDescriptor const * get_type_descriptor_from_type_name(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_name);
 
 void process_initializer_list(
     ir_generator_ctx_t * ctx,

@@ -111,6 +111,10 @@ validate_type_specifiers(c_grammar_node_t const * type_specifiers)
             {
                 result.is_struct_or_union_or_enum = true;
             }
+            else if (inner->type == AST_NODE_TYPEOF_SPECIFIER)
+            {
+                result.is_typeof = true;
+            }
         }
     }
 
@@ -124,8 +128,23 @@ validate_type_specifiers(c_grammar_node_t const * type_specifiers)
             break;
         }
     }
-    // Valid if exactly one of these is true
-    result.is_valid = result.is_native_type != result.is_struct_or_union_or_enum;
+    // Valid if exactly one of is_native, is_struct_or_union_or_enum or is_typeof is true
+    int num_true = 0;
+
+    if (result.is_native_type)
+    {
+        num_true++;
+    }
+    if (result.is_struct_or_union_or_enum)
+    {
+        num_true++;
+    }
+    if (result.is_typeof)
+    {
+        num_true++;
+    }
+
+    result.is_valid = num_true == 1;
 
     return result;
 }

@@ -51,6 +51,9 @@ KwGoto = lexeme("goto" IdBoundary);
 KwContinue = lexeme("continue" IdBoundary);
 KwBreak = lexeme("break" IdBoundary);
 KwSizeof = lexeme("sizeof" IdBoundary);
+KwTypeof = lexeme("__typeof__" IdBoundary) 
+          | lexeme("_TypeOf" IdBoundary)
+          | lexeme("typeof" IdBoundary);          
 KwInline = lexeme("inline" IdBoundary) | lexeme("__inline" IdBoundary) | lexeme("__inline__" IdBoundary);
 KwVaArg = lexeme("va_arg" IdBoundary);
 KwVaArgBuiltin = lexeme("__builtin_va_arg" IdBoundary);
@@ -60,8 +63,6 @@ VaArgExpression = (KwVaArg | KwVaArgBuiltin) LParen AssignmentExpression Comma T
 KwOffsetof = lexeme("__offsetof__" IdBoundary) 
             | lexeme("_Offsetof" IdBoundary) 
             | lexeme("__builtin_offsetof" IdBoundary);
-KwTypeof = lexeme("__typeof__" IdBoundary) 
-          | lexeme("_TypeOf" IdBoundary);          
 
 KwAlignof = lexeme("__alignof__" IdBoundary) | lexeme("_Alignof" IdBoundary);
 KwAligned = lexeme("__aligned__" IdBoundary);
@@ -76,9 +77,9 @@ StandardReservedWord = KwStatic | KwExtern | KwAuto | KwRegister
              | KwBool | KwBoolBuiltin | KwComplex | KwImaginary
              | KwStruct | KwUnion | KwEnum | KwTypedef
              | KwReturn | KwIf | KwElse | KwWhile | KwDo | KwFor | KwSwitch | KwCase | KwDefault | KwGoto | KwContinue 
-             | KwBreak | KwSizeof | KwInline;
+             | KwBreak | KwSizeof | KwInline | KwTypeof;
 
-ExtensionReservedWord = KwTypeof | KwOffsetof | KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
+ExtensionReservedWord = KwOffsetof | KwAlignof | KwAligned | KwAttribute | KwAsm | KwExtension;
 
 ReservedWord = StandardReservedWord | ExtensionReservedWord;
 
@@ -345,7 +346,10 @@ StructTypeRef = KwStruct AttributeList Identifier @AST_ACTION_STRUCT_TYPE_REF;
 UnionTypeRef = KwUnion AttributeList Identifier @AST_ACTION_UNION_TYPE_REF;
 EnumTypeRef = KwEnum AttributeList Identifier @AST_ACTION_ENUM_TYPE_REF;
 
-KwTypeofSpecifier = KwTypeof LParen TypeName RParen @AST_ACTION_TYPEOF_SPECIFIER;
+KwTypeofSpecifier = (KwTypeof LParen TypeName RParen)
+                   | (KwTypeof LParen Expression RParen) 
+                   @AST_ACTION_TYPEOF_SPECIFIER;
+
 
 NonTypedefTypeSpecifier = KwVoid | KwChar | KwShort | KwInt | KwLong
                          | KwFloat | KwDouble | KwSigned | KwUnsigned                         

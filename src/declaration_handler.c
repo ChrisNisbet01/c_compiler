@@ -419,10 +419,11 @@ resolve_type_descriptor(
         else
         {
             debug_info(
-                "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d",
+                "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d, is_typeof: %d",
                 __func__,
                 validation_result.is_native_type,
-                validation_result.is_struct_or_union_or_enum
+                validation_result.is_struct_or_union_or_enum,
+                validation_result.is_typeof
             );
         }
     }
@@ -516,6 +517,33 @@ resolve_type_descriptor(
                 ir_gen_error(&ctx->errors, type_spec_list, "Invalid combination of type specifiers in declaration");
                 type_specifier_dump(specs, DEBUG_LEVEL_ERROR);
                 return NULL;
+            }
+        }
+        else if (validation_result.is_typeof && current == NULL)
+        {
+            c_grammar_node_t const * typeof_node = type_spec_node->list.children[0];
+            c_grammar_node_t const * typeof_specifier_node = typeof_node->typeof_specifier.specifier;
+            if (typeof_specifier_node->type == AST_NODE_TYPE_NAME)
+            {
+                c_grammar_node_t const * qualifier_list = typeof_specifier_node->type_name.specifier_qualifier_list;
+                current = get_type_descriptor_from_type_name(ctx, typeof_specifier_node);
+                if (current == NULL)
+                {
+                    debug_error("typeof specifier processing failed for typeof type name");
+                    ir_gen_error(&ctx->errors, typeof_node, "typeof specifier processing failed for typeof type name");
+                    return NULL;
+                }
+            }
+            else
+            {
+                TypedValue operand_res = process_expression(ctx, typeof_specifier_node);
+                current = operand_res.type_info;
+                if (current == NULL)
+                {
+                    debug_error("typeof specifier processing failed for typeof expression");
+                    ir_gen_error(&ctx->errors, typeof_node, "typeof specifier processing failed for typeof expression");
+                    return NULL;
+                }
             }
         }
         else if (current == NULL)

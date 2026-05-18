@@ -223,8 +223,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
             // TypeName contains TypeSpecifier(s), possibly with struct/union keyword
-            c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-            target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
+            target_type = get_type_descriptor_from_type_name(ctx, operand_node);
         }
         else
         {
@@ -253,8 +252,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         // Handle TypeName (e.g., alignof(int) or alignof(struct Point))
         if (operand_node->type == AST_NODE_TYPE_NAME)
         {
-            c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-            target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
+            target_type = get_type_descriptor_from_type_name(ctx, operand_node);
         }
         else
         {
@@ -293,8 +291,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             return NullTypedValue;
         }
 
-        c_grammar_node_t const * qualifier_list = operand_node->type_name.specifier_qualifier_list;
-        target_type = get_type_descriptor_from_specifier_list(ctx, qualifier_list);
+        target_type = get_type_descriptor_from_type_name(ctx, operand_node);
 
         // 1. Validation: Must be a struct or union.
         if (target_type->kind != NCC_TYPE_KIND_STRUCT && target_type->kind != NCC_TYPE_KIND_UNION)
