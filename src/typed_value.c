@@ -25,9 +25,11 @@ dump_typed_value(char const * label, TypedValue v)
         debug_info("\tType contents: %s", val_str);
         LLVMDisposeMessage(val_str);
     }
-    fprintf(stderr, "bit width: %u\n", v.bitfield.bit_width);
-    fprintf(stderr, "bit offset: %u\n", v.bitfield.bit_offset);
-    fprintf(stderr, "storage index: %u\n", v.bitfield.storage_index);
+    if (v.bitfield.bit_width > 0)
+    {
+        fprintf(stderr, "bit width: %u\n", v.bitfield.bit_width);
+        fprintf(stderr, "bit offset: %u\n", v.bitfield.bit_offset);
+    }
 
     dump_type_descriptor(label, v.type_info, DEBUG_LEVEL_INFO);
 

@@ -336,7 +336,7 @@ process_initializer_list(
 
                     LLVMValueRef indices[2]
                         = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                           LLVMConstInt(ctx->ref_type.i32_type, field->bitfield.storage_index, false)};
+                           LLVMConstInt(ctx->ref_type.i32_type, field->storage_index, false)};
 
                     LLVMValueRef next_ptr = LLVMBuildInBoundsGEP2(
                         ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "designator_ptr"
@@ -381,7 +381,7 @@ process_initializer_list(
             if (local_index < (int)desc->struct_metadata.members.num_members)
             {
                 target_desc = desc->struct_metadata.members.members[local_index].type_desc;
-                unsigned storage_idx = desc->struct_metadata.members.members[local_index].bitfield.storage_index;
+                unsigned storage_idx = desc->struct_metadata.members.members[local_index].storage_index;
 
                 LLVMValueRef indices[2]
                     = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
@@ -492,7 +492,7 @@ process_initializer_list_type_desc(
                         // Navigate deeper into nested struct
                         LLVMValueRef indices[2]
                             = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                               LLVMConstInt(ctx->ref_type.i32_type, field->bitfield.storage_index, false)};
+                               LLVMConstInt(ctx->ref_type.i32_type, field->storage_index, false)};
                         current_ptr = LLVMBuildInBoundsGEP2(
                             ctx->builder, current_desc->llvm_type, current_ptr, indices, 2, "nested_ptr"
                         );
@@ -804,7 +804,7 @@ register_tagged_struct_or_union_definition(
         struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
 
         struct_field_t * last_field = &members.members[members.num_members - 1];
-        unsigned num_storage_units = last_field->bitfield.storage_index + 1;
+        unsigned num_storage_units = last_field->storage_index + 1;
         TypeDescriptor const ** field_types = calloc(num_storage_units, sizeof(*field_types));
         if (field_types == NULL)
         {
@@ -837,7 +837,7 @@ register_tagged_struct_or_union_definition(
         {
             struct_field_t * field = &members.members[i];
 
-            unsigned idx = field->bitfield.storage_index;
+            unsigned idx = field->storage_index;
 
             fprintf(stderr, "%s: %s storage index: %u\n", __func__, field->name, idx);
 
@@ -931,7 +931,7 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
             members.members[i].name,
             members.members[i].bitfield.bit_offset,
             members.members[i].bitfield.bit_width,
-            members.members[i].bitfield.storage_index
+            members.members[i].storage_index
         );
     }
 
@@ -960,16 +960,16 @@ add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t con
     }
 
     struct_field_t * last_field = &members.members[members.num_members - 1];
-    unsigned num_storage_units = last_field->bitfield.storage_index + 1;
+    unsigned num_storage_units = last_field->storage_index + 1;
     LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
     int current_storage_unit = -1;
 
     for (size_t i = 0; i < members.num_members; i++)
     {
         struct_field_t * field = &members.members[i];
-        if (field->bitfield.storage_index != (unsigned)current_storage_unit)
+        if (field->storage_index != (unsigned)current_storage_unit)
         {
-            current_storage_unit = field->bitfield.storage_index;
+            current_storage_unit = field->storage_index;
             field_types[current_storage_unit] = field->type_desc->llvm_type;
         }
     }
@@ -4190,7 +4190,7 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             // Create the GEP
             LLVMValueRef indices[2]
                 = {LLVMConstInt(ctx->ref_type.i32_type, 0, false),
-                   LLVMConstInt(ctx->ref_type.i32_type, field->bitfield.storage_index, false)};
+                   LLVMConstInt(ctx->ref_type.i32_type, field->storage_index, false)};
 
             LLVMValueRef member_ptr = LLVMBuildInBoundsGEP2(
                 ctx->builder, struct_desc->llvm_type, current_val.value, indices, 2, "memberptr"

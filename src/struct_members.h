@@ -13,6 +13,7 @@ typedef struct struct_field
     char * name;
     TypeDescriptor const * type_desc;
     struct_bitfield_data_t bitfield;
+    unsigned storage_index; // LLVM storage index
 } struct_field_t;
 
 typedef struct

@@ -362,7 +362,7 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
     // First pass: find max size and max alignment per storage_index
     // (needed for flattened unions where multiple members share a storage_index)
-    unsigned num_storage_indices = desc->struct_metadata.members.members[member_count - 1].bitfield.storage_index + 1;
+    unsigned num_storage_indices = desc->struct_metadata.members.members[member_count - 1].storage_index + 1;
     debug_info("%s: num_storage_indices=%u", __func__, num_storage_indices);
     uint64_t * max_sizes = calloc(num_storage_indices, sizeof(*max_sizes));
     uint32_t * max_aligns = calloc(num_storage_indices, sizeof(*max_aligns));
@@ -371,7 +371,7 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
     {
         struct_field_t * current_member = &desc->struct_metadata.members.members[i];
         TypeDescriptor const * mem_desc = current_member->type_desc;
-        unsigned sidx = current_member->bitfield.storage_index;
+        unsigned sidx = current_member->storage_index;
 
         uint64_t mem_size = get_type_size_desc(data_layout, mem_desc);
         uint32_t mem_align = get_type_alignment_desc(data_layout, mem_desc);
@@ -403,14 +403,14 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
     debug_info("%s: after first pass, max_align=%u", __func__, max_align);
 
     // Second pass: compute offsets and total size
-    unsigned current_sidx = desc->struct_metadata.members.members[0].bitfield.storage_index;
+    unsigned current_sidx = desc->struct_metadata.members.members[0].storage_index;
     uint64_t current_offset = 0;
 
     for (size_t i = 0; i < member_count; ++i)
     {
         struct_field_t * current_member = &desc->struct_metadata.members.members[i];
         TypeDescriptor const * mem_desc = current_member->type_desc;
-        unsigned sidx = current_member->bitfield.storage_index;
+        unsigned sidx = current_member->storage_index;
 
         if (desc->kind == NCC_TYPE_KIND_STRUCT)
         {

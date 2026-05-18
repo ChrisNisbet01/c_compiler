@@ -793,7 +793,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                         stderr,
                         "dealing with member: %s, previous storage_index: %u\n",
                         new_member.name,
-                        new_member.bitfield.storage_index
+                        new_member.storage_index
                     );
                     unsigned type_bits;
                     struct_field_t * previous_member = NULL;
@@ -818,24 +818,24 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                         if (previous_member == NULL)
                         {
                             debug_info("1");
-                            new_member.bitfield.storage_index = 0;
+                            new_member.storage_index = 0;
                         }
                         else if (m > 0 && nested_type->kind == NCC_TYPE_KIND_UNION)
                         {
-                            debug_info("2: m: %zu, storage index: %u", m, previous_member->bitfield.storage_index);
-                            new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
+                            debug_info("2: m: %zu, storage index: %u", m, previous_member->storage_index);
+                            new_member.storage_index = previous_member->storage_index;
                         }
                         else
                         {
-                            debug_info("3: m: %zu, storage index: %u", m, previous_member->bitfield.storage_index);
-                            new_member.bitfield.storage_index
-                                = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
+                            debug_info("3: m: %zu, storage index: %u", m, previous_member->storage_index);
+                            new_member.storage_index
+                                = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
                         }
                     }
                     else
                     {
-                        debug_info("4: m: %zu, storage index: %u", m, previous_member->bitfield.storage_index);
-                        new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
+                        debug_info("4: m: %zu, storage index: %u", m, previous_member->storage_index);
+                        new_member.storage_index = previous_member->storage_index;
                         new_member.bitfield.bit_offset
                             = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
                     }
@@ -844,7 +844,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                         new_member.name,
                         new_member.name,
                         num_members,
-                        new_member.bitfield.storage_index
+                        new_member.storage_index
                     );
                     members[num_members] = new_member;
                     num_members++;
@@ -931,12 +931,11 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                                + previous_member->bitfield.bit_width
                            > type_bits)
                 {
-                    new_member.bitfield.storage_index
-                        = (previous_member == NULL) ? 0 : (previous_member->bitfield.storage_index + 1);
+                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
                 }
                 else
                 {
-                    new_member.bitfield.storage_index = previous_member->bitfield.storage_index;
+                    new_member.storage_index = previous_member->storage_index;
                     new_member.bitfield.bit_offset
                         = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
                 }
@@ -990,18 +989,18 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 */
                 if (previous_member == NULL || type_child->type == AST_NODE_UNION_DEFINITION)
                 {
-                    new_member.bitfield.storage_index = 0;
+                    new_member.storage_index = 0;
                 }
                 else
                 {
-                    new_member.bitfield.storage_index = previous_member->bitfield.storage_index + 1;
+                    new_member.storage_index = previous_member->storage_index + 1;
                 }
                 debug_info(
                     "adding member: %s %p at index: %u storage_index: %u",
                     new_member.name,
                     new_member.name,
                     num_members,
-                    new_member.bitfield.storage_index
+                    new_member.storage_index
                 );
                 members[num_members] = new_member;
                 num_members++;
@@ -1024,7 +1023,7 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 object_members.members[i].name,
                 object_members.members[i].bitfield.bit_offset,
                 object_members.members[i].bitfield.bit_width,
-                object_members.members[i].bitfield.storage_index
+                object_members.members[i].storage_index
             );
         }
     }
