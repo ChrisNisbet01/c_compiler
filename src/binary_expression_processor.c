@@ -253,9 +253,9 @@ static binary_operation_details_t const binary_operation_details[BINARY_OP_COUNT
 static void
 promote_to_i32_minimum(ir_generator_ctx_t * ctx, TypedValue * res)
 {
-    unsigned bits = LLVMGetIntTypeWidth(res->type_info->llvm_type);
+    unsigned bits = res->type_info->integer_metadata.width;
     TypeDescriptor const * i32_type = type_descriptor_get_int32_type(ctx->type_descriptors, false);
-    unsigned i32_bits = LLVMGetIntTypeWidth(i32_type->llvm_type);
+    unsigned i32_bits = i32_type->integer_metadata.width;
 
     if (bits < i32_bits)
     {
@@ -279,14 +279,14 @@ promote_integer_operands(ir_generator_ctx_t * ctx, TypedValue * lhs_res, TypedVa
 
     if (is_integer_kind(lhs_type) && is_integer_kind(rhs_type))
     {
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
+        unsigned lhs_bits = lhs_type->integer_metadata.width;
+        unsigned rhs_bits = rhs_type->integer_metadata.width;
 
         // Phase 1: Integer Promotion (up to at least i32)
         promote_to_i32_minimum(ctx, lhs_res);
-        lhs_bits = LLVMGetIntTypeWidth(lhs_type->llvm_type);
+        lhs_bits = lhs_type->integer_metadata.width; /* Need to update as the type might have changed. */
         promote_to_i32_minimum(ctx, rhs_res);
-        rhs_bits = LLVMGetIntTypeWidth(rhs_type->llvm_type);
+        rhs_bits = rhs_type->integer_metadata.width;
 
         // Phase 2: Balancing Conversions (e.g. i32 vs i64 operations)
         if (lhs_bits > rhs_bits)
@@ -353,8 +353,8 @@ complete_binary_expression(
         // MUST match the bit-width of the value being shifted (LHS).
         // So we cast the RHS value for the backend instruction, but we DO NOT
         // alter rhs_res.type_info because the C type system treats them independently.
-        unsigned lhs_bits = LLVMGetIntTypeWidth(lhs_res.type_info->llvm_type);
-        unsigned rhs_bits = LLVMGetIntTypeWidth(rhs_res.type_info->llvm_type);
+        unsigned lhs_bits = lhs_res.type_info->integer_metadata.width;
+        unsigned rhs_bits = rhs_res.type_info->integer_metadata.width;
 
         if (lhs_bits != rhs_bits)
         {
