@@ -57,7 +57,7 @@ $(TARGET): $(ALL_O)
 	$(LINK) -o $@ $^ $(LDFLAGS) $(EASY_PC_LIB) $(LLVM_LDFLAGS) $(LLVM_LIBS) -lm
 
 %.ll: $(SRC_DIR)/%.c $(NCC)
-	$(NCC) -S --debug=info --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<
+	$(NCC) -S --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<
 
 c_grammar.ll: $(GENERATED_DIR)/c_grammar.c $(NCC)
 	$(NCC) -S --emit-llvm --emit-ast -o $@ $(INCLUDES) $(DEFINES) $<
