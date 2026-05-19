@@ -1117,8 +1117,6 @@ add_members_to_incomplete_struct_union(
 
         unsigned idx = field->storage_index;
 
-        fprintf(stderr, "%s: %s storage index: %u\n", __func__, field->name, idx);
-
         uint64_t field_align = get_type_alignment_desc(ctx->data_layout, field->type_desc);
         if (field_types[idx] == NULL
             || get_type_size_desc(ctx->data_layout, field->type_desc)
@@ -1130,10 +1128,9 @@ add_members_to_incomplete_struct_union(
         {
             max_align_types[idx] = field->type_desc;
             field_aligns[idx] = field_align;
-            fprintf(stderr, "%s: %s align: %zu\n", __func__, field->name, field_align);
         }
     }
-    fprintf(stderr, "second pass\n");
+
     // Second pass: ensure correct alignment by wrapping if needed
     LLVMTypeRef * llvm_field_types = calloc(num_storage_units, sizeof(*llvm_field_types));
     if (llvm_field_types == NULL)
@@ -1153,7 +1150,6 @@ add_members_to_incomplete_struct_union(
 
         if (actual_size < padded_size)
         {
-            fprintf(stderr, "must wrap\n");
             uint64_t padding_bytes_needed = padded_size - actual_size;
             TypeDescriptor const * i8_type_desc = type_descriptor_get_int8_type(ctx->type_descriptors, false);
             LLVMTypeRef wrapper_types[2];
@@ -1162,10 +1158,6 @@ add_members_to_incomplete_struct_union(
             LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
             LLVMStructSetBody(wrapper, wrapper_types, 2, false);
             llvm_field_types[i] = wrapper;
-        }
-        else
-        {
-            fprintf(stderr, "no need to wrap\n");
         }
     }
     free(field_aligns);
@@ -1347,14 +1339,6 @@ ir_generator_init(
         debug_error("Failed to allocate memory for context.");
         return NULL;
     }
-    fprintf(
-        stderr,
-        "%s: collection: %p, parse_ctx: %p, size: %zu\n",
-        __func__,
-        (void *)&ctx->errors,
-        (void *)parse_ctx,
-        sizeof(ctx->errors)
-    );
 
     // Initialize error collection (any error will be fatal since max_errors=1)
     ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);

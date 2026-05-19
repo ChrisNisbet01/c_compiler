@@ -546,7 +546,6 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
     char const * full_text = ast_node->text;
 
     ast_node->float_lit.float_literal.value = strtold(full_text, NULL);
-    fprintf(stderr, "float literal value: %Lf, %s\n", ast_node->float_lit.float_literal.value, full_text);
     ast_node->float_lit.float_literal.type = FLOAT_LITERAL_TYPE_DOUBLE; /* Default to double. */
     if (suffix_node != NULL)
     {

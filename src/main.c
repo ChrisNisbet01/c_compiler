@@ -615,25 +615,6 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
     return -1; // Should not reach here
 }
 
-static size_t
-ast_max_depth(c_grammar_node_t const * node, size_t current_depth)
-{
-    if (node == NULL)
-    {
-        return current_depth;
-    }
-    size_t max = current_depth;
-    for (size_t i = 0; i < node->list.count; i++)
-    {
-        size_t child_depth = ast_max_depth(node->list.children[i], current_depth + 1);
-        if (child_depth > max)
-        {
-            max = child_depth;
-        }
-    }
-    return max;
-}
-
 static bool
 generate_output(
     c_grammar_node_t const * ast_root,
@@ -644,7 +625,6 @@ generate_output(
 {
     bool success = true;
     debug_info("Starting LLVM IR Generation of: %s", input_filename);
-    fprintf(stderr, "parse ctx: %p", (void *)parse_ctx);
 
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
     ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker, march_target);
@@ -885,7 +865,6 @@ main(int argc, char * argv[])
     }
 
     char const * filename = argv[optind];
-    fprintf(stderr, "Parsing: %s\n", filename);
 
     // Handle preprocessing
     bool should_preprocess = preprocess_flag;
@@ -959,14 +938,6 @@ main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    debug_info(
-        "Successfully created C parser. (%p), input_file: %s (%p) session_ctx: %p",
-        c_parser,
-        actual_input_file,
-        actual_input_file,
-        session_ctx
-    );
-
     epc_parse_session_t session = epc_parse_file(c_parser, actual_input_file, session_ctx);
 
     if (session.result.is_error)
@@ -982,20 +953,6 @@ main(int argc, char * argv[])
         epc_parser_list_free(list);
         return EXIT_FAILURE;
     }
-
-    debug_info("Successfully parsed the C file!");
-    size_t offset_to_parse_ctx = ((size_t)&((epc_parse_session_t *)0)->internal_parse_ctx);
-
-    fprintf(
-        stderr,
-        "%s: parse_ctx: %p, size: %zu, offset: %zu\n",
-        __func__,
-        (void *)session.internal_parse_ctx,
-        sizeof(session),
-        offset_to_parse_ctx
-    );
-
-    debug_dump_c_grammar_node_info();
 
     // Print the CPT (commented out for cleaner output)
     // char * cpt_str = epc_cpt_to_string(session.internal_parse_ctx, session.result.data.success);
@@ -1041,8 +998,6 @@ main(int argc, char * argv[])
                     free(ast_filename);
                 }
             }
-
-            debug_info("AST max depth: %zu", ast_max_depth(ast_root, 0));
 
             source_location_tracker_t loc_tracker;
             source_location_tracker_init(&loc_tracker);
