@@ -4406,17 +4406,21 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
         case AST_NODE_MEMBER_ACCESS_ARROW:
         {
             // MEMBER ACCESS: .member or ->member
-            bool is_arrow = (suffix->type == AST_NODE_MEMBER_ACCESS_ARROW);
+            bool is_arrow = suffix->type == AST_NODE_MEMBER_ACCESS_ARROW;
             char const * member_name = suffix->identifier.identifier->text;
-            dump_typed_value("member_access", current_val);
+
+            /* Easy extension to allow access to struct members using dot instead of arrow. */
+            if (!is_arrow)
+            {
+                if (current_val.type_info->kind == NCC_TYPE_KIND_POINTER)
+                {
+                    debug_info("Allowing access to pointer member using dot operator.");
+                    is_arrow = true;
+                }
+            }
 
             if (is_arrow)
             {
-                if (current_val.type_info == NULL)
-                {
-                    debug_error("member access current value has no type");
-                    return NullTypedValue;
-                }
                 // -> implies a pointer dereference first
                 current_val = ensure_rvalue(ctx, "arrow_deref", current_val);
                 if (current_val.type_info->kind != NCC_TYPE_KIND_POINTER)
