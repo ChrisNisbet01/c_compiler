@@ -85,6 +85,7 @@ TypeSpecifierValidationResult
 validate_type_specifiers(c_grammar_node_t const * type_specifiers)
 {
     TypeSpecifierValidationResult result = {0};
+
     if (type_specifiers == NULL
         || (type_specifiers->type != AST_NODE_TYPE_SPECIFIERS
             && type_specifiers->type != AST_NODE_STRUCT_SPECIFIER_QUALIFIER_LIST))

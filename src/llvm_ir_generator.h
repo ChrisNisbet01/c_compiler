@@ -139,8 +139,8 @@ type_info_t const * register_struct_definition(ir_generator_ctx_t * ctx, c_gramm
 
 type_info_t const * register_enum_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_node);
 
-type_info_t const * register_opaque_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, char const * tag, TypeQualifier quals, bool is_union
+type_info_t const * register_incomplete_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, char const * tag, TypeQualifier quals, type_kind_t kind
 );
 
 // Helper function to ensure a value is an rvalue

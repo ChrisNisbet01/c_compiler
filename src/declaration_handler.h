@@ -32,9 +32,6 @@ TypeDescriptor const * resolve_type_descriptor(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * specifiers, c_grammar_node_t const * declarator
 );
 
-struct_or_union_members_st
-extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child);
-
 parameter_definitions_t extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * params_list);
 
 void parameter_definitions_cleanup(parameter_definitions_t * params);

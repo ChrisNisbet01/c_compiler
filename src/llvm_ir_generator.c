@@ -166,16 +166,12 @@ ensure_lvalue(ir_generator_ctx_t * ctx, char const * name, TypedValue val)
 TypedValue
 ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValue val)
 {
-    debug_info("%s: is %s, lvalue: %d", __func__, label, val.is_lvalue);
-    dump_typed_value(label, val);
     if (val.value == NULL)
     {
-        debug_warning("no value!");
         return val;
     }
     if (!val.is_lvalue)
     {
-        debug_info("already rvalue");
         return val; // Already data
     }
 
@@ -539,9 +535,13 @@ process_initializer_list_type_desc(
             {
                 debug_warning("%s: no final type!", __func__);
             }
+
             local_index++;
             if (outer_index)
+            {
                 (*outer_index)++;
+            }
+
             continue;
         }
 
@@ -717,8 +717,8 @@ search_ast_for_type_tag(c_grammar_node_t const * definition_node)
 }
 
 type_info_t const *
-register_opaque_struct_or_union_definition(
-    ir_generator_ctx_t * ctx, char const * tag, TypeQualifier quals, bool is_union
+register_incomplete_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, char const * tag, TypeQualifier quals, type_kind_t kind
 )
 {
     if (ctx == NULL || tag == NULL)
@@ -726,14 +726,16 @@ register_opaque_struct_or_union_definition(
         return NULL;
     }
 
-    type_kind_t kind = is_union ? TYPE_KIND_UNION : TYPE_KIND_STRUCT;
+    bool is_union = kind == TYPE_KIND_UNION || kind == TYPE_KIND_UNTAGGED_UNION;
 
-    /* Return existing tagged type if already registered */
-    type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
-    if (existing != NULL)
+    if (kind == TYPE_KIND_STRUCT || kind == TYPE_KIND_UNION)
     {
-        debug_info("%s: returning existing", __func__);
-        return existing;
+        /* Return existing tagged type if already registered */
+        type_info_t * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
+        if (existing != NULL)
+        {
+            return existing;
+        }
     }
 
     type_info_t opaque = {0};
@@ -742,18 +744,14 @@ register_opaque_struct_or_union_definition(
     struct_or_union_members_st * members = NULL;
     bool is_complete = false;
     LLVMTypeRef struct_type = LLVMStructCreateNamed(ctx->context, tag);
-    debug_info("%s: tag %s, type %p", __func__, opaque.tag, struct_type);
     opaque.type_desc = register_struct_type(ctx->type_descriptors, struct_type, quals, is_union, is_complete, members);
-    debug_info("%s: registering opaque and opaque type desc: %p", __func__, opaque.type_desc);
-
     type_info_t const * registered = generator_add_type_info(ctx, opaque);
+
     if (registered == NULL)
     {
         free((void *)opaque.tag);
         return NULL;
     }
-
-    debug_info("%s: returning registered desc: %p", __func__, registered->type_desc);
 
     return registered;
 }
@@ -768,6 +766,419 @@ struct_or_union_members_cleanup(struct_or_union_members_st * members)
         free(entry->name);
     }
     free(members->members);
+}
+
+static struct_or_union_members_st
+extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child)
+{
+    struct_or_union_members_st object_members = {0};
+
+    if (type_child == NULL
+        || (type_child->type != AST_NODE_STRUCT_DEFINITION && type_child->type != AST_NODE_UNION_DEFINITION))
+    {
+        debug_error("Need struct or union definition, but got: %s", get_node_type_name_from_node(type_child));
+        return object_members;
+    }
+
+    c_grammar_node_t const * members_node = type_child->struct_definition.declaration_list;
+
+    if (members_node == NULL || members_node->list.count == 0)
+    {
+        debug_error("no members declaration");
+        return object_members;
+    }
+
+    size_t max_num_members = members_node->list.count;
+    struct_field_t * members = calloc(max_num_members, sizeof(*members));
+    if (members == NULL)
+    {
+        return object_members;
+    }
+
+    unsigned num_members = 0;
+
+    for (size_t i = 0; i < members_node->list.count; i++)
+    {
+        c_grammar_node_t * struct_decl = members_node->list.children[i];
+        if (struct_decl == NULL || struct_decl->type != AST_NODE_STRUCT_DECLARATION)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * specifier_qualifier_list = struct_decl->struct_declaration.specifier_qualifier_list;
+        c_grammar_node_t const * declarator_list = struct_decl->struct_declaration.declarator_list;
+
+        if (specifier_qualifier_list == NULL || specifier_qualifier_list->list.count == 0)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * type_spec = NULL;
+        type_spec = specifier_qualifier_list;
+
+        if (declarator_list == NULL || declarator_list->list.count == 0)
+        {
+            // Resolve the type specifier to see if it's a struct/union
+            TypeDescriptor const * nested_type = resolve_type_descriptor(ctx, specifier_qualifier_list, NULL);
+
+            if (nested_type && (nested_type->kind == NCC_TYPE_KIND_STRUCT || nested_type->kind == NCC_TYPE_KIND_UNION))
+            {
+                if (num_members + nested_type->struct_metadata.members.num_members >= max_num_members)
+                {
+                    max_num_members += nested_type->struct_metadata.members.num_members;
+                    members = realloc(members, max_num_members * sizeof(*members));
+                    if (members == NULL)
+                    {
+                        debug_error("malloc failure");
+                        return object_members;
+                    }
+                }
+
+                // Pull members from the nested type into the current list
+                for (size_t m = 0; m < nested_type->struct_metadata.members.num_members; m++)
+                {
+                    // Copy the member descriptor
+                    struct_field_t const * nested_mem = &nested_type->struct_metadata.members.members[m];
+
+                    // Note: You may need to adjust storage_index or offsets here
+                    // depending on how your LLVM struct builder handles flattening.
+                    struct_field_t new_member = *nested_mem;
+                    new_member.name = strdup(nested_mem->name);
+                    unsigned type_bits;
+                    struct_field_t * previous_member = NULL;
+                    if (num_members > 0)
+                    {
+                        previous_member = &members[num_members - 1];
+                        type_bits = LLVMGetIntTypeWidth(previous_member->type_desc->llvm_type);
+                    }
+                    else
+                    {
+                        type_bits = LLVMGetIntTypeWidth(nested_mem->type_desc->llvm_type);
+                    }
+
+                    if (m == 0 || previous_member == NULL
+                        || (strlen(nested_mem->name) > 0 && nested_mem->bitfield.bit_width == 0)
+                        || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
+                        || nested_mem->bitfield.bit_width + previous_member->bitfield.bit_offset
+                                   + previous_member->bitfield.bit_width
+                               > type_bits)
+                    {
+                        if (previous_member == NULL)
+                        {
+                            debug_info("1");
+                            new_member.storage_index = 0;
+                        }
+                        else if (m > 0 && nested_type->kind == NCC_TYPE_KIND_UNION)
+                        {
+                            new_member.storage_index = previous_member->storage_index;
+                        }
+                        else
+                        {
+                            new_member.storage_index
+                                = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                        }
+                    }
+                    else
+                    {
+                        new_member.storage_index = previous_member->storage_index;
+                        new_member.bitfield.bit_offset
+                            = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
+                    }
+                    members[num_members] = new_member;
+                    num_members++;
+                }
+
+                continue; // Move to the next member in the parent struct
+            }
+
+            continue;
+        }
+
+        c_grammar_node_t const * struct_decl_node = declarator_list->list.children[0];
+
+        struct_field_t new_member = {0};
+
+        if (struct_decl_node->type == AST_NODE_STRUCT_DECLARATOR && struct_decl_node->list.count > 0)
+        {
+            c_grammar_node_t * decl = struct_decl_node->list.children[0];
+
+            if (decl->type == AST_NODE_STRUCT_DECLARATOR_BITFIELD)
+            {
+                if (decl->list.count < 1 || decl->list.count > 2)
+                {
+                    continue;
+                }
+                size_t width_idx;
+                if (decl->list.count == 1)
+                {
+                    width_idx = 0;
+                    new_member.name = strdup("");
+                }
+                else
+                {
+                    width_idx = 1;
+                    c_grammar_node_t const * bf_decl = decl->list.children[0];
+                    if (bf_decl->type == AST_NODE_DECLARATOR)
+                    {
+                        c_grammar_node_t const * direct_decl = bf_decl->declarator.direct_declarator;
+                        if (direct_decl && direct_decl->list.count > 0)
+                        {
+                            c_grammar_node_t * ident = direct_decl->list.children[0];
+                            if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                            {
+                                new_member.name = strdup(ident->text);
+                            }
+                        }
+                    }
+                }
+                c_grammar_node_t * width_node = decl->list.children[width_idx];
+                if (width_node->type == AST_NODE_INTEGER_LITERAL)
+                {
+                    new_member.bitfield.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
+                }
+
+                debug_info("resolving member: %s", new_member.name);
+                new_member.type_desc = resolve_type_descriptor(ctx, type_spec, NULL);
+                if (new_member.type_desc == NULL)
+                {
+                    debug_info("%s failed to get type descriptor", __func__);
+                    free(new_member.name);
+                    continue;
+                }
+                debug_info("resolved: %p", new_member.type_desc);
+
+                unsigned type_bits;
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                    type_bits = LLVMGetIntTypeWidth(previous_member->type_desc->llvm_type);
+                }
+                else
+                {
+                    type_bits = LLVMGetIntTypeWidth(new_member.type_desc->llvm_type);
+                }
+                debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 1", new_member.name);
+
+                if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bitfield.bit_width == 0)
+                    || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
+                    || LLVMGetTypeKind(new_member.type_desc->llvm_type)
+                           != LLVMGetTypeKind(previous_member->type_desc->llvm_type)
+                    || new_member.bitfield.bit_width + previous_member->bitfield.bit_offset
+                               + previous_member->bitfield.bit_width
+                           > type_bits)
+                {
+                    new_member.storage_index = (previous_member == NULL) ? 0 : (previous_member->storage_index + 1);
+                }
+                else
+                {
+                    new_member.storage_index = previous_member->storage_index;
+                    new_member.bitfield.bit_offset
+                        = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
+                }
+                debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
+                members[num_members] = new_member;
+                num_members++;
+            }
+            else if (decl->type == AST_NODE_DECLARATOR)
+            {
+                debug_info("resolving declarator");
+                new_member.type_desc = resolve_type_descriptor(ctx, type_spec, decl);
+                debug_info("resolved: %p", new_member.type_desc);
+                if (new_member.type_desc != NULL)
+                {
+                    debug_info(
+                        "%s: llvm_type %p, kind %d",
+                        __func__,
+                        (void *)new_member.type_desc->llvm_type,
+                        LLVMGetTypeKind(new_member.type_desc->llvm_type)
+                    );
+                }
+
+                if (new_member.type_desc == NULL)
+                {
+                    continue;
+                }
+
+                c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
+                if (direct_decl->list.count > 0)
+                {
+                    c_grammar_node_t * ident = direct_decl->list.children[0];
+                    if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                    {
+                        new_member.name = strdup(ident->text);
+                    }
+                }
+                if (new_member.name == NULL)
+                {
+                    continue;
+                }
+                debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 2", new_member.name);
+                struct_field_t * previous_member = NULL;
+                if (num_members > 0)
+                {
+                    previous_member = &members[num_members - 1];
+                }
+                /*
+                    FIXME: This doesn't work with unions, but if it's changed to set storage offset to zero for
+                    union members then the self-built compiler crashes.
+                    WIP.
+                */
+                if (previous_member == NULL || type_child->type == AST_NODE_UNION_DEFINITION)
+                {
+                    new_member.storage_index = 0;
+                }
+                else
+                {
+                    new_member.storage_index = previous_member->storage_index + 1;
+                }
+                debug_info(
+                    "adding member: %s %p at index: %u storage_index: %u",
+                    new_member.name,
+                    new_member.name,
+                    num_members,
+                    new_member.storage_index
+                );
+                members[num_members] = new_member;
+                num_members++;
+            }
+        }
+    }
+
+    object_members.members = members;
+    object_members.num_members = num_members;
+
+    debug_info("%s: got %zu members", __func__, object_members.num_members);
+    if (debug_get_level() >= DEBUG_LEVEL_INFO)
+    {
+        for (size_t i = 0; i < object_members.num_members; i++)
+        {
+            fprintf(
+                stderr,
+                "member %zu: %s offset: %u, width: %u, storage: %u\n",
+                i,
+                object_members.members[i].name,
+                object_members.members[i].bitfield.bit_offset,
+                object_members.members[i].bitfield.bit_width,
+                object_members.members[i].storage_index
+            );
+        }
+    }
+
+    return object_members;
+}
+
+static type_info_t const *
+add_members_to_incomplete_struct_union(
+    ir_generator_ctx_t * ctx, type_info_t const * existing, c_grammar_node_t const * type_child
+)
+{
+    struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
+
+    if (members.num_members == 0)
+    {
+        ir_gen_error(&ctx->errors, type_child, "Empty struct/union definition");
+        return NULL;
+    }
+
+    struct_field_t * last_field = &members.members[members.num_members - 1];
+    unsigned num_storage_units = last_field->storage_index + 1;
+    TypeDescriptor const ** field_types = calloc(num_storage_units, sizeof(*field_types));
+    if (field_types == NULL)
+    {
+        struct_or_union_members_cleanup(&members);
+        debug_error("%s: Memory allocation failed", __func__);
+
+        return NULL;
+    }
+    // First pass: track largest type and highest alignment per storage unit
+    uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
+    if (field_aligns == NULL)
+    {
+        free(field_types);
+        struct_or_union_members_cleanup(&members);
+        debug_error("%s: Memory allocation failed", __func__);
+
+        return NULL;
+    }
+    TypeDescriptor const ** max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
+    if (max_align_types == NULL)
+    {
+        free(field_types);
+        free(field_aligns);
+        struct_or_union_members_cleanup(&members);
+        debug_error("%s: Memory allocation failed", __func__);
+
+        return NULL;
+    }
+    for (size_t i = 0; i < members.num_members; i++)
+    {
+        struct_field_t * field = &members.members[i];
+
+        unsigned idx = field->storage_index;
+
+        fprintf(stderr, "%s: %s storage index: %u\n", __func__, field->name, idx);
+
+        uint64_t field_align = get_type_alignment_desc(ctx->data_layout, field->type_desc);
+        if (field_types[idx] == NULL
+            || get_type_size_desc(ctx->data_layout, field->type_desc)
+                   > get_type_size_desc(ctx->data_layout, field_types[idx]))
+        {
+            field_types[idx] = field->type_desc;
+        }
+        if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
+        {
+            max_align_types[idx] = field->type_desc;
+            field_aligns[idx] = field_align;
+            fprintf(stderr, "%s: %s align: %zu\n", __func__, field->name, field_align);
+        }
+    }
+    fprintf(stderr, "second pass\n");
+    // Second pass: ensure correct alignment by wrapping if needed
+    LLVMTypeRef * llvm_field_types = calloc(num_storage_units, sizeof(*llvm_field_types));
+    if (llvm_field_types == NULL)
+    {
+        free(field_types);
+        free(field_aligns);
+        free(max_align_types);
+        return NULL;
+    }
+    for (unsigned i = 0; i < num_storage_units; i++)
+    {
+        llvm_field_types[i] = field_types[i]->llvm_type;
+
+        // Calculate how much the actual type falls short of the required alignment block
+        uint64_t actual_size = get_type_size_desc(ctx->data_layout, field_types[i]);
+        uint64_t padded_size = (actual_size + (field_aligns[i] - 1)) & ~(field_aligns[i] - 1);
+
+        if (actual_size < padded_size)
+        {
+            fprintf(stderr, "must wrap\n");
+            uint64_t padding_bytes_needed = padded_size - actual_size;
+            TypeDescriptor const * i8_type_desc = type_descriptor_get_int8_type(ctx->type_descriptors, false);
+            LLVMTypeRef wrapper_types[2];
+            wrapper_types[0] = field_types[i]->llvm_type;
+            wrapper_types[1] = LLVMArrayType(i8_type_desc->llvm_type, padding_bytes_needed);
+            LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
+            LLVMStructSetBody(wrapper, wrapper_types, 2, false);
+            llvm_field_types[i] = wrapper;
+        }
+        else
+        {
+            fprintf(stderr, "no need to wrap\n");
+        }
+    }
+    free(field_aligns);
+    free(max_align_types);
+    LLVMStructSetBody(existing->type_desc->llvm_type, llvm_field_types, num_storage_units, false);
+
+    free(llvm_field_types);
+
+    type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
+
+    struct_or_union_members_cleanup(&members);
+
+    return existing;
 }
 
 static type_info_t const *
@@ -788,9 +1199,8 @@ register_tagged_struct_or_union_definition(
     type_info_t const * existing = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
     if (existing == NULL)
     {
-        debug_info("%s: '%s' not found, so registering an opaque type early", __func__, tag);
         /* Register an opaque type now, in case the struct has members that refer to itself. */
-        existing = register_opaque_struct_or_union_definition(ctx, tag, quals, kind == TYPE_KIND_UNION);
+        existing = register_incomplete_struct_or_union_definition(ctx, tag, quals, kind);
         if (existing == NULL)
         {
             debug_error("%s: failed to register opaque type", __func__);
@@ -801,104 +1211,7 @@ register_tagged_struct_or_union_definition(
     if (!existing->type_desc->struct_metadata.is_complete)
     {
         debug_info("%s: update existing", __func__);
-        struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
-
-        struct_field_t * last_field = &members.members[members.num_members - 1];
-        unsigned num_storage_units = last_field->storage_index + 1;
-        TypeDescriptor const ** field_types = calloc(num_storage_units, sizeof(*field_types));
-        if (field_types == NULL)
-        {
-            struct_or_union_members_cleanup(&members);
-            debug_error("%s: Memory allocation failed", __func__);
-
-            return NULL;
-        }
-        // First pass: track largest type and highest alignment per storage unit
-        uint64_t * field_aligns = calloc(num_storage_units, sizeof(*field_aligns));
-        if (field_aligns == NULL)
-        {
-            free(field_types);
-            struct_or_union_members_cleanup(&members);
-            debug_error("%s: Memory allocation failed", __func__);
-
-            return NULL;
-        }
-        TypeDescriptor const ** max_align_types = calloc(num_storage_units, sizeof(*max_align_types));
-        if (max_align_types == NULL)
-        {
-            free(field_types);
-            free(field_aligns);
-            struct_or_union_members_cleanup(&members);
-            debug_error("%s: Memory allocation failed", __func__);
-
-            return NULL;
-        }
-        for (size_t i = 0; i < members.num_members; i++)
-        {
-            struct_field_t * field = &members.members[i];
-
-            unsigned idx = field->storage_index;
-
-            fprintf(stderr, "%s: %s storage index: %u\n", __func__, field->name, idx);
-
-            uint64_t field_align = get_type_alignment_desc(ctx->data_layout, field->type_desc);
-            if (field_types[idx] == NULL
-                || get_type_size_desc(ctx->data_layout, field->type_desc)
-                       > get_type_size_desc(ctx->data_layout, field_types[idx]))
-            {
-                field_types[idx] = field->type_desc;
-            }
-            if (max_align_types[idx] == NULL || field_align > field_aligns[idx])
-            {
-                max_align_types[idx] = field->type_desc;
-                field_aligns[idx] = field_align;
-                fprintf(stderr, "%s: %s align: %zu\n", __func__, field->name, field_align);
-            }
-        }
-        fprintf(stderr, "second pass\n");
-        // Second pass: ensure correct alignment by wrapping if needed
-        LLVMTypeRef * llvm_field_types = calloc(num_storage_units, sizeof(*llvm_field_types));
-        if (llvm_field_types == NULL)
-        {
-            free(field_types);
-            free(field_aligns);
-            free(max_align_types);
-            return NULL;
-        }
-        for (unsigned i = 0; i < num_storage_units; i++)
-        {
-            llvm_field_types[i] = field_types[i]->llvm_type;
-
-            // Calculate how much the actual type falls short of the required alignment block
-            uint64_t actual_size = get_type_size_desc(ctx->data_layout, field_types[i]);
-            uint64_t padded_size = (actual_size + (field_aligns[i] - 1)) & ~(field_aligns[i] - 1);
-
-            if (actual_size < padded_size)
-            {
-                fprintf(stderr, "must wrap\n");
-                uint64_t padding_bytes_needed = padded_size - actual_size;
-                TypeDescriptor const * i8_type_desc = type_descriptor_get_int8_type(ctx->type_descriptors, false);
-                LLVMTypeRef wrapper_types[2];
-                wrapper_types[0] = field_types[i]->llvm_type;
-                wrapper_types[1] = LLVMArrayType(i8_type_desc->llvm_type, padding_bytes_needed);
-                LLVMTypeRef wrapper = LLVMStructCreateNamed(ctx->context, "");
-                LLVMStructSetBody(wrapper, wrapper_types, 2, false);
-                llvm_field_types[i] = wrapper;
-            }
-            else
-            {
-                fprintf(stderr, "no need to wrap\n");
-            }
-        }
-        free(field_aligns);
-        free(max_align_types);
-        LLVMStructSetBody(existing->type_desc->llvm_type, llvm_field_types, num_storage_units, false);
-
-        free(llvm_field_types);
-
-        type_descriptor_complete_struct(ctx->type_descriptors, existing->type_desc, &members);
-
-        struct_or_union_members_cleanup(&members);
+        existing = add_members_to_incomplete_struct_union(ctx, existing, type_child);
 
         return existing;
     }
@@ -908,78 +1221,27 @@ register_tagged_struct_or_union_definition(
 }
 
 static type_info_t const *
-add_untagged_struct_or_union_type(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind)
+register_untagged_struct_or_union_definition(
+    ir_generator_ctx_t * ctx, c_grammar_node_t const * type_child, type_kind_t kind
+)
 {
     if (ctx == NULL)
     {
         return NULL;
     }
     debug_info("%s: untagged", __func__);
+    char const * tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
 
-    struct_or_union_members_st members = extract_struct_or_union_members_type_descriptor(ctx, type_child);
+    type_info_t const * existing = register_incomplete_struct_or_union_definition(ctx, tag, (TypeQualifier){0}, kind);
 
-    type_info_t new_struct = {0};
-    new_struct.tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
-    new_struct.kind = kind;
-
-    for (size_t i = 0; i < members.num_members; i++)
+    if (existing == NULL)
     {
-        debug_info(
-            "%s: member %zu: %s bit offset: %u, bit width: %u, bit storage: %u\n",
-            __func__,
-            i,
-            members.members[i].name,
-            members.members[i].bitfield.bit_offset,
-            members.members[i].bitfield.bit_width,
-            members.members[i].storage_index
-        );
-    }
-
-    bool is_complete = true;
-    new_struct.type_desc = register_struct_type(
-        ctx->type_descriptors,
-        LLVMStructCreateNamed(ctx->context, new_struct.tag),
-        (TypeQualifier){0},
-        kind == TYPE_KIND_UNTAGGED_UNION,
-        is_complete,
-        &members
-    );
-
-    type_info_t const * registered = generator_add_type_info(ctx, new_struct);
-    if (registered == NULL)
-    {
-        free((void *)new_struct.tag);
-        struct_or_union_members_cleanup(&members);
-
+        debug_error("%s: failed to register opaque untagged type", __func__);
         return NULL;
     }
+    existing = add_members_to_incomplete_struct_union(ctx, existing, type_child);
 
-    if (members.num_members == 0)
-    {
-        return registered;
-    }
-
-    struct_field_t * last_field = &members.members[members.num_members - 1];
-    unsigned num_storage_units = last_field->storage_index + 1;
-    LLVMTypeRef * field_types = calloc(num_storage_units, sizeof(*field_types));
-    int current_storage_unit = -1;
-
-    for (size_t i = 0; i < members.num_members; i++)
-    {
-        struct_field_t * field = &members.members[i];
-        if (field->storage_index != (unsigned)current_storage_unit)
-        {
-            current_storage_unit = field->storage_index;
-            field_types[current_storage_unit] = field->type_desc->llvm_type;
-        }
-    }
-
-    LLVMStructSetBody(new_struct.type_desc->llvm_type, field_types, (unsigned)num_storage_units, false);
-    free(field_types);
-
-    struct_or_union_members_cleanup(&members);
-
-    return registered;
+    return existing;
 }
 
 type_info_t const *
@@ -1003,7 +1265,7 @@ register_struct_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * ty
         type_kind_t kind
             = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_UNTAGGED_STRUCT : TYPE_KIND_UNTAGGED_UNION;
 
-        return add_untagged_struct_or_union_type(ctx, type_child, kind);
+        return register_untagged_struct_or_union_definition(ctx, type_child, kind);
     }
 
     type_kind_t kind = (type_child->type == AST_NODE_STRUCT_DEFINITION) ? TYPE_KIND_STRUCT : TYPE_KIND_UNION;
@@ -1801,20 +2063,15 @@ process_declarator(
     TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
     if (type_desc == NULL)
     {
-        debug_warning("%s: Failed to resolve type descriptor", __func__);
+        ir_gen_error(&ctx->errors, decl_specifiers, "Unknown type");
         return;
     }
-    debug_info(
-        "process_declarator got type with qualifiers: const=%d, volatile=%d",
-        type_desc->qualifiers.is_const,
-        type_desc->qualifiers.is_volatile
-    );
 
     // 2. Extract Identifier (Variable Name)
     char const * var_name = search_for_identifier(declarator_node);
     if (var_name == NULL)
     {
-        debug_warning("%s: Failed to find identifier", __func__);
+        ir_gen_error(&ctx->errors, decl_specifiers, "Unspecified dentifier");
         return;
     }
 
@@ -1837,7 +2094,6 @@ process_declarator(
         dump_type_descriptor(var_name, type_desc, DEBUG_LEVEL_ERROR);
         if (!func)
         {
-            debug_info("Adding function declaration: %s", var_name);
             func = LLVMAddFunction(ctx->module, var_name, type_desc->llvm_type);
 
             // Standard C function declarations have "External" linkage by default
@@ -2312,7 +2568,7 @@ process_return_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         {
             // C Rule: returning nothing in a non-void function is usually a warning,
             // but for code generation, we provide a zeroed value of the expected type.
-            debug_warning("Return without value in non-void function.");
+            ir_gen_warning(&ctx->errors, node, "Return without value in non-void function.");
 
             LLVMValueRef zero_const = LLVMConstNull(expected_ret_desc->llvm_type);
             LLVMBuildRet(ctx->builder, zero_const);
@@ -3384,6 +3640,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_PARAMETER_LIST:
     case AST_NODE_ELLIPSIS:
     case AST_NODE_VA_ARG_EXPRESSION:
+    case AST_NODE_TYPEOF_SPECIFIER:
     default:
         print_ast_with_label(node, "unhandled");
         debug_error("%s: Unhandled node", __func__);
@@ -5027,6 +5284,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_PARAMETER_LIST:
     case AST_NODE_ELLIPSIS:
     case AST_NODE_PREPROCESSOR_LINE_MARKER:
+    case AST_NODE_TYPEOF_SPECIFIER:
     default:
         debug_error("%s: Node type: %s is not supported at this level", __func__, get_node_type_name_from_node(node));
         break;

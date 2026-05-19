@@ -1009,7 +1009,7 @@ type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
 {
     if (desc == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
     {
-        debug_warning("%s: Invalid struct descriptor", __func__);
+        debug_error("%s: Invalid struct descriptor", __func__);
         return NULL;
     }
 
@@ -1017,7 +1017,7 @@ type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
 
     if (index < 0 || index >= (int)base->struct_metadata.members.num_members)
     {
-        debug_warning(
+        debug_error(
             "%s: Index out of bounds: %d, masx: %zu", __func__, index, base->struct_metadata.members.num_members
         );
         return NULL;
@@ -1095,7 +1095,6 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
         return 8; // Assuming 64-bit target
 
     case NCC_TYPE_KIND_ARRAY:
-        debug_info("%s array metadata size: %zu", __func__, desc->array_metadata.size);
         return desc->array_metadata.size * get_type_size_desc(data_layout, desc->pointee);
 
     case NCC_TYPE_KIND_BUILTIN: /* Should have been caught by integer and float handling above. */
