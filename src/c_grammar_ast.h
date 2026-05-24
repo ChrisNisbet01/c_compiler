@@ -1,5 +1,6 @@
 #pragma once
 
+#include <easy_pc/easy_pc.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -579,8 +580,7 @@ typedef struct ast_node_typedef_specifier_qualifier_t
 
 typedef struct
 {
-    size_t offset;
-    size_t len;
+    epc_parser_input_view_t view;
 } input_source_data_t;
 
 typedef struct

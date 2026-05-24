@@ -944,7 +944,7 @@ main(int argc, char * argv[])
     {
         epc_parser_error_t * err = session.result.data.error;
         debug_error("Parse Error: %s", err->message);
-        debug_error("At line %zu, col %zu", err->position.line + 1, err->position.col + 1);
+        debug_error("At line %zu, col %zu", err->view.line_number, err->view.column_number);
         debug_error("Expected: %s", err->expected);
         debug_error("Found: %s", err->found);
 
@@ -1003,7 +1003,11 @@ main(int argc, char * argv[])
             source_location_tracker_init(&loc_tracker);
             source_location_tracker_push_include(&loc_tracker, filename, 1);
             /* The line to add a default entry is needed for when preprocessing is skipped. */
-            source_location_tracker_add_entry(&loc_tracker, 0, 2, filename); /* FIXME: Why 2? */
+            epc_parser_input_view_t initial_view = {
+                .line_number = 1,
+                .column_number = 1,
+            };
+            source_location_tracker_add_entry(&loc_tracker, initial_view, 1, filename);
 
             if (!generate_output(ast_root, filename, session.internal_parse_ctx, &loc_tracker))
             {

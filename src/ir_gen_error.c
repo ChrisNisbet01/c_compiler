@@ -68,9 +68,8 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
         return;
     }
     /* Look up the mapping for this preprocessed line */
-
-    source_location_entry_t const * entry
-        = source_location_tracker_find(collection->loc_tracker, node->source_data.offset);
+    epc_parser_input_view_t const * view = &node->source_data.view;
+    source_location_entry_t const * entry = source_location_tracker_find(collection->loc_tracker, view->offset);
 
     if (entry == NULL)
     {
@@ -78,12 +77,11 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
     }
 
     /* Get the preprocessed line and column */
-    epc_line_col_t pp_entry_lc = epc_calculate_line_and_column(collection->parse_ctx, entry->preprocessed_offset);
-    epc_line_col_t pp_lc = epc_calculate_line_and_column(collection->parse_ctx, node->source_data.offset);
+    epc_parser_input_view_t pp_entry_view = entry->preprocessed_view;
     /* Calculate original line: entry's original_line + offset from marker */
-    size_t original_line = entry->original_line + pp_lc.line - pp_entry_lc.line - 1;
+    size_t original_line = entry->original_line + view->line_number - pp_entry_view.line_number - 1;
 
-    fprintf(fp, "%s:%zu:%zu\n", entry->original_filename, original_line, pp_lc.col);
+    fprintf(fp, "%s:%zu:%zu\n", entry->original_filename, original_line, view->column_number);
 
     /* Print "In file included from..." stack */
     source_location_tracker_t * tracker = collection->loc_tracker;
@@ -101,13 +99,13 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
     }
 
     /* Print the line from preprocessed source */
-    char * line_at_offset = epc_get_line_at_offset(collection->parse_ctx, node->source_data.offset);
+    char * line_at_offset = epc_get_line_at_offset(collection->parse_ctx, view->offset);
     if (line_at_offset != NULL)
     {
         fprintf(fp, "%s\n", line_at_offset);
-        fprintf(fp, "%*s^", (int)pp_lc.col - 1, "");
+        fprintf(fp, "%*s^", (int)view->column_number - 1, "");
 
-        size_t len = node->source_data.len;
+        size_t len = view->len;
         size_t line_len = strlen(line_at_offset);
         if (len > line_len)
         {

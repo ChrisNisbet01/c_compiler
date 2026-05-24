@@ -2254,7 +2254,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             if (decl->has_definition)
             {
                 ctx->current_function_return_type = previous_function_return_type;
-                ir_gen_error(&ctx->errors, node, "Function '%s' already has a body.", func_name);
+                ir_gen_error(&ctx->errors, node, "Function '%s' already defined.", func_name);
                 generator_scope_pop(ctx);
                 return;
             }
@@ -2683,7 +2683,7 @@ process_preprocessor_line_marker(ir_generator_ctx_t * ctx, c_grammar_node_t cons
 
     /* 2. Update the tracker with the mapping */
     source_location_tracker_add_entry(
-        ctx->errors.loc_tracker, node->source_data.offset, marker->line_number, marker->filename
+        ctx->errors.loc_tracker, node->source_data.view, marker->line_number, marker->filename
     );
     debug_info("flags count: %zu", marker->flags_count);
     /* 3. Handle include stack based on flags */

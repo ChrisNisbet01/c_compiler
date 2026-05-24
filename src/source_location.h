@@ -1,12 +1,14 @@
 #pragma once
+
+#include <easy_pc/easy_pc.h>
 #include <stddef.h>
 
 /* A single entry in the source location map */
 typedef struct source_location_entry_t
 {
-    size_t preprocessed_offset; /* Offset in preprocessed file (key for lookup) */
-    size_t original_line;       /* Line number in original source file */
-    char * original_filename;   /* Original source filename */
+    epc_parser_input_view_t preprocessed_view; /* Offset in preprocessed file (key for lookup) */
+    size_t original_line;                      /* Line number in original source file */
+    char * original_filename;                  /* Original source filename */
 } source_location_entry_t;
 
 /* Include stack entry for "In file included from..." messages */
@@ -35,7 +37,7 @@ void source_location_tracker_free(source_location_tracker_t * tracker);
 /* Add a mapping entry. Called during the separate AST pass. */
 void source_location_tracker_add_entry(
     source_location_tracker_t * tracker,
-    size_t preprocessed_offset,
+    epc_parser_input_view_t preprocessed_view,
     size_t original_line,
     char const * original_filename
 );

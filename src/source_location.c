@@ -44,7 +44,7 @@ source_location_tracker_free(source_location_tracker_t * tracker)
 void
 source_location_tracker_add_entry(
     source_location_tracker_t * tracker,
-    size_t preprocessed_offset,
+    epc_parser_input_view_t preprocessed_view,
     size_t original_line,
     char const * original_filename
 )
@@ -68,7 +68,7 @@ source_location_tracker_add_entry(
 
     /* Add entry (assume entries are added in increasing order of preprocessed_line) */
     source_location_entry_t * entry = &tracker->entries[tracker->count];
-    entry->preprocessed_offset = preprocessed_offset;
+    entry->preprocessed_view = preprocessed_view;
     entry->original_line = original_line;
     entry->original_filename = strdup(original_filename);
 
@@ -132,7 +132,7 @@ source_location_tracker_find(source_location_tracker_t const * tracker, size_t p
         int mid = lo + (hi - lo) / 2;
         source_location_entry_t const * entry = &tracker->entries[mid];
 
-        if (entry->preprocessed_offset <= preprocessed_offset)
+        if (entry->preprocessed_view.offset <= preprocessed_offset)
         {
             result = entry;
             lo = mid + 1;
