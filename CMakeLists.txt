@@ -63,7 +63,7 @@ if(DEFINED EASY_PC_LOCAL_PATH AND EXISTS ${EASY_PC_LOCAL_PATH})
   add_subdirectory(${EASY_PC_LOCAL_PATH} easy_pc-build)
 else()
   set(EASY_PC_GIT_REPO "git@github.com:ChrisNisbet01/easy_pc.git")
-  set(EASY_PC_REPO_TAG "0.4.2")
+  set(EASY_PC_REPO_TAG "0.5.0")
   message(STATUS "Using github easy_pc repository at: ${EASY_PC_GIT_REPO}:${EASY_PC_REPO_TAG}")
   FetchContent_Declare(
     easy_pc
