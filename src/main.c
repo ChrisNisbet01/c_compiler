@@ -974,10 +974,6 @@ main(int argc, char * argv[])
         if (!ast_result.has_error)
         {
             c_grammar_node_t * ast_root = ast_result.ast_root;
-            if (debug_get_level() >= DEBUG_LEVEL_INFO)
-            {
-                print_ast(ast_root);
-            }
 
             if (emit_ast_flag)
             {
