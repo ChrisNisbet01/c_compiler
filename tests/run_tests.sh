@@ -67,7 +67,7 @@ run_test() {
     NCC_CMD+=("--debug=info")
     NCC_CMD+=("--emit-ast")
     echo "  [NCC] Compiling $c_file -> $ll_file"
-    if ! "${NCC_CMD[@]}" -S --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
+    if ! "${NCC_CMD[@]}" -S --emit-ast --emit-llvm -o "$ll_file" "$c_file" 1> "$out_file" 2> "$err_file"; then
         echo "  ERROR: ncc compilation failed for $c_file. Check $err_file"
         TEST_FAILED=true
         current_test_failed=true
