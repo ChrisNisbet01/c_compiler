@@ -4284,6 +4284,11 @@ process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix,
         // For a large struct, the expression behaves as an LVALUE pointing to our stack buffer
         current_val = create_typed_value(sret_alloca, ret_desc, true);
     }
+    else if (is_void_return(func_desc))
+    {
+        // Do not pass call_val! A void expression has no physical value register.
+        current_val = NullTypedValue;
+    }
     else
     {
         current_val = create_typed_value(call_val, ret_desc, false);
