@@ -74,7 +74,9 @@ extract_node_text(epc_cpt_node_t * node)
 {
     char const * text = epc_cpt_node_get_semantic_content(node);
     size_t text_len = epc_cpt_node_get_semantic_len(node);
-    return strndup(text, text_len);
+    char const * node_text = strndup(text, text_len);
+
+    return node_text;
 }
 
 static void
@@ -125,8 +127,10 @@ handle_list_node(
     c_grammar_node_t * ast_node = create_list_node(type, children, count);
     if (ast_node == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "%s: Memory allocation failed", get_node_type_name_from_type(type));
+        free_ast_node_children(children, count, user_data);
+
+        return NULL;
     }
 
     extract_cpt_input_view(ast_node, node);
@@ -158,8 +162,9 @@ handle_preprocessor_line_marker(
 
     if (count < 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "PreprocessorLineMarker: expected at least 2 children, got %u", count);
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -203,8 +208,9 @@ handle_top_level_declaration(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(ctx, "%s expected 2 children, but got %u\n", count);
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node
@@ -227,10 +233,11 @@ handle_external_declaration(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %d", get_node_type_name_from_type(AST_NODE_EXTERNAL_DECLARATION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t const * child = children[0];
@@ -247,6 +254,7 @@ handle_external_declaration(
             get_node_type_name_from_type(child->type)
         );
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -290,10 +298,11 @@ handle_translation_unit(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %d", get_node_type_name_from_type(AST_NODE_TRANSLATION_UNIT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -314,10 +323,11 @@ handle_function_definition(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 3 children, but got %d", get_node_type_name_from_type(AST_NODE_FUNCTION_DEFINITION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FUNCTION_DEFINITION);
@@ -395,10 +405,11 @@ handle_declaration(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
     /* [ OptionalKwExtension DeclarationSpecifiers OptionalInitDeclaratorList ] */
     if (count != 2 && count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 3 children, but got %d", get_node_type_name_from_type(AST_NODE_DECLARATION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -423,10 +434,11 @@ handle_integer_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** 
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_INTEGER_BASE), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -444,10 +456,11 @@ handle_float_base(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_FLOAT_BASE), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -468,13 +481,14 @@ handle_integer_literal(
     /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 1 or 2 children, but got %u",
             get_node_type_name_from_type(AST_NODE_INTEGER_LITERAL),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = create_terminal_node(ctx, AST_NODE_INTEGER_LITERAL, node);
@@ -520,24 +534,27 @@ handle_float_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
     /* Note that the suffix is optional, so there should be either 1 or 2 child nodes. */
     if (count == 0 || count > 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 or 2 children, but got %u", get_node_type_name_from_type(AST_NODE_FLOAT_LITERAL), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FLOAT_LITERAL);
     if (ast_node == NULL)
     {
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     ast_node->text = extract_node_text(node);
     if (ast_node->text == NULL)
     {
-        c_grammar_node_free(ast_node, user_data);
         epc_ast_builder_set_error(ctx, "%s: Memory allocation failed", get_node_type_name_from_node(ast_node));
+        c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -573,13 +590,14 @@ handle_string_literal_part(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected no children, but got %u",
             get_node_type_name_from_type(AST_NODE_STRING_LITERAL_PART),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -624,11 +642,12 @@ handle_string_literal(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
     char * text = calloc(total_len, sizeof(*ast_node->text));
     if (text == NULL)
     {
-        free_ast_node_children(children, count, user_data);
-        c_grammar_node_free(ast_node, user_data);
         epc_ast_builder_set_error(
             ctx, "%s: Memory allocation failed", get_node_type_name_from_type(AST_NODE_STRING_LITERAL)
         );
+        free_ast_node_children(children, count, user_data);
+        c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -655,10 +674,11 @@ handle_character_literal(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_CHARACTER_LITERAL), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -676,10 +696,11 @@ handle_literal_suffix(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_LITERAL_SUFFIX), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -697,10 +718,11 @@ handle_identifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_IDENTIFIER), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -734,13 +756,14 @@ handle_named_decl_specifiers(
 {
     if (count < 4)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected at least 4 children, but got %d",
             get_node_type_name_from_type(AST_NODE_NAMED_DECL_SPECIFIERS),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -766,7 +789,6 @@ handle_named_decl_specifiers(
     ast_node->decl_specifiers.type_specifiers = children[idx++];
     if (ast_node->decl_specifiers.type_specifiers->type != AST_NODE_TYPE_SPECIFIERS)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected type specifiers node at index %u, but got %s",
@@ -774,6 +796,8 @@ handle_named_decl_specifiers(
             idx - 1,
             get_node_type_name_from_node(ast_node->decl_specifiers.type_specifiers)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -804,13 +828,14 @@ handle_assignment_operator(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected no children, but got %u",
             get_node_type_name_from_type(AST_NODE_ASSIGNMENT_OPERATOR),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -855,23 +880,25 @@ handle_assignment(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 3 children, but got %d", get_node_type_name_from_type(AST_NODE_ASSIGNMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     c_grammar_node_t * op_node = children[1];
     if (op_node->type != AST_NODE_ASSIGNMENT_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected assignment operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_ASSIGNMENT),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -895,10 +922,11 @@ handle_typedef_specifier(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_TYPEDEF_SPECIFIER), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -940,10 +968,11 @@ handle_unary_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_UNARY_OPERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -986,6 +1015,7 @@ handle_unary_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
             ctx, "%s: Unknown operator: %s", get_node_type_name_from_type(AST_NODE_UNARY_OPERATOR), op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -999,13 +1029,14 @@ handle_unary_expression_prefix(
 {
     if (count < 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected at least 2 children, but got %u",
             get_node_type_name_from_type(AST_NODE_UNARY_EXPRESSION_PREFIX),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1013,20 +1044,20 @@ handle_unary_expression_prefix(
     c_grammar_node_t const * op_node = children[0];
     if (op_node->type != AST_NODE_UNARY_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected operator node, but got %s",
             get_node_type_name_from_type(AST_NODE_UNARY_EXPRESSION_PREFIX),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     if (op_node->op.unary.op == UNARY_OP_OFFSETOF)
     {
         if (count != 3)
         {
-            free_ast_node_children(children, count, user_data);
             epc_ast_builder_set_error(
                 ctx,
                 "%s %s expected 3 children, but got %u",
@@ -1034,12 +1065,13 @@ handle_unary_expression_prefix(
                 op_node->text,
                 count
             );
+            free_ast_node_children(children, count, user_data);
+
             return;
         }
     }
     else if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s %s expected 2 children, but got %u",
@@ -1047,6 +1079,8 @@ handle_unary_expression_prefix(
             op_node->text,
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1072,10 +1106,11 @@ handle_declarator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 {
     if (count != 4)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 4 children, but got %u", get_node_type_name_from_type(AST_NODE_DECLARATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1167,13 +1202,14 @@ handle_relational_operator(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected no children, but got %u",
             get_node_type_name_from_type(AST_NODE_RELATIONAL_OPERATOR),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1207,6 +1243,7 @@ handle_relational_operator(
             ctx, "%s: Unknown operator: %s", get_node_type_name_from_type(AST_NODE_RELATIONAL_OPERATOR), op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1220,26 +1257,28 @@ handle_relational_expression(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 children, but got %d",
             get_node_type_name_from_type(AST_NODE_RELATIONAL_EXPRESSION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     c_grammar_node_t * op_node = children[1];
     if (op_node->type != AST_NODE_RELATIONAL_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected relational operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_RELATIONAL_EXPRESSION),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1264,10 +1303,11 @@ handle_equality_operator(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_EQUALITY_OPERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1293,6 +1333,7 @@ handle_equality_operator(
             ctx, "%s, Unknown operator: %s", get_node_type_name_from_type(AST_NODE_EQUALITY_OPERATOR), op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1306,23 +1347,25 @@ handle_equality_expression(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 3 children, but got %d", get_node_type_name_from_type(AST_NODE_EQUALITY_EXPRESSION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     c_grammar_node_t * op_node = children[1];
     if (op_node->type != AST_NODE_EQUALITY_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected equality operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_EQUALITY_EXPRESSION),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1346,10 +1389,11 @@ handle_bitwise_operator(
 {
     if (count != 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_BITWISE_OPERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1379,6 +1423,7 @@ handle_bitwise_operator(
             ctx, "%s, Unknown operator: %s", get_node_type_name_from_type(AST_NODE_BITWISE_OPERATOR), op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1392,10 +1437,11 @@ handle_bitwise_expression(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_BITWISE_EXPRESSION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1403,13 +1449,14 @@ handle_bitwise_expression(
 
     if (op_node->type != AST_NODE_BITWISE_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected bitwise operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_BITWISE_EXPRESSION),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1433,10 +1480,11 @@ handle_logical_operator(
 {
     if (count != 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_LOGICAL_OPERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1462,6 +1510,7 @@ handle_logical_operator(
             ctx, "%s, Unknown operator: %s", get_node_type_name_from_type(AST_NODE_LOGICAL_OPERATOR), op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1475,10 +1524,11 @@ handle_logical_expression(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_LOGICAL_EXPRESSION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1486,13 +1536,14 @@ handle_logical_expression(
 
     if (op_node->type != AST_NODE_LOGICAL_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected bitwise operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_LOGICAL_OPERATOR),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1514,10 +1565,11 @@ handle_shift_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_SHIFT_OPERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1543,6 +1595,7 @@ handle_shift_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
             ctx, "%s: Unknown shift operator: %s", get_node_type_name_from_type(AST_NODE_SHIFT_OPERATOR), op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1556,26 +1609,28 @@ handle_shift_expression(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected exactly 3 children, but got %d",
             get_node_type_name_from_type(AST_NODE_SHIFT_EXPRESSION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     c_grammar_node_t * op_node = children[1];
     if (op_node->type != AST_NODE_SHIFT_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected shift operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_SHIFT_EXPRESSION),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1599,13 +1654,14 @@ handle_arithmetic_operator(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected no children, but got %u",
             get_node_type_name_from_type(AST_NODE_ARITHMETIC_OPERATOR),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1645,6 +1701,7 @@ handle_arithmetic_operator(
             op_text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1658,26 +1715,28 @@ handle_arithmetic_expression(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 children, but got %d",
             get_node_type_name_from_type(AST_NODE_ARITHMETIC_EXPRESSION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     c_grammar_node_t * op_node = (c_grammar_node_t *)children[1];
     if (op_node->type != AST_NODE_ARITHMETIC_OPERATOR)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected arithmetic operator node at index 1, but got %s",
             get_node_type_name_from_type(AST_NODE_ARITHMETIC_EXPRESSION),
             get_node_type_name_from_node(op_node)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1717,10 +1776,11 @@ handle_postfix_operator(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_POSTFIX_OPERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1746,6 +1806,7 @@ handle_postfix_operator(
             ctx, "%s: Unsupported postfix operator: %s", get_node_type_name_from_type(AST_NODE_POSTFIX_OPERATOR), text
         );
         c_grammar_node_free(ast_node, user_data);
+
         return;
     }
 
@@ -1771,10 +1832,11 @@ handle_postfix_expression(
 {
     if (count != 2) /* Expecting [PrimaryExpression Postfix Parts] */
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_POSTFIX_EXPRESSION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1787,12 +1849,14 @@ handle_postfix_expression(
     */
     if (postfix->list.count == 0)
     {
-        c_grammar_node_free((c_grammar_node_t *)postfix, user_data);
         epc_ast_push(ctx, (c_grammar_node_t *)base);
+        c_grammar_node_free((c_grammar_node_t *)postfix, user_data);
+
         return;
     }
 
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_POSTFIX_EXPRESSION);
+
     if (ast_node == NULL)
     {
         return;
@@ -1825,10 +1889,11 @@ handle_member_access_dot(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_MEMBER_ACCESS_DOT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1850,10 +1915,11 @@ handle_member_access_arrow(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_MEMBER_ACCESS_DOT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1875,10 +1941,11 @@ handle_cast_expression(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children but got %u", get_node_type_name_from_type(AST_NODE_CAST_EXPRESSION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1893,6 +1960,7 @@ handle_cast_expression(
             get_node_type_name_from_type(type_name_node->type)
         );
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1919,6 +1987,7 @@ handle_init_declarator(
             ctx, "%s expected 4 or 5 children but got %u", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR), count
         );
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -1955,13 +2024,14 @@ handle_initializer_list_entry(
 {
     if (count < 1 || count > 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 1 or 2 children, but got %u",
             get_node_type_name_from_type(AST_NODE_INITIALIZER_LIST_ENTRY),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2016,10 +2086,11 @@ handle_if_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** 
 {
     if (count < 2 || count > 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 or 3 children, but got %u", get_node_type_name_from_type(AST_NODE_IF_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_IF_STATEMENT);
@@ -2045,10 +2116,11 @@ handle_switch_statement(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_SWITCH_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2071,10 +2143,11 @@ handle_while_statement(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_WHILE_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_WHILE_STATEMENT);
@@ -2096,10 +2169,11 @@ handle_do_while_statement(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_DO_WHILE_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DO_WHILE_STATEMENT);
@@ -2119,10 +2193,11 @@ handle_for_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
 {
     if (count != 3 && count != 4)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 3 or 4 children, but got %d", get_node_type_name_from_type(AST_NODE_FOR_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_FOR_STATEMENT);
@@ -2146,10 +2221,11 @@ handle_labeled_statement(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_LABELED_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2163,6 +2239,7 @@ handle_labeled_statement(
         );
 
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2212,10 +2289,11 @@ handle_switch_case(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** c
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_SWITCH_CASE), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2238,10 +2316,11 @@ handle_default_statement(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %u", get_node_type_name_from_type(AST_NODE_DEFAULT_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_DEFAULT_STATEMENT);
@@ -2275,10 +2354,11 @@ handle_goto_statement(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 child, but got %d", get_node_type_name_from_type(AST_NODE_GOTO_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_GOTO_STATEMENT);
@@ -2299,10 +2379,11 @@ handle_continue_statement(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_CONTINUE_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2322,10 +2403,11 @@ handle_break_statement(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_BREAK_STATEMENT), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2345,13 +2427,14 @@ handle_return_statement(
 {
     if (count > 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 0 or 1 children, but got %d",
             get_node_type_name_from_type(AST_NODE_RETURN_STATEMENT),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_RETURN_STATEMENT);
@@ -2373,10 +2456,11 @@ handle_type_name(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** chi
 {
     if (count != 1 && count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 or 2 children, but got %d", get_node_type_name_from_type(AST_NODE_TYPE_NAME), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2402,13 +2486,14 @@ handle_expression_statement(
 {
     if (count > 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 0 or 1 children, but got %d",
             get_node_type_name_from_type(AST_NODE_EXPRESSION_STATEMENT),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node
@@ -2430,13 +2515,14 @@ handle_struct_declaration(
 {
     if (count < 2 || count > 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 2 or 3 children, but got %u",
             get_node_type_name_from_type(AST_NODE_STRUCT_DECLARATION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2478,13 +2564,14 @@ handle_struct_definition(
 {
     if (count != 3 && count != 4)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 or 4 children, but got %u",
             get_node_type_name_from_type(AST_NODE_STRUCT_DEFINITION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2514,13 +2601,14 @@ handle_union_definition(
 {
     if (count != 3 && count != 4)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 or 4 children, but got %u",
             get_node_type_name_from_type(AST_NODE_UNION_DEFINITION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2550,10 +2638,11 @@ handle_struct_type_ref(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_STRUCT_TYPE_REF), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_STRUCT_TYPE_REF);
@@ -2573,10 +2662,11 @@ handle_union_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_UNION_TYPE_REF), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_UNION_TYPE_REF);
@@ -2596,10 +2686,11 @@ handle_enum_type_ref(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void **
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %d", get_node_type_name_from_type(AST_NODE_ENUM_TYPE_REF), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_ENUM_TYPE_REF);
@@ -2619,10 +2710,11 @@ handle_enumerator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** ch
 {
     if (count != 1 && count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 1 or 2 children, but got %u", get_node_type_name_from_type(AST_NODE_ENUMERATOR), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2648,13 +2740,14 @@ handle_function_pointer_declarator(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 children, but got %u",
             get_node_type_name_from_type(AST_NODE_FUNCTION_POINTER_DECLARATOR),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2693,13 +2786,14 @@ handle_enum_definition(
 {
     if (count != 3 && count != 4)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 or 4 children, but got %u",
             get_node_type_name_from_type(AST_NODE_ENUM_DEFINITION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2747,6 +2841,8 @@ handle_typedef_declaration(
         epc_ast_builder_set_error(
             ctx, "%s expected 3 children, but got %u", get_node_type_name_from_type(AST_NODE_TYPEDEF_DECLARATION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
     c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_TYPEDEF_DECLARATION);
@@ -2776,6 +2872,7 @@ handle_typedef_direct_declarator(
             count
         );
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2812,6 +2909,7 @@ handle_typedef_declarator(
             ctx, "%s expected 4 children but got %u", get_node_type_name_from_type(AST_NODE_TYPEDEF_DECLARATOR), count
         );
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2841,6 +2939,7 @@ handle_typedef_init_declarator(
             ctx, "%s expected 4 or 5 children but got %u", get_node_type_name_from_type(AST_NODE_INIT_DECLARATOR), count
         );
         free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2878,10 +2977,11 @@ handle_ternary_operation(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_TERNARY_OPERATION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2910,13 +3010,14 @@ handle_conditional_expression(
 
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 2 children, but got %u",
             get_node_type_name_from_type(AST_NODE_CONDITIONAL_EXPRESSION),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2940,10 +3041,11 @@ handle_comma_expression(
 {
     if (count == 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected at least 1 child, but got 0", get_node_type_name_from_type(AST_NODE_COMMA_EXPRESSION)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -2983,10 +3085,11 @@ handle_compound_literal(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_COMPOUND_LITERAL), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3038,13 +3141,14 @@ handle_typedef_specifier_qualifier(
 {
     if (count != 3)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected 3 children, but got %u",
             get_node_type_name_from_type(AST_NODE_TYPEDEF_SPECIFIER_QUALIFIER),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3149,13 +3253,14 @@ handle_storage_class_specifier(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx,
             "%s expected no children, but got %u",
             get_node_type_name_from_type(AST_NODE_STORAGE_CLASS_SPECIFIER),
             count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3219,10 +3324,11 @@ handle_function_specifier(
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_FUNCTION_SPECIFIER), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3240,20 +3346,22 @@ handle_type_qualifier(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 {
     if (count > 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_TYPE_QUALIFIER), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
     char const * node_text = extract_node_text(node);
     if (node_text == NULL)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s: Memory allocation failed", get_node_type_name_from_type(AST_NODE_TYPE_QUALIFIER)
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3315,10 +3423,11 @@ handle_ellipsis(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** chil
 {
     if (count > 0)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected no children, but got %u", get_node_type_name_from_type(AST_NODE_ELLIPSIS), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3338,10 +3447,11 @@ handle_va_arg_expression(
 {
     if (count != 2)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s expected 2 children, but got %u", get_node_type_name_from_type(AST_NODE_VA_ARG_EXPRESSION), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
@@ -3364,10 +3474,11 @@ handle_typeof_specifier(
 {
     if (count != 1)
     {
-        free_ast_node_children(children, count, user_data);
         epc_ast_builder_set_error(
             ctx, "%s 1 child, but got %u", get_node_type_name_from_type(AST_NODE_TYPEOF_SPECIFIER), count
         );
+        free_ast_node_children(children, count, user_data);
+
         return;
     }
 
