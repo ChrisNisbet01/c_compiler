@@ -31,7 +31,6 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
     size_t params_list_count = params_list_node->list.count;
     if (params_list_count > 1 && params_list_node->list.children[params_list_count - 1]->type == AST_NODE_ELLIPSIS)
     {
-        debug_info("is variadic function");
         params_list_count--; /* Exclude ellipsis from count */
         params->is_variadic = true;
     }
@@ -43,6 +42,7 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
     {
         debug_error("failed to init param definitions");
         parameter_definitions_cleanup(params);
+
         return false;
     }
 
@@ -52,11 +52,9 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
         c_grammar_node_t const * child = params_list_node->list.children[i];
         if (child->type == AST_NODE_NAMED_DECL_SPECIFIERS)
         {
-            debug_info("got decl specifiers for param %zu", count);
             params->nodes[count].decl_specifiers = child;
             if (i < params_list_count - 1 && params_list_node->list.children[i + 1]->type == AST_NODE_DECLARATOR)
             {
-                debug_info("got declarator for param %zu", count);
                 params->nodes[count].declarator = params_list_node->list.children[i + 1];
             }
             count++;
@@ -71,7 +69,6 @@ parameter_definitions_init(parameter_definitions_t * params, c_grammar_node_t co
 parameter_definitions_t
 extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * params_list)
 {
-    debug_info("%s", __func__);
     parameter_definitions_t params = {0};
 
     if (params_list != NULL && params_list->list.count > 0)
@@ -83,34 +80,21 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
             ir_gen_error(&ctx->errors, params_list, "Memory error");
             return params;
         }
-        debug_info("%s: extracting %zu parameters", __func__, params.count);
+
         for (size_t i = 0; i < params.count; i++)
         {
             c_grammar_node_t const * p_spec = params.nodes[i].decl_specifiers;
             c_grammar_node_t const * p_decl = params.nodes[i].declarator;
-            debug_info(
-                "%s: processing parameter spec %s decl %s",
-                __func__,
-                get_node_type_name_from_node(p_spec),
-                get_node_type_name_from_node(p_decl)
-            );
+
             params.types[i] = resolve_type_descriptor(ctx, p_spec, p_decl);
-            debug_info(
-                "%s: resolved parameter %u type descriptor with LLVM type kind %d",
-                __func__,
-                i,
-                LLVMGetTypeKind(params.types[i]->llvm_type)
-            );
             if (LLVMGetTypeKind(params.types[i]->llvm_type) == LLVMFunctionTypeKind)
             {
-                debug_info("%s: parameter %zu is a function type - converting to pointer type", __func__, i);
                 params.types[i]
                     = get_or_create_pointer_type(ctx->type_descriptors, params.types[i], (TypeQualifier){0});
             }
 
             if (params.types[i]->kind == NCC_TYPE_KIND_ARRAY)
             {
-                debug_info("%s: parameter %zu is an array type - converting to pointer type (decay)", __func__, i);
                 params.types[i]
                     = get_or_create_pointer_type(ctx->type_descriptors, params.types[i]->pointee, (TypeQualifier){0});
             }
@@ -118,7 +102,7 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
             if (p_decl != NULL)
             {
                 c_grammar_node_t const * p_direct = p_decl->declarator.direct_declarator;
-                debug_info("%s: direct declarator node %s", __func__, get_node_type_name_from_node(p_direct));
+
                 if (p_direct != NULL && p_direct->list.count > 0)
                 {
                     c_grammar_node_t const * first_child = p_direct->list.children[0];
@@ -154,7 +138,6 @@ extract_function_parameters(ir_generator_ctx_t * ctx, c_grammar_node_t const * p
 
     if (params.count == 1 && params.types[0]->specifiers.is_void)
     {
-        debug_info("%s: single parameter of type void - treating as no parameters", __func__);
         params.count = 0;
     }
 
@@ -166,17 +149,11 @@ resolve_function_pointer_type(
     ir_generator_ctx_t * ctx, TypeDescriptor const * return_type, c_grammar_node_t const * param_list
 )
 {
-    debug_info(
-        "%s: resolving function pointer type for return type %d and param list %p",
-        __func__,
-        LLVMGetTypeKind(return_type->llvm_type),
-        (void *)param_list
-    );
     parameter_definitions_t params = extract_function_parameters(ctx, param_list);
-
     TypeDescriptor const * res = get_or_create_function_type(
         ctx->type_descriptors, return_type, params.types, params.count, params.is_variadic
     );
+
     parameter_definitions_cleanup(&params);
 
     return res;
@@ -204,7 +181,6 @@ search_for_node_type(c_grammar_node_t const * node, c_grammar_node_type_t type)
 static TypeDescriptor const *
 resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_type, c_grammar_node_t const * suffix)
 {
-    debug_info("%s: resolving array type descriptor for element type %p", __func__, (void *)element_type);
     unsigned long long raw_val = 0;
     c_grammar_node_t const * child = NULL;
 
@@ -221,6 +197,7 @@ resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_ty
     if (child != NULL)
     {
         TypedValue val = process_expression(ctx, child);
+
         if (val.value == NULL)
         {
             debug_error("%s: failed to process expression");
@@ -236,8 +213,8 @@ resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_ty
             debug_error("%s: expression result is not an integer", __func__);
             return NULL;
         }
+
         raw_val = LLVMConstIntGetSExtValue(val.value);
-        debug_info("%s: array size: %llu", __func__, raw_val);
         if (raw_val == 0)
         {
             debug_error("failed to find array size");
@@ -246,8 +223,6 @@ resolve_array_suffix(ir_generator_ctx_t * ctx, TypeDescriptor const * element_ty
     }
 
     TypeDescriptor const * array_type = get_or_create_array_type(ctx->type_descriptors, element_type, raw_val);
-
-    dump_type_descriptor("array", array_type, DEBUG_LEVEL_INFO);
 
     return array_type;
 }
@@ -316,15 +291,8 @@ resolve_type_descriptor(
     ir_generator_ctx_t * ctx, c_grammar_node_t const * decl_specifiers, c_grammar_node_t const * declarator
 )
 {
-    debug_info(
-        "%s: resolving type descriptor for decl_specifiers %s and declarator %s",
-        __func__,
-        decl_specifiers != NULL ? get_node_type_name_from_node(decl_specifiers) : "NULL",
-        declarator != NULL ? get_node_type_name_from_node(declarator) : "NULL"
-    );
     if (decl_specifiers == NULL)
     {
-        debug_info("%s: no decl_specifiers provided, cannot resolve type descriptor", __func__);
         return NULL;
     }
 
@@ -335,7 +303,6 @@ resolve_type_descriptor(
         decl_specifiers = decl_specifiers->typedef_specifier_qualifier.typedef_specifier;
         if (decl_specifiers == NULL)
         {
-            debug_info("%s: no decl_specifiers extracted from TypedefSpecifierQualifier", __func__);
             return NULL;
         }
     }
@@ -350,7 +317,6 @@ resolve_type_descriptor(
                 decl_specifiers = child->typedef_specifier_qualifier.typedef_specifier;
                 if (decl_specifiers == NULL)
                 {
-                    debug_info("%s: no decl_specifiers provided, cannot resolve type descriptor", __func__);
                     return NULL;
                 }
             }
@@ -358,7 +324,6 @@ resolve_type_descriptor(
         else
         {
             type_spec_list = decl_specifiers;
-            debug_info("set type spec list to %s", get_node_type_name_from_node(type_spec_list));
         }
     }
 
@@ -367,7 +332,7 @@ resolve_type_descriptor(
     char const * typedef_name = NULL;
     /* FIXME: only supported by native types right now. */
     TypeQualifier type_quals = build_type_qualifiers_from_parent(decl_specifiers);
-    debug_info("%s: is const: %d, is volatile: %d", __func__, type_quals.is_const, type_quals.is_volatile);
+
     if (decl_specifiers->type == AST_NODE_TYPEDEF_SPECIFIER)
     {
         typedef_name = search_for_identifier(decl_specifiers);
@@ -381,21 +346,8 @@ resolve_type_descriptor(
 
     if (typedef_name != NULL)
     {
-        debug_info("%s: Processing typedef '%s'", __func__, typedef_name);
         /* We should have a typedef of this name already registered. */
         existing_typedef_info = generator_lookup_typedef_entry_by_name(ctx, typedef_name);
-        if (existing_typedef_info != NULL)
-        {
-            debug_info("%s: Found typedef descriptor for '%s'", __func__, typedef_name);
-        }
-        else
-        {
-            debug_info("%s: No typedef descriptor found for '%s'", __func__, typedef_name);
-        }
-    }
-    else
-    {
-        debug_info("%s: No typedef name found", __func__);
     }
 
     if (type_spec_list == NULL && decl_specifiers->type != AST_NODE_TYPEDEF_SPECIFIER)
@@ -416,21 +368,9 @@ resolve_type_descriptor(
             );
             return NULL;
         }
-        else
-        {
-            debug_info(
-                "%s: type specifiers are valid - is_native_type %d, is_struct_or_union_or_enum %d, is_typeof: %d",
-                __func__,
-                validation_result.is_native_type,
-                validation_result.is_struct_or_union_or_enum,
-                validation_result.is_typeof
-            );
-        }
     }
 
     TypeDescriptor const * current = existing_typedef_info != NULL ? existing_typedef_info->type_desc : NULL;
-
-    debug_info("current type descriptor: %p", (void *)current);
 
     if (type_spec_list != NULL && type_spec_list->list.count > 0)
     {
@@ -486,8 +426,6 @@ resolve_type_descriptor(
                     type_kind_t kind = TYPE_KIND_COUNT__;
                     char const * tag = extract_struct_or_union_or_enum_tag(inner, &kind);
 
-                    debug_info("%s: looking up struct/union/enum tag '%s'", __func__, tag);
-
                     if (tag == NULL)
                     {
                         ir_gen_error(&ctx->errors, type_spec_node, "Missing struct/union/enum tag");
@@ -525,7 +463,7 @@ resolve_type_descriptor(
             else
             {
                 ir_gen_error(&ctx->errors, type_spec_list, "Invalid combination of type specifiers in declaration");
-                type_specifier_dump(specs, DEBUG_LEVEL_ERROR);
+
                 return NULL;
             }
         }
@@ -565,7 +503,6 @@ resolve_type_descriptor(
 
     if (current == NULL)
     {
-        debug_info("no type descriptor found, returning NULL");
         return NULL;
     }
 
@@ -573,13 +510,8 @@ resolve_type_descriptor(
 
     if (declarator == NULL)
     {
-        debug_info("%s: no declarator provided, returning type descriptor", __func__);
-
         return current;
     }
-
-    debug_info("after qualification: current type descriptor: %p", (void *)current);
-    debug_info("declarator node: %s", get_node_type_name_from_node(declarator));
 
     c_grammar_node_t const * pointer_list = NULL;
     c_grammar_node_t const * param_list = NULL;
@@ -623,8 +555,6 @@ resolve_type_descriptor(
         return NULL;
     }
 
-    debug_info("1");
-
     bool is_function = param_list != NULL;
 
     /*
@@ -648,13 +578,10 @@ resolve_type_descriptor(
             }
         }
     }
-    debug_info("2");
 
     if (is_function)
     {
-        debug_info("3");
         current = resolve_function_pointer_type(ctx, current, param_list);
-        dump_type_descriptor("function pointer", current, DEBUG_LEVEL_INFO);
 
         /*
          * Apply deferred pointers from TYPEDEF_DECLARATOR.
@@ -684,17 +611,15 @@ resolve_type_descriptor(
         {
             c_grammar_node_t const * id_node = func_pointer_declarator->function_pointer_declarator.identifier;
             char const * id = id_node->text;
+
             if (id == NULL)
             {
                 debug_error("function pointer declarator has no identifier");
                 return NULL;
             }
-            debug_info("function pointer ID: %s", id);
+
             c_grammar_node_t const * fp_suffix_list
                 = func_pointer_declarator->function_pointer_declarator.declarator_suffix_list;
-            debug_info(
-                "%s: found function pointer declarator, have %d array suffixes", __func__, fp_suffix_list->list.count
-            );
 
             if (current != NULL)
             {
@@ -712,12 +637,10 @@ resolve_type_descriptor(
                 debug_error("failed to resolve function pointer type");
                 return NULL;
             }
-            dump_type_descriptor(id, current, DEBUG_LEVEL_INFO);
         }
     }
     else if (suffix_list != NULL)
     {
-        debug_info("4");
         for (size_t i = suffix_list->list.count; i > 0; i--)
         {
             c_grammar_node_t const * suffix = suffix_list->list.children[i - 1];
@@ -731,6 +654,6 @@ resolve_type_descriptor(
             }
         }
     }
-    debug_info("%s out: current %p", __func__, current);
+
     return current;
 }

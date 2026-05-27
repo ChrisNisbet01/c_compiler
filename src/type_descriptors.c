@@ -69,17 +69,12 @@ get_fp_width(LLVMTypeRef type)
 static TypeDescriptor *
 register_descriptor(TypeDescriptors * registry, TypeDescriptor const * template)
 {
-    debug_info("%s: Registering new descriptor kind %d", __func__, template->kind);
-    dump_type_descriptor(__func__, template, DEBUG_LEVEL_INFO);
-
     TypeDescriptor_private * node = malloc(sizeof(*node));
-    node->public = *template;
-    debug_info("%s: new node %p", __func__, (void *)&node->public);
-    dump_type_descriptor(__func__, &node->public, DEBUG_LEVEL_INFO);
 
-    type_specifier_dump(node->public.specifiers, DEBUG_LEVEL_INFO);
+    node->public = *template;
 
     LLVMTypeKind llvm_kind = LLVMGetTypeKind(node->public.llvm_type);
+
     if (llvm_kind == LLVMIntegerTypeKind)
     {
         node->public.integer_metadata.width = LLVMGetIntTypeWidth(node->public.llvm_type);
@@ -154,7 +149,6 @@ get_or_create_array_type(TypeDescriptors * registry, TypeDescriptor const * elem
 TypeDescriptor const *
 get_or_create_pointer_type(TypeDescriptors * registry, TypeDescriptor const * pointee, TypeQualifier qualifiers)
 {
-    debug_info("%s", __func__);
     // Search for existing pointer to this EXACT pointee with these qualifiers
     TypeDescriptor_private * curr = registry->head;
     while (curr)
@@ -202,13 +196,6 @@ get_or_create_qualified_type(
     {
         return NULL;
     }
-    debug_info(
-        "%s: base: %p, is_const: %d, is_volatile: %d",
-        __func__,
-        (void *)base_type,
-        qualifiers.is_const,
-        qualifiers.is_volatile
-    );
 
     if (!qualifiers.is_const && !qualifiers.is_volatile)
     {
@@ -222,25 +209,18 @@ get_or_create_qualified_type(
 
         if (curr_base == base_type && qualifiers_match(&curr->public.qualifiers, &qualifiers))
         {
-            debug_info(
-                "%s: existing (%p) curr base num_members: %zu",
-                __func__,
-                (void *)&curr->public,
-                curr_base->struct_metadata.members.num_members
-            );
             return &curr->public;
         }
         curr = curr->next;
     }
-    debug_info("%s: base num_members: %zu", __func__, base_type->struct_metadata.members.num_members);
+
     TypeDescriptor template = *base_type;
+
     template.base = base_type;
     template.qualifiers.is_const |= qualifiers.is_const;
     template.qualifiers.is_volatile |= qualifiers.is_volatile;
 
     TypeDescriptor const * new_desc = register_descriptor(registry, &template);
-
-    debug_info("%s: new num_members: %zu", __func__, base_type->struct_metadata.members.num_members);
 
     return new_desc;
 }
@@ -307,12 +287,10 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
 {
     TypeSpecifier specs = specs_in;
 
-    debug_info("%s", __func__);
     TypeDescriptor_private * curr = registry->head;
 
     if (memcmp(&specs, &(TypeSpecifier){0}, sizeof(specs)) == 0)
     {
-        debug_info("%s: No specifiers provided. Defaulting to int", __func__);
         specs.is_int = true;
     }
 
@@ -342,7 +320,6 @@ get_or_create_builtin_type(TypeDescriptors * registry, TypeSpecifier const specs
 static void
 calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const desc)
 {
-    debug_info("%s: kind=%d", __func__, desc->kind);
     if (desc == NULL || (desc->kind != NCC_TYPE_KIND_STRUCT && desc->kind != NCC_TYPE_KIND_UNION))
     {
         debug_error("%s: bad type descriptor");
@@ -352,18 +329,14 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
     uint32_t max_align = 1;
     size_t member_count = desc->struct_metadata.members.num_members;
 
-    debug_info("%s: member_count=%zu", __func__, member_count);
-
     if (member_count == 0)
     {
-        debug_info("%s: no members, returning early", __func__);
         return;
     }
 
     // First pass: find max size and max alignment per storage_index
     // (needed for flattened unions where multiple members share a storage_index)
     unsigned num_storage_indices = desc->struct_metadata.members.members[member_count - 1].storage_index + 1;
-    debug_info("%s: num_storage_indices=%u", __func__, num_storage_indices);
     uint64_t * max_sizes = calloc(num_storage_indices, sizeof(*max_sizes));
     uint32_t * max_aligns = calloc(num_storage_indices, sizeof(*max_aligns));
 
@@ -375,16 +348,6 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
         uint64_t mem_size = get_type_size_desc(data_layout, mem_desc);
         uint32_t mem_align = get_type_alignment_desc(data_layout, mem_desc);
-
-        debug_info(
-            "%s: member %zu: name='%s', storage_index=%u, mem_size=%llu, mem_align=%u",
-            __func__,
-            i,
-            current_member->name ? current_member->name : "(null)",
-            sidx,
-            mem_size,
-            mem_align
-        );
 
         if (mem_size > max_sizes[sidx])
         {
@@ -399,8 +362,6 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
             max_align = mem_align;
         }
     }
-
-    debug_info("%s: after first pass, max_align=%u", __func__, max_align);
 
     // Second pass: compute offsets and total size
     unsigned current_sidx = desc->struct_metadata.members.members[0].storage_index;
@@ -434,15 +395,6 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
             // Set the offset for this member (all union members share same offset)
             desc->struct_metadata.members.members[i].bitfield.offset = current_offset;
-            debug_info(
-                "member: %s: idx, %zu offset: %llu size: %llu align: %u storage idx: %u",
-                current_member->name,
-                i,
-                current_offset,
-                get_type_size_desc(data_layout, mem_desc),
-                get_type_alignment_desc(data_layout, mem_desc),
-                sidx
-            );
         }
         else
         {
@@ -472,17 +424,10 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
         {
             uint64_t llvm_size = LLVMABISizeOfType(data_layout, desc->llvm_type);
             uint32_t llvm_align = LLVMABIAlignmentOfType(data_layout, desc->llvm_type);
-            debug_info(
-                "%s: union LLVM size=%llu, ABI alignment: %u, current max_align: %u",
-                __func__,
-                llvm_size,
-                llvm_align,
-                max_align
-            );
+
             if (llvm_align > max_align)
             {
                 max_align = llvm_align;
-                debug_info("%s: updated max_align to LLVM alignment: %u", __func__, max_align);
             }
         }
     }
@@ -492,17 +437,10 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
 
     // 4. Final Tail Padding
     // The total size must be a multiple of the largest alignment found
-    debug_info("%s: current_offset=%llu, max_align=%u, kind=%d", __func__, current_offset, max_align, desc->kind);
     uint64_t tail_padding = (max_align - (current_offset % max_align)) % max_align;
-    debug_info("%s: tail_padding=%llu", __func__, tail_padding);
+
     desc->struct_metadata.total_size = current_offset + tail_padding;
     desc->struct_metadata.alignment = max_align;
-    debug_info(
-        "%s: FINAL total size: %llu, alignment: %u",
-        __func__,
-        desc->struct_metadata.total_size,
-        desc->struct_metadata.alignment
-    );
 }
 
 TypeDescriptor const *
@@ -839,33 +777,18 @@ get_or_create_function_type(
             }
         }
     }
-    debug_info(
-        "%s: creating function type for return type %d with %zu LLVM params (was %zu C params), is variadic: %d, "
-        "is_large_return type: %d",
-        __func__,
-        LLVMGetTypeKind(ret_type->llvm_type),
-        total_coerced,
-        param_count,
-        is_variadic,
-        is_large_struct_ret
-    );
 
     LLVMTypeRef ret_type_final = ret_type->llvm_type;
+
     if (is_large_struct_ret)
     {
         ret_type_final = type_descriptor_get_void_type(registry)->llvm_type;
     }
 
     template.llvm_type = LLVMFunctionType(ret_type_final, llvm_params, (unsigned)llvm_param_count, is_variadic);
-    debug_info(
-        "%s: created function type %d for return type %d with %zu LLVM params",
-        __func__,
-        LLVMGetTypeKind(template.llvm_type),
-        LLVMGetTypeKind(ret_type->llvm_type),
-        llvm_param_count
-    );
 
     free(llvm_params);
+
     return register_descriptor(registry, &template);
 }
 
@@ -873,20 +796,18 @@ get_or_create_function_type(
 TypeDescriptor const *
 get_type_descriptor_from_specifiers(TypeDescriptors * registry, TypeSpecifier const specs, TypeQualifier const quals)
 {
-    debug_info("%s", __func__);
-    type_specifier_dump(specs, DEBUG_LEVEL_INFO);
-
     TypeDescriptor_private * curr = registry->head;
+
     while (curr)
     {
         if (curr->public.kind == NCC_TYPE_KIND_BUILTIN && specifiers_match(&curr->public.specifiers, &specs)
             && qualifiers_match(&curr->public.qualifiers, &quals))
         {
-            debug_info("%s: found: %p", __func__, (void *)&curr->public);
             return &curr->public;
         }
         curr = curr->next;
     }
+
     return NULL;
 }
 
@@ -972,16 +893,13 @@ type_descriptor_get_void_type(TypeDescriptors * registry)
 static int
 type_descriptor_find_struct_field_index_from_base_desc(TypeDescriptor const * base, char const * name)
 {
-    debug_info("%s: base desc: %p num_members: %zu", __func__, base, base->struct_metadata.members.num_members);
     // Access the members list in your metadata structure
     for (size_t i = 0; i < base->struct_metadata.members.num_members; ++i)
     {
         char const * member_name = base->struct_metadata.members.members[i].name;
-        debug_info("check member: %s", member_name);
+
         if (member_name != NULL && strcmp(member_name, name) == 0)
         {
-            debug_info("%s: got member %s at index %zu", __func__, name, i);
-            dump_type_descriptor(name, base, DEBUG_LEVEL_INFO);
             return (int)i;
         }
     }
@@ -1051,7 +969,6 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
 {
     TypeDescriptor const * desc = type_descriptor_base(desc_in);
 
-    debug_info("%s, desc: %p", __func__, desc);
     if (desc == NULL)
     {
         return 0;
@@ -1061,7 +978,6 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
 
     if (llvm_kind == LLVMVoidTypeKind || desc->specifiers.is_void)
     {
-        debug_info("is void");
         return 0;
     }
 
@@ -1103,9 +1019,6 @@ get_type_size_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * desc_in
 
     case NCC_TYPE_KIND_UNION:
     case NCC_TYPE_KIND_STRUCT:
-        debug_info(
-            "%s: struct/union total_size=%llu for desc kind=%d", __func__, desc->struct_metadata.total_size, desc->kind
-        );
         return desc->struct_metadata.total_size;
 
     default:
@@ -1196,32 +1109,19 @@ get_type_alignment_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * de
     case NCC_TYPE_KIND_STRUCT:
     case NCC_TYPE_KIND_UNION:
     {
-        debug_info(
-            "%s: computing alignment for kind=%d, num_members=%zu",
-            __func__,
-            desc->kind,
-            desc->struct_metadata.members.num_members
-        );
         // Struct/Union alignment is the maximum alignment of any member
         uint32_t max_align = 1;
         for (size_t i = 0; i < desc->struct_metadata.members.num_members; ++i)
         {
             TypeDescriptor const * member_desc = desc->struct_metadata.members.members[i].type_desc;
             uint32_t member_align = get_type_alignment_desc(data_layout, member_desc);
-            debug_info(
-                "%s: member %zu: name='%s', align=%u",
-                __func__,
-                i,
-                desc->struct_metadata.members.members[i].name ? desc->struct_metadata.members.members[i].name
-                                                              : "(null)",
-                member_align
-            );
+
             if (member_align > max_align)
             {
                 max_align = member_align;
             }
         }
-        debug_info("%s: returning alignment %u for kind=%d", __func__, max_align, desc->kind);
+
         return max_align;
     }
 
@@ -1236,40 +1136,10 @@ get_type_alignment_desc(LLVMTargetDataRef data_layout, TypeDescriptor const * de
 }
 
 void
-dump_type_descriptor(char const * name, TypeDescriptor const * desc, debug_level_t level)
-{
-    if (desc == NULL)
-    {
-        return;
-    }
-
-    if (!debug_is_enabled(level))
-    {
-        return;
-    }
-
-    fprintf(
-        stderr,
-        "TypeDescriptor: '%s', (%p), base: (%p), kind=%d, llvm_type_kind=%d, pointee (%p) kind: %d\n",
-        name,
-        (void *)desc,
-        (void *)type_descriptor_base(desc),
-        desc->kind,
-        desc->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->llvm_type) : -1,
-        (void *)desc->pointee,
-        desc->pointee != NULL && desc->pointee->llvm_type != NULL ? (int)LLVMGetTypeKind(desc->pointee->llvm_type) : -1
-    );
-
-    type_specifier_dump(desc->specifiers, level);
-    type_qualifiers_dump(desc->qualifiers, level);
-}
-
-void
 type_descriptor_complete_struct(
     TypeDescriptors * registry, TypeDescriptor const * type_desc_in, struct_or_union_members_st const * members
 )
 {
-    debug_info("%s: type desc %p", __func__, type_desc_in);
     if (type_desc_in == NULL
         || (type_desc_in->kind != NCC_TYPE_KIND_STRUCT && type_desc_in->kind != NCC_TYPE_KIND_UNION))
     {

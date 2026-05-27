@@ -150,8 +150,7 @@ TypedValue ensure_rvalue(ir_generator_ctx_t * ctx, char const * label, TypedValu
 TypedValue ensure_lvalue(ir_generator_ctx_t * ctx, char const * name, TypedValue val);
 
 // Forward declaration for process_expression
-TypedValue _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line);
-#define process_expression(c, n) _process_expression_impl((c), (n), __LINE__)
+TypedValue process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
 // Forward declarations for functions used in unary_operations.c
 TypeDescriptor const * get_type_descriptor_from_type_name(ir_generator_ctx_t * ctx, c_grammar_node_t const * type_name);

@@ -14,5 +14,3 @@ typedef struct
 TypeQualifier build_type_qualifiers(c_grammar_node_t const * qual_list);
 
 TypeQualifier build_type_qualifiers_from_parent(c_grammar_node_t const * parent);
-
-void type_qualifiers_dump(TypeQualifier quals, debug_level_t level);

@@ -3,17 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-void
-type_qualifiers_dump(TypeQualifier quals, debug_level_t level)
-{
-    if (!debug_is_enabled(level))
-    {
-        return;
-    }
-
-    fprintf(stderr, "Qualifiers:\n\tconst: %d\n\tvolatile: %d\n", quals.is_const, quals.is_volatile);
-}
-
 static TypeQualifier
 append_type_qualifiers(c_grammar_node_t const * qual_list, TypeQualifier quals)
 {

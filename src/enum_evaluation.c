@@ -10,17 +10,8 @@ evaluate_enum_value_assignment_expression(
 {
     if (value_node == NULL)
     {
-        debug_info("%s: value_node is NULL", __func__);
         return current_value;
     }
-
-    debug_info(
-        "%s: node type: %s (%d), current value: %d",
-        __func__,
-        get_node_type_name_from_node(value_node),
-        value_node->type,
-        current_value
-    );
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wswitch-enum"
@@ -228,10 +219,7 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
         return false;
     }
 
-    debug_info("%s: node type: %s (%d)", __func__, get_node_type_name_from_node(enum_node), enum_node->type);
-
     c_grammar_node_t const * enumerator_list = enum_node->enum_definition.enumerator_list;
-
     int current_value = 0;
 
     for (size_t i = 0; i < enumerator_list->list.count; ++i)
@@ -251,22 +239,13 @@ register_enum_constants(ir_generator_ctx_t * ctx, c_grammar_node_t const * enum_
             TypeDescriptor const * enum_type = get_or_create_builtin_type(
                 ctx->type_descriptors, (TypeSpecifier){.is_int = true}, (TypeQualifier){.is_const = true}
             );
-
-            debug_info(
-                "%s: registering: %s value: %d has expression: %d",
-                __func__,
-                enum_name,
-                current_value,
-                value_node != NULL
-            );
-
             LLVMValueRef const_val = LLVMConstInt(enum_type->llvm_type, current_value, true);
             LLVMValueRef global = LLVMAddGlobal(ctx->module, enum_type->llvm_type, enum_name);
             LLVMSetInitializer(global, const_val);
             LLVMSetGlobalConstant(global, true);
             LLVMSetLinkage(global, LLVMInternalLinkage);
-
             TypedValue val = create_typed_value(global, enum_type, false);
+
             generator_add_symbol(ctx, enum_name, val);
 
             current_value++;

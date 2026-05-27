@@ -27,8 +27,6 @@ typedef struct
     bool is_typeof;
 } TypeSpecifierValidationResult;
 
-void type_specifier_dump(TypeSpecifier spec, debug_level_t level);
-
 bool type_specifier_is_valid(TypeSpecifier const spec);
 
 TypeSpecifier build_type_specifiers(c_grammar_node_t const * spec_list);

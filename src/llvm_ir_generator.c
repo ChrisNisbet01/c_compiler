@@ -52,14 +52,12 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
     {
         return NULL;
     }
-    debug_info("%s: %s", __func__, name);
 
     for (size_t i = 0; i < ctx->function_declarations.count; ++i)
     {
         struct function_decl_entry * entry = &ctx->function_declarations.entries[i];
         if (entry->name != NULL && strcmp(entry->name, name) == 0)
         {
-            debug_info("found");
             LLVMValueRef func = LLVMGetNamedFunction(ctx->module, name);
             if (entry->func.value == NULL)
             {
@@ -70,7 +68,6 @@ find_function_declaration(ir_generator_ctx_t * ctx, char const * name)
         }
     }
 
-    debug_info("not found");
     return NULL;
 }
 
@@ -84,9 +81,6 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
         return false;
     }
 
-    debug_info("%s: name='%s' has_definition=%d", __func__, name, has_definition);
-    dump_typed_value("func", func);
-
     // Check if function already exists
     struct function_decl_entry * existing = find_function_declaration(ctx, name);
 
@@ -97,14 +91,12 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
                 existing->func.type_info->pointee->llvm_type, func.type_info->pointee->llvm_type
             ))
         {
-            debug_warning("function signature mismatch");
             return true; // Conflict detected
         }
 
         // Check for redefinition
         if (existing->has_definition && has_definition)
         {
-            debug_warning("function redefinition");
             return true; // Redefinition detected
         }
 
@@ -135,8 +127,6 @@ add_function_declaration(ir_generator_ctx_t * ctx, char const * name, TypedValue
     ctx->function_declarations.entries[ctx->function_declarations.count].func = func;
     ctx->function_declarations.entries[ctx->function_declarations.count].has_definition = has_definition;
     ctx->function_declarations.count++;
-
-    debug_info("added function: %s, count now: %zu", name, ctx->function_declarations.count);
 
     return false;
 }
@@ -865,7 +855,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     {
                         if (previous_member == NULL)
                         {
-                            debug_info("1");
                             new_member.storage_index = 0;
                         }
                         else if (m > 0 && nested_type->kind == NCC_TYPE_KIND_UNION)
@@ -931,24 +920,24 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                         }
                     }
                 }
+
                 c_grammar_node_t * width_node = decl->list.children[width_idx];
+
                 if (width_node->type == AST_NODE_INTEGER_LITERAL)
                 {
                     new_member.bitfield.bit_width = (unsigned)width_node->integer_lit.integer_literal.value;
                 }
 
-                debug_info("resolving member: %s", new_member.name);
                 new_member.type_desc = resolve_type_descriptor(ctx, type_spec, NULL);
                 if (new_member.type_desc == NULL)
                 {
-                    debug_info("%s failed to get type descriptor", __func__);
                     free(new_member.name);
                     continue;
                 }
-                debug_info("resolved: %p", new_member.type_desc);
 
                 unsigned type_bits;
                 struct_field_t * previous_member = NULL;
+
                 if (num_members > 0)
                 {
                     previous_member = &members[num_members - 1];
@@ -958,7 +947,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     type_bits = LLVMGetIntTypeWidth(new_member.type_desc->llvm_type);
                 }
-                debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 1", new_member.name);
 
                 if (previous_member == NULL || (strlen(new_member.name) > 0 && new_member.bitfield.bit_width == 0)
                     || (strlen(previous_member->name) == 0 && previous_member->bitfield.bit_width == 0)
@@ -976,24 +964,12 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                     new_member.bitfield.bit_offset
                         = previous_member->bitfield.bit_offset + previous_member->bitfield.bit_width;
                 }
-                debug_info("adding member: %s %p at index: %u", new_member.name, new_member.name, num_members);
                 members[num_members] = new_member;
                 num_members++;
             }
             else if (decl->type == AST_NODE_DECLARATOR)
             {
-                debug_info("resolving declarator");
                 new_member.type_desc = resolve_type_descriptor(ctx, type_spec, decl);
-                debug_info("resolved: %p", new_member.type_desc);
-                if (new_member.type_desc != NULL)
-                {
-                    debug_info(
-                        "%s: llvm_type %p, kind %d",
-                        __func__,
-                        (void *)new_member.type_desc->llvm_type,
-                        LLVMGetTypeKind(new_member.type_desc->llvm_type)
-                    );
-                }
 
                 if (new_member.type_desc == NULL)
                 {
@@ -1013,17 +989,13 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     continue;
                 }
-                debug_info("CALCULATING_STORAGE_INDEX for %s AT POINT 2", new_member.name);
+
                 struct_field_t * previous_member = NULL;
+
                 if (num_members > 0)
                 {
                     previous_member = &members[num_members - 1];
                 }
-                /*
-                    FIXME: This doesn't work with unions, but if it's changed to set storage offset to zero for
-                    union members then the self-built compiler crashes.
-                    WIP.
-                */
                 if (previous_member == NULL || type_child->type == AST_NODE_UNION_DEFINITION)
                 {
                     new_member.storage_index = 0;
@@ -1032,13 +1004,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 {
                     new_member.storage_index = previous_member->storage_index + 1;
                 }
-                debug_info(
-                    "adding member: %s %p at index: %u storage_index: %u",
-                    new_member.name,
-                    new_member.name,
-                    num_members,
-                    new_member.storage_index
-                );
                 members[num_members] = new_member;
                 num_members++;
             }
@@ -1048,7 +1013,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
     object_members.members = members;
     object_members.num_members = num_members;
 
-    debug_info("%s: got %zu members", __func__, object_members.num_members);
     if (debug_get_level() >= DEBUG_LEVEL_INFO)
     {
         for (size_t i = 0; i < object_members.num_members; i++)
@@ -1182,7 +1146,6 @@ register_tagged_struct_or_union_definition(
     TypeQualifier quals
 )
 {
-    debug_info("%s: tag %s", __func__, tag);
     if (ctx == NULL || tag == NULL)
     {
         return NULL;
@@ -1202,7 +1165,6 @@ register_tagged_struct_or_union_definition(
 
     if (!existing->type_desc->struct_metadata.is_complete)
     {
-        debug_info("%s: update existing", __func__);
         existing = add_members_to_incomplete_struct_union(ctx, existing, type_child);
 
         return existing;
@@ -1221,9 +1183,8 @@ register_untagged_struct_or_union_definition(
     {
         return NULL;
     }
-    debug_info("%s: untagged", __func__);
-    char const * tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
 
+    char const * tag = generate_anon_name(ctx, (kind == TYPE_KIND_UNTAGGED_STRUCT) ? "struct" : "union");
     type_info_t const * existing = register_incomplete_struct_or_union_definition(ctx, tag, (TypeQualifier){0}, kind);
 
     if (existing == NULL)
@@ -1443,7 +1404,6 @@ ir_generator_init(
                 // Fallback to default x86_64 stack alignment
                 ctx->stack_alignment = 16;
             }
-            debug_info("Stack alignment: %u", ctx->stack_alignment);
 
             LLVMDisposeMessage(layout_str);
             LLVMDisposeTargetMachine(target_machine);
@@ -1458,7 +1418,6 @@ ir_generator_init(
         LLVMDisposeMessage((char *)triple_to_free);
     }
 
-    debug_info("creating top level scope");
     // Initialize with global scope
     ctx->current_scope = generator_scope_create(ctx); // NULL parent = global scope
     if (!ctx->current_scope)
@@ -1467,7 +1426,7 @@ ir_generator_init(
         ir_generator_dispose(ctx);
         return NULL;
     }
-    debug_info("adding builtins");
+
     // Add built-in macro __FILE__ as a string constant in the global scope
     {
         char const * file_name = module_name ? module_name : "";
@@ -1484,16 +1443,16 @@ ir_generator_init(
         LLVMValueRef ptr = LLVMConstInBoundsGEP2(arr_type, global, indices, 2);
 
         TypeDescriptor const * char_desc = type_descriptor_get_int8_type(ctx->type_descriptors, true);
-        debug_info("char desc: %p", (void *)char_desc);
+
         if (char_desc == NULL)
         {
             debug_error("failed to create char desc");
+            return NULL;
         }
         TypeDescriptor const * arr_desc = get_or_create_array_type(ctx->type_descriptors, char_desc, len + 1);
         TypedValue val = create_typed_value(ptr, arr_desc, false);
         generator_add_symbol(ctx, "__FILE__", val);
     }
-    debug_info("added __FILE__: %s", module_name);
 
     /* Create va_list for x86_64 System V ABI. */
     {
@@ -1527,12 +1486,6 @@ ir_generator_init(
         TypeDescriptor const * va_list_tag_desc
             = register_struct_type(ctx->type_descriptors, va_list_tag_type, (TypeQualifier){0}, false, true, &members);
 
-        debug_info(
-            "va_list_tag registered: size=%lu, align=%u",
-            (unsigned long)va_list_tag_desc->struct_metadata.total_size,
-            va_list_tag_desc->struct_metadata.alignment
-        );
-
         // Create [1 x struct.__va_list_tag] array type (va_list is typedef'd as array of 1)
         TypeDescriptor const * va_list_array_desc
             = get_or_create_array_type(ctx->type_descriptors, va_list_tag_desc, 1);
@@ -1562,7 +1515,7 @@ ir_generator_init(
             }
         }
     }
-    debug_info("done builtins");
+
     if (ctx->generation_flags.generate_default_variables)
     {
         /* Create a replacement for NULL, which won't be available if not preprocessing. */
@@ -1964,8 +1917,6 @@ create_global_variable(
     c_grammar_node_t const * initializer_expr_node
 )
 {
-    debug_info("Creating global for variable '%s'", var_name);
-
     LLVMValueRef global_var = NULL;
     TypeDescriptor const * final_desc = type_desc;
 
@@ -2040,8 +1991,6 @@ process_declarator(
     c_grammar_node_t const * declarator_node
 )
 {
-    debug_info("%s", __func__);
-
     // 1. Resolve the TypeDescriptor immediately.
     // This handles pointers, arrays, functions, and typedefs in one go.
     TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers, declarator_node);
@@ -2075,7 +2024,7 @@ process_declarator(
     {
         // Check if the function is already in the LLVM module
         LLVMValueRef func = LLVMGetNamedFunction(ctx->module, var_name);
-        dump_type_descriptor(var_name, type_desc, DEBUG_LEVEL_ERROR);
+
         if (!func)
         {
             func = LLVMAddFunction(ctx->module, var_name, type_desc->llvm_type);
@@ -2132,7 +2081,6 @@ process_declarator(
     }
 
     // 4. Local Storage (Stack)
-    debug_info("Allocating local variable '%s'", var_name);
     LLVMValueRef alloca_inst = LLVMBuildAlloca(ctx->builder, type_desc->llvm_type, var_name);
 
     // Set alignment based on type kind:
@@ -2143,7 +2091,7 @@ process_declarator(
     {
         // Use the struct's calculated alignment from calculate_composite_size()
         uint32_t align = type_desc->struct_metadata.alignment;
-        debug_info("Setting struct alloca alignment to %u for var '%s'", align, var_name);
+
         LLVMSetAlignment(alloca_inst, align);
     }
     else if (type_desc->kind == NCC_TYPE_KIND_ARRAY && type_desc->pointee != NULL)
@@ -2152,13 +2100,7 @@ process_declarator(
         // Clang uses stack alignment (e.g., 16 on x86_64) for stack arrays
         uint32_t elem_align = get_type_alignment_desc(ctx->data_layout, type_desc->pointee);
         uint32_t align = (elem_align > ctx->stack_alignment) ? elem_align : ctx->stack_alignment;
-        debug_info(
-            "Setting array alloca alignment to %u for var '%s' (elem=%u, stack=%u)",
-            align,
-            var_name,
-            elem_align,
-            ctx->stack_alignment
-        );
+
         LLVMSetAlignment(alloca_inst, align);
     }
 
@@ -2212,7 +2154,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     TypeDescriptor const * type_desc = resolve_type_descriptor(ctx, decl_specifiers_node, declarator_node);
     if (type_desc == NULL)
     {
-        debug_info("%s: failed to get type desc for function definition", __func__);
+        /* Shouldn't this be a compile error? */
         return;
     }
 
@@ -2308,11 +2250,7 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     }
     else
     {
-        debug_info(
-            "Adding new function '%s' to module type signature: %d", func_name, LLVMGetTypeKind(type_desc->llvm_type)
-        );
         func = LLVMAddFunction(ctx->module, func_name, type_desc->llvm_type);
-        debug_info("Added function");
     }
 
     bool is_static = false;
@@ -2365,15 +2303,13 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         // 1. Create the attribute
         unsigned int kind = LLVMGetEnumAttributeKindForName("inlinehint", 10);
         LLVMAttributeRef attr = LLVMCreateEnumAttribute(ctx->context, kind, 0);
-        debug_info("LLVMAttributeFunctionIndex: %d", LLVMAttributeFunctionIndex);
         // 2. Add it to the FUNCTION index, not the parameter index
         LLVMAddAttributeAtIndex(func, LLVMAttributeFunctionIndex, attr);
     }
 
     // --- Handle function parameters: allocate space and store arguments ---
-    debug_info("Processing %u function parameters for '%s'", type_desc->function_metadata.param_count, func_name);
-
     c_grammar_node_t const * param_list = search_parameters_list_in_declarator(declarator_node);
+
     if (param_list == NULL)
     {
         debug_error("failed to find_parameter list");
@@ -2387,8 +2323,6 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
     {
         char const * p_name = params.names[i];
         TypeDescriptor const * p_type_desc = params.types[i];
-        debug_info("%s: Processing parameter %zu name: %s type desc %p", __func__, i, p_name, (void *)p_type_desc);
-
         LLVMValueRef alloca_inst
             = LLVMBuildAlloca(ctx->builder, p_type_desc->llvm_type, p_name != NULL ? p_name : "fn_param");
 
@@ -2432,12 +2366,10 @@ process_function_definition(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
             TypedValue p_val = create_typed_value(alloca_inst, p_type_desc, true);
             generator_add_symbol(ctx, p_name, p_val);
         }
-        debug_info("Processed parameter %zu", i);
     }
 
     parameter_definitions_cleanup(&params);
 
-    debug_info("processed parameters");
     // Process the compound statement (function body).
     process_ast_node(ctx, compound_stmt_node);
 
@@ -2525,7 +2457,7 @@ process_return_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         {
             return;
         }
-        dump_typed_value("process_return", return_value);
+
         // 2. Ensure it's an RValue (we can't return a memory address/LValue directly)
         return_value = ensure_rvalue(ctx, "return_rval", return_value);
 
@@ -2568,9 +2500,7 @@ process_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 
     // Register any struct/enum definitions in the declaration specifiers (in current scope)
     c_grammar_node_t const * decl_specifiers = node->declaration.declaration_specifiers;
-    debug_info("decl specifiers node: %s", get_node_type_name_from_node(decl_specifiers));
     c_grammar_node_t const * specifiers_list = decl_specifiers->decl_specifiers.type_specifiers;
-    debug_info("list: %s count %u", get_node_type_name_from_node(specifiers_list), specifiers_list->list.count);
 
     // TypeDescriptor const * resolved_type = resolve_type_from_ast(ctx, node);
     // debug_info("resolved type: %p", (void *)resolved_type);
@@ -2602,7 +2532,7 @@ process_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     c_grammar_node_t const * init_decl_nodes = node->declaration.init_declarator_list;
-    debug_info("init decl nodes: %s", get_node_type_name_from_node(init_decl_nodes));
+
     // Process InitDeclarators to create variables and initialize them.
     if (init_decl_nodes != NULL)
     {
@@ -2650,16 +2580,11 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
         }
 
         char const * typedef_name = name_node->text;
-        debug_info("Typedef: name='%s'", typedef_name);
-
         TypeDescriptor const * existing_desc = generator_find_typedef_type_descriptor(ctx, typedef_name);
+
         if (existing_desc != NULL)
         {
-            if (existing_desc == typedef_type_desc)
-            {
-                debug_info("Ignoring duplicate typedef '%s'", typedef_name);
-            }
-            else
+            if (existing_desc != typedef_type_desc)
             {
                 ir_gen_error(&ctx->errors, node, "Redefinition of typedef '%s'.", typedef_name);
                 return;
@@ -2685,12 +2610,10 @@ process_preprocessor_line_marker(ir_generator_ctx_t * ctx, c_grammar_node_t cons
     source_location_tracker_add_entry(
         ctx->errors.loc_tracker, node->source_data.view, marker->line_number, marker->filename
     );
-    debug_info("flags count: %zu", marker->flags_count);
+
     /* 3. Handle include stack based on flags */
     for (size_t i = 0; i < marker->flags_count; i++)
     {
-        debug_info("marker %zu flag: %zu", i, marker->flags[i]);
-
         if (marker->flags[i] == 1) /* Enter include */
         {
             source_location_tracker_push_include(ctx->errors.loc_tracker, marker->filename, marker->line_number);
@@ -2724,7 +2647,6 @@ process_for_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     ctx->continue_target = post_block;
 
     // 1. Process Init
-    debug_info("process for init");
     process_ast_node(ctx, init_node);
     if (ctx->errors.fatal)
     {
@@ -2736,7 +2658,6 @@ process_for_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     LLVMBuildBr(ctx->builder, cond_block);
 
     // 2. Emit Cond block
-    debug_info("process for cond");
     LLVMPositionBuilderAtEnd(ctx->builder, cond_block);
     TypedValue cond_res = process_expression(ctx, cond_node);
     if (ctx->errors.fatal)
@@ -2763,7 +2684,6 @@ process_for_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // 3. Emit Body block
-    debug_info("process for body");
     LLVMPositionBuilderAtEnd(ctx->builder, body_block);
     process_ast_node(ctx, body_node);
     if (ctx->errors.fatal)
@@ -2780,7 +2700,6 @@ process_for_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
 
     // 4. Emit Post block
-    debug_info("process for post");
     LLVMPositionBuilderAtEnd(ctx->builder, post_block);
     process_expression(ctx, post_node);
     if (ctx->errors.fatal)
@@ -3640,10 +3559,7 @@ process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return; /* Stop processing if a fatal error has occurred */
     }
 
-    debug_info("%s node type: %s (%u)\n", __func__, get_node_type_name_from_node(node), node->type);
-
     _process_ast_node(ctx, node);
-    debug_info("processed: %s", get_node_type_name_from_node(node));
 }
 
 // --- LLVM IR Helper Functions ---
@@ -3673,7 +3589,6 @@ write_llvm_ir_to_file(LLVMModuleRef module, char const * file_path)
     }
 
     // If successful, error_message will be NULL.
-    debug_info("IRGen: Successfully wrote LLVM IR to %s", file_path);
     return 0;
 }
 
@@ -3754,10 +3669,6 @@ emit_to_file(LLVMModuleRef module, char const * file_path, char const * march, L
         return -1;
     }
 
-    debug_info(
-        "IRGen: Successfully emitted %s to %s", (file_type == LLVMObjectFile) ? "object code" : "assembly", file_path
-    );
-
     // Cleanup
     LLVMDisposeMessage(data_layout_str);
     LLVMDisposeTargetData(data_layout);
@@ -3785,7 +3696,7 @@ get_variable_pointer(ir_generator_ctx_t * ctx, c_grammar_node_t const * identifi
     }
 
     TypedValue res = NullTypedValue;
-    debug_info("%s: %s", __func__, identifier_node->text);
+
     generator_lookup_symbol_value(ctx, identifier_node->text, &res);
 
     return res;
@@ -3820,11 +3731,8 @@ process_float_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * _node)
         .long_count = long_count,
     };
     TypeDescriptor const * type_desc = get_or_create_builtin_type(ctx->type_descriptors, specifier, (TypeQualifier){0});
-    debug_info("%s: float literal value: %Lf\n", __func__, float_node->float_literal.value);
     LLVMValueRef val = LLVMConstRealOfString(type_desc->llvm_type, _node->list.children[0]->text);
     TypedValue res = create_typed_value(val, type_desc, false);
-
-    dump_typed_value("float literal", res);
 
     return res;
 }
@@ -4105,32 +4013,24 @@ process_va_arg_expr(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * va_list_node = node->va_arg_expression.args;
     c_grammar_node_t const * type_name_node = node->va_arg_expression.arg_type;
-
-    debug_info("process_va_arg_expr: processing va_list");
     TypedValue va_list_val = process_expression(ctx, va_list_node);
-    debug_info("process_va_arg_expr: got va_list_val, value=%p", (void *)va_list_val.value);
+
     if (va_list_val.value == NULL)
     {
         return NullTypedValue;
     }
 
-    debug_info("process_va_arg_expr: resolving target type");
     c_grammar_node_t const * spec_qual = type_name_node->type_name.specifier_qualifier_list;
     c_grammar_node_t const * abstract_decl = type_name_node->type_name.abstract_declarator;
     TypeDescriptor const * target_type = resolve_type_descriptor(ctx, spec_qual, abstract_decl);
+
     if (target_type == NULL)
     {
         ir_gen_error(&ctx->errors, type_name_node, "Could not resolve type in va_arg");
         return NullTypedValue;
     }
 
-    debug_info(
-        "process_va_arg_expr: building va_arg, va_list_val.value=%p, target_type=%p",
-        (void *)va_list_val.value,
-        (void *)target_type->llvm_type
-    );
     LLVMValueRef result = LLVMBuildVAArg(ctx->builder, va_list_val.value, target_type->llvm_type, "va_arg_tmp");
-    debug_info("process_va_arg_expr: done");
 
     return create_typed_value(result, target_type, false);
 }
@@ -4141,11 +4041,9 @@ extract_param_part(ir_generator_ctx_t * ctx, TypedValue struct_val, int part_idx
     // 1. Get the address of the struct (from your TypedValue)
     // struct_val = ensure_rvalue(ctx, "struct_ptr_load", struct_val);
     LLVMValueRef addr = struct_val.value;
-    dump_typed_value("struct_val", struct_val);
 
     // 2. Calculate the offset (0 or 8 bytes)
     LLVMValueRef offset = LLVMConstInt(LLVMInt32TypeInContext(ctx->context), part_idx * 8, false);
-    debug_info("%s part_idx: %u", __func__, part_idx);
 
     // 3. GEP to the chunk
     LLVMValueRef byte_ptr
@@ -4161,7 +4059,6 @@ extract_param_part(ir_generator_ctx_t * ctx, TypedValue struct_val, int part_idx
 static TypedValue
 process_function_call(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix, TypedValue current_val)
 {
-    debug_info("%s", __func__);
     TypedValue callable = ensure_rvalue(ctx, "func_ptr_load", current_val);
 
     TypeDescriptor const * func_desc = NULL;
@@ -4305,34 +4202,24 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
     // Check for va_start, va_end, va_copy (and their __builtin_ variants) before processing the base expression
     // These need special handling as they're not regular function calls
-    debug_info(
-        "process_postfix_expression: base_node type=%s text=%s",
-        get_node_type_name_from_node(base_node),
-        base_node && base_node->text ? base_node->text : "null"
-    );
     if (base_node != NULL && base_node->type == AST_NODE_IDENTIFIER && base_node->text != NULL)
     {
-        debug_info("Checking for va functions, postfix_parts count=%zu", postfix_parts_node->list.count);
         for (size_t i = 0; i < postfix_parts_node->list.count; ++i)
         {
             c_grammar_node_t * suffix = postfix_parts_node->list.children[i];
-            debug_info("suffix[%zu] type=%d", i, suffix->type);
+
             if (suffix->type == AST_NODE_OPTIONAL_ARGUMENT_LIST)
             {
-                debug_info("Found OptionalArgumentList, checking base text: %s", base_node->text);
                 if (strcmp(base_node->text, "va_start") == 0 || strcmp(base_node->text, "__builtin_va_start") == 0)
                 {
-                    debug_info("Matched va_start, calling process_va_start");
                     return process_va_start(ctx, suffix);
                 }
                 else if (strcmp(base_node->text, "va_end") == 0 || strcmp(base_node->text, "__builtin_va_end") == 0)
                 {
-                    debug_info("Matched va_end, calling process_va_end");
                     return process_va_end(ctx, suffix);
                 }
                 else if (strcmp(base_node->text, "va_copy") == 0 || strcmp(base_node->text, "__builtin_va_copy") == 0)
                 {
-                    debug_info("Matched va_copy, calling process_va_copy");
                     return process_va_copy(ctx, suffix);
                 }
                 break;
@@ -4403,7 +4290,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
             {
                 if (current_val.type_info->kind == NCC_TYPE_KIND_POINTER)
                 {
-                    debug_info("Allowing access to pointer member using dot operator.");
                     is_arrow = true;
                 }
             }
@@ -4448,7 +4334,6 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
 
             current_val = create_typed_value(member_ptr, field->type_desc, true);
             current_val.bitfield = field->bitfield;
-            dump_typed_value("member_access", current_val);
 
             break;
         }
@@ -4540,9 +4425,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     TypedValue lhs_res = NullTypedValue;
 
     // Check if LHS is a PostfixExpression with array subscript or member access
-    debug_info(
-        "process_assignment: lhs_node type=%d (%s)", lhs_node->type, get_node_type_name_from_type(lhs_node->type)
-    );
     if (lhs_node->type == AST_NODE_POSTFIX_EXPRESSION)
     {
         if (lhs_node->postfix_expression.postfix_parts != NULL
@@ -4602,11 +4484,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         // Simple variable assignment
         lhs_res = get_variable_pointer(ctx, lhs_node);
-        debug_info(
-            "process_assignment (simple var): got type_info=%p, const=%d",
-            (void *)lhs_res.type_info,
-            lhs_res.type_info->qualifiers.is_const
-        );
     }
 
     if (lhs_res.value == NULL)
@@ -4618,12 +4495,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     {
         debug_error("expected LHS of assignment to be an lvalue, but it isn't");
     }
-
-    debug_info(
-        "assignment LHS type_info qualifiers: const=%d, volatile=%d",
-        lhs_res.type_info->qualifiers.is_const,
-        lhs_res.type_info->qualifiers.is_volatile
-    );
 
     if (lhs_res.type_info->qualifiers.is_const)
     {
@@ -4664,7 +4535,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         unsigned bit_width = bitfield.bit_width;
         unsigned bit_offset = bitfield.bit_offset;
 
-        debug_info("assigning to bitfield");
         /* * 1. Target the storage unit.
          * bitfield_storage_unit_ptr is the GEP result (the address of the i32/i64).
          * bitfield_storage_unit_type is the type of that storage unit (e.g., i32).
@@ -4719,8 +4589,6 @@ process_assignment(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 static TypedValue
 process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    debug_info("%s node type: %s", __func__, get_node_type_name_from_type(node->type));
-
     // Handle built-in boolean constants
     if (node != NULL && node->text != NULL)
     {
@@ -4783,16 +4651,14 @@ process_identifier(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     else
     {
-        debug_info("%s: no symbol found - check functions for %s", __func__, node->text);
         // Check if it's a function name - return the function pointer
-
         struct function_decl_entry * decl_entry = find_function_declaration(ctx, node->text);
+
         if (decl_entry != NULL)
         {
-            dump_typed_value("existing_func", decl_entry->func);
             return decl_entry->func;
         }
-        /* TOOD: Else what? */
+        /* TODO: Else what? */
     }
 
     debug_error("NULL element type for variable '%s'.", node->text);
@@ -5074,8 +4940,6 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return NullTypedValue;
     }
 
-    debug_info("%s node type: %s (%u)", __func__, get_node_type_name_from_node(node), node->type);
-
     switch (node->type)
     {
     case AST_NODE_INTEGER_LITERAL:
@@ -5286,14 +5150,12 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 }
 
 TypedValue
-_process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node, int line)
+process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (ctx->errors.fatal)
     {
         return NullTypedValue;
     }
-
-    debug_info("%s from line: %u", __func__, line);
 
     TypedValue result = _process_expression(ctx, node);
 
@@ -5310,9 +5172,6 @@ _process_expression_impl(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         debug_error("fatal error encountered");
         result = NullTypedValue;
     }
-
-    debug_info("%s returning to line: %u", __func__, line);
-    dump_typed_value("process_expression result", result);
 
     return result;
 }

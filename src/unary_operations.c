@@ -16,7 +16,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     // Unary structure: [Operator, Operand]
     c_grammar_node_t const * op = node->unary_expression_prefix.op;
     c_grammar_node_t const * operand_node = node->unary_expression_prefix.operand;
-    debug_info("%s", __func__);
+
     switch (op->op.unary.op)
     {
     case UNARY_OP_ADDR:
@@ -227,7 +227,6 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
         else
         {
-            debug_info("Operand node type for sizeof: %s", get_node_type_name_from_node(operand_node));
             TypedValue operand_res = process_expression(ctx, operand_node);
             if (operand_res.value == NULL)
             {
@@ -237,7 +236,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
 
             target_type = operand_res.type_info;
         }
-        debug_info("unary operator getting size of type: %p", target_type);
+
         uint64_t sizeof_type_bytes = get_type_size(ctx, target_type);
         TypeDescriptor const * sizeof_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(sizeof_desc->llvm_type, sizeof_type_bytes, false);
@@ -256,8 +255,8 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         }
         else
         {
-            debug_info("Operand node type for alignof: %s", get_node_type_name_from_node(operand_node));
             TypedValue operand_res = process_expression(ctx, operand_node);
+
             if (operand_res.value == NULL)
             {
                 debug_error("Operand processing failed for unary alignof");
@@ -267,7 +266,6 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             target_type = operand_res.type_info;
         }
 
-        debug_info("unary operator getting alignment");
         uint64_t alignment = get_type_alignment_desc(ctx->data_layout, target_type);
         TypeDescriptor const * alignment_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(alignment_desc->llvm_type, alignment, false);
@@ -288,6 +286,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
                 get_node_type_name_from_type(AST_NODE_TYPE_NAME),
                 get_node_type_name_from_node(operand_node)
             );
+
             return NullTypedValue;
         }
 
@@ -297,12 +296,11 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
         if (target_type->kind != NCC_TYPE_KIND_STRUCT && target_type->kind != NCC_TYPE_KIND_UNION)
         {
             ir_gen_error(&ctx->errors, operand_node, "Offsetof only applies to structs and unions");
+
             return NullTypedValue;
         }
 
         char const * member_name = node->unary_expression_prefix.operand2->text;
-
-        debug_info("unary operator getting offset");
         int64_t offset = get_type_member_offset_desc(target_type, member_name);
         TypeDescriptor const * offset_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(offset_desc->llvm_type, offset, false);
@@ -313,6 +311,7 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
     default:
     {
         debug_error("Unknown unary operator %u.", op->op.unary.op);
+
         return NullTypedValue;
     }
     }

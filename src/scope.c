@@ -19,7 +19,6 @@ scope_t *
 scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 {
     scope_t * scope = calloc(1, sizeof(*scope));
-    debug_info("%s: scope: %p", __func__, (void *)scope);
 
     if (scope == NULL)
     {
@@ -48,7 +47,6 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
     {
         type_lists_t * list = &scope->type_lists[i];
 
-        debug_info("%s init list %zu (%p)", __func__, i, (void *)list);
         if (!scope_type_lists_init(list))
         {
             scope_free(scope);
@@ -72,7 +70,6 @@ scope_create(scope_t * parent, LLVMContextRef context, LLVMBuilderRef builder)
 void
 scope_free(scope_t * scope)
 {
-    debug_info("%s, %p", __func__, (void *)scope);
     if (scope == NULL)
     {
         return;
@@ -96,11 +93,6 @@ scope_free(scope_t * scope)
 type_info_t const *
 scope_add_type_info(scope_t * scope, type_info_t info)
 {
-    debug_info("%s", __func__);
-    debug_info(
-        "Adding type: scope=%p, tag='%s', kind=%d", (void *)scope, info.tag != NULL ? info.tag : "NULL", info.kind
-    );
-
     if (scope == NULL)
     {
         return NULL;
@@ -117,7 +109,6 @@ scope_add_type_info(scope_t * scope, type_info_t info)
 type_info_t *
 scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * tag, type_kind_t kind)
 {
-    debug_info("%s, tag: %s, kind: %u", __func__, tag, kind);
     while (scope != NULL && tag != NULL)
     {
         type_lists_t const * list = &scope->type_lists[kind];
@@ -125,13 +116,10 @@ scope_lookup_tagged_entry_by_tag_and_kind(scope_t const * scope, char const * ta
 
         if (entry != NULL)
         {
-            debug_info("found: %s, desc: %p", tag, (void *)entry->type_desc);
             return entry;
         }
         scope = scope->parent;
     }
-
-    debug_info("%s: %s not found", __func__, tag);
 
     return NULL;
 }
@@ -154,16 +142,12 @@ scope_lookup_type_info_by_type_descriptor(scope_t const * scope_in, TypeDescript
             type_info_t * entry = scope_types_lookup_entry_by_type_descriptor(list, type_desc);
             if (entry != NULL)
             {
-                debug_info("%s: Found tagged type.", __func__);
                 return entry;
             }
         }
 
         scope = scope->parent;
     }
-
-    debug_info("%s: Type descriptor not found.", __func__);
-    dump_type_descriptor(__func__, type_desc, DEBUG_LEVEL_INFO);
 
     return NULL;
 }
@@ -199,14 +183,12 @@ scope_lookup_typedef_entry_by_name(scope_t const * scope, char const * name)
 TypeDescriptor const *
 scope_find_typedef_type_descriptor(scope_t const * scope, char const * name)
 {
-    debug_info("Finding typedef by name: '%s'", name);
     scope_typedef_entry_t const * entry = scope_lookup_typedef_entry_by_name(scope, name);
+
     if (entry == NULL)
     {
-        debug_info("Typedef not found for name: '%s'", name);
         return NULL;
     }
-    debug_info("Found typedef entry: name='%s', type desc: %p", entry->name, (void *)entry->type_desc);
 
     return entry->type_desc;
 }
@@ -221,7 +203,6 @@ scope_add_symbol(scope_t * scope, char const * name, TypedValue value)
         debug_error("%s: invalid parameters");
         return;
     }
-    debug_info("%s: name: %s", __func__, name);
     scope_symbols_add_entry(&scope->symbols, name, value);
 }
 
@@ -235,8 +216,8 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
 
     while (scope != NULL && name != NULL)
     {
-        debug_info("Finding symbol entry: name='%s' in scope=%p", name, (void *)scope);
         symbol_t * symbol = scope_symbols_lookup_entry_by_name(&scope->symbols, name);
+
         if (symbol != NULL)
         {
             return symbol;
@@ -244,8 +225,6 @@ scope_find_symbol_entry(scope_t const * scope, char const * name)
 
         scope = scope->parent;
     }
-
-    debug_info("Invalid scope or name for finding symbol entry: name='%s', scope=%p", name, (void *)scope);
 
     return NULL;
 }

@@ -89,10 +89,9 @@ extract_typedef_name(c_grammar_node_t const * type_spec_node)
     if (type_spec_node == NULL || type_spec_node->type != AST_NODE_TYPEDEF_SPECIFIER
         || type_spec_node->identifier.identifier == NULL)
     {
-        debug_info("%s: no name", __func__);
         return NULL;
     }
-    debug_info("%s got name: %s", __func__, type_spec_node->identifier.identifier->text);
+
     return type_spec_node->identifier.identifier->text;
 }
 

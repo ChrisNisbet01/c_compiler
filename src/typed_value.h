@@ -22,8 +22,6 @@ typedef struct TypedValue
 
 extern TypedValue NullTypedValue;
 
-void dump_typed_value(char const * label, TypedValue v);
-
 TypedValue create_typed_value(LLVMValueRef val, TypeDescriptor const * desc, bool is_lvalue);
 
 bool typed_value_switch_to_pointee(TypedValue * tv);

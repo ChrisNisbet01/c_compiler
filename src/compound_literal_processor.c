@@ -69,7 +69,6 @@ process_compound_literal(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         compound_type_desc = generator_find_type_descriptor_by_tag_and_kind(ctx, type_name, kind);
     }
 
-    debug_info("%s: name: %s, compound_type_desc: %p", __func__, type_name, compound_type_desc);
     if (compound_type_desc == NULL || compound_type_desc->llvm_type == NULL)
     {
         debug_error("Unknown type '%s' in compound literal", type_name);

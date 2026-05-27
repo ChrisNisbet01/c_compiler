@@ -23,8 +23,6 @@ get_type_alignment(ir_generator_ctx_t * ctx, LLVMTypeRef type)
     // LLVMABIAlignmentOfType returns the actual unsigned int you want.
     uint64_t alignment = LLVMABIAlignmentOfType(ctx->data_layout, type);
 
-    debug_info("Type kind %u has alignment: %u", LLVMGetTypeKind(type), alignment);
-
     return alignment;
 }
 
@@ -33,15 +31,13 @@ uint64_t
 get_type_size(ir_generator_ctx_t * ctx, TypeDescriptor const * type)
 {
     uint64_t size_in_bytes = get_type_size_desc(ctx->data_layout, type);
-    debug_info("type size: %llu", size_in_bytes);
+
     return size_in_bytes;
 }
 
 TypedValue
 cast_typed_value_to_desc(ir_generator_ctx_t * ctx, TypedValue src, TypeDescriptor const * target_desc)
 {
-    debug_info("%s: in", __func__);
-
     // 1. Ensure we are working with the actual value, not its address
     src = ensure_rvalue(ctx, "cast_rval", src);
 
@@ -176,7 +172,6 @@ aligned_store(
 LLVMValueRef
 aligned_load(ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMTypeRef ty, LLVMValueRef ptr, char const * name)
 {
-    debug_info("%s", __func__);
     if (ty == NULL)
     {
         debug_error("aligned_load: NULL type passed");
@@ -187,9 +182,7 @@ aligned_load(ir_generator_ctx_t * ctx, LLVMBuilderRef builder, LLVMTypeRef ty, L
         debug_error("aligned_load: NULL ptr passed");
         return NULL;
     }
-    debug_info(
-        "builder: %p ty: %p, ptr: %p, name: %s (%p)", (void *)builder, (void *)ty, (void *)ptr, name, (void *)name
-    );
+
     LLVMValueRef load = LLVMBuildLoad2(builder, ty, ptr, name);
     unsigned alignment = get_type_alignment(ctx, ty);
     LLVMSetAlignment(load, alignment);

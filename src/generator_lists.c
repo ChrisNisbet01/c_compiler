@@ -43,13 +43,6 @@ generator_add_symbol(ir_generator_ctx_t * ctx, char const * name, TypedValue val
         return;
     }
 
-    debug_info(
-        "generator_add_symbol: '%s' storing type_info=%p, const=%d",
-        name,
-        (void *)value.type_info,
-        value.type_info->qualifiers.is_const
-    );
-
     scope_add_symbol(ctx->current_scope, name, value);
 }
 
@@ -155,14 +148,13 @@ TypeDescriptor const *
 generator_find_typedef_type_descriptor(ir_generator_ctx_t * ctx, char const * name)
 {
     TypeDescriptor const * result = scope_find_typedef_type_descriptor(ctx->current_scope, name);
+
     return result;
 }
 
 TypeDescriptor const *
 generator_find_type_descriptor_by_tag_and_kind(ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind)
 {
-    debug_info("%s: tag: %s", __func__, tag);
-
     type_info_t * info = generator_lookup_tagged_entry_by_tag_and_kind(ctx, tag, kind);
 
     if (info == NULL)
@@ -176,8 +168,6 @@ generator_find_type_descriptor_by_tag_and_kind(ir_generator_ctx_t * ctx, char co
 type_info_t *
 generator_lookup_tagged_entry_by_tag_and_kind(ir_generator_ctx_t * ctx, char const * tag, type_kind_t kind)
 {
-    debug_info("%s: tag: %s", __func__, tag);
-
     if (ctx == NULL)
     {
         return NULL;

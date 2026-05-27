@@ -78,11 +78,11 @@ source_location_tracker_add_entry(
 void
 source_location_tracker_push_include(source_location_tracker_t * tracker, char const * filename, size_t line)
 {
-    debug_info("%s line: %zu filename: %s\n", __func__, line, filename);
     if (tracker == NULL)
     {
         return;
     }
+
     if (tracker->stack_top >= tracker->stack_capacity)
     {
         size_t new_cap = tracker->stack_capacity == 0 ? 8 : tracker->stack_capacity * 2;
@@ -110,7 +110,6 @@ source_location_tracker_pop_include(source_location_tracker_t * tracker)
     tracker->stack_top--;
 
     include_stack_entry_t * entry = &tracker->include_stack[tracker->stack_top];
-    debug_info("%s line: %zu filename: %s\n", __func__, entry->line, entry->filename);
 
     free(entry->filename);
 }

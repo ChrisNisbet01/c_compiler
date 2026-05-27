@@ -477,11 +477,6 @@ link_to_executable(LLVMModuleRef llvm_module, char const * exe_path)
     // 4. Clean up temp object file
     remove(o_path);
 
-    if (result == 0)
-    {
-        debug_info("IRGen: Successfully produced executable %s", exe_path);
-    }
-
     return result;
 }
 
@@ -553,12 +548,6 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
 
     argv[arg_idx] = NULL;
 
-    // Debug: print the command
-    debug_info("DEBUG: Preprocessing command:");
-    for (int i = 0; i < arg_idx; i++)
-    {
-        debug_info(" %s", argv[i]);
-    }
     // Execute using posix_spawn
     pid_t pid;
     int status = posix_spawn(&pid, "/usr/bin/clang", NULL, NULL, argv, environ);
@@ -600,10 +589,7 @@ preprocess_file(char const * input_path, char const * output_path, bool output_t
             debug_error("Preprocessor failed with exit code %d", exit_code);
             return -1;
         }
-        if (!output_to_stdout)
-        {
-            debug_info("Preprocessing: Successfully created %s", output_path);
-        }
+
         return 0;
     }
     else if (WIFSIGNALED(wait_status))
@@ -624,7 +610,6 @@ generate_output(
 )
 {
     bool success = true;
-    debug_info("Starting LLVM IR Generation of: %s", input_filename);
 
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
     ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker, march_target);
