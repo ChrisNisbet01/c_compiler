@@ -370,7 +370,6 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
     for (size_t i = 0; i < member_count; ++i)
     {
         struct_field_t * current_member = &desc->struct_metadata.members.members[i];
-        TypeDescriptor const * mem_desc = current_member->type_desc;
         unsigned sidx = current_member->storage_index;
 
         if (desc->kind == NCC_TYPE_KIND_STRUCT)
@@ -422,7 +421,6 @@ calculate_composite_size(LLVMTargetDataRef data_layout, TypeDescriptor * const d
         // This ensures the union's size is padded correctly when used as a field in another struct
         if (desc->llvm_type != NULL)
         {
-            uint64_t llvm_size = LLVMABISizeOfType(data_layout, desc->llvm_type);
             uint32_t llvm_align = LLVMABIAlignmentOfType(data_layout, desc->llvm_type);
 
             if (llvm_align > max_align)
@@ -943,6 +941,26 @@ type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index)
     struct_field_t * member = &base->struct_metadata.members.members[index];
 
     return member;
+}
+
+TypeDescriptor const *
+get_type_member_type_desc(TypeDescriptor const * desc, char const * member_name)
+{
+    int index = type_descriptor_find_struct_field_index_from_desc(desc, member_name);
+
+    if (index < 0)
+    {
+        return NULL;
+    }
+
+    struct_field_t const * field = type_descriptor_get_struct_field_type(desc, index);
+
+    if (field == NULL)
+    {
+        return NULL;
+    }
+
+    return field->type_desc;
 }
 
 bool

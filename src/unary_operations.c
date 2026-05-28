@@ -300,8 +300,36 @@ process_unary_expression_prefix(ir_generator_ctx_t * ctx, c_grammar_node_t const
             return NullTypedValue;
         }
 
-        char const * member_name = node->unary_expression_prefix.operand2->text;
-        int64_t offset = get_type_member_offset_desc(target_type, member_name);
+        c_grammar_node_t const * offsetof_member_list = node->unary_expression_prefix.operand2;
+
+        int64_t offset = 0;
+        TypeDescriptor const * current_type = target_type;
+        for (size_t i = 0; i < offsetof_member_list->list.count; i++)
+        {
+            c_grammar_node_t const * member_node = offsetof_member_list->list.children[i];
+
+            if (member_node->type != AST_NODE_IDENTIFIER)
+            {
+                ir_gen_error(
+                    &ctx->errors,
+                    member_node,
+                    "Offsetof member list must contain only identifiers, but got %s",
+                    get_node_type_name_from_node(member_node)
+                );
+
+                return NullTypedValue;
+            }
+            char const * member_name = member_node->text;
+            offset += get_type_member_offset_desc(current_type, member_name);
+            current_type = get_type_member_type_desc(current_type, member_name);
+            if (current_type == NULL)
+            {
+                ir_gen_error(&ctx->errors, member_node, "Member '%s' not found in type for offsetof", member_name);
+
+                return NullTypedValue;
+            }
+        }
+
         TypeDescriptor const * offset_desc = type_descriptor_get_uint64_type(ctx->type_descriptors, true);
         LLVMValueRef val = LLVMConstInt(offset_desc->llvm_type, offset, false);
 

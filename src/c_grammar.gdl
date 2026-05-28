@@ -218,11 +218,13 @@ KwSizeofAST = KwSizeof @AST_ACTION_UNARY_OPERATOR;
 KwAlignofAST = KwAlignof @AST_ACTION_UNARY_OPERATOR;
 KwOffsetofAST = KwOffsetof @AST_ACTION_UNARY_OPERATOR;
 
+OffsetofMember = Identifier (Dot Identifier)* @AST_ACTION_OFFSETOF_MEMBER;
+
 UnaryExpressionPrefix = (KwSizeofAST LParen TypeName RParen)
                       | (KwSizeofAST UnaryExpression)
                       | (KwAlignofAST LParen TypeName RParen)
                       | (KwAlignofAST UnaryExpression)
-                      | (KwOffsetofAST LParen TypeName Comma Identifier RParen)
+                      | (KwOffsetofAST LParen TypeName Comma OffsetofMember RParen)
                       | (UnaryOp UnaryExpression)
                       | (IncOp UnaryExpression)
                       | (DecOp UnaryExpression)

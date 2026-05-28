@@ -1013,22 +1013,6 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
     object_members.members = members;
     object_members.num_members = num_members;
 
-    if (debug_get_level() >= DEBUG_LEVEL_INFO)
-    {
-        for (size_t i = 0; i < object_members.num_members; i++)
-        {
-            fprintf(
-                stderr,
-                "member %zu: %s offset: %u, width: %u, storage: %u\n",
-                i,
-                object_members.members[i].name,
-                object_members.members[i].bitfield.bit_offset,
-                object_members.members[i].bitfield.bit_width,
-                object_members.members[i].storage_index
-            );
-        }
-    }
-
     return object_members;
 }
 
@@ -3544,6 +3528,7 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ELLIPSIS:
     case AST_NODE_VA_ARG_EXPRESSION:
     case AST_NODE_TYPEOF_SPECIFIER:
+    case AST_NODE_OFFSETOF_MEMBER:
     default:
         print_ast_with_label(node, "unhandled");
         debug_error("%s: Unhandled node", __func__);
@@ -5142,6 +5127,7 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     case AST_NODE_ELLIPSIS:
     case AST_NODE_PREPROCESSOR_LINE_MARKER:
     case AST_NODE_TYPEOF_SPECIFIER:
+    case AST_NODE_OFFSETOF_MEMBER:
     default:
         debug_error("%s: Node type: %s is not supported at this level", __func__, get_node_type_name_from_node(node));
         break;

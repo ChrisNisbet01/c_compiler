@@ -1023,6 +1023,29 @@ handle_unary_operator(epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void *
 }
 
 static void
+handle_offsetof_member(
+    epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
+)
+{
+    if (count == 0)
+    {
+        epc_ast_builder_set_error(
+            ctx, "%s expected at least 1 child, but got none", get_node_type_name_from_type(AST_NODE_OFFSETOF_MEMBER)
+        );
+
+        return;
+    }
+
+    c_grammar_node_t * ast_node = handle_list_node(ctx, node, children, count, user_data, AST_NODE_OFFSETOF_MEMBER);
+    if (ast_node == NULL)
+    {
+        return;
+    }
+
+    epc_ast_push(ctx, ast_node);
+}
+
+static void
 handle_unary_expression_prefix(
     epc_ast_builder_ctx_t * ctx, epc_cpt_node_t * node, void ** children, int count, void * user_data
 )
@@ -3514,6 +3537,7 @@ c_grammar_ast_hook_registry_init(epc_ast_hook_registry_t * registry)
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_DOT, handle_member_access_dot);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_MEMBER_ACCESS_ARROW, handle_member_access_arrow);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_OPERATOR, handle_unary_operator);
+    epc_ast_hook_registry_set_action(registry, AST_ACTION_OFFSETOF_MEMBER, handle_offsetof_member);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_UNARY_EXPRESSION_PREFIX, handle_unary_expression_prefix);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_CAST_EXPRESSION, handle_cast_expression);
     epc_ast_hook_registry_set_action(registry, AST_ACTION_RELATIONAL_OPERATOR, handle_relational_operator);

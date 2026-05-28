@@ -158,6 +158,8 @@ int type_descriptor_find_struct_field_index_from_desc(TypeDescriptor const * des
 
 struct_field_t const * type_descriptor_get_struct_field_type(TypeDescriptor const * desc, int index);
 
+TypeDescriptor const * get_type_member_type_desc(TypeDescriptor const * desc, char const * member_name);
+
 bool is_integer_kind(TypeDescriptor const * desc);
 
 bool is_floating_kind(TypeDescriptor const * desc);
