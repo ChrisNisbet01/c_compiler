@@ -4010,6 +4010,56 @@ process_va_copy(ir_generator_ctx_t * ctx, c_grammar_node_t const * suffix)
 }
 
 static TypedValue
+process_builtin_clz(ir_generator_ctx_t * ctx, c_grammar_node_t const * args_node)
+{
+    if (args_node->list.count != 1)
+    {
+        ir_gen_error(&ctx->errors, args_node, "__builtin_clz expects exactly 1 argument");
+        return NullTypedValue;
+    }
+
+    TypedValue arg = process_expression(ctx, args_node->list.children[0]);
+    if (arg.value == NULL)
+    {
+        return NullTypedValue;
+    }
+
+    arg = ensure_rvalue(ctx, "clz_arg", arg);
+
+    if (!is_integer_kind(arg.type_info))
+    {
+        ir_gen_error(&ctx->errors, args_node, "__builtin_clz requires an integer argument");
+        return NullTypedValue;
+    }
+
+    unsigned bit_width = LLVMGetIntTypeWidth(arg.type_info->llvm_type);
+    char intrinsic_name[64];
+    snprintf(intrinsic_name, sizeof(intrinsic_name), "llvm.ctlz.i%u", bit_width);
+
+    LLVMTypeRef param_types[] = {arg.type_info->llvm_type, ctx->ref_type.i1_type};
+    LLVMTypeRef fn_type = LLVMFunctionType(arg.type_info->llvm_type, param_types, 2, false);
+
+    LLVMValueRef ctlz = LLVMGetNamedFunction(ctx->module, intrinsic_name);
+    if (ctlz == NULL)
+    {
+        ctlz = LLVMAddFunction(ctx->module, intrinsic_name, fn_type);
+    }
+
+    LLVMValueRef is_zero_undef = LLVMConstInt(ctx->ref_type.i1_type, 0, false);
+    LLVMValueRef call_args[] = {arg.value, is_zero_undef};
+    LLVMValueRef result = LLVMBuildCall2(ctx->builder, fn_type, ctlz, call_args, 2, "clz");
+
+    // __builtin_clz returns int, so truncate wider results
+    TypeDescriptor const * int_desc = type_descriptor_get_int32_type(ctx->type_descriptors, false);
+    if (bit_width > 32)
+    {
+        result = LLVMBuildTrunc(ctx->builder, result, int_desc->llvm_type, "clz_trunc");
+    }
+
+    return create_typed_value(result, int_desc, false);
+}
+
+static TypedValue
 process_va_arg_expr(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * va_list_node = node->va_arg_expression.args;
@@ -4222,6 +4272,10 @@ process_postfix_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * no
                 else if (strcmp(base_node->text, "va_copy") == 0 || strcmp(base_node->text, "__builtin_va_copy") == 0)
                 {
                     return process_va_copy(ctx, suffix);
+                }
+                else if (strcmp(base_node->text, "__builtin_clz") == 0)
+                {
+                    return process_builtin_clz(ctx, suffix);
                 }
                 break;
             }
