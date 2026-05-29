@@ -979,10 +979,18 @@ extract_struct_or_union_members_type_descriptor(ir_generator_ctx_t * ctx, c_gram
                 c_grammar_node_t const * direct_decl = decl->declarator.direct_declarator;
                 if (direct_decl->list.count > 0)
                 {
-                    c_grammar_node_t * ident = direct_decl->list.children[0];
-                    if (ident && ident->type == AST_NODE_IDENTIFIER && ident->text != NULL)
+                    c_grammar_node_t * first = direct_decl->list.children[0];
+                    if (first && first->type == AST_NODE_IDENTIFIER && first->text != NULL)
                     {
-                        new_member.name = strdup(ident->text);
+                        new_member.name = strdup(first->text);
+                    }
+                    else if (first && first->type == AST_NODE_FUNCTION_POINTER_DECLARATOR)
+                    {
+                        c_grammar_node_t const * fp_id = first->function_pointer_declarator.identifier;
+                        if (fp_id && fp_id->type == AST_NODE_IDENTIFIER && fp_id->text != NULL)
+                        {
+                            new_member.name = strdup(fp_id->text);
+                        }
                     }
                 }
                 if (new_member.name == NULL)
