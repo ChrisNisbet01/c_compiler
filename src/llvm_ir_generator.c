@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
+static TypedValue process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node);
 
 // Helper to parse stack alignment from data layout string (e.g., "e-m:e-...-S128")
 // Returns 0 if not found, otherwise returns alignment in bytes
@@ -2870,19 +2870,31 @@ process_external_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * 
     }
 }
 
-static void
+static TypedValue
 process_compound_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
+    TypedValue result = NullTypedValue;
+
     // Create new scope for this block
     generator_scope_push(ctx);
 
-    for (size_t i = 0; i < node->list.count; ++i)
+    for (size_t i = 0; i < node->list.count; i++)
     {
-        process_ast_node(ctx, node->list.children[i]);
+        if (i == node->list.count - 1)
+        {
+            // If this is the last statement in the block, capture its value for potential block expression result
+            result = process_ast_node(ctx, node->list.children[i]);
+        }
+        else
+        {
+            process_ast_node(ctx, node->list.children[i]);
+        }
     }
 
     // Pop block scope when exiting
     generator_scope_pop(ctx);
+
+    return result;
 }
 
 static void
@@ -2891,12 +2903,12 @@ process_top_level_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const *
     process_ast_node(ctx, node->top_level_declaration.declaration);
 }
 
-static void
+static TypedValue
 process_expression_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     c_grammar_node_t const * expr_node = node->expression_statement.expression;
 
-    process_expression(ctx, expr_node);
+    return process_expression(ctx, expr_node);
 }
 
 static void
@@ -3313,12 +3325,14 @@ process_labeled_statement(ir_generator_ctx_t * ctx, c_grammar_node_t const * nod
  * @brief Recursively processes AST nodes to generate LLVM IR.
  * This function dispatches to specific handlers based on the node type.
  */
-static void
+static TypedValue
 _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
+    TypedValue result = NullTypedValue;
+
     if (node == NULL)
     {
-        return;
+        return result;
     }
 
     switch (node->type)
@@ -3355,12 +3369,12 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
     }
     case AST_NODE_COMPOUND_STATEMENT:
     {
-        process_compound_statement(ctx, node);
+        result = process_compound_statement(ctx, node);
         break;
     }
     case AST_NODE_EXPRESSION_STATEMENT:
     {
-        process_expression_statement(ctx, node);
+        result = process_expression_statement(ctx, node);
         break;
     }
     case AST_NODE_DECLARATION:
@@ -3534,17 +3548,19 @@ _process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         debug_error("%s: Unhandled node", __func__);
         break;
     }
+
+    return result;
 }
 
-static void
+static TypedValue
 process_ast_node(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
     if (ctx->errors.fatal)
     {
-        return; /* Stop processing if a fatal error has occurred */
+        return NullTypedValue; /* Stop processing if a fatal error has occurred */
     }
 
-    _process_ast_node(ctx, node);
+    return _process_ast_node(ctx, node);
 }
 
 // --- LLVM IR Helper Functions ---
@@ -5034,11 +5050,15 @@ _process_expression(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
         return process_expression(ctx, expr_node);
     }
 
+    case AST_NODE_COMPOUND_STATEMENT:
+    {
+        return process_compound_statement(ctx, node);
+    }
+
     case AST_NODE_STRING_LITERAL_PART:
     case AST_NODE_INITIALIZER_LIST:
     case AST_NODE_TRANSLATION_UNIT:
     case AST_NODE_FUNCTION_DEFINITION:
-    case AST_NODE_COMPOUND_STATEMENT:
     case AST_NODE_DECLARATION:
     case AST_NODE_INTEGER_BASE:
     case AST_NODE_FLOAT_BASE:

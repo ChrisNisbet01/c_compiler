@@ -186,6 +186,7 @@ PrimaryExpression = NumberLiteral
                   | CompoundLiteral
                   | VaArgExpression
                   | Identifier
+                  | (LParen CompoundStatement RParen)
                   | (LParen Expression RParen);
 
 ArgumentList = delimited(AssignmentExpression, Comma);
