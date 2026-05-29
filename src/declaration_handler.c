@@ -374,7 +374,7 @@ resolve_type_descriptor(
 
     if (type_spec_list != NULL && type_spec_list->list.count > 0)
     {
-        c_grammar_node_t const * type_spec_node = type_spec_list->list.children[0];
+        c_grammar_node_t const * type_spec_node = type_spec_list->list.children[type_spec_list->list.count - 1];
 
         if (type_spec_node->list.count > 0 && validation_result.is_struct_or_union_or_enum)
         {
