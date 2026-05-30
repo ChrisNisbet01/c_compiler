@@ -14,3 +14,4 @@ a.out.ll
 *.err
 *.ast
 /self_build/ncc
+/data/pythagora.log
