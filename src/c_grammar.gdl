@@ -490,20 +490,20 @@ SwitchCompoundStatement = wrap(LBrace (SwitchCase | LabeledDefaultStatement | Sw
 
 LabeledStatement = Identifier Colon Statement @AST_ACTION_LABELED_STATEMENT;
 
-IfStatement = (KwIf LParen Expression RParen Statement (KwElse Statement)?) @AST_ACTION_IF_STATEMENT;
+IfStatement = (KwIf commit((LParen Expression RParen Statement (KwElse Statement)?))) @AST_ACTION_IF_STATEMENT;
 
-SwitchStatement = (KwSwitch LParen Expression RParen SwitchCompoundStatement) @AST_ACTION_SWITCH_STATEMENT;
+SwitchStatement = (KwSwitch commit((LParen Expression RParen SwitchCompoundStatement))) @AST_ACTION_SWITCH_STATEMENT;
 
-WhileStatement = (KwWhile LParen Expression RParen Statement) @AST_ACTION_WHILE_STATEMENT;
+WhileStatement = (KwWhile commit((LParen Expression RParen Statement))) @AST_ACTION_WHILE_STATEMENT;
 
-DoWhileStatement = (KwDo Statement KwWhile LParen Expression RParen Semicolon) @AST_ACTION_DO_WHILE_STATEMENT;
+DoWhileStatement = (KwDo commit((Statement KwWhile LParen Expression RParen Semicolon))) @AST_ACTION_DO_WHILE_STATEMENT;
 
-ForStatement = (KwFor LParen (Declaration | ExpressionStatement) ExpressionStatement Expression? RParen Statement) @AST_ACTION_FOR_STATEMENT;
+ForStatement = (KwFor commit((LParen (Declaration | ExpressionStatement) ExpressionStatement Expression? RParen Statement))) @AST_ACTION_FOR_STATEMENT;
 
-GotoStatement = KwGoto Identifier Semicolon @AST_ACTION_GOTO_STATEMENT;
-ContinueStatement = KwContinue Semicolon @AST_ACTION_CONTINUE_STATEMENT;
-BreakStatement = KwBreak Semicolon @AST_ACTION_BREAK_STATEMENT;
-ReturnStatement = (KwReturn Expression? Semicolon) @AST_ACTION_RETURN_STATEMENT;
+GotoStatement = (KwGoto commit(Identifier Semicolon)) @AST_ACTION_GOTO_STATEMENT;
+ContinueStatement = (KwContinue commit(Semicolon)) @AST_ACTION_CONTINUE_STATEMENT;
+BreakStatement = (KwBreak commit(Semicolon)) @AST_ACTION_BREAK_STATEMENT;
+ReturnStatement = (KwReturn commit((Expression? Semicolon))) @AST_ACTION_RETURN_STATEMENT;
 AsmStatement = (KwAsm AttributeList LParen delimited(Expression, Comma) RParen Semicolon) @AST_ACTION_ASM_STATEMENT;
 
 CompoundStatement = wrap(LBrace Statement* RBrace, typedef_scope_callbacks, NULL) @AST_ACTION_COMPOUND_STATEMENT;
