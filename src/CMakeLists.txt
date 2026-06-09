@@ -31,7 +31,6 @@ add_executable(${app}
   type_qualifiers.c
   type_specifier.c
   type_utils.c
-  source_location.c
   binary_expression_processor.c
   unary_operations.c
 )

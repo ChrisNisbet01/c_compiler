@@ -1,6 +1,5 @@
 #pragma once
 #include "c_grammar_ast.h"
-#include "source_location.h"
 
 #include <easy_pc/easy_pc.h>
 #include <stdbool.h>
@@ -23,7 +22,7 @@ typedef struct ir_gen_error_collection
     size_t capacity;
     size_t max_errors; // Threshold - stop after this many (e.g., 10)
     bool fatal;        // Set to true when max_errors exceeded
-    source_location_tracker_t * loc_tracker;
+    c_grammar_node_t const * external_declarations; // For on-demand location resolution
 } ir_gen_error_collection_t;
 
 /**
@@ -35,8 +34,7 @@ void ir_gen_error_collection_init(
     ir_gen_error_collection_t * collection,
     size_t max_errors,
     epc_parser_ctx_t * parse_ctx,
-    char const * module_name,
-    source_location_tracker_t * loc_tracker
+    char const * module_name
 );
 
 /**

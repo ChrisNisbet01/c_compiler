@@ -3,7 +3,6 @@
 #include "ir_gen_error.h"
 #include "scope.h"
 #include "scope_typedef.h"
-#include "source_location.h"
 #include "type_descriptors.h"
 #include "typed_value.h"
 
@@ -97,7 +96,6 @@ ir_generator_ctx_t * ir_generator_init(
     char const * module_name,
     ir_generation_flags flags,
     epc_parser_ctx_t * parse_ctx,
-    source_location_tracker_t * loc_tracker,
     char const * target
 );
 

@@ -1282,7 +1282,6 @@ ir_generator_init(
     char const * module_name,
     ir_generation_flags flags,
     epc_parser_ctx_t * parse_ctx,
-    source_location_tracker_t * loc_tracker,
     char const * target_triple
 )
 {
@@ -1294,7 +1293,7 @@ ir_generator_init(
     }
 
     // Initialize error collection (any error will be fatal since max_errors=1)
-    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name, loc_tracker);
+    ir_gen_error_collection_init(&ctx->errors, 1, parse_ctx, module_name);
 
     ctx->generation_flags = flags;
 
@@ -2596,25 +2595,9 @@ process_typedef_declaration(ir_generator_ctx_t * ctx, c_grammar_node_t const * n
 static void
 process_preprocessor_line_marker(ir_generator_ctx_t * ctx, c_grammar_node_t const * node)
 {
-    ast_node_preprocessor_line_marker_t const * marker = &node->line_marker;
-
-    /* 2. Update the tracker with the mapping */
-    source_location_tracker_add_entry(
-        ctx->errors.loc_tracker, node->source_data.view, marker->line_number, marker->filename
-    );
-
-    /* 3. Handle include stack based on flags */
-    for (size_t i = 0; i < marker->flags_count; i++)
-    {
-        if (marker->flags[i] == 1) /* Enter include */
-        {
-            source_location_tracker_push_include(ctx->errors.loc_tracker, marker->filename, marker->line_number);
-        }
-        else if (marker->flags[i] == 2) /* Exit include */
-        {
-            source_location_tracker_pop_include(ctx->errors.loc_tracker);
-        }
-    }
+    /* No-op: location resolution is done lazily on the error path. */
+    (void)ctx;
+    (void)node;
 }
 
 static void
@@ -2847,6 +2830,8 @@ process_translation_unit(ir_generator_ctx_t * ctx, c_grammar_node_t const * node
         debug_error("Translation unit is missing external declarations.");
         return;
     }
+    /* Store reference for on-demand location resolution on the error path */
+    ctx->errors.external_declarations = node->translation_unit.external_declarations;
     generator_scope_push(ctx);
     process_ast_node(ctx, node->translation_unit.external_declarations);
     generator_scope_pop(ctx);

@@ -1,7 +1,6 @@
 #include "ir_gen_error.h"
 
 #include "debug.h"
-#include "source_location.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,8 +14,7 @@ ir_gen_error_collection_init(
     ir_gen_error_collection_t * collection,
     size_t max_errors,
     epc_parser_ctx_t * parse_ctx,
-    char const * module_name,
-    source_location_tracker_t * loc_tracker
+    char const * module_name
 )
 {
     if (collection == NULL)
@@ -24,7 +22,6 @@ ir_gen_error_collection_init(
         return;
     }
 
-    collection->loc_tracker = loc_tracker;
     collection->errors = NULL;
     collection->count = 0;
     collection->capacity = 0;
@@ -32,6 +29,7 @@ ir_gen_error_collection_init(
     collection->fatal = false;
     collection->parse_ctx = parse_ctx;
     collection->module_name = strdup(module_name);
+    collection->external_declarations = NULL;
 }
 
 void
@@ -63,37 +61,98 @@ print_error_location(FILE * fp, ir_gen_error_collection_t * collection, c_gramma
     {
         return;
     }
-    if (collection->loc_tracker == NULL)
+    if (collection->external_declarations == NULL)
     {
         return;
     }
-    /* Look up the mapping for this preprocessed line */
+
     epc_parser_input_view_t const * view = &node->source_data.view;
-    source_location_entry_t const * entry = source_location_tracker_find(collection->loc_tracker, view->offset);
+    size_t error_offset = view->offset;
 
-    if (entry == NULL)
+    /* Default fallback: use module name and preprocessed line directly */
+    char const * original_filename = collection->module_name;
+    size_t original_line = view->line_number;
+
+    /* Scan external declarations for the nearest PreprocessorLineMarker before this node */
+    c_grammar_node_t const * ext_decls = collection->external_declarations;
+
+    /* Build the include stack on the fly */
+    typedef struct
     {
-        return;
+        char const * filename;
+        size_t line;
+    } inc_entry_t;
+
+    inc_entry_t include_stack[256];
+    include_stack[0].filename = collection->module_name;
+    include_stack[0].line = 1;
+    size_t stack_top = 1;
+
+    c_grammar_node_t const * nearest_marker = NULL;
+
+    for (size_t i = 0; i < ext_decls->list.count; i++)
+    {
+        c_grammar_node_t const * ext_decl = ext_decls->list.children[i];
+        if (ext_decl->type != AST_NODE_EXTERNAL_DECLARATION)
+        {
+            continue;
+        }
+        if (ext_decl->external_declaration.preprocessor_directive == NULL)
+        {
+            continue;
+        }
+
+        c_grammar_node_t const * directive = ext_decl->external_declaration.preprocessor_directive;
+        if (directive->type != AST_NODE_PREPROCESSOR_LINE_MARKER)
+        {
+            continue;
+        }
+
+        /* Check if this line marker is before our error */
+        if (directive->source_data.view.offset > error_offset)
+        {
+            break;
+        }
+
+        /* Record as the nearest marker so far */
+        nearest_marker = directive;
+
+        /* Update include stack */
+        ast_node_preprocessor_line_marker_t const * marker = &directive->line_marker;
+        for (size_t f = 0; f < marker->flags_count; f++)
+        {
+            if (marker->flags[f] == 1 && stack_top < 256)
+            {
+                include_stack[stack_top].filename = marker->filename;
+                include_stack[stack_top].line = marker->line_number;
+                stack_top++;
+            }
+            else if (marker->flags[f] == 2 && stack_top > 1)
+            {
+                stack_top--;
+            }
+        }
     }
 
-    /* Get the preprocessed line and column */
-    epc_parser_input_view_t pp_entry_view = entry->preprocessed_view;
-    /* Calculate original line: entry's original_line + offset from marker */
-    size_t original_line = entry->original_line + view->line_number - pp_entry_view.line_number - 1;
+    if (nearest_marker != NULL)
+    {
+        ast_node_preprocessor_line_marker_t const * marker = &nearest_marker->line_marker;
+        original_filename = marker->filename;
+        original_line = marker->line_number + view->line_number - nearest_marker->source_data.view.line_number - 1;
+    }
 
-    fprintf(fp, "%s:%zu:%zu\n", entry->original_filename, original_line, view->column_number);
+    fprintf(fp, "%s:%zu:%zu\n", original_filename, original_line, view->column_number);
 
     /* Print "In file included from..." stack */
-    source_location_tracker_t * tracker = collection->loc_tracker;
-    if (tracker->stack_top > 1)
+    if (stack_top > 1)
     {
-        for (size_t i = 0; i < tracker->stack_top - 1; i++)
+        for (size_t i = 0; i < stack_top - 1; i++)
         {
             fprintf(
                 fp,
                 "In file included from %s:%zu:\n",
-                tracker->include_stack[i].filename,
-                tracker->include_stack[i].line
+                include_stack[i].filename,
+                include_stack[i].line
             );
         }
     }

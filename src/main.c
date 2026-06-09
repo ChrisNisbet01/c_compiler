@@ -5,7 +5,6 @@
 #include "callbacks.h"
 #include "debug.h"
 #include "llvm_ir_generator.h"
-#include "source_location.h"
 #include "symbol_table.h"
 
 #include <easy_pc/easy_pc.h>
@@ -605,14 +604,13 @@ static bool
 generate_output(
     c_grammar_node_t const * ast_root,
     char const * input_filename,
-    epc_parser_ctx_t * parse_ctx,
-    source_location_tracker_t * loc_tracker
+    epc_parser_ctx_t * parse_ctx
 )
 {
     bool success = true;
 
     ir_generation_flags flags = {.generate_default_variables = !preprocess_flag};
-    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, loc_tracker, march_target);
+    ir_generator_ctx_t * ir_ctx = ir_generator_init(input_filename, flags, parse_ctx, march_target);
 
     if (ir_ctx == NULL)
     {
@@ -980,22 +978,11 @@ main(int argc, char * argv[])
                 }
             }
 
-            source_location_tracker_t loc_tracker;
-            source_location_tracker_init(&loc_tracker);
-            source_location_tracker_push_include(&loc_tracker, filename, 1);
-            /* The line to add a default entry is needed for when preprocessing is skipped. */
-            epc_parser_input_view_t initial_view = {
-                .line_number = 1,
-                .column_number = 1,
-            };
-            source_location_tracker_add_entry(&loc_tracker, initial_view, 1, filename);
-
-            if (!generate_output(ast_root, filename, session.internal_parse_ctx, &loc_tracker))
+            if (!generate_output(ast_root, filename, session.internal_parse_ctx))
             {
                 exit_code = EXIT_FAILURE;
             }
 
-            source_location_tracker_free(&loc_tracker);
             c_grammar_node_free(ast_root, NULL);
         }
         else
