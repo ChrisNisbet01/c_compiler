@@ -50,8 +50,6 @@ BraceWrapping:
   AfterUnion: true           # Allman default
   BeforeCatch: true          # Allman default
   BeforeElse: true           # Allman default
-  
-  BreakBeforeCaseLabels: true
 
 IndentCaseLabels: false
 
